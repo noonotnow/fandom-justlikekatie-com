@@ -8,9 +8,9 @@ const hookSource = await readFile(new URL('../src/hooks/useStarOfDay.ts', import
 test('daily archive selection reuses the daily payload renderer and keeps today as the default', () => {
   assert.match(hookSource, /useStarOfDay = \(editionDate: string \| null \| undefined = null\)/);
   assert.match(hookSource, /star-of-day\$\{query\}/);
-  assert.match(appSource, /useStarOfDay\(archivePage && !selectedEditionDate \? undefined : selectedEditionDate\)/);
+  assert.match(appSource, /useStarOfDay\(archivePage && !activeEditionDate \? undefined : activeEditionDate\)/);
   assert.match(appSource, /isVibeAtlasArchiveLocation/);
-  assert.match(appSource, /href=\{`\/vibe-atlas\?date=\$\{encodeURIComponent\(edition\.date\)\}`\}/);
+  assert.match(appSource, /`\$\{PUBLIC_ROUTE_PATHS\.vibeAtlas\}\?date=\$\{encodeURIComponent\(edition\.date\)\}`/);
   assert.match(appSource, /selectedEditionDate \? `Archived card drop/);
   assert.match(appSource, /initialVibeAtlasEditionDate\(window\.location\.search\)/);
   assert.match(appSource, /params\.set\('date', date\)/);
@@ -23,7 +23,7 @@ test('every return to today clears per-image edition state', () => {
   );
   const navigateAtlas = appSource.slice(
     appSource.indexOf('const navigateAtlas ='),
-    appSource.indexOf('const toggleArchive ='),
+    appSource.indexOf('const handleItemClick ='),
   );
 
   assert.match(selectEdition, /setImageTiers\(\{\}\)/);
@@ -36,7 +36,7 @@ test('every return to today clears per-image edition state', () => {
 test('archived editions expose an accessible date-aware copy link, but today does not', () => {
   assert.match(appSource, /const copyArchivedEditionLink = async \(\) =>/);
   assert.match(appSource, /navigator\.clipboard\?\.writeText/);
-  assert.match(appSource, /new URL\('\/vibe-atlas', window\.location\.origin\)/);
+  assert.match(appSource, /new URL\(PUBLIC_ROUTE_PATHS\.vibeAtlas, window\.location\.origin\)/);
   assert.match(appSource, /shareUrl\.searchParams\.set\('date', selectedEditionDate\)/);
   assert.match(appSource, /Copied link for \$\{formatEditionDate\(selectedEditionDate\)\}/);
   assert.match(appSource, /Could not copy this archived edition link/);
@@ -52,7 +52,37 @@ test('full archive renders visual board plates and preserves genuine legendary m
   assert.match(appSource, /function ArchiveEditionCard/);
   assert.match(appSource, /archive-card__mosaic/);
   assert.match(appSource, /edition\.legendaryMisprint/);
-  assert.match(appSource, /archive\.length - index/);
+  assert.match(appSource, /\(archiveTotal \?\? archive\.length\) - index/);
   assert.match(appSource, /Archive anomaly · Legendary Misprint/);
   assert.match(appSource, /The Star of the Day Archive/);
+});
+
+test('homepage delegates historical browsing to the dedicated Archive', () => {
+  const dailyView = appSource.slice(
+    appSource.indexOf('<header className="atlas-hero">'),
+    appSource.indexOf('{gate && selectedEditionDate'),
+  );
+  assert.doesNotMatch(dailyView, /daily-archive__toggle/);
+  assert.doesNotMatch(dailyView, /ArchiveEditionButton/);
+  assert.match(appSource, /window\.history\.pushState\(\{\}, '', PUBLIC_ROUTE_PATHS\.vibeAtlasArchive\)/);
+});
+
+test('daily and archive previews link only approved canonical public records', () => {
+  assert.match(hookSource, /publicRecord\?: PublicRecordLinks/);
+  assert.match(appSource, /rawData\?\.publicRecord/);
+  assert.match(appSource, /href=\{rawData\.publicRecord\.actorPath\}/);
+  assert.match(appSource, /href=\{rawData\.publicRecord\.editionPath\}/);
+  assert.match(appSource, /edition\.publicRecord &&/);
+  assert.match(appSource, /href=\{edition\.publicRecord\.actorPath\}/);
+  assert.match(appSource, /href=\{edition\.publicRecord\.editionPath\}/);
+  assert.match(appSource, /archive-card__records/);
+});
+
+test('historical member editions render a server-authoritative preview gate', () => {
+  assert.match(hookSource, /gate: ArchiveGate \| null/);
+  assert.match(hookSource, /res\.status === 401 \|\| res\.status === 403 \|\| res\.status === 503/);
+  assert.match(appSource, /function ArchiveLockedEdition/);
+  assert.match(appSource, /Founding Members can unlock the complete nine-card board/);
+  assert.match(appSource, /createMembershipCheckout\(selectedEditionDate\)/);
+  assert.match(appSource, /destination\.startsWith\('archive:'\)/);
 });

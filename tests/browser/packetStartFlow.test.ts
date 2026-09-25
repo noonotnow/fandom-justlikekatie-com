@@ -1,8 +1,13 @@
 import assert from 'node:assert/strict';
-import { existsSync } from 'node:fs';
 import { test } from 'node:test';
-import { chromium, type Browser, type Page } from '@playwright/test';
+import { type Page } from '@playwright/test';
 import { createServer, type ViteDevServer } from 'vite';
+import {
+  BROWSER_ENGINES,
+  closeBrowserAndServer,
+  launchBrowserForServer,
+  launchPageForServer,
+} from './browserEngines.ts';
 
 const ACCOUNT_ID = 'packet-start-account';
 const GRID_ID = 'packet-start-grid';
@@ -19,19 +24,6 @@ async function startApp(): Promise<{ server: ViteDevServer; origin: string }> {
     throw new Error('The browser test server did not expose a TCP port.');
   }
   return { server, origin: `http://127.0.0.1:${address.port}` };
-}
-
-async function launchBrowser(): Promise<Browser> {
-  try {
-    return await chromium.launch();
-  } catch (defaultLaunchError) {
-    const executablePath = process.env.PATH
-      ?.split(':')
-      .map(directory => `${directory}/chromium`)
-      .find(existsSync);
-    if (!executablePath) throw defaultLaunchError;
-    return chromium.launch({ executablePath, args: ['--no-sandbox'] });
-  }
 }
 
 async function seedSavedGrid(
@@ -259,9 +251,8 @@ async function mockCollectionMedia(page: Page): Promise<() => number> {
 }
 
 test('Operator Console keeps unverified saved grids disabled', { timeout: 60_000 }, async () => {
-  const { server, origin } = await startApp();
-  const browser = await launchBrowser();
-  const page = await browser.newPage();
+    const { server, origin } = await startApp();
+    const { browser, page } = await launchPageForServer(server);
 
   try {
     await page.route('**/api/auth/session', route => route.fulfill({
@@ -281,77 +272,76 @@ test('Operator Console keeps unverified saved grids disabled', { timeout: 60_000
       true,
     );
   } finally {
-    await browser.close();
-    await server.close();
+    await closeBrowserAndServer(browser, server);
   }
 });
 
-test('Operator Console sends one direct grid source and opens the Workstation draft', { timeout: 60_000 }, async () => {
-  const { server, origin } = await startApp();
-  const browser = await launchBrowser();
-  const page = await browser.newPage();
-  let createRequests = 0;
+for (const browserEngine of BROWSER_ENGINES) {
+  test(`Operator Console sends one direct grid source and opens the Workstation draft in ${browserEngine.name}`, { timeout: 60_000 }, async () => {
+    const { server, origin } = await startApp();
+    const { browser, page } = await launchPageForServer(server, browserEngine.type);
+    let createRequests = 0;
 
-  try {
-    await page.route('**/api/auth/session', route => route.fulfill({
-      contentType: 'application/json',
-      body: JSON.stringify({
-        user: { accountId: ACCOUNT_ID, email: 'packet@example.test', isAdmin: true },
-      }),
-    }));
-    await mockReleaseDesk(page);
-    const getMediaUploads = await mockCollectionMedia(page);
-    const getSyncRequests = await mockSelectedGridSync(page);
-    await page.route('**/api/workstation-handoff', async route => {
-      assert.equal(getMediaUploads(), 0, 'exact fixture media should already be durable');
-      assert.equal(getSyncRequests(), 1, 'the selected grid must sync before its handoff is created');
-      createRequests += 1;
-      const request = route.request().postDataJSON() as {
-        source: { sourceId: string; sourceVersion: string; platforms: string[] };
-      };
-      assert.deepEqual(request.source.platforms, ['rednote', 'weibo', 'instagram']);
-      await route.fulfill({
+    try {
+      await page.route('**/api/auth/session', route => route.fulfill({
         contentType: 'application/json',
         body: JSON.stringify({
-          source: request.source,
-          receipt: {
-            disposition: 'created',
-            deliverableId: 'fandom:grid:packet-start-grid-server:live-grid',
-            deepLink: 'https://workstation.justlikekatie.com/compose?postId=creator-draft-1',
-            postId: 'creator-draft-1',
-            postUrl: 'https://workstation.justlikekatie.com/drafts/creator-draft-1',
-            sourceVersion: 431,
-            status: 'Draft',
-            workflow: 'direct',
-            mediaSyncState: 'synced',
-            warnings: [],
-          },
+          user: { accountId: ACCOUNT_ID, email: 'packet@example.test', isAdmin: true },
         }),
+      }));
+      await mockReleaseDesk(page);
+      const getMediaUploads = await mockCollectionMedia(page);
+      const getSyncRequests = await mockSelectedGridSync(page);
+      await page.route('**/api/workstation-handoff', async route => {
+        assert.equal(getMediaUploads(), 0, 'exact fixture media should already be durable');
+        assert.equal(getSyncRequests(), 1, 'the selected grid must sync before its handoff is created');
+        createRequests += 1;
+        const request = route.request().postDataJSON() as {
+          source: { sourceId: string; sourceVersion: string; platforms: string[] };
+        };
+        assert.deepEqual(request.source.platforms, ['rednote', 'weibo', 'instagram']);
+        await route.fulfill({
+          contentType: 'application/json',
+          body: JSON.stringify({
+            source: request.source,
+            receipt: {
+              disposition: 'created',
+              deliverableId: 'fandom:grid:packet-start-grid-server:live-grid',
+              deepLink: 'https://workstation.justlikekatie.com/compose?postId=creator-draft-1',
+              postId: 'creator-draft-1',
+              postUrl: 'https://workstation.justlikekatie.com/drafts/creator-draft-1',
+              sourceVersion: 431,
+              status: 'Draft',
+              workflow: 'direct',
+              mediaSyncState: 'synced',
+              warnings: [],
+            },
+          }),
+        });
       });
-    });
-    await page.route('https://workstation.justlikekatie.com/compose**', route => route.fulfill({
-      contentType: 'text/html',
-      body: '<title>Workstation draft</title>',
-    }));
+      await page.route('https://workstation.justlikekatie.com/compose**', route => route.fulfill({
+        contentType: 'text/html',
+        body: '<title>Workstation draft</title>',
+      }));
 
-    await openOperatorConsole(page, origin);
-    await page.getByRole('checkbox', { name: /Weibo/ }).check();
-    await page.getByRole('checkbox', { name: /Instagram/ }).check();
-    await page.getByText('Selected for this draft: Rednote + Weibo + Instagram').waitFor();
-    const startButton = page.getByRole('button', { name: 'Make a post in Workstation' });
-    await startButton.click();
-    await startButton.click({ force: true }).catch(() => undefined);
+      await openOperatorConsole(page, origin);
+      await page.getByRole('checkbox', { name: /Weibo/ }).check();
+      await page.getByRole('checkbox', { name: /Instagram/ }).check();
+      await page.getByText('Selected for this draft: Rednote + Weibo + Instagram').waitFor();
+      const startButton = page.getByRole('button', { name: 'Make a post in Workstation' });
+      await startButton.click();
+      await startButton.click({ force: true }).catch(() => undefined);
 
-    await page.waitForURL('https://workstation.justlikekatie.com/compose?postId=creator-draft-1');
-    await page.waitForTimeout(600);
-    assert.equal(createRequests, 1);
-    assert.equal(getMediaUploads(), 0);
-    assert.equal(getSyncRequests(), 1);
-  } finally {
-    await browser.close();
-    await server.close();
-  }
-});
+      await page.waitForURL('https://workstation.justlikekatie.com/compose?postId=creator-draft-1');
+      await page.waitForTimeout(600);
+      assert.equal(createRequests, 1);
+      assert.equal(getMediaUploads(), 0);
+      assert.equal(getSyncRequests(), 1);
+    } finally {
+      await closeBrowserAndServer(browser, server);
+    }
+  });
+}
 
 for (const failure of [
   {
@@ -378,8 +368,7 @@ for (const failure of [
 ]) {
   test(`Operator Console keeps results visible after ${failure.name}`, { timeout: 60_000 }, async () => {
     const { server, origin } = await startApp();
-    const browser = await launchBrowser();
-    const page = await browser.newPage();
+    const { browser, page } = await launchPageForServer(server);
     let createRequests = 0;
 
     try {
@@ -414,8 +403,62 @@ for (const failure of [
       assert.equal(getSyncRequests(), 1);
       assert.equal(await page.getByLabel('Saved FANDOM grid').inputValue(), GRID_ID);
     } finally {
-      await browser.close();
-      await server.close();
+      await closeBrowserAndServer(browser, server);
     }
   });
 }
+
+test('failed browser startup closes the listening packet test server', async () => {
+  const { server } = await startApp();
+  const launchError = new Error('browser binary is unavailable');
+  const failingBrowserType = {
+    launch: async () => {
+      throw launchError;
+    },
+  };
+
+  await assert.rejects(
+    launchBrowserForServer(
+      server,
+      failingBrowserType as unknown as Parameters<typeof launchBrowserForServer>[1],
+    ),
+    launchError,
+  );
+  assert.equal(server.httpServer?.listening, false);
+});
+
+test('failed page creation closes both packet test resources', async () => {
+  const pageError = new Error('browser page is unavailable');
+  let browserCloseAttempts = 0;
+  let serverCloseAttempts = 0;
+  const server = {
+    close: async () => {
+      serverCloseAttempts += 1;
+    },
+  };
+  const failingBrowserType = {
+    launch: async () => ({
+      newPage: async () => {
+        throw pageError;
+      },
+      close: async () => {
+        browserCloseAttempts += 1;
+        throw new Error('browser close failed');
+      },
+    }),
+  };
+
+  await assert.rejects(
+    launchPageForServer(
+      server,
+      failingBrowserType as unknown as Parameters<typeof launchPageForServer>[1],
+    ),
+    error => {
+      assert(error instanceof AggregateError);
+      assert.equal(error.errors[0], pageError);
+      return true;
+    },
+  );
+  assert.equal(browserCloseAttempts, 1);
+  assert.equal(serverCloseAttempts, 1);
+});

@@ -6,4 +6,4 @@ In GitHub Actions, `secrets.GITHUB_TOKEN` can fetch `/branches/main/protection` 
 
 **Why:** discovered when the branch-protection-check workflow failed only its third assertion; the same query with a full-scope PAT returned the contexts. Also: `permissions: administration: read` is NOT a valid Actions permissions key — adding it makes the whole workflow invalid (run shows the filename as its name, 0 jobs).
 
-**How to apply:** for CI jobs reading branch protection, use a repo-scope PAT stored as an Actions secret (`REPO_ADMIN_PAT`, set via `gh secret set`). Never add `administration` to a workflow `permissions` block. A run named after its YAML path with 0 jobs = workflow validation error, not a script failure.
+**How to apply:** for CI jobs reading branch protection or creating review PRs, use a repo-scope PAT stored as an Actions secret (`REPO_ADMIN_PAT`, set via `gh secret set`). GitHub rejects custom secret names beginning with `GITHUB_`. Never add `administration` to a workflow `permissions` block. A run named after its YAML path with 0 jobs = workflow validation error, not a script failure.

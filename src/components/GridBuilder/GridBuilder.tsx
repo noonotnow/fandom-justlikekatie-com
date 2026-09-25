@@ -1,11 +1,41 @@
 import { useEffect, useMemo, useRef, useState } from 'react';
-import { dbGetVisibleCardsByScope, dbRemoveGrid, dbSaveGrid, type CardRecord } from '../../utils/collectionDB';
+import {
+  dbGetVisibleCardsByScope,
+  dbGetVisibleGrids,
+  dbRemoveGrid,
+  dbSaveGrid,
+  type CardRecord,
+  type GridRecord,
+} from '../../utils/collectionDB';
 import { starDataFromCollectionGrid } from '../../utils/collectionHistoryModel';
-import { saveShareCard, buildExportPayload, classifyEditionTier } from '../../utils/exportCanvas';
-import { deleteGridExports, gridExportEventFromRecord, logGridExport, uploadExportedCard } from '../../utils/gridExportLog';
+import {
+  buildExportPayload,
+  buildMasterExportManifest,
+  classifyEditionTier,
+  saveShareCard,
+  prepareShareCard,
+  type ExportManifest,
+  type ExportProvenanceAsset,
+} from '../../utils/exportCanvas';
+import {
+  deleteGridExports,
+  gridExportEventFromRecord,
+  logGridExport,
+  notifyGridExportPersisted,
+  uploadExportedCard,
+} from '../../utils/gridExportLog';
 import { logMembershipEvent } from '../../utils/membership';
+import { collectorBenefits, type CollectorPalette } from '../../utils/collectorBenefits';
+import { isVerifiedMediaReference } from '../../utils/mediaReference';
+import {
+  trackActorSourceNotesLoadFailed,
+  trackActorSourceNotesLoadSucceeded,
+  trackActorSourceNotesOpened,
+  trackHistoricalGridSaved,
+} from '../../utils/analytics';
 import {
   applyLens,
+  actorPackIdForLens,
   buildVibeAtlasPool,
   gridRecordFromProposal,
   lensOptions,
@@ -20,21 +50,58 @@ import {
 } from '../../utils/gridBuilder';
 import styles from './GridBuilder.module.css';
 
+interface ActorPackSourceVibe {
+  emoji?: string;
+  label?: string;
+  label_en?: string;
+  sourceDepth?: {
+    queries?: string[];
+    authoringPrompt?: string;
+  };
+}
+
+interface ActorPackSourceNotes {
+  id: string;
+  name?: string;
+  name_en?: string;
+  provenance: {
+    attribution: string;
+  };
+  vibes: ActorPackSourceVibe[];
+}
+
 interface Props {
   /** Account id of the signed-in user; scopes the pool to that account's visible records. */
   accountId?: string;
   /** Called after a successful export so the parent can navigate to the Grids tab. */
   onExported?: () => void;
-  /** Premium export is a membership capability; server enforcement remains authoritative. */
-  isMember?: boolean;
+  /** Collector entitlement; server enforcement remains authoritative. */
+  hasCollectorAccess?: boolean;
   onUpgrade?: () => void;
+  onCollectionChanged?: () => Promise<void>;
+  /** Explicit inventory boundary. Daily Drop and edition cards never fall back to My Collection. */
+  sourceKind?: 'collection' | 'daily' | 'edition';
+  sourceEditionDate?: string;
+  sourcePool?: BuilderCard[];
 }
 
 /**
  * Vibe Atlas Grid Builder — the core studio workflow. Saved collection →
  * lens → editorial contract → proposed set → slot swaps → save and export.
  */
-export const GridBuilder: React.FC<Props> = ({ accountId, onExported, isMember = false, onUpgrade }) => {
+export const GridBuilder: React.FC<Props> = ({
+  accountId,
+  onExported,
+  hasCollectorAccess = false,
+  onUpgrade,
+  onCollectionChanged,
+  sourceKind = 'collection',
+  sourceEditionDate,
+  sourcePool = [],
+}) => {
+  const isCollectionSource = sourceKind === 'collection';
+  const externalSourcePool = isCollectionSource ? null : sourcePool;
+  const benefits = collectorBenefits(hasCollectorAccess);
   const [pool, setPool] = useState<BuilderCard[] | null>(null);
   const [sourceRecords, setSourceRecords] = useState<{ cards: CardRecord[] } | null>(null);
   const [loadError, setLoadError] = useState('');
@@ -45,6 +112,7 @@ export const GridBuilder: React.FC<Props> = ({ accountId, onExported, isMember =
   const [swapSlot, setSwapSlot] = useState<number | null>(null);
   const [busy, setBusy] = useState('');
   const [notice, setNotice] = useState('');
+  const [savedCanvasCount, setSavedCanvasCount] = useState(0);
   // Tracks whether the *current* proposal has been explicitly saved to the collection.
   // Resets to false whenever the proposal changes (re-propose, lens toggle, slot swap).
   const [isGridSaved, setIsGridSaved] = useState(false);
@@ -54,10 +122,35 @@ export const GridBuilder: React.FC<Props> = ({ accountId, onExported, isMember =
   const [showSaveNudge, setShowSaveNudge] = useState(false);
   // When true, a successful save should also trigger the onExported navigation.
   const [pendingNavAfterSave, setPendingNavAfterSave] = useState(false);
+  const [palette, setPalette] = useState<CollectorPalette | null>(null);
+  const [sourceNotesOpen, setSourceNotesOpen] = useState(false);
+  const [sourceNotesBusy, setSourceNotesBusy] = useState(false);
+  const [sourceNotesError, setSourceNotesError] = useState('');
+  const [sourceNotes, setSourceNotes] = useState<ActorPackSourceNotes | null>(null);
+  const sourceNotesRequest = useRef(0);
   // Tracks the id of the last grid that was saved before a slot swap changed
   // the proposal.  When the user saves after swapping, the stale record is
   // removed first so only the latest version lives in the store.
   const [priorSavedGridId, setPriorSavedGridId] = useState<string | null>(null);
+  const [handoffState, setHandoffState] = useState<{ objectUrl: string; file: File; tier: string; expiresAt: number } | null>(null);
+  const [handoffExpanded, setHandoffExpanded] = useState(false);
+  const [handoffDestination, setHandoffDestination] = useState<'rednote' | 'weibo' | 'instagram' | 'facebook' | null>('rednote');
+  const [now, setNow] = useState(Date.now());
+  const proposalRef = useRef(proposal);
+  const mountedRef = useRef(true);
+  proposalRef.current = proposal;
+
+  useEffect(() => { mountedRef.current = true; return () => { mountedRef.current = false; }; }, []);
+  useEffect(() => { if (!handoffState) return; const interval = setInterval(() => setNow(Date.now()), 1000); return () => clearInterval(interval); }, [handoffState]);
+  useEffect(() => {
+    if (!handoffState) return;
+    const remaining = handoffState.expiresAt - Date.now();
+    if (remaining <= 0) { setHandoffState(null); return; }
+    const timeout = window.setTimeout(() => { setHandoffState(null); setNotice('Handoff expired. Prepare the current grid again.'); }, remaining);
+    return () => window.clearTimeout(timeout);
+  }, [handoffState?.expiresAt]);
+  useEffect(() => { const url = handoffState?.objectUrl; return () => { if (url) URL.revokeObjectURL(url); }; }, [handoffState?.objectUrl]);
+  const isHandoffExpired = Boolean(handoffState && now >= handoffState.expiresAt);
   // Synchronous in-flight lock for exportGrid. React state setters do not
   // update the captured closure value until the next render.
   // setBusy('export') schedules a React update but does not mutate the captured
@@ -74,17 +167,27 @@ export const GridBuilder: React.FC<Props> = ({ accountId, onExported, isMember =
     setProposal(null);
     (async () => {
       try {
-        const cards = await dbGetVisibleCardsByScope(accountId, 'vibe-atlas');
+        const [cards, grids] = await Promise.all([
+          isCollectionSource
+            ? dbGetVisibleCardsByScope(accountId, 'vibe-atlas')
+            : Promise.resolve([]),
+          dbGetVisibleGrids(accountId),
+        ]);
         if (!cancelled) {
-          setSourceRecords({ cards });
-          setPool(buildVibeAtlasPool(cards, 'standard'));
+          setSourceRecords(isCollectionSource ? { cards } : null);
+          setPool(isCollectionSource ? buildVibeAtlasPool(cards, 'standard') : externalSourcePool || []);
+          setSavedCanvasCount(grids.length);
         }
       } catch (caught) {
-        if (!cancelled) setLoadError(caught instanceof Error ? caught.message : 'Saved collection could not be loaded.');
+        if (!cancelled) setLoadError(caught instanceof Error
+          ? caught.message
+          : isCollectionSource
+            ? 'Saved collection could not be loaded.'
+            : 'Today’s Daily Drop inventory could not be loaded.');
       }
     })();
     return () => { cancelled = true; };
-  }, [accountId]);
+  }, [accountId, externalSourcePool, isCollectionSource]);
 
   const savedOptions = useMemo(() => (pool ? lensOptions(pool) : null), [pool]);
   const smartOptionPool = useMemo(
@@ -124,6 +227,9 @@ export const GridBuilder: React.FC<Props> = ({ accountId, onExported, isMember =
     () => pool && lens.actor ? applyLens(pool, { mode: lens.mode, actor: lens.actor }) : [],
     [pool, lens.actor, lens.mode],
   );
+  const selectedActorPackId = useMemo(() => {
+    return pool ? actorPackIdForLens(pool, lens.actor) : '';
+  }, [lens.actor, pool]);
   const proposalTargetSize = proposal?.rationale.compositionSize || 9;
   const proposalComplete = Boolean(proposal && proposal.slots.length === proposalTargetSize);
   const proposalEvidence = useMemo(() => {
@@ -137,8 +243,52 @@ export const GridBuilder: React.FC<Props> = ({ accountId, onExported, isMember =
     };
   }, [proposal]);
 
+  useEffect(() => {
+    sourceNotesRequest.current += 1;
+    setSourceNotesOpen(false);
+    setSourceNotesBusy(false);
+    setSourceNotesError('');
+    setSourceNotes(null);
+  }, [lens.actor]);
+
+  async function openSourceNotes() {
+    setSourceNotesOpen(true);
+    trackActorSourceNotesOpened(hasCollectorAccess, builderMode);
+    if (!hasCollectorAccess || !selectedActorPackId || sourceNotes?.id === selectedActorPackId) return;
+
+    const requestId = ++sourceNotesRequest.current;
+    setSourceNotesBusy(true);
+    setSourceNotesError('');
+    try {
+      const params = new URLSearchParams({ actorId: selectedActorPackId });
+      const response = await fetch(`/.netlify/functions/actor-pack-depth?${params.toString()}`, {
+        credentials: 'include',
+        headers: { Accept: 'application/json' },
+      });
+      const result = await response.json().catch(() => null);
+      if (!response.ok) {
+        throw new Error(result?.error || 'Source notes are temporarily unavailable.');
+      }
+      const pack = result?.packs?.[0];
+      if (!pack?.id || !pack?.provenance?.attribution || !Array.isArray(pack?.vibes)) {
+        throw new Error('Source notes are temporarily unavailable.');
+      }
+      if (sourceNotesRequest.current === requestId) {
+        setSourceNotes(pack);
+        trackActorSourceNotesLoadSucceeded(hasCollectorAccess, builderMode);
+      }
+    } catch {
+      if (sourceNotesRequest.current === requestId) {
+        setSourceNotesError('Source notes are still syncing. You can keep building with your saved images.');
+        trackActorSourceNotesLoadFailed(hasCollectorAccess, builderMode);
+      }
+    } finally {
+      if (sourceNotesRequest.current === requestId) setSourceNotesBusy(false);
+    }
+  }
+
   function setMode(mode: 'standard' | 'misprints') {
-    if (!sourceRecords) return;
+    if (!isCollectionSource || !sourceRecords) return;
     setPool(buildVibeAtlasPool(sourceRecords.cards, mode));
     setLens({ mode });
     setProposal(null);
@@ -316,9 +466,24 @@ export const GridBuilder: React.FC<Props> = ({ accountId, onExported, isMember =
   /** Persist the current grid to the local collection without rendering or sharing. */
   async function saveGrid() {
     if (!proposal || !proposalComplete || busy) return;
+    if (!isGridSaved && !priorSavedGridId && savedCanvasCount >= benefits.canvasAllowance) {
+      setNotice(hasCollectorAccess
+        ? `Collector includes ${benefits.canvasAllowance} active canvases. Remove one before saving another.`
+        : 'Your free canvas is already saved. You can keep editing it, or unlock three additional Collector canvases.');
+      return;
+    }
     setBusy('save');
     try {
-      const grid = gridRecordFromProposal(proposal.slots, proposal.rationale);
+      const grid = gridRecordFromProposal(
+        proposal.slots,
+        proposal.rationale,
+        new Date(),
+        palette ? { paletteId: palette.id, atmosphereId: palette.id } : undefined,
+        {
+          kind: sourceKind,
+          ...(sourceKind === 'edition' && sourceEditionDate ? { editionDate: sourceEditionDate } : {}),
+        },
+      );
       // If the user edited slots after a previous save, the slot hash changed
       // and this is a brand-new id.  Remove the orphaned prior record first so
       // the store never holds two versions of the same conceptual grid.
@@ -328,10 +493,22 @@ export const GridBuilder: React.FC<Props> = ({ accountId, onExported, isMember =
         setPriorSavedGridId(null);
       }
       await dbSaveGrid(grid);
+      if (sourceKind === 'edition' && sourceEditionDate) {
+        trackHistoricalGridSaved(sourceEditionDate);
+      }
+      let syncFailed = false;
+      try {
+        await onCollectionChanged?.();
+      } catch {
+        syncFailed = true;
+      }
+      if (!isGridSaved && !priorSavedGridId) setSavedCanvasCount(count => count + 1);
       setIsGridSaved(true);
       setSavedGridId(grid.id);
       setShowSaveNudge(false);
-      setNotice('Grid saved to your collection.');
+      setNotice(syncFailed
+        ? 'Grid saved locally. Cross-device sync will retry automatically.'
+        : 'Grid saved to your collection.');
       if (pendingNavAfterSave) {
         setPendingNavAfterSave(false);
         onExported?.();
@@ -352,9 +529,11 @@ export const GridBuilder: React.FC<Props> = ({ accountId, onExported, isMember =
       // Best-effort server cleanup, awaited for delivery reliability; failure
       // never blocks the local removal.
       await deleteGridExports(savedGridId, accountId).catch(() => {});
+      await onCollectionChanged?.().catch(() => {});
       setIsGridSaved(false);
       setSavedGridId(null);
       setPriorSavedGridId(null);
+      setSavedCanvasCount(count => Math.max(0, count - 1));
       setNotice('Removed from your collection.');
     } catch (caught) {
       setNotice(caught instanceof Error ? caught.message : 'Could not remove the grid.');
@@ -367,11 +546,7 @@ export const GridBuilder: React.FC<Props> = ({ accountId, onExported, isMember =
    * Render + share the grid. Does not auto-save — after a successful export
    * the notice area nudges the user to save if they haven't yet.
    */
-  async function exportGrid() {
-    if (!isMember) {
-      setNotice('Premium exports are available with Founding Member.');
-      return;
-    }
+  async function exportGrid(action: 'rednote' | 'download_raw' | 'full' = 'full') {
     if (!proposal || !proposalComplete || busy) return;
     // Synchronous re-entrant guard: setBusy schedules a React update but does
     // not mutate the captured closure value until the next render.  A second
@@ -382,36 +557,88 @@ export const GridBuilder: React.FC<Props> = ({ accountId, onExported, isMember =
     exportInFlight.current = true;
     logMembershipEvent('paid_feature_used');
     const wasGridSaved = isGridSaved;
+    let prepared: { objectUrl: string; file: File; fileName: string; tier: string } | null = null;
     setBusy('export');
     setNotice('正在生成分享卡……');
     setShowSaveNudge(false);
     try {
-      const grid = gridRecordFromProposal(proposal.slots, proposal.rationale);
-      const starData = starDataFromCollectionGrid(grid);
+      const grid = gridRecordFromProposal(proposal.slots, proposal.rationale, new Date(), palette
+        ? { paletteId: palette.id, atmosphereId: palette.id }
+        : undefined);
+      let exportGridRecord: GridRecord = grid;
+      let exportManifest: ExportManifest | undefined;
+      if (hasCollectorAccess) {
+        const assets: ExportProvenanceAsset[] = grid.images.map(image => {
+          if (!isVerifiedMediaReference(image.media)) {
+            throw new Error('Master Export needs nine materialized MEDIA assets. Save or recover every image first.');
+          }
+          return {
+            assetId: image.media.assetId,
+            checksum: image.media.checksum,
+            deliveryUrl: image.media.deliveryUrl,
+            sourceUrl: image.sourceUrl,
+            attribution: { publisher: image.publisher, title: image.title },
+            permitted: true,
+          };
+        });
+        exportManifest = buildMasterExportManifest(grid.id, grid.id, assets);
+        exportGridRecord = {
+          ...grid,
+          images: grid.images.map(image => ({ ...image, imageUrl: image.media!.deliveryUrl })),
+        };
+      }
+      const starData = starDataFromCollectionGrid(exportGridRecord);
       // Capture the rendered PNG so it can be persisted server-side after a
       // successful export of a SAVED grid.  Fire-and-forget: the upload never
       // blocks the download/share path, and export never saves a grid.
       let renderedBlob: Blob | null = null;
-      const message = await saveShareCard(starData, 'full', (blob) => { renderedBlob = blob; });
-      try {
-        const tier = classifyEditionTier(buildExportPayload(starData).chosen);
-        let persistedExportId: string | undefined;
-        if (wasGridSaved && renderedBlob) {
-          persistedExportId = crypto.randomUUID();
-          void uploadExportedCard(grid.id, persistedExportId, renderedBlob, 'full', tier);
+      const exportVariant = hasCollectorAccess ? 'master' : 'standard';
+      if (action === 'download_raw' || action === 'full') {
+        let message = '';
+        if (action === 'download_raw') {
+          prepared = await prepareShareCard(starData, 'raw', blob => { renderedBlob = blob; });
+          const anchor = document.createElement('a'); anchor.href = prepared.objectUrl; anchor.download = prepared.fileName; document.body.appendChild(anchor); anchor.click(); anchor.remove();
+          setTimeout(() => URL.revokeObjectURL(prepared!.objectUrl), 4000);
+          message = 'PNG 已下载 ✓';
         }
-        logGridExport(gridExportEventFromRecord(grid, 'full', tier, wasGridSaved, persistedExportId));
-      } catch (bookkeepingErr) {
-        console.warn('Post-export logging failed (export succeeded):', bookkeepingErr);
-      }
-      setNotice(message);
-      if (!wasGridSaved) {
-        setShowSaveNudge(true);
-        setPendingNavAfterSave(true);
+        if (action === 'full') {
+          message = await saveShareCard(starData, exportVariant, (blob) => { renderedBlob = blob; });
+          try {
+            const tier = classifyEditionTier(buildExportPayload(starData).chosen);
+            let persistedExportId: string | undefined;
+            if (wasGridSaved && renderedBlob) {
+              persistedExportId = crypto.randomUUID();
+              void uploadExportedCard(
+                grid.id,
+                persistedExportId,
+                renderedBlob,
+                exportVariant,
+                tier,
+                exportManifest,
+              ).then((persisted) => {
+                if (persisted) notifyGridExportPersisted(grid.id);
+              });
+            }
+            logGridExport(gridExportEventFromRecord(grid, exportVariant, tier, wasGridSaved, persistedExportId));
+          } catch (bookkeepingErr) {
+            console.warn('Post-export logging failed (export succeeded):', bookkeepingErr);
+          }
+        }
+        setNotice(message);
+        if (!wasGridSaved) {
+          setShowSaveNudge(true);
+          setPendingNavAfterSave(true);
+        }
+        if (wasGridSaved) onExported?.();
       } else {
-        onExported?.();
+        const preparedProposal = proposal;
+        prepared = await prepareShareCard(starData, 'raw', blob => { renderedBlob = blob; });
+        if (!mountedRef.current || proposalRef.current !== preparedProposal) { URL.revokeObjectURL(prepared.objectUrl); return; }
+        setHandoffState({ objectUrl: prepared.objectUrl, file: prepared.file, tier: prepared.tier, expiresAt: Date.now() + 120_000 });
+        setNotice('Handoff prepared.');
       }
     } catch (caught) {
+      if (prepared?.objectUrl) URL.revokeObjectURL(prepared.objectUrl);
       setNotice(caught instanceof Error ? caught.message : '分享卡生成失败，再试一次？');
     } finally {
       exportInFlight.current = false;
@@ -419,21 +646,45 @@ export const GridBuilder: React.FC<Props> = ({ accountId, onExported, isMember =
     }
   }
 
+  async function shareToDevice() {
+    if (!handoffState) return;
+    if (Date.now() > handoffState.expiresAt) { setHandoffState(null); setNotice('Handoff expired. Please prepare again.'); return; }
+    const shareData = { files: [handoffState.file], title: 'Vibe Atlas Grid' };
+    const canShareFiles = typeof navigator !== 'undefined' && typeof navigator.share === 'function' && typeof navigator.canShare === 'function' && navigator.canShare(shareData);
+    if (!canShareFiles) { setNotice('Sharing not supported on this device.'); return; }
+    try { await navigator.share(shareData); setNotice('Share request completed. Please verify in RedNote.'); }
+    catch (error) { setNotice(error instanceof DOMException && error.name === 'AbortError' ? 'Share cancelled.' : 'Native sharing failed.'); }
+  }
+
   if (loadError) return <div className={styles.notice} role="alert">{loadError}</div>;
   if (!pool || !savedOptions || !smartOptions) {
-    return <div className={styles.loading} aria-label="Loading saved collection"><span /><span /><span /></div>;
+    return <div className={styles.loading} aria-label={
+      isCollectionSource
+        ? 'Loading saved collection'
+        : sourceKind === 'edition'
+          ? 'Loading historical edition inventory'
+          : 'Loading Daily Drop inventory'
+    }><span /><span /><span /></div>;
   }
   if (pool.length === 0) {
     return (
       <div className={styles.empty}>
-        <strong>The shelf is empty.</strong>
-        <span>Save cards or grids first — the Grid Builder assembles editorial sets from saved material.</span>
+        <strong>{isCollectionSource
+          ? 'The shelf is empty.'
+          : sourceKind === 'edition'
+            ? 'This edition’s inventory could not be loaded.'
+            : 'Today’s inventory is not ready yet.'}</strong>
+        <span>{isCollectionSource
+          ? 'Save cards or grids first — the Grid Builder assembles editorial sets from saved material.'
+          : sourceKind === 'edition'
+            ? 'Return to the archived edition and try again.'
+            : 'Return to today’s drop while its approved images finish loading.'}</span>
       </div>
     );
   }
 
   return (
-    <section className={styles.builder}>
+    <section className={styles.builder} data-palette={palette?.id || 'default'}>
       <header className={styles.header}>
         <div>
           <h3>Vibe Atlas Grid Builder</h3>
@@ -441,10 +692,38 @@ export const GridBuilder: React.FC<Props> = ({ accountId, onExported, isMember =
         </div>
         <span>
           {builderMode === 'manual'
-            ? `${countLabel(manualCandidates.length, 'saved result')} for this star`
-            : `${countLabel(lensedCount, 'saved result')} ${lensedCount === 1 ? 'matches' : 'match'} this lens`}
+            ? `${countLabel(manualCandidates.length, isCollectionSource ? 'saved result' : 'Daily Drop image')} for this star`
+            : `${countLabel(lensedCount, isCollectionSource ? 'saved result' : 'Daily Drop image')} ${lensedCount === 1 ? 'matches' : 'match'} this lens`}
         </span>
       </header>
+
+      <div className={styles.benefitBar} role="note">
+        {hasCollectorAccess ? (
+          <>
+            <strong>Fandom Collector</strong>
+            <span>{benefits.canvasAllowance} canvases · cross-device persistence enabled</span>
+            {benefits.palettes.length > 0 && (
+              <label>
+                Atmosphere
+                <select
+                  value={palette?.id || ''}
+                  onChange={event => setPalette(
+                    benefits.palettes.find(item => item.id === event.target.value) || null,
+                  )}
+                >
+                  <option value="">Original</option>
+                  {benefits.palettes.map(item => <option value={item.id} key={item.id}>{item.name}</option>)}
+                </select>
+              </label>
+            )}
+          </>
+        ) : (
+          <>
+            <strong>Free studio</strong>
+            <span>1 canvas · local saves, rearranging, sharing, and 1080×1080 sRGB export included.</span>
+          </>
+        )}
+      </div>
 
       <div className={styles.modeTabs} role="tablist" aria-label="Grid building method">
         <button type="button" role="tab" aria-selected={builderMode === 'smart'} onClick={() => chooseBuilderMode('smart')}>
@@ -466,7 +745,7 @@ export const GridBuilder: React.FC<Props> = ({ accountId, onExported, isMember =
           >
             <span>Event</span>
             <strong>No, look closer.</strong>
-            <small>Stay inside one detected appearance. Repetition becomes sequence, and a strong family can grow to 12 frames.</small>
+            <small>Stay inside one detected appearance. Nine frames turn repetition into sequence.</small>
           </button>
           <button
             type="button"
@@ -501,29 +780,91 @@ export const GridBuilder: React.FC<Props> = ({ accountId, onExported, isMember =
       )}
 
       <div className={styles.lenses}>
-        <LensRow
-          label="Collection"
-          options={[
-            {
-              value: 'standard',
-              label: 'Ordinary Vibe Atlas',
-              count: collectionCounts.standard,
-            },
-            {
-              value: 'misprints',
-              label: 'Legendary Misprints',
-              count: collectionCounts.misprints,
-            },
-          ]}
-          active={lens.mode || 'standard'}
-          onToggle={value => setMode(value as 'standard' | 'misprints')}
-        />
+        {isCollectionSource && (
+          <LensRow
+            label="Collection"
+            options={[
+              {
+                value: 'standard',
+                label: 'Ordinary Vibe Atlas',
+                count: collectionCounts.standard,
+              },
+              {
+                value: 'misprints',
+                label: 'Legendary Misprints',
+                count: collectionCounts.misprints,
+              },
+            ]}
+            active={lens.mode || 'standard'}
+            onToggle={value => setMode(value as 'standard' | 'misprints')}
+          />
+        )}
         <LensRow label="Star" options={savedOptions.actors} active={lens.actor} onToggle={value => toggle('actor', value)} />
         {builderMode === 'smart' && <LensRow label="Vibe" options={smartOptions.vibes} active={lens.vibe} onToggle={value => toggle('vibe', value)} />}
         {builderMode === 'smart' && familyOptions.length > 0 && (
           <LensRow label="Visual family" options={familyOptions} active={lens.familyId} onToggle={value => toggle('familyId', value)} />
         )}
       </div>
+
+      {lens.actor && (
+        <section className={styles.sourceNotes} aria-label={`Source notes for ${lens.actor}`}>
+          <div className={styles.sourceNotesIntro}>
+            <div>
+              <strong>Actor source notes</strong>
+              <span>
+                {hasCollectorAccess
+                  ? 'Open the editorial searches and visual directions behind this actor pack.'
+                  : 'Collector adds the source searches and editorial directions behind each actor pack.'}
+              </span>
+            </div>
+            <button
+              type="button"
+              aria-expanded={sourceNotesOpen}
+              onClick={sourceNotesOpen ? () => setSourceNotesOpen(false) : openSourceNotes}
+            >
+              {sourceNotesOpen ? 'Hide notes' : hasCollectorAccess ? 'Open notes' : 'Preview benefit'}
+            </button>
+          </div>
+
+          {sourceNotesOpen && (
+            <div className={styles.sourceNotesBody}>
+              {!hasCollectorAccess ? (
+                <>
+                  <p>Explore source trails and authoring context without leaving the Builder. Protected searches and notes stay available only to active Collectors.</p>
+                  {onUpgrade && <button type="button" className={styles.sourceNotesUpgrade} onClick={onUpgrade}>Explore Fandom Collector</button>}
+                </>
+              ) : sourceNotesBusy ? (
+                <p role="status">Loading private source notes…</p>
+              ) : sourceNotesError ? (
+                <p role="status">{sourceNotesError}</p>
+              ) : sourceNotes ? (
+                <>
+                  <div className={styles.sourceNotesList}>
+                    {sourceNotes.vibes.map((vibe, index) => (
+                      <article key={`${vibe.label_en || vibe.label || 'vibe'}-${index}`}>
+                        <strong>{vibe.emoji} {vibe.label_en || vibe.label || 'Editorial direction'}</strong>
+                        {vibe.sourceDepth?.queries && vibe.sourceDepth.queries.length > 0 && (
+                          <>
+                            <small>Source searches</small>
+                            <ul>{vibe.sourceDepth.queries.map(query => <li key={query}>{query}</li>)}</ul>
+                          </>
+                        )}
+                        {vibe.sourceDepth?.authoringPrompt && (
+                          <>
+                            <small>Authoring note</small>
+                            <p>{vibe.sourceDepth.authoringPrompt}</p>
+                          </>
+                        )}
+                      </article>
+                    ))}
+                  </div>
+                  <footer>Source: {sourceNotes.provenance.attribution}</footer>
+                </>
+              ) : null}
+            </div>
+          )}
+        </section>
+      )}
 
       {builderMode === 'smart' && <button type="button" className={styles.propose} onClick={propose} disabled={lensedCount === 0}>
         {proposal
@@ -535,7 +876,9 @@ export const GridBuilder: React.FC<Props> = ({ accountId, onExported, isMember =
         <section className={styles.manualPicker} aria-label="Choose nine saved images">
           <div className={styles.manualPickerHeader}>
             <strong>{lens.actor ? `${proposal?.slots.length || 0} of 9 selected` : 'Choose a star to begin'}</strong>
-            <span>Only saved images for the selected actor appear here. Select a placed image to duplicate it intentionally.</span>
+            <span>{isCollectionSource
+              ? 'Only saved images for the selected actor appear here. Select a placed image to duplicate it intentionally.'
+              : 'Only images from today’s Daily Drop appear here. Select a placed image to duplicate it intentionally.'}</span>
           </div>
           {lens.actor && manualCandidates.length === 0 ? (
             <div className={styles.notice}>Save at least one image for {lens.actor} to begin a custom grid.</div>
@@ -565,7 +908,7 @@ export const GridBuilder: React.FC<Props> = ({ accountId, onExported, isMember =
         <div className={styles.workspace}>
           <div>
             <div
-              className={`${styles.grid} ${proposalTargetSize === 12 ? styles.eventGrid : ''}`}
+              className={styles.grid}
               role="group"
               aria-label={builderMode === 'manual'
                 ? 'Custom 3×3 grid'
@@ -671,13 +1014,20 @@ export const GridBuilder: React.FC<Props> = ({ accountId, onExported, isMember =
                   {busy === 'remove' ? 'Removing…' : 'Remove from collection'}
                 </button>
               )}
-              {isMember ? (
-                <button type="button" onClick={exportGrid} disabled={Boolean(busy) || !proposalComplete}>
-                  {busy === 'export' ? 'Exporting…' : '📤 Export share card'}
-                </button>
-              ) : (
+              <div className={styles.handoffContainer}>
+          <button type="button" onClick={() => setHandoffExpanded(value => !value)} disabled={Boolean(busy) || !proposalComplete} className={styles.handoffToggle}>{handoffExpanded ? 'Close handoff' : 'Handoff Publishing Grid'}</button>
+          {handoffExpanded && <div className={styles.handoffPanel}>
+            <div className={styles.handoffDestinations}><button type="button" onClick={() => setHandoffDestination('rednote')} aria-pressed={handoffDestination === 'rednote'}>RedNote</button><button type="button" disabled>Weibo</button><button type="button" disabled>Instagram</button><button type="button" disabled>Facebook</button></div>
+            {!handoffState ? <button type="button" onClick={() => exportGrid('rednote')} disabled={Boolean(busy)}>{busy === 'export' ? 'Preparing...' : '1. Prepare RedNote Handoff'}</button> : <div className={styles.handoffReady}>{isHandoffExpired ? <span className={styles.expiredText}>Handoff expired.</span> : <span className={styles.expiryText}>Expires in {Math.max(0, Math.floor((handoffState.expiresAt - now) / 1000))}s</span>}<div className={styles.handoffActions}><button type="button" onClick={shareToDevice} disabled={isHandoffExpired}>2a. Share to Device</button><a href="https://creator.rednote.com/publish/publish" target="_blank" rel="noreferrer" className={isHandoffExpired ? styles.disabledLink : ''} onClick={event => { if (isHandoffExpired) event.preventDefault(); }}>2b. Open RedNote</a></div><p className={styles.disclaimer}>Browser sharing does not prove RedNote received or published anything.</p></div>}
+            <button type="button" className={styles.downloadBtn} onClick={() => exportGrid('download_raw')} disabled={Boolean(busy)}>Download PNG</button>
+          </div>}
+        </div>
+        <button type="button" onClick={() => exportGrid()} disabled={Boolean(busy) || !proposalComplete}>
+                {busy === 'export' ? 'Exporting…' : `📤 Export ${hasCollectorAccess ? 'master' : 'square'} PNG`}
+              </button>
+              {!hasCollectorAccess && onUpgrade && (
                 <button type="button" onClick={onUpgrade} disabled={Boolean(busy)}>
-                  ✦ Upgrade for premium exports
+                  ✦ Unlock Collector canvases and palettes
                 </button>
               )}
             </div>

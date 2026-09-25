@@ -781,3 +781,157 @@ test("continues from a thrown Google request to Bing with accurate telemetry", a
     process.env.SERPAPI_KEY = previousSerpKey;
   }
 });
+
+test("collector refresh pools multi-provider candidates with deterministic dedupe", async () => {
+  const previousBraveKey = process.env.BRAVE_SEARCH_API_KEY;
+  const previousSerpKey = process.env.SERPAPI_KEY;
+  process.env.BRAVE_SEARCH_API_KEY = "brave-test";
+  process.env.SERPAPI_KEY = "serp-test";
+  try {
+    const response = await searchOneQuery("刘学义 古装 写真", {
+      debug: true,
+      providerPolicy: "collector-refresh-pool",
+      resultLimit: 30,
+      baiduOptions: { cache: false, retries: 0 },
+      fetchImpl: async (url) => {
+        const requestUrl = new URL(url);
+        if (requestUrl.hostname === "image.baidu.com") {
+          return mockResponse(JSON.stringify({
+            data: [
+              {
+                thumbURL: "https://shared.example/1.jpg",
+                objURL: "https://source-a.example/original-1.jpg",
+                fromURL: "https://source-a.example/page/1",
+                fromURLHost: "source-a.example",
+                fromPageTitle: "刘学义 source a",
+              },
+              {
+                thumbURL: "https://baidu-only.example/2.jpg",
+                objURL: "https://source-b.example/original-2.jpg",
+                fromURL: "https://source-b.example/page/2",
+                fromURLHost: "source-b.example",
+                fromPageTitle: "刘学义 source b",
+              },
+              ...Array.from({ length: 6 }, (_, index) => ({
+                thumbURL: `https://baidu-extra.example/${index}.jpg`,
+                objURL: `https://baidu-extra.example/original-${index}.jpg`,
+                fromURL: `https://baidu-extra-source-${index}.example/article`,
+                fromURLHost: `baidu-extra-source-${index}.example`,
+                fromPageTitle: `刘学义 extra ${index}`,
+              })),
+            ],
+          }), { contentType: "application/json" });
+        }
+        if (requestUrl.hostname === "api.search.brave.com") {
+          return mockResponse(JSON.stringify({
+            results: Array.from({ length: 8 }, (_, index) => ({
+              title: `刘学义 Brave pool ${index}`,
+              description: "刘学义",
+              url: `https://brave-source-${index}.example/article`,
+              thumbnail: { src: `https://brave-images.example/pool-${index}.jpg` },
+            })),
+          }), { contentType: "application/json" });
+        }
+        if (requestUrl.searchParams.get("engine") === "google_images") {
+          return mockResponse(JSON.stringify({
+            images_results: [
+              {
+                title: "刘学义 source a duplicate",
+                thumbnail: "https://shared.example/1.jpg",
+                original: "https://source-a.example/original-1.jpg",
+                link: "https://source-a.example/page/1",
+                domain: "source-a.example",
+              },
+              {
+                title: "刘学义 google unique",
+                thumbnail: "https://google-only.example/3.jpg",
+                original: "https://source-c.example/original-3.jpg",
+                link: "https://source-c.example/page/3",
+                domain: "source-c.example",
+              },
+            ],
+          }), { contentType: "application/json" });
+        }
+        if (requestUrl.searchParams.get("engine") === "bing_images") {
+          return mockResponse(JSON.stringify({
+            images_results: [{
+              title: "刘学义 bing unique",
+              thumbnail: "https://bing-only.example/4.jpg",
+              original: "https://source-d.example/original-4.jpg",
+              link: "https://source-d.example/page/4",
+              domain: "source-d.example",
+            }],
+          }), { contentType: "application/json" });
+        }
+        if (requestUrl.searchParams.get("engine") === "yandex_images") {
+          return mockResponse(JSON.stringify({
+            images_results: [{
+              title: "刘学义 yandex unique",
+              thumbnail: "https://yandex-only.example/5.jpg",
+              original: "https://source-e.example/original-5.jpg",
+              link: "https://source-e.example/page/5",
+              domain: "source-e.example",
+            }],
+          }), { contentType: "application/json" });
+        }
+        throw new Error(`Unexpected request: ${url}`);
+      },
+    });
+
+    assert.equal(response.provider, "collector_refresh_pool");
+    assert.equal(response.results.length, 17);
+    assert.equal(response.results.some(result => result.thumbnail === "https://shared.example/1.jpg"), true);
+    assert.equal(
+      response.results.filter(result => result.thumbnail === "https://shared.example/1.jpg").length,
+      1,
+    );
+    assert.equal(response.rawProviderCount >= 3, true);
+    assert.equal(response.pooledUniqueCount, 17);
+    assert.equal(response.providerContributionCounts.baidu.acceptedCount, 8);
+    assert.equal(response.providerContributionCounts.google_images.acceptedCount, 2);
+  } finally {
+    process.env.BRAVE_SEARCH_API_KEY = previousBraveKey;
+    process.env.SERPAPI_KEY = previousSerpKey;
+  }
+});
+
+test("collector refresh retains pooled candidates when one provider fails", async () => {
+  const previousBraveKey = process.env.BRAVE_SEARCH_API_KEY;
+  const previousSerpKey = process.env.SERPAPI_KEY;
+  process.env.BRAVE_SEARCH_API_KEY = "brave-test";
+  process.env.SERPAPI_KEY = "serp-test";
+  try {
+    const response = await searchOneQuery("刘学义 古装 写真", {
+      debug: true,
+      providerPolicy: "collector-refresh-pool",
+      baiduOptions: { cache: false, retries: 0 },
+      fetchImpl: async (url) => {
+        const requestUrl = new URL(url);
+        if (requestUrl.hostname === "image.baidu.com") {
+          return mockResponse(baiduPayload(), { contentType: "application/json" });
+        }
+        if (requestUrl.hostname === "api.search.brave.com") {
+          return mockResponse(JSON.stringify(bravePayload(8)), { contentType: "application/json" });
+        }
+        if (requestUrl.searchParams.get("engine") === "google_images") {
+          throw new Error("google unavailable");
+        }
+        if (requestUrl.searchParams.get("engine") === "bing_images") {
+          return mockResponse(JSON.stringify(serpPayload()), { contentType: "application/json" });
+        }
+        if (requestUrl.searchParams.get("engine") === "yandex_images") {
+          return mockResponse(JSON.stringify({ images_results: [] }), { contentType: "application/json" });
+        }
+        throw new Error(`Unexpected request: ${url}`);
+      },
+    });
+
+    assert.equal(response.provider, "collector_refresh_pool");
+    assert.ok(response.results.length > 0);
+    assert.equal(response.providerContributionCounts.google_images.acceptedCount, 0);
+    assert.equal(response.providerContributionCounts.bing_images.acceptedCount > 0, true);
+  } finally {
+    process.env.BRAVE_SEARCH_API_KEY = previousBraveKey;
+    process.env.SERPAPI_KEY = previousSerpKey;
+  }
+});

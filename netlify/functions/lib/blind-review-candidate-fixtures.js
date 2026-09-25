@@ -1,0 +1,108 @@
+export const BLIND_REVIEW_CANDIDATE_SHAPES = [
+  {
+    name: "explicit rejection",
+    candidate: {
+      candidateId: "explicit-rejection",
+      occurrenceId: "shape:explicit-rejection",
+      thumbnail: "https://images.example/shape-explicit-rejection.jpg",
+      visualClass: "supporting",
+      selected: false,
+    },
+    queued: true,
+    evidenceEligible: true,
+  },
+  {
+    name: "explicit rejection with drop reason",
+    candidate: {
+      candidateId: "explicit-drop",
+      occurrenceId: "shape:explicit-drop",
+      thumbnail: "https://images.example/shape-explicit-drop.jpg",
+      visualClass: "supporting",
+      selected: false,
+      dropReason: "promise_not_fulfilled",
+    },
+    queued: true,
+    evidenceEligible: true,
+  },
+  {
+    name: "legacy implicit non-selection",
+    candidate: {
+      candidateId: "implicit-non-selection",
+      occurrenceId: "shape:implicit-non-selection",
+      thumbnail: "https://images.example/shape-implicit.jpg",
+      visualClass: "irrelevant",
+    },
+    queued: true,
+    evidenceEligible: false,
+  },
+  {
+    name: "selected candidate",
+    candidate: {
+      candidateId: "selected",
+      occurrenceId: "shape:selected",
+      thumbnail: "https://images.example/shape-selected.jpg",
+      visualClass: "core",
+      selected: true,
+    },
+    queued: false,
+    evidenceEligible: false,
+  },
+  {
+    name: "selected candidate with drop reason",
+    candidate: {
+      candidateId: "selected-drop",
+      occurrenceId: "shape:selected-drop",
+      thumbnail: "https://images.example/shape-selected-drop.jpg",
+      visualClass: "supporting",
+      selected: true,
+      dropReason: "unusable_image",
+    },
+    queued: true,
+    evidenceEligible: true,
+  },
+  {
+    name: "legacy drop-reason candidate",
+    candidate: {
+      occurrenceId: "shape:legacy-drop",
+      thumbnail: "https://images.example/shape-legacy-drop.jpg",
+      visualClass: "supporting",
+      dropReason: "exact_duplicate",
+    },
+    queued: true,
+    evidenceEligible: true,
+  },
+  {
+    name: "legacy explicit rejection",
+    candidate: {
+      occurrenceId: "shape:legacy-rejection",
+      thumbnail: "https://images.example/shape-legacy-rejection.jpg",
+      visualClass: "supporting",
+      selected: false,
+    },
+    queued: true,
+    evidenceEligible: true,
+  },
+  {
+    name: "missing thumbnail",
+    candidate: {
+      candidateId: "missing-thumbnail",
+      occurrenceId: "shape:missing-thumbnail",
+      visualClass: "supporting",
+      selected: false,
+    },
+    queued: false,
+    evidenceEligible: false,
+  },
+  {
+    name: "blank occurrence ID",
+    candidate: {
+      candidateId: "blank-occurrence",
+      occurrenceId: "  ",
+      thumbnail: "https://images.example/shape-blank-occurrence.jpg",
+      visualClass: "supporting",
+      selected: false,
+    },
+    queued: false,
+    evidenceEligible: false,
+  },
+];

@@ -39,6 +39,7 @@ export function collectionGridFromStar(
     actor: data.actorName,
     actorEn: data.actorShortNameEn,
     actorAccentColor: data.actorAccentColor,
+    ...(data.presentation ? { presentation: { ...data.presentation } } : {}),
     vibe: data.vibeLabel,
     vibeEn: data.vibeLabelEn,
     vibeEmoji: data.vibeEmoji,
@@ -135,6 +136,7 @@ export function starDataFromCollectionGrid(grid: GridRecord): StarOfDayData {
     ...(grid.generationPrompt ? { generationPrompt: grid.generationPrompt } : {}),
     ...(grid.searchSpell ? { generationQuery: grid.searchSpell } : {}),
     ...(grid.ctaSeed ? { ctaSeed: grid.ctaSeed } : {}),
+    ...(grid.presentation ? { presentation: { ...grid.presentation } } : {}),
     ...(grid.editorial ? { editorial: grid.editorial } : {}),
   };
 }

@@ -9,8 +9,10 @@ import {
   vibePromiseFor,
 } from "./actor-identity-profiles.js";
 import {
+  auditBlindCalibrationExclusionKey,
   auditCalibrationPrefix,
   auditVisualJudgmentIndexKey,
+  auditVisualJudgmentIndexPrefix,
   auditVisualJudgmentKey,
   auditVisualJudgmentPrefix,
   auditEligibilityDecisionPrefix,
@@ -23,7 +25,9 @@ import {
   auditRescuePreferenceKey,
   auditRescuePreferencePrefix,
   auditRescueCalibrationPrefix,
+  auditRescueCalibrationApprovalKey,
   auditRescueCalibrationApprovalPrefix,
+  auditRescueCalibrationApprovalRevocationKey,
   auditRescueCalibrationApprovalRevocationPrefix,
   auditRescueCalibrationAuthorityKey,
   auditRescueCalibrationOutcomePrefix,
@@ -32,8 +36,11 @@ import {
   auditRunKey,
   auditRunPrefix,
   auditVerdictPrefix,
+  approvalSourceRunIds,
+  cacheDiagnosticReceiptKey,
   eligibilityKey,
   getEligibility,
+  resolveRescueCalibrationApprovalAuthority,
   productionReceiptPrefix,
   productionStateKey,
 } from "./actor-eligibility.js";
@@ -41,6 +48,7 @@ import {
   classifyPreflightOutcome,
   compareCalibrationOutcomes,
   createActorAuditHandler,
+  legacyAuditMutationPolicy,
   rescueCalibrationBasis,
   vibeKeyFor,
   writeCalibrationAuthority,
@@ -50,9 +58,128 @@ import {
   GRID_MANIFEST_VERSION,
   gridCorrectionPrefix,
   gridManifestKey,
+  publicationActorIndexKey,
+  publicationActorIndexRepairKey,
+  publicationActorIndexRepairRecoveryCatalogKey,
+  publicationActorIndexRepairRecoveryKey,
+  PUBLICATION_ACTOR_INDEX_REPAIR_RECOVERY_PREFIX,
   publicationManifestCatalogKey,
+  listPublicationActorIndexRepairRecoveryReceipts,
+  recoverPublicationActorIndexRepairHealth,
   readPublicationCorrections,
 } from "./publication-manifest.js";
+import { BLIND_REVIEW_CANDIDATE_SHAPES } from "./blind-review-candidate-fixtures.js";
+import { ARCHIVE_CATALOG_KEY } from "./archive-access.js";
+import { createStarOfDayHandler } from "../star-of-day.js";
+
+test("run-scoped mutation policy defaults Legacy audits to read-only", () => {
+  assert.deepEqual(legacyAuditMutationPolicy("verdict"), {
+    declared: true,
+    legacyWritable: false,
+  });
+  assert.deepEqual(legacyAuditMutationPolicy("future_editorial_action"), {
+    declared: false,
+    legacyWritable: false,
+  });
+  assert.equal(legacyAuditMutationPolicy("flag_candidate").legacyWritable, true);
+  assert.equal(legacyAuditMutationPolicy("save_rescue_board").legacyWritable, true);
+  assert.equal(legacyAuditMutationPolicy("repair_visual_judgment_index").legacyWritable, true);
+});
+
+test("approval source recovery applies one deterministic bounded policy", async () => {
+  const authority = {
+    status: "approved",
+    approvalId: "approval-1",
+    aggregateEvidenceHash: "evidence-1",
+  };
+  const approval = {
+    status: "approved",
+    approvalId: "approval-1",
+    aggregateEvidenceHash: "evidence-1",
+    sourceRunIds: [
+      ...Array.from({ length: 34 }, (_, index) => `run-${String(index).padStart(2, "0")}`),
+      "run-00",
+      "",
+      null,
+    ],
+  };
+  const store = {
+    list: async () => ({ blobs: [] }),
+  };
+
+  assert.deepEqual(
+    await approvalSourceRunIds({
+      store,
+      actorId: "liu-xueyi",
+      vibeIdx: 0,
+      authority,
+      approval,
+    }),
+    Array.from({ length: 32 }, (_, index) => `run-${String(index).padStart(2, "0")}`),
+  );
+  for (const invalid of [
+    { authority: { ...authority, status: "pending" }, approval },
+    { authority: { ...authority, approvalId: "other" }, approval },
+    { authority, approval: { ...approval, aggregateEvidenceHash: "other" } },
+    { authority, approval: { ...approval, sourceRunIds: "run-00" } },
+  ]) {
+    assert.deepEqual(
+      await approvalSourceRunIds({
+        store,
+        actorId: "liu-xueyi",
+        vibeIdx: 0,
+        ...invalid,
+      }),
+      [],
+    );
+  }
+});
+
+test("approval authority resolution replaces stale listed state with canonical records", async () => {
+  const actorId = "liu-xueyi";
+  const vibeIdx = 0;
+  const approvalId = "approval-1";
+  const authority = { status: "approved", approvalId, aggregateEvidenceHash: "evidence-1" };
+  const canonicalApproval = {
+    status: "approved",
+    approvalId,
+    aggregateEvidenceHash: "evidence-1",
+  };
+  const canonicalRevocation = { status: "revoked", approvalId };
+  const records = new Map([
+    [auditRescueCalibrationAuthorityKey(actorId, vibeIdx), authority],
+    [auditRescueCalibrationApprovalKey(actorId, vibeIdx, approvalId), canonicalApproval],
+  ]);
+  const store = {
+    get: async key => records.get(key) || null,
+  };
+  const staleApproval = { status: "approved", approvalId, aggregateEvidenceHash: "stale" };
+  const staleRevocation = { status: "revoked", approvalId };
+
+  const active = await resolveRescueCalibrationApprovalAuthority({
+    store,
+    actorId,
+    vibeIdx,
+    listedApprovals: [staleApproval],
+    listedRevocations: [staleRevocation],
+  });
+  assert.deepEqual(active.approvals, [canonicalApproval]);
+  assert.deepEqual(active.revocations, []);
+
+  records.set(
+    `${auditRescueCalibrationApprovalRevocationPrefix(actorId, vibeIdx)}${approvalId}`,
+    canonicalRevocation,
+  );
+  const revoked = await resolveRescueCalibrationApprovalAuthority({
+    store,
+    actorId,
+    vibeIdx,
+    listedApprovals: [],
+    listedRevocations: [],
+  });
+  assert.deepEqual(revoked.approvals, [canonicalApproval]);
+  assert.deepEqual(revoked.revocations, [canonicalRevocation]);
+});
 
 const ORIGIN = "https://fandom.example";
 const PREVIOUS_CURATION_VERSION = 7;
@@ -200,6 +327,9 @@ function curation({
   hardRejected = false,
   unavailableRejected = false,
   duplicateRejected = false,
+  duplicateOccurrenceIds = false,
+  blankRequiredOccurrenceId = false,
+  blankOptionalOccurrenceId = false,
   calibrationTransfers = true,
   hiddenSourceTransfer = false,
   onOptions = () => {},
@@ -215,7 +345,7 @@ function curation({
     const rawCandidates = ranked.flatMap(batch => (batch.results || []).map(result => ({
       ...result,
       imageDigest: createHash("sha256").update(result.thumbnail || "").digest("hex"),
-      candidateId: candidateIdForResult({
+      candidateId: result.candidateId || candidateIdForResult({
         ...result,
         batchKey: result.batchKey || batch.query,
       }),
@@ -228,7 +358,7 @@ function curation({
         singleFrameRatio: 1,
       },
       calibration: options.calibrationProfile ? (() => {
-        const candidateId = candidateIdForResult({
+        const candidateId = result.candidateId || candidateIdForResult({
           ...result,
           batchKey: result.batchKey || batch.query,
         });
@@ -432,6 +562,25 @@ function curation({
         };
       }
     }
+    if (duplicateOccurrenceIds) {
+      output.diagnostics.calibrationAnalysis = {
+        candidates: rawCandidates.slice(0, 2).map((candidate, index) => ({
+          ...candidate,
+          occurrenceId: "duplicate-occurrence",
+          selected: index === 0,
+        })),
+      };
+    }
+    if (blankRequiredOccurrenceId || blankOptionalOccurrenceId) {
+      output.diagnostics.calibrationAnalysis = {
+        candidates: rawCandidates.slice(0, 2).map((candidate, index) => ({
+          ...candidate,
+          occurrenceId: index === 0 ? "   " : `valid-occurrence-${index}`,
+          selected: blankOptionalOccurrenceId || index !== 0,
+          ...(blankRequiredOccurrenceId && index === 0 ? { dropReason: "unusable_image" } : {}),
+        })),
+      };
+    }
     return output;
   };
 }
@@ -443,6 +592,9 @@ function harness({
   hardRejected = false,
   unavailableRejected = false,
   duplicateRejected = false,
+  duplicateOccurrenceIds = false,
+  blankRequiredOccurrenceId = false,
+  blankOptionalOccurrenceId = false,
   calibrationTransfers = true,
   authorized = true,
   publicAuthorized = true,
@@ -491,6 +643,9 @@ function harness({
     hardRejected,
     unavailableRejected,
     duplicateRejected,
+    duplicateOccurrenceIds,
+    blankRequiredOccurrenceId,
+    blankOptionalOccurrenceId,
     calibrationTransfers,
     hiddenSourceTransfer,
     onOptions: onCurateOptions,
@@ -986,6 +1141,223 @@ test("concurrent visual judgments for different tokens preserve both receipts th
   );
 });
 
+test("operators can repair a visual judgment index after contention without repeating its classification", async () => {
+  const { handler, store } = harness();
+  const vibeKey = vibeKeyFor(pairActor.id, 0);
+  const runResponse = await handler(request("POST", {
+    action: "run", actorId: pairActor.id, vibeKey, scope: "full",
+  }), {});
+  const runBody = await runResponse.json();
+  const runKey = auditRunKey(pairActor.id, 0, runBody.currentRun.runId);
+  const run = structuredClone(store.records.get(runKey));
+  run.calibrationAnalysis = {
+    classificationBasis: "blind_to_selection_and_publication_outcome_metadata_proxy",
+    candidates: [{
+      candidateId: "candidate-exhausted-index-retries",
+      occurrenceId: "3:4",
+      query: "hidden exhausted retries query",
+      thumbnail: "https://images.example/exhausted-index-retries.jpg",
+      visualClass: "supporting",
+      classificationMethod: "promise_evidence_proxy",
+      selected: false,
+      dropReason: "promise_not_fulfilled",
+    }],
+  };
+  run.strongestEvent = null;
+  store.records.set(runKey, structuredClone(run));
+
+  const pendingResponse = await handler(request(
+    "GET",
+    undefined,
+    `?actorId=${pairActor.id}&vibeKey=${encodeURIComponent(vibeKey)}`,
+  ), {});
+  const pending = await pendingResponse.json();
+  const judgmentToken = pending.currentRun.visualJudgmentQueue
+    .find(item => item.thumbnail.endsWith("/exhausted-index-retries.jpg")).judgmentToken;
+  const receiptId = `visual-${judgmentToken}`;
+  const receiptKey = auditVisualJudgmentKey(pairActor.id, 0, run.runId, receiptId);
+  const indexKey = auditVisualJudgmentIndexKey(pairActor.id, 0, run.runId);
+  const submission = {
+    action: "record_visual_judgment",
+    actorId: pairActor.id,
+    vibeKey,
+    runId: run.runId,
+    judgmentToken,
+    classification: "core",
+  };
+
+  const originalSetJSON = store.setJSON.bind(store);
+  let contendedIndexWrites = 0;
+  store.setJSON = async (key, value, options) => {
+    if (key === indexKey) {
+      contendedIndexWrites += 1;
+      return { modified: false };
+    }
+    return originalSetJSON(key, value, options);
+  };
+
+  const contendedResponse = await handler(request("POST", submission), {});
+  const contendedBody = await contendedResponse.json();
+  assert.equal(contendedResponse.status, 503);
+  assert.deepEqual(contendedBody, {
+    error: "The judgment was saved, but its receipt index is busy.",
+    receiptSaved: true,
+    repairAction: "repair_visual_judgment_index",
+    runId: run.runId,
+    receiptId,
+  });
+  assert.equal(contendedIndexWrites, 8);
+  assert.equal(store.records.has(indexKey), false);
+  const immutableReceipt = structuredClone(store.records.get(receiptKey));
+  assert.deepEqual(immutableReceipt, {
+    schemaVersion: 1,
+    receiptId,
+    runId: run.runId,
+    sourceOccurrenceId: "3:4",
+    classification: "core",
+    judgmentMethod: "blind_image_only",
+    judgedAt: immutableReceipt.judgedAt,
+    judgedBy: "operator-1",
+    productionScoringChanged: false,
+  });
+  assert.equal(Number.isNaN(Date.parse(immutableReceipt.judgedAt)), false);
+
+  const priorReceiptId = "visual-prior";
+  store.records.set(indexKey, {
+    schemaVersion: 1,
+    runId: run.runId,
+    receiptIds: [priorReceiptId],
+    updatedAt: "2026-09-01T00:00:00.000Z",
+  });
+  store.setJSON = originalSetJSON;
+  const repairResponse = await handler(request("POST", {
+    action: "repair_visual_judgment_index",
+    actorId: pairActor.id,
+    vibeKey,
+    runId: run.runId,
+    receiptId,
+  }), {});
+  const repairBody = await repairResponse.json();
+  assert.equal(repairResponse.status, 200, JSON.stringify(repairBody));
+  assert.deepEqual(repairBody, {
+    repaired: true,
+    runId: run.runId,
+    receiptId,
+    receiptUnchanged: true,
+  });
+  assert.deepEqual(store.records.get(indexKey).receiptIds, [priorReceiptId, receiptId]);
+  assert.deepEqual(store.records.get(receiptKey), immutableReceipt);
+
+  const unrelatedRunId = "unrelated-run";
+  store.records.set(auditRunKey(pairActor.id, 0, unrelatedRunId), {
+    ...structuredClone(run),
+    runId: unrelatedRunId,
+  });
+  const unrelatedResponse = await handler(request("POST", {
+    action: "repair_visual_judgment_index",
+    actorId: pairActor.id,
+    vibeKey,
+    runId: unrelatedRunId,
+    receiptId,
+  }), {});
+  assert.equal(unrelatedResponse.status, 409);
+  assert.deepEqual(store.records.get(indexKey).receiptIds, [priorReceiptId, receiptId]);
+  assert.deepEqual(store.records.get(receiptKey), immutableReceipt);
+});
+
+test("retrying a contended visual judgment preserves receipts already in the index", async () => {
+  const { handler, store } = harness();
+  const vibeKey = vibeKeyFor(pairActor.id, 0);
+  const runResponse = await handler(request("POST", {
+    action: "run", actorId: pairActor.id, vibeKey, scope: "full",
+  }), {});
+  const runBody = await runResponse.json();
+  const runKey = auditRunKey(pairActor.id, 0, runBody.currentRun.runId);
+  const run = structuredClone(store.records.get(runKey));
+  run.calibrationAnalysis = {
+    classificationBasis: "blind_to_selection_and_publication_outcome_metadata_proxy",
+    candidates: [{
+      candidateId: "candidate-indexed-before-contention",
+      occurrenceId: "3:4",
+      query: "hidden indexed query",
+      thumbnail: "https://images.example/indexed-before-contention.jpg",
+      visualClass: "supporting",
+      classificationMethod: "promise_evidence_proxy",
+      selected: false,
+      dropReason: "promise_not_fulfilled",
+    }, {
+      candidateId: "candidate-contended-after-index",
+      occurrenceId: "3:5",
+      query: "hidden contended query",
+      thumbnail: "https://images.example/contended-after-index.jpg",
+      visualClass: "irrelevant",
+      classificationMethod: "promise_evidence_proxy",
+      selected: false,
+      dropReason: null,
+    }],
+  };
+  run.strongestEvent = null;
+  store.records.set(runKey, structuredClone(run));
+
+  const pendingResponse = await handler(request(
+    "GET",
+    undefined,
+    `?actorId=${pairActor.id}&vibeKey=${encodeURIComponent(vibeKey)}`,
+  ), {});
+  const pending = await pendingResponse.json();
+  const firstToken = pending.currentRun.visualJudgmentQueue
+    .find(item => item.thumbnail.endsWith("/indexed-before-contention.jpg")).judgmentToken;
+  const secondToken = pending.currentRun.visualJudgmentQueue
+    .find(item => item.thumbnail.endsWith("/contended-after-index.jpg")).judgmentToken;
+  const firstReceiptId = `visual-${firstToken}`;
+  const secondReceiptId = `visual-${secondToken}`;
+  const indexKey = auditVisualJudgmentIndexKey(pairActor.id, 0, run.runId);
+  const submit = (judgmentToken, classification) => handler(request("POST", {
+    action: "record_visual_judgment",
+    actorId: pairActor.id,
+    vibeKey,
+    runId: run.runId,
+    judgmentToken,
+    classification,
+  }), {});
+
+  const firstResponse = await submit(firstToken, "core");
+  assert.equal(firstResponse.status, 200);
+  assert.deepEqual(store.records.get(indexKey).receiptIds, [firstReceiptId]);
+
+  const originalSetJSON = store.setJSON.bind(store);
+  let contendedIndexWrites = 0;
+  store.setJSON = async (key, value, options) => {
+    if (key === indexKey) {
+      contendedIndexWrites += 1;
+      return { modified: false };
+    }
+    return originalSetJSON(key, value, options);
+  };
+
+  const contendedResponse = await submit(secondToken, "irrelevant");
+  assert.equal(contendedResponse.status, 503);
+  assert.equal(contendedIndexWrites, 8);
+  assert.deepEqual(store.records.get(indexKey).receiptIds, [firstReceiptId]);
+
+  const receiptIds = [firstReceiptId, secondReceiptId];
+  for (const receiptId of receiptIds) {
+    assert.equal(store.records.has(
+      auditVisualJudgmentKey(pairActor.id, 0, run.runId, receiptId),
+    ), true);
+  }
+
+  store.setJSON = originalSetJSON;
+  const retryResponse = await submit(secondToken, "irrelevant");
+  const retryBody = await retryResponse.json();
+  assert.equal(retryResponse.status, 200, JSON.stringify(retryBody));
+  assert.deepEqual(store.records.get(indexKey).receiptIds, receiptIds);
+  assert.deepEqual(
+    retryBody.currentRun.humanVisualJudgments.map(receipt => receipt.receiptId).sort(),
+    [...receiptIds].sort(),
+  );
+});
+
 test("human versus proxy comparison exposes stage and class transitions without masking sampled subgroup disagreement", async () => {
   const { handler, store } = harness();
   const vibeKey = vibeKeyFor(pairActor.id, 0);
@@ -1220,6 +1592,117 @@ test("a failed-board run exposes implicitly unselected retained images for blind
     ],
   );
   assert.equal("humanProxyComparison" in payload.currentRun, false);
+
+  const explicitToken = payload.currentRun.visualJudgmentQueue
+    .find(item => item.thumbnail.endsWith("/explicit-unselected.jpg")).judgmentToken;
+  const explicitJudgment = await handler(request("POST", {
+    action: "record_visual_judgment",
+    actorId: pairActor.id,
+    vibeKey,
+    runId,
+    judgmentToken: explicitToken,
+    classification: "irrelevant",
+  }), {});
+  assert.equal(explicitJudgment.status, 200);
+
+  const earlyReveal = await handler(request("POST", {
+    action: "blind_choice", actorId: pairActor.id, vibeKey, runId, choice: "compiled",
+  }), {});
+  assert.equal(earlyReveal.status, 409);
+
+  const implicitToken = payload.currentRun.visualJudgmentQueue
+    .find(item => item.thumbnail.endsWith("/implicit-unselected.jpg")).judgmentToken;
+  const implicitJudgment = await handler(request("POST", {
+    action: "record_visual_judgment",
+    actorId: pairActor.id,
+    vibeKey,
+    runId,
+    judgmentToken: implicitToken,
+    classification: "irrelevant",
+  }), {});
+  assert.equal(implicitJudgment.status, 200);
+  const completed = await implicitJudgment.json();
+  assert.equal(completed.currentRun.calibrationAnalysis.candidates.length, 3);
+  assert.equal("visualJudgmentQueue" in completed.currentRun, false);
+});
+
+test("blind review candidate shapes share queue, acceptance, completion, and comparison outcomes", async () => {
+  const { handler, store } = harness();
+  const vibeKey = vibeKeyFor(pairActor.id, 0);
+  const runResponse = await handler(request("POST", {
+    action: "run", actorId: pairActor.id, vibeKey, scope: "full",
+  }), {});
+  const runBody = await runResponse.json();
+  const runId = runBody.currentRun.runId;
+  const runKey = auditRunKey(pairActor.id, 0, runId);
+  const run = structuredClone(store.records.get(runKey));
+  run.strongestEvent = null;
+  run.strongestCompiled = null;
+  run.winner = null;
+  run.alternate = null;
+  run.completeProposalCardCount = 0;
+  run.calibrationAnalysis = {
+    candidates: BLIND_REVIEW_CANDIDATE_SHAPES.map(({ candidate }) =>
+      structuredClone(candidate)),
+  };
+  store.records.set(runKey, run);
+
+  const pendingResponse = await handler(request(
+    "GET",
+    undefined,
+    `?actorId=${pairActor.id}&vibeKey=${encodeURIComponent(vibeKey)}`,
+  ), {});
+  const pending = await pendingResponse.json();
+  const queuedShapes = BLIND_REVIEW_CANDIDATE_SHAPES.filter(shape => shape.queued);
+  assert.deepEqual(
+    pending.currentRun.visualJudgmentQueue.map(item => item.thumbnail).sort(),
+    queuedShapes.map(shape => shape.candidate.thumbnail).sort(),
+  );
+
+  for (const shape of BLIND_REVIEW_CANDIDATE_SHAPES.filter(item => !item.queued)) {
+    const rejected = await handler(request("POST", {
+      action: "record_visual_judgment",
+      actorId: pairActor.id,
+      vibeKey,
+      runId,
+      judgmentToken: createHash("sha256")
+        .update(`visual-judgment:${runId}:${shape.candidate.occurrenceId}`)
+        .digest("hex")
+        .slice(0, 24),
+      classification: "core",
+    }), {});
+    assert.equal(rejected.status, 400, shape.name);
+  }
+
+  let completed;
+  for (const shape of queuedShapes) {
+    const queueItem = pending.currentRun.visualJudgmentQueue
+      .find(item => item.thumbnail === shape.candidate.thumbnail);
+    const accepted = await handler(request("POST", {
+      action: "record_visual_judgment",
+      actorId: pairActor.id,
+      vibeKey,
+      runId,
+      judgmentToken: queueItem.judgmentToken,
+      classification: "core",
+    }), {});
+    assert.equal(accepted.status, 200, shape.name);
+    completed = await accepted.json();
+  }
+
+  assert.equal("visualJudgmentQueue" in completed.currentRun, false);
+  assert.equal(completed.currentRun.humanVisualJudgments.length, queuedShapes.length);
+
+  const exportResponse = await handler(request(
+    "GET",
+    undefined,
+    `?export=calibration&actorId=${pairActor.id}&vibeKey=${encodeURIComponent(vibeKey)}&runId=${runId}`,
+  ), {});
+  const comparison = (await exportResponse.json()).run.humanProxyComparison;
+  assert.equal(exportResponse.status, 200);
+  assert.equal(comparison.occurrenceCount, queuedShapes.length);
+  assert.equal(comparison.reviewedCount, queuedShapes.length);
+  assert.deepEqual(comparison.missingOccurrences, []);
 });
 
 test("private calibration export is admin-only, GET-only, and requires a retained run", async () => {
@@ -1280,6 +1763,90 @@ test("private calibration export does not synthesize legacy evidence or mix in c
   assert.equal("rescueDraft" in payload.run, false);
   assert.ok(payload.exportMetadata.missingFields.includes("run.boardDiagnostics"));
   assert.match(payload.exportMetadata.limitations[0], /raw selected immutable run/);
+});
+
+test("private calibration export marks malformed retained proof metrics unavailable without rewriting the run", async () => {
+  const { handler, store } = harness();
+  const vibeKey = vibeKeyFor(pairActor.id, 0);
+  const run = {
+    runId: "retained-malformed-proof",
+    startedAt: "2026-08-01T12:00:00.000Z",
+    calibrationProof: {
+      ready: true,
+      status: "reproduced_beyond_saved_nine",
+      beyondExactSavedNineCount: -1.5,
+      scoreDelta: "not-a-score",
+    },
+  };
+  const key = auditRunKey(pairActor.id, 0, run.runId);
+  store.records.set(key, structuredClone(run));
+
+  const response = await handler(request(
+    "GET",
+    undefined,
+    `?export=calibration&actorId=${pairActor.id}&vibeKey=${encodeURIComponent(vibeKey)}&runId=${run.runId}`,
+  ), {});
+  const payload = await response.json();
+
+  assert.equal(response.status, 200);
+  assert.equal("beyondExactSavedNineCount" in payload.run.calibrationProof, false);
+  assert.equal("scoreDelta" in payload.run.calibrationProof, false);
+  assert.ok(payload.exportMetadata.missingFields.includes(
+    "run.calibrationProof.beyondExactSavedNineCount",
+  ));
+  assert.ok(payload.exportMetadata.missingFields.includes(
+    "run.calibrationProof.scoreDelta",
+  ));
+  assert.deepEqual(store.records.get(key), run);
+});
+
+test("date-bounded calibration export omits malformed Legacy proof metrics and retains valid zeroes", async () => {
+  const { handler, store } = harness();
+  const vibeKey = vibeKeyFor(pairActor.id, 0);
+  const malformed = {
+    runId: "legacy-malformed-export-proof",
+    profileVersion: "legacy",
+    startedAt: "2026-08-10T12:00:00.000Z",
+    calibrationProof: {
+      beyondExactSavedNineCount: Number.POSITIVE_INFINITY,
+      scoreDelta: Number.NaN,
+    },
+  };
+  const valid = {
+    runId: "retained-valid-export-proof",
+    startedAt: "2026-08-11T12:00:00.000Z",
+    calibrationProof: {
+      beyondExactSavedNineCount: 0,
+      scoreDelta: 0,
+    },
+  };
+  store.records.set(auditRunKey(pairActor.id, 0, malformed.runId), structuredClone(malformed));
+  store.records.set(auditRunKey(pairActor.id, 0, valid.runId), structuredClone(valid));
+
+  const response = await handler(request(
+    "GET",
+    undefined,
+    "?export=calibration&from=2026-08-01&to=2026-08-31",
+  ), {});
+  const payload = await response.json();
+  const malformedExport = payload.runs.find(item => item.run.runId === malformed.runId);
+  const validExport = payload.runs.find(item => item.run.runId === valid.runId);
+
+  assert.equal(response.status, 200);
+  assert.equal("beyondExactSavedNineCount" in malformedExport.run.calibrationProof, false);
+  assert.equal("scoreDelta" in malformedExport.run.calibrationProof, false);
+  assert.ok(malformedExport.exportMetadata.missingFields.includes(
+    "run.calibrationProof.beyondExactSavedNineCount",
+  ));
+  assert.ok(malformedExport.exportMetadata.missingFields.includes(
+    "run.calibrationProof.scoreDelta",
+  ));
+  assert.equal(validExport.run.calibrationProof.beyondExactSavedNineCount, 0);
+  assert.equal(validExport.run.calibrationProof.scoreDelta, 0);
+  assert.deepEqual(
+    store.records.get(auditRunKey(pairActor.id, 0, malformed.runId)),
+    malformed,
+  );
 });
 
 test("date-bounded calibration export includes only retained runs in range and never searches or writes", async () => {
@@ -1356,6 +1923,7 @@ test("date-bounded calibration export generates explicit publication join outcom
     scope: "full",
     startedAt: "2026-08-10T12:00:00.000Z",
     completedAt: "2026-08-10T12:01:00.000Z",
+    publicationJoinSupported: true,
     rawResults: [
       {
         provisionalCandidateId: "occurrence-matched",
@@ -1374,7 +1942,18 @@ test("date-bounded calibration export generates explicit publication join outcom
       },
     ],
   };
+  const legacyRun = {
+    runId: "run-before-publication-matching",
+    scope: "full",
+    startedAt: "2026-08-09T12:00:00.000Z",
+    completedAt: "2026-08-09T12:01:00.000Z",
+    rawResults: [{ candidateId: "legacy-candidate" }],
+  };
   store.records.set(auditRunKey(pairActor.id, 0, run.runId), structuredClone(run));
+  store.records.set(
+    auditRunKey(pairActor.id, 0, legacyRun.runId),
+    structuredClone(legacyRun),
+  );
 
   const firstManifest = publicationManifest("2026-08-11");
   firstManifest.cards[0] = {
@@ -1414,7 +1993,7 @@ test("date-bounded calibration export generates explicit publication join outcom
   const payload = await response.json();
 
   assert.equal(response.status, 200);
-  assert.equal(payload.runs.length, 1);
+  assert.equal(payload.runs.length, 2);
   const receipt = payload.runs[0].publicationJoinReceipt;
   assert.equal(receipt.kind, "vibe-atlas-audit-publication-join");
   assert.equal(receipt.readOnly, true);
@@ -1451,6 +2030,12 @@ test("date-bounded calibration export generates explicit publication join outcom
       ["2026-08-12", "manifest-2026-08-12"],
     ],
   );
+  assert.deepEqual(payload.runs[0].links.editions, [
+    { date: "2026-08-11", url: `${ORIGIN}/vibe-atlas?date=2026-08-11` },
+    { date: "2026-08-12", url: `${ORIGIN}/vibe-atlas?date=2026-08-12` },
+  ]);
+  assert.equal("publicationJoinReceipt" in payload.runs[1], false);
+  assert.equal("editions" in payload.runs[1].links, false);
   assert.equal(getSearchCall(), 0);
   assert.deepEqual([...store.records.entries()], auditBefore);
   assert.deepEqual([...publicationStore.records.entries()], publicationBefore);
@@ -1857,7 +2442,10 @@ test("the audit surface is admin-only before any report store is read", async ()
   const { handler, store } = harness({ authorized: false });
   const response = await handler(request(), {});
   assert.equal(response.status, 403);
-  assert.equal(store.records.size, 0);
+  assert.deepEqual(
+    [...store.records.keys()].filter(key => !key.startsWith("diagnostics:cache-comparison:")),
+    [],
+  );
 });
 
 test("the private actor register includes every pairing without exposing reports publicly", async () => {
@@ -1900,6 +2488,421 @@ test("release inventory groups current curator approvals by actor pack", async (
   assert.equal(body.releaseInventory.unusedWithinRecentWindowPairingCount, 1);
   assert.equal(body.releaseInventory.actorPacks[0].releaseReadyPairingCount, 1);
   assert.equal(body.releaseInventory.actorPacks[0].pairings[0].releaseSource, "fresh_curator");
+  assert.equal(body.releaseInventory.publicationIndexRepairHealth.warning, false);
+});
+
+test("operators recover malformed repair health while preserving valid recent events only", async () => {
+  const publicationStore = memoryStore();
+  const { handler } = harness({ publicationStore });
+  const initialReleaseDesk = await handler(request(), {});
+  assert.equal(initialReleaseDesk.status, 200);
+  const actorIndex = structuredClone(
+    publicationStore.records.get(publicationActorIndexKey()),
+  );
+  publicationStore.records.set(publicationActorIndexRepairKey(), {
+    schemaVersion: 99,
+    kind: "corrupted",
+    events: [
+      {
+        attemptedAt: "2026-08-31T03:00:00.000Z",
+        reason: "missing",
+        outcome: "rebuilt",
+      },
+      { attemptedAt: "not-a-date", reason: "invalid", outcome: "failed" },
+      {
+        attemptedAt: "2026-08-29T03:00:00.000Z",
+        reason: "stale",
+        outcome: "rebuilt",
+      },
+    ],
+  });
+
+  const response = await handler(request("POST", {
+    action: "recover_publication_index_repair_health",
+    reason: "Reset malformed telemetry after operator review.",
+  }), {});
+  const body = await response.json();
+
+  assert.equal(response.status, 200, JSON.stringify(body));
+  assert.equal(body.recovered, true);
+  assert.equal(body.preservedEventCount, 1);
+  assert.match(body.receiptId, /^repair-health-recovery-/);
+  assert.deepEqual(body.repairHealth, {
+    status: "healthy",
+    warning: false,
+    windowHours: 24,
+    attemptCount: 1,
+    failedAttemptCount: 0,
+    lastAttemptAt: "2026-08-31T03:00:00.000Z",
+    lastOutcome: "rebuilt",
+  });
+  assert.deepEqual(publicationStore.records.get(publicationActorIndexKey()), actorIndex);
+  const recoveryReceipts = [...publicationStore.records.entries()]
+    .filter(([key]) => key.startsWith(PUBLICATION_ACTOR_INDEX_REPAIR_RECOVERY_PREFIX));
+  assert.equal(recoveryReceipts.length, 1);
+  assert.deepEqual(recoveryReceipts[0][1], {
+    schemaVersion: 1,
+    kind: "vibe-atlas-publication-actor-index-repair-health-recovery",
+    status: "authorized",
+    receiptId: body.receiptId,
+    recoveredAt: "2026-08-31T12:00:03.000Z",
+    recoveredBy: "operator-1",
+    preservedEventCount: 1,
+    reason: "Reset malformed telemetry after operator review.",
+    targetRepairHealth: {
+      updatedAt: "2026-08-31T12:00:03.000Z",
+      eventCount: 1,
+    },
+  });
+  assert.deepEqual(
+    publicationStore.records.get(publicationActorIndexRepairRecoveryCatalogKey()),
+    {
+      schemaVersion: 1,
+      kind: "vibe-atlas-publication-actor-index-repair-health-recovery-catalog",
+      updatedAt: "2026-08-31T12:00:03.000Z",
+      receipts: [recoveryReceipts[0][1]],
+    },
+  );
+
+  const releaseDesk = await handler(request(), {});
+  const releaseBody = await releaseDesk.json();
+  assert.equal(releaseBody.releaseInventory.publicationIndexRepairHealth.status, "healthy");
+});
+
+test("operators can review bounded repair-health recovery history newest first", async () => {
+  const publicationStore = memoryStore();
+  const receipts = [
+    ["repair-health-recovery-middle", "2026-08-30T12:00:00.000Z", "operator-2", 2, null],
+    ["repair-health-recovery-newest", "2026-08-31T12:00:00.000Z", "operator-3", 3, "Incident review."],
+    ["repair-health-recovery-oldest", "2026-08-29T12:00:00.000Z", "operator-1", 1, "Malformed telemetry."],
+  ].map(([receiptId, recoveredAt, recoveredBy, preservedEventCount, reason]) => ({
+      schemaVersion: 1,
+      kind: "vibe-atlas-publication-actor-index-repair-health-recovery",
+      status: "authorized",
+      receiptId,
+      recoveredAt,
+      recoveredBy,
+      preservedEventCount,
+      reason,
+    }));
+  publicationStore.records.set(publicationActorIndexRepairRecoveryCatalogKey(), {
+    schemaVersion: 1,
+    kind: "vibe-atlas-publication-actor-index-repair-health-recovery-catalog",
+    updatedAt: "2026-08-31T12:00:00.000Z",
+    receipts: [receipts[1], receipts[0], receipts[2]],
+  });
+  const { handler } = harness({ publicationStore });
+
+  const response = await handler(request(
+    "GET",
+    undefined,
+    "?history=repair-health-recoveries&limit=2",
+  ), {});
+  const body = await response.json();
+
+  assert.equal(response.status, 200, JSON.stringify(body));
+  assert.deepEqual(body, {
+    schemaVersion: 1,
+    receipts: [
+      {
+        receiptId: "repair-health-recovery-newest",
+        recoveredAt: "2026-08-31T12:00:00.000Z",
+        recoveredBy: "operator-3",
+        preservedEventCount: 3,
+        reason: "Incident review.",
+      },
+      {
+        receiptId: "repair-health-recovery-middle",
+        recoveredAt: "2026-08-30T12:00:00.000Z",
+        recoveredBy: "operator-2",
+        preservedEventCount: 2,
+        reason: null,
+      },
+    ],
+    retainedReceiptCount: 3,
+    historyLimit: 100,
+  });
+});
+
+test("repair-health recovery history backfills preexisting immutable receipts once", async () => {
+  const publicationStore = memoryStore();
+  const receipts = Array.from({ length: 105 }, (_, index) => ({
+    schemaVersion: 1,
+    kind: "vibe-atlas-publication-actor-index-repair-health-recovery",
+    status: "authorized",
+    receiptId: `repair-health-recovery-${String(index).padStart(3, "0")}`,
+    recoveredAt: new Date(Date.UTC(2026, 0, 1, 0, index)).toISOString(),
+    recoveredBy: `operator-${index}`,
+    preservedEventCount: index,
+    reason: index % 2 ? null : `Reason ${index}`,
+  }));
+  for (const receipt of receipts) {
+    await publicationStore.setJSON(
+      publicationActorIndexRepairRecoveryKey(receipt.receiptId),
+      receipt,
+    );
+  }
+  const originalList = publicationStore.list.bind(publicationStore);
+  let listCalls = 0;
+  publicationStore.list = async options => {
+    listCalls += 1;
+    assert.deepEqual(options, {
+      prefix: PUBLICATION_ACTOR_INDEX_REPAIR_RECOVERY_PREFIX,
+      paginate: false,
+    });
+    return originalList(options);
+  };
+  const { handler } = harness({ publicationStore });
+
+  const firstResponse = await handler(request(
+    "GET",
+    undefined,
+    "?history=repair-health-recoveries&limit=2",
+  ), {});
+  const first = await firstResponse.json();
+  assert.equal(firstResponse.status, 200, JSON.stringify(first));
+  assert.deepEqual(
+    first.receipts.map(receipt => receipt.receiptId),
+    ["repair-health-recovery-104", "repair-health-recovery-103"],
+  );
+  assert.equal(first.retainedReceiptCount, 100);
+  assert.equal(listCalls, 1);
+  const oldestRetained = publicationStore.records
+    .get(publicationActorIndexRepairRecoveryCatalogKey())
+    .receipts.at(-1);
+  assert.equal(oldestRetained.receiptId, "repair-health-recovery-005");
+
+  const secondResponse = await handler(request(
+    "GET",
+    undefined,
+    "?history=repair-health-recoveries&limit=1",
+  ), {});
+  assert.equal(secondResponse.status, 200);
+  assert.equal(listCalls, 1);
+});
+
+test("repair-health recovery history stays admin-only and read-only", async () => {
+  const deniedPublicationStore = memoryStore();
+  const denied = harness({
+    authorized: false,
+    publicationStore: deniedPublicationStore,
+  });
+  const deniedResponse = await denied.handler(request(
+    "GET",
+    undefined,
+    "?history=repair-health-recoveries",
+  ), {});
+  assert.equal(deniedResponse.status, 403);
+  assert.equal(deniedPublicationStore.records.size, 0);
+
+  const allowedPublicationStore = memoryStore();
+  const allowed = harness({ publicationStore: allowedPublicationStore });
+  const postResponse = await allowed.handler(request("POST", {
+    action: "ignored",
+  }, "?history=repair-health-recoveries"), {});
+  const postBody = await postResponse.json();
+  assert.equal(postResponse.status, 405);
+  assert.match(postBody.error, /read-only and GET-only/i);
+  assert.equal(allowedPublicationStore.records.size, 0);
+});
+
+test("repair-health recovery history rejects unbounded limits", async () => {
+  const publicationStore = memoryStore();
+  await assert.rejects(
+    listPublicationActorIndexRepairRecoveryReceipts(publicationStore, { limit: 101 }),
+    error => error.status === 400 && /limit is invalid/i.test(error.message),
+  );
+});
+
+test("repair-health recovery history retains only the newest one hundred receipts", async () => {
+  const publicationStore = memoryStore();
+  const receipts = Array.from({ length: 100 }, (_, index) => ({
+    schemaVersion: 1,
+    kind: "vibe-atlas-publication-actor-index-repair-health-recovery",
+    status: "authorized",
+    receiptId: `repair-health-recovery-${String(index).padStart(3, "0")}`,
+    recoveredAt: new Date(Date.UTC(2026, 0, 1, 0, index)).toISOString(),
+    recoveredBy: "operator-1",
+    preservedEventCount: index,
+    reason: null,
+  })).reverse();
+  await publicationStore.setJSON(publicationActorIndexRepairRecoveryCatalogKey(), {
+    schemaVersion: 1,
+    kind: "vibe-atlas-publication-actor-index-repair-health-recovery-catalog",
+    updatedAt: receipts[0].recoveredAt,
+    receipts,
+  });
+
+  await recoverPublicationActorIndexRepairHealth(publicationStore, {
+    now: () => "2026-08-31T12:00:00.000Z",
+    operator: "operator-2",
+    reason: "Newest reset.",
+    createReceiptId: () => "newest",
+  });
+
+  const catalog = publicationStore.records.get(
+    publicationActorIndexRepairRecoveryCatalogKey(),
+  );
+  assert.equal(catalog.receipts.length, 100);
+  assert.equal(catalog.receipts[0].receiptId, "repair-health-recovery-newest");
+  assert.equal(catalog.receipts[0].reason, "Newest reset.");
+  assert.equal(catalog.receipts.at(-1).receiptId, "repair-health-recovery-001");
+  assert.equal(
+    catalog.receipts.some(receipt =>
+      receipt.receiptId === "repair-health-recovery-000"),
+    false,
+  );
+});
+
+test("operators can reset unreadable repair health without changing publication data", async () => {
+  const publicationStore = memoryStore();
+  const originalGet = publicationStore.get.bind(publicationStore);
+  let repairHealthReadFailed = false;
+  publicationStore.get = async key => {
+    if (key === publicationActorIndexRepairKey() && !repairHealthReadFailed) {
+      repairHealthReadFailed = true;
+      throw new Error("corrupt JSON");
+    }
+    return originalGet(key);
+  };
+  const { handler } = harness({ publicationStore });
+
+  const response = await handler(request("POST", {
+    action: "recover_publication_index_repair_health",
+  }), {});
+  const body = await response.json();
+
+  assert.equal(response.status, 200, JSON.stringify(body));
+  assert.equal(body.preservedEventCount, 0);
+  assert.equal(body.repairHealth.status, "healthy");
+  assert.equal(body.repairHealth.attemptCount, 0);
+});
+
+test("failed repair-health recovery returns an explicit error", async () => {
+  const publicationStore = memoryStore();
+  const originalSetJSON = publicationStore.setJSON.bind(publicationStore);
+  publicationStore.setJSON = async (key, value, options) => {
+    if (key === publicationActorIndexRepairKey()) throw new Error("telemetry write unavailable");
+    return originalSetJSON(key, value, options);
+  };
+  const { handler } = harness({ publicationStore });
+
+  const response = await handler(request("POST", {
+    action: "recover_publication_index_repair_health",
+  }), {});
+  const body = await response.json();
+
+  assert.equal(response.status, 503);
+  assert.equal(body.error, "Repair health could not be recovered. No publication data was changed.");
+  assert.equal(publicationStore.records.has(publicationActorIndexRepairKey()), false);
+  const receipts = [...publicationStore.records.entries()]
+    .filter(([key]) => key.startsWith(PUBLICATION_ACTOR_INDEX_REPAIR_RECOVERY_PREFIX));
+  assert.equal(receipts.length, 1);
+  assert.equal(receipts[0][1].status, "authorized");
+});
+
+test("receipt-write failure leaves publication manifests and actor index unchanged", async () => {
+  const publicationStore = memoryStore();
+  const { handler } = harness({ publicationStore });
+  const initialReleaseDesk = await handler(request(), {});
+  assert.equal(initialReleaseDesk.status, 200);
+  const manifest = publicationManifest("2026-08-30");
+  publicationStore.records.set(gridManifestKey(manifest.publicationDate), manifest);
+  const actorIndex = structuredClone(
+    publicationStore.records.get(publicationActorIndexKey()),
+  );
+  const repairHealth = {
+    schemaVersion: 99,
+    kind: "corrupted",
+    events: [],
+  };
+  publicationStore.records.set(publicationActorIndexRepairKey(), repairHealth);
+  const originalSetJSON = publicationStore.setJSON.bind(publicationStore);
+  publicationStore.setJSON = async (key, value, options) => {
+    if (key.startsWith(PUBLICATION_ACTOR_INDEX_REPAIR_RECOVERY_PREFIX)) {
+      throw new Error("receipt store unavailable");
+    }
+    return originalSetJSON(key, value, options);
+  };
+
+  const response = await handler(request("POST", {
+    action: "recover_publication_index_repair_health",
+    reason: "Operator-requested reset.",
+  }), {});
+  const body = await response.json();
+
+  assert.equal(response.status, 503);
+  assert.equal(body.error, "Repair health could not be recovered. No publication data was changed.");
+  assert.deepEqual(
+    publicationStore.records.get(gridManifestKey(manifest.publicationDate)),
+    manifest,
+  );
+  assert.deepEqual(publicationStore.records.get(publicationActorIndexKey()), actorIndex);
+  assert.deepEqual(
+    publicationStore.records.get(publicationActorIndexRepairKey()),
+    repairHealth,
+  );
+  assert.equal(
+    [...publicationStore.records.keys()]
+      .some(key => key.startsWith(PUBLICATION_ACTOR_INDEX_REPAIR_RECOVERY_PREFIX)),
+    false,
+  );
+});
+
+test("a conflicting recovery receipt prevents the repair-health reset", async () => {
+  const publicationStore = memoryStore();
+  const receiptId = "repair-health-recovery-fixed";
+  const existingReceipt = {
+    schemaVersion: 1,
+    kind: "vibe-atlas-publication-actor-index-repair-health-recovery",
+    status: "authorized",
+    receiptId,
+  };
+  const repairHealth = {
+    schemaVersion: 99,
+    kind: "corrupted",
+    events: [],
+  };
+  publicationStore.records.set(
+    publicationActorIndexRepairRecoveryKey(receiptId),
+    existingReceipt,
+  );
+  publicationStore.records.set(publicationActorIndexRepairKey(), repairHealth);
+
+  await assert.rejects(
+    recoverPublicationActorIndexRepairHealth(publicationStore, {
+      now: () => "2026-08-31T12:00:00.000Z",
+      operator: "operator-1",
+      createReceiptId: () => "fixed",
+    }),
+    error => (
+      error.status === 503
+      && error.message === "Repair health could not be recovered. No publication data was changed."
+    ),
+  );
+  assert.deepEqual(
+    publicationStore.records.get(publicationActorIndexRepairKey()),
+    repairHealth,
+  );
+  assert.deepEqual(
+    publicationStore.records.get(publicationActorIndexRepairRecoveryKey(receiptId)),
+    existingReceipt,
+  );
+});
+
+test("repair-health recovery rejects an overlong reason before writing", async () => {
+  const publicationStore = memoryStore();
+  const { handler } = harness({ publicationStore });
+
+  const response = await handler(request("POST", {
+    action: "recover_publication_index_repair_health",
+    reason: "x".repeat(401),
+  }), {});
+  const body = await response.json();
+
+  assert.equal(response.status, 400);
+  assert.equal(body.error, "Recovery reason must be at most 400 characters.");
+  assert.equal(publicationStore.records.size, 0);
 });
 
 test("production readiness appends receipts without mutating the approved audit", async () => {
@@ -2260,6 +3263,58 @@ test("run, verdict, rerun, and retained-run inspection keep eligibility current"
   assert.equal((await priorResponse.json()).run.operatorVerdict.verdict, "approved");
 });
 
+test("audit creation rejects duplicate nonblank occurrence IDs before retaining the run", async () => {
+  const { handler, store } = harness({ duplicateOccurrenceIds: true });
+  const vibeKey = vibeKeyFor(pairActor.id, 0);
+
+  const response = await handler(request("POST", {
+    action: "run",
+    actorId: pairActor.id,
+    vibeKey,
+    scope: "representative",
+  }), {});
+  const body = await response.json();
+
+  assert.equal(response.status, 409);
+  assert.match(body.error, /repeat occurrence ID "duplicate-occurrence"/i);
+  assert.equal(store.records.has(auditRunKey(pairActor.id, 0, "run-1")), false);
+  assert.equal(store.records.has(auditHeadKey(pairActor.id, 0)), false);
+});
+
+test("audit creation rejects blank occurrence IDs required for blind review before retaining the run", async () => {
+  const { handler, store } = harness({ blankRequiredOccurrenceId: true });
+  const vibeKey = vibeKeyFor(pairActor.id, 0);
+
+  const response = await handler(request("POST", {
+    action: "run",
+    actorId: pairActor.id,
+    vibeKey,
+    scope: "representative",
+  }), {});
+  const body = await response.json();
+
+  assert.equal(response.status, 409);
+  assert.match(body.error, /candidate ".+" is a rejected thumbnail candidate with a blank occurrence ID/i);
+  assert.equal(store.records.has(auditRunKey(pairActor.id, 0, "run-1")), false);
+  assert.equal(store.records.has(auditHeadKey(pairActor.id, 0)), false);
+});
+
+test("audit creation allows blank occurrence IDs on candidates outside blind review", async () => {
+  const { handler, store } = harness({ blankOptionalOccurrenceId: true });
+  const vibeKey = vibeKeyFor(pairActor.id, 0);
+
+  const response = await handler(request("POST", {
+    action: "run",
+    actorId: pairActor.id,
+    vibeKey,
+    scope: "representative",
+  }), {});
+
+  assert.equal(response.status, 200);
+  assert.equal(store.records.has(auditRunKey(pairActor.id, 0, "run-1")), true);
+  assert.equal(store.records.has(auditHeadKey(pairActor.id, 0)), true);
+});
+
 test("retrieval diagnostics keep occurrences, exact rung overlap, and incremental unique yield separate from curation", async () => {
   const shared = {
     title: "Shared frame",
@@ -2388,7 +3443,10 @@ test("cache diagnostic compares normal and bypassed fetches for one frozen query
   assert.equal(payload.diagnostic.retrievalComparison.bypassed.occurrenceCount, 27);
   assert.equal(payload.diagnostic.retrievalComparison.uniqueYieldDelta, 0);
   assert.equal(getMaxConcurrentSearches(), 3);
-  assert.equal(store.records.size, 0);
+  assert.deepEqual(
+    [...store.records.keys()].filter(key => !key.startsWith("diagnostics:cache-comparison:")),
+    [],
+  );
 });
 
 test("cache diagnostic retains successful query sides and labels the exact failed cache mode", async () => {
@@ -2421,7 +3479,10 @@ test("cache diagnostic retains successful query sides and labels the exact faile
   assert.ok(payload.diagnostic.comparisons[0].normal);
   assert.ok(payload.diagnostic.comparisons[0].bypassed);
   assert.equal(getSearchCall(), 6);
-  assert.equal(store.records.size, 0);
+  assert.deepEqual(
+    [...store.records.keys()].filter(key => !key.startsWith("diagnostics:cache-comparison:")),
+    [],
+  );
 });
 
 test("cache diagnostic measures exact fresh additions and aggregate unique yield without saving evidence", async () => {
@@ -2453,7 +3514,10 @@ test("cache diagnostic measures exact fresh additions and aggregate unique yield
   assert.equal(diagnostic.retrievalComparison.normalOnlyUniqueCount, 27);
   assert.equal(diagnostic.retrievalComparison.sharedUniqueCount, 0);
   assert.equal(diagnostic.retrievalComparison.uniqueYieldDelta, 0);
-  assert.equal(store.records.size, 0);
+  assert.deepEqual(
+    [...store.records.keys()].filter(key => !key.startsWith("diagnostics:cache-comparison:")),
+    [],
+  );
 });
 
 test("cache diagnostic can be assembled from one-search serverless requests", async () => {
@@ -2469,6 +3533,8 @@ test("cache diagnostic can be assembled from one-search serverless requests", as
 
   assert.equal(manifestResponse.status, 200);
   assert.deepEqual(manifest.frozenQueries, pairActor.vibes[0].queries.slice(0, 3));
+  assert.ok(manifest.comparisonId);
+  assert.ok(Date.parse(manifest.reservationExpiresAt) > 0);
   assert.equal(getSearchCall(), 0);
 
   const normalResponse = await handler(request("POST", {
@@ -2478,6 +3544,7 @@ test("cache diagnostic can be assembled from one-search serverless requests", as
     scope: "representative",
     queryIndex: 0,
     cacheMode: "default",
+    comparisonId: manifest.comparisonId,
   }), {});
   const bypassedResponse = await handler(request("POST", {
     action: "cache_diagnostic_fetch",
@@ -2486,6 +3553,7 @@ test("cache diagnostic can be assembled from one-search serverless requests", as
     scope: "representative",
     queryIndex: 0,
     cacheMode: "refresh",
+    comparisonId: manifest.comparisonId,
   }), {});
   const normal = await normalResponse.json();
   const bypassed = await bypassedResponse.json();
@@ -2509,7 +3577,352 @@ test("cache diagnostic can be assembled from one-search serverless requests", as
   assert.equal(bypassed.cacheMode, "refresh");
   assert.equal(bypassed.search.cacheProvenance.bypassRequested, true);
   assert.equal(getSearchCall(), 2);
-  assert.equal(store.records.size, 0);
+  assert.equal(store.records.size, 1);
+});
+
+test("identical in-flight cache comparisons are rejected without consuming provider quota", async () => {
+  const { handler, getSearchCall } = harness({ searchDelayMs: 20 });
+  const vibeKey = vibeKeyFor(pairActor.id, 0);
+  const manifestBody = {
+    action: "cache_diagnostic_manifest",
+    actorId: pairActor.id,
+    vibeKey,
+    scope: "representative",
+  };
+  const firstManifestResponse = await handler(request("POST", manifestBody), {});
+  const firstManifest = (await firstManifestResponse.json()).diagnostic;
+  const duplicateManifestResponse = await handler(request("POST", manifestBody), {});
+  const duplicateManifest = await duplicateManifestResponse.json();
+
+  assert.equal(firstManifestResponse.status, 200);
+  assert.equal(duplicateManifestResponse.status, 409);
+  assert.match(duplicateManifest.error, /already running/);
+  assert.equal(getSearchCall(), 0);
+
+  const sideBody = {
+    action: "cache_diagnostic_fetch",
+    actorId: pairActor.id,
+    vibeKey,
+    scope: "representative",
+    comparisonId: firstManifest.comparisonId,
+    queryIndex: 0,
+    cacheMode: "default",
+  };
+  const firstSidePromise = handler(request("POST", sideBody), {});
+  await new Promise(resolve => setTimeout(resolve, 5));
+  const duplicateSideResponse = await handler(request("POST", sideBody), {});
+  const firstSideResponse = await firstSidePromise;
+
+  assert.equal(firstSideResponse.status, 200);
+  assert.equal(duplicateSideResponse.status, 409);
+  assert.equal(getSearchCall(), 1);
+});
+
+test("cache comparison coordination keeps different scopes and frozen query identities independent", async () => {
+  const { handler, getSearchCall } = harness({
+    actorPacks: [pairActorWithAlternateVibe],
+  });
+  const vibeKey = vibeKeyFor(pairActor.id, 0);
+  const alternateVibeKey = vibeKeyFor(pairActor.id, 1);
+  const representative = await handler(request("POST", {
+    action: "cache_diagnostic_manifest",
+    actorId: pairActor.id,
+    vibeKey,
+    scope: "representative",
+  }), {});
+  const full = await handler(request("POST", {
+    action: "cache_diagnostic_manifest",
+    actorId: pairActor.id,
+    vibeKey,
+    scope: "full",
+  }), {});
+  const alternateVibe = await handler(request("POST", {
+    action: "cache_diagnostic_manifest",
+    actorId: pairActor.id,
+    vibeKey: alternateVibeKey,
+    scope: "representative",
+  }), {});
+
+  assert.equal(representative.status, 200);
+  assert.equal(full.status, 200);
+  assert.equal(alternateVibe.status, 200);
+  const representativeDiagnostic = (await representative.json()).diagnostic;
+  const fullDiagnostic = (await full.json()).diagnostic;
+  const alternateVibeDiagnostic = (await alternateVibe.json()).diagnostic;
+  assert.notEqual(
+    representativeDiagnostic.comparisonId,
+    fullDiagnostic.comparisonId,
+  );
+  assert.notEqual(
+    fullDiagnostic.comparisonId,
+    alternateVibeDiagnostic.comparisonId,
+  );
+  assert.equal(getSearchCall(), 0);
+});
+
+test("cache diagnostic receipt reopens without searches and overwrites the bounded pairing scope", async () => {
+  const { handler, store, getSearchCall } = harness();
+  const vibeKey = vibeKeyFor(pairActor.id, 0);
+  const frozenQueries = pairActor.vibes[0].queries.slice(0, 3);
+  const comparisons = frozenQueries.map((query, index) => ({
+    query,
+    normal: {
+      resultFingerprint: `normal-${index}`,
+      providerSelectionOrder: ["test", "fallback"],
+      providerFetchOrder: ["test"],
+      cacheProvenance: { outcome: "hit", bypassRequested: false },
+    },
+    bypassed: {
+      resultFingerprint: `bypass-${index}`,
+      providerSelectionOrder: ["test", "fallback"],
+      providerFetchOrder: ["test"],
+      cacheProvenance: { outcome: "miss", bypassRequested: true },
+    },
+    sameResultFingerprint: false,
+    sameProviderFetchOrder: true,
+  }));
+
+  const firstSave = await handler(request("POST", {
+    action: "cache_diagnostic_receipt",
+    actorId: pairActor.id,
+    vibeKey,
+    scope: "representative",
+    frozenQueries,
+    comparisonId: "comparison-retry-1",
+    reservationExpiresAt: "2026-09-19T10:05:00.000Z",
+    comparedAt: "2026-09-19T10:00:00.000Z",
+    comparisons,
+  }), {});
+  assert.equal(firstSave.status, 200);
+  assert.equal(getSearchCall(), 0);
+
+  const secondSave = await handler(request("POST", {
+    action: "cache_diagnostic_receipt",
+    actorId: pairActor.id,
+    vibeKey,
+    scope: "representative",
+    frozenQueries,
+    comparisonId: "comparison-retry-2",
+    reservationExpiresAt: "2026-09-19T11:05:00.000Z",
+    comparedAt: "2026-09-19T11:00:00.000Z",
+    comparisons: comparisons.map(item => ({
+      ...item,
+      normal: { ...item.normal, resultFingerprint: `new-${item.normal.resultFingerprint}` },
+    })),
+  }), {});
+  assert.equal(secondSave.status, 200);
+
+  const reopened = await handler(request(
+    "GET",
+    undefined,
+    `?actorId=${pairActor.id}&vibeKey=${encodeURIComponent(vibeKey)}`,
+  ), {});
+  const payload = await reopened.json();
+  const receipt = payload.cacheDiagnostics.representative;
+
+  assert.equal(reopened.status, 200);
+  assert.equal(getSearchCall(), 0);
+  assert.equal(receipt.retention, "latest_per_pairing_and_scope");
+  assert.equal(receipt.comparisonId, "comparison-retry-2");
+  assert.equal(receipt.reservationExpiresAt, "2026-09-19T11:05:00.000Z");
+  assert.equal(receipt.queryContract.status, "current");
+  assert.equal(receipt.queryContract.isCurrent, true);
+  assert.equal(receipt.queryContract.changeSummaryAvailability, "available");
+  assert.deepEqual(receipt.queryContract.currentQueries, frozenQueries);
+  assert.deepEqual(receipt.queryContract.changes, {
+    added: [],
+    removed: [],
+    reordered: [],
+  });
+  assert.equal(receipt.comparedAt, "2026-09-19T11:00:00.000Z");
+  assert.deepEqual(receipt.frozenQueries, frozenQueries);
+  assert.equal(receipt.comparisons[0].normal.resultFingerprint, "new-normal-0");
+  assert.deepEqual(receipt.comparisons[0].normal.providerFetchOrder, ["test"]);
+  assert.equal(receipt.comparisons[0].bypassed.cacheProvenance.bypassRequested, true);
+  assert.equal(
+    [...store.records.keys()].filter(key => key.startsWith("cache-diagnostic-receipts/")).length,
+    1,
+  );
+  assert.equal(
+    [...store.records.keys()].some(key =>
+      key.startsWith("runs/")
+      || key.startsWith("eligibility/")
+      || key.startsWith("verdicts/")),
+    false,
+  );
+});
+
+test("a failed cache side can retry from its reopened receipt without losing successful evidence", async () => {
+  let failRefresh = true;
+  const failedQuery = pairActor.vibes[0].queries[0];
+  const { handler, getSearchCall } = harness({
+    searchFailure: (query, options) =>
+      failRefresh && query === failedQuery && options.cacheMode === "refresh",
+  });
+  const vibeKey = vibeKeyFor(pairActor.id, 0);
+  const manifestResponse = await handler(request("POST", {
+    action: "cache_diagnostic_manifest",
+    actorId: pairActor.id,
+    vibeKey,
+    scope: "representative",
+  }), {});
+  const manifest = (await manifestResponse.json()).diagnostic;
+  const normalResponse = await handler(request("POST", {
+    action: "cache_diagnostic_fetch",
+    actorId: pairActor.id,
+    vibeKey,
+    scope: "representative",
+    comparisonId: manifest.comparisonId,
+    queryIndex: 0,
+    cacheMode: "default",
+  }), {});
+  const normal = await normalResponse.json();
+  const failedResponse = await handler(request("POST", {
+    action: "cache_diagnostic_fetch",
+    actorId: pairActor.id,
+    vibeKey,
+    scope: "representative",
+    comparisonId: manifest.comparisonId,
+    queryIndex: 0,
+    cacheMode: "refresh",
+  }), {});
+  assert.equal(normalResponse.status, 200);
+  assert.equal(failedResponse.status, 500);
+
+  const comparisons = manifest.frozenQueries.map((query, index) => ({
+    query,
+    normal: index === 0 ? normal.search : null,
+    bypassed: null,
+    normalError: null,
+    bypassedError: index === 0 ? "Search gateway failed for refresh." : null,
+  }));
+  const savedResponse = await handler(request("POST", {
+    action: "cache_diagnostic_receipt",
+    actorId: pairActor.id,
+    vibeKey,
+    scope: "representative",
+    comparisonId: manifest.comparisonId,
+    reservationExpiresAt: manifest.reservationExpiresAt,
+    frozenQueries: manifest.frozenQueries,
+    comparedAt: "2026-08-31T12:00:00.000Z",
+    comparisons,
+  }), {});
+  assert.equal(savedResponse.status, 200);
+  const savedReceipt = (await savedResponse.json()).diagnostic;
+  assert.equal(savedReceipt.queryContract.status, "current");
+  assert.equal(savedReceipt.queryContract.isCurrent, true);
+
+  const reopenedResponse = await handler(request(
+    "GET",
+    undefined,
+    `?actorId=${pairActor.id}&vibeKey=${encodeURIComponent(vibeKey)}`,
+  ), {});
+  const receipt = (await reopenedResponse.json()).cacheDiagnostics.representative;
+  assert.equal(receipt.comparisonId, manifest.comparisonId);
+  assert.equal(receipt.reservationExpiresAt, manifest.reservationExpiresAt);
+  assert.ok(receipt.comparisons[0].normal);
+  assert.equal(receipt.comparisons[0].bypassedError, "Search gateway failed for refresh.");
+
+  const callsBeforeRetry = getSearchCall();
+  failRefresh = false;
+  const retryResponse = await handler(request("POST", {
+    action: "cache_diagnostic_fetch",
+    actorId: pairActor.id,
+    vibeKey,
+    scope: "representative",
+    comparisonId: receipt.comparisonId,
+    queryIndex: 0,
+    cacheMode: "refresh",
+  }), {});
+  const retry = await retryResponse.json();
+
+  assert.equal(retryResponse.status, 200);
+  assert.equal(retry.search.cacheProvenance.bypassRequested, true);
+  assert.equal(getSearchCall(), callsBeforeRetry + 1);
+});
+
+test("reopened cache proof is marked historical when the server-derived query set changes", async () => {
+  const actor = structuredClone(pairActor);
+  const { handler, getSearchCall } = harness({ actorPacks: [actor] });
+  const vibeKey = vibeKeyFor(actor.id, 0);
+  const frozenQueries = actor.vibes[0].queries.slice(0, 3);
+  const comparisons = frozenQueries.map(query => ({
+    query,
+    normal: null,
+    bypassed: null,
+  }));
+
+  const saved = await handler(request("POST", {
+    action: "cache_diagnostic_receipt",
+    actorId: actor.id,
+    vibeKey,
+    scope: "representative",
+    frozenQueries,
+    comparedAt: "2026-09-19T10:00:00.000Z",
+    comparisons,
+  }), {});
+  assert.equal(saved.status, 200);
+
+  actor.vibes[0].queries = ["new current query", ...actor.vibes[0].queries];
+  const reopened = await handler(request(
+    "GET",
+    undefined,
+    `?actorId=${actor.id}&vibeKey=${encodeURIComponent(vibeKey)}`,
+  ), {});
+  const receipt = (await reopened.json()).cacheDiagnostics.representative;
+
+  assert.equal(reopened.status, 200);
+  assert.equal(getSearchCall(), 0);
+  assert.equal(receipt.queryContract.status, "historical");
+  assert.equal(receipt.queryContract.isCurrent, false);
+  assert.equal(receipt.queryContract.changeSummaryAvailability, "available");
+  assert.deepEqual(receipt.frozenQueries, frozenQueries);
+  assert.deepEqual(receipt.comparisons.map(item => item.query), frozenQueries);
+  assert.deepEqual(receipt.queryContract.currentQueries, actor.vibes[0].queries.slice(0, 3));
+  assert.deepEqual(receipt.queryContract.changes, {
+    added: [{ query: "new current query", currentIndex: 0 }],
+    removed: [{ query: frozenQueries[2], frozenIndex: 2 }],
+    reordered: [
+      { query: frozenQueries[0], frozenIndex: 0, currentIndex: 1 },
+      { query: frozenQueries[1], frozenIndex: 1, currentIndex: 2 },
+    ],
+  });
+});
+
+test("legacy cache proof reports unavailable query changes instead of an empty summary", async () => {
+  const actor = structuredClone(pairActor);
+  const { handler, store, getSearchCall } = harness({ actorPacks: [actor] });
+  const vibeKey = vibeKeyFor(actor.id, 0);
+  const legacyReceipt = {
+    schemaVersion: 0,
+    diagnosticOnly: true,
+    retention: "latest_per_pairing_and_scope",
+    actorId: actor.id,
+    vibeKey,
+    scope: "representative",
+    comparedAt: "2026-09-18T10:00:00.000Z",
+    savedAt: "2026-09-18T10:01:00.000Z",
+    comparisons: [],
+  };
+  store.records.set(
+    cacheDiagnosticReceiptKey(actor.id, 0, "representative"),
+    legacyReceipt,
+  );
+
+  const reopened = await handler(request(
+    "GET",
+    undefined,
+    `?actorId=${actor.id}&vibeKey=${encodeURIComponent(vibeKey)}`,
+  ), {});
+  const receipt = (await reopened.json()).cacheDiagnostics.representative;
+
+  assert.equal(reopened.status, 200);
+  assert.equal(getSearchCall(), 0);
+  assert.equal(receipt.queryContract.status, "historical");
+  assert.equal(receipt.queryContract.isCurrent, false);
+  assert.equal(receipt.queryContract.changeSummaryAvailability, "unavailable");
+  assert.equal(receipt.queryContract.changes, null);
+  assert.deepEqual(receipt.queryContract.currentQueries, actor.vibes[0].queries.slice(0, 3));
 });
 
 test("cache diagnostic redacts signed display URLs and withholds metrics when identity capture is truncated", async () => {
@@ -2545,7 +3958,10 @@ test("cache diagnostic redacts signed display URLs and withholds metrics when id
   assert.equal(diagnostic.retrievalComparison.normal, null);
   assert.equal(diagnostic.retrievalComparison.bypassed, null);
   assert.equal(diagnostic.retrievalComparison.uniqueYieldDelta, null);
-  assert.equal(store.records.size, 0);
+  assert.deepEqual(
+    [...store.records.keys()].filter(key => !key.startsWith("diagnostics:cache-comparison:")),
+    [],
+  );
 });
 
 test("bounded query-repair experiment exposes only server-derived baseline and approved alternatives", async () => {
@@ -2812,6 +4228,19 @@ test("an approved rescue backfill uses direct canonical reads when blob listings
       };
     },
   });
+  await store.setJSON(ARCHIVE_CATALOG_KEY, {
+    schemaVersion: 1,
+    catalogVersion: 1,
+    kind: "vibe-atlas-archive-catalog",
+    editions: [{
+      date: "2026-08-31",
+      actorName: "Earlier Actor",
+      vibeLabel: "Earlier Vibe",
+      previewThumbnails: [],
+      access: "member",
+    }],
+    updatedAt: "2026-08-31T12:00:00.000Z",
+  });
   const vibeKey = vibeKeyFor(pairActor.id, 0);
   await handler(request("POST", {
     action: "run", actorId: pairActor.id, vibeKey, scope: "full",
@@ -2876,6 +4305,25 @@ test("an approved rescue backfill uses direct canonical reads when blob listings
     key.startsWith("starOfDay:") && key.endsWith(":2026-09-01"));
   assert.ok(publicationKey);
   assert.equal(store.records.get(publicationKey).displayResults.length, 9);
+
+  store.list = async () => {
+    throw new Error("archive metadata reads must not list historical blobs");
+  };
+  const archiveHandler = createStarOfDayHandler({
+    getStore: () => store,
+    today: () => "2026-09-02",
+  });
+  const archiveResponse = await archiveHandler(
+    new Request("https://example.test/star-of-day?archive=1"),
+    {},
+  );
+  const archive = await archiveResponse.json();
+  assert.equal(archiveResponse.status, 200, JSON.stringify(archive));
+  assert.deepEqual(archive.editions.map(edition => edition.date), [
+    "2026-09-01",
+    "2026-08-31",
+  ]);
+  assert.equal(archive.editions[0].actorName, pairActor.name);
 });
 
 test("rescue approval cannot point at a missing or stale rescue board", async () => {
@@ -3987,7 +5435,12 @@ test("publication and correction activation serialize so an in-flight edition re
           date: input.date,
           actorId: input.actor.id,
           actorName: input.actor.name,
+          actorShortNameEn: input.actor.nameEn,
           vibeIdx: input.vibe.idx,
+          vibeEmoji: input.vibe.emoji,
+          vibeLabel: input.vibe.label,
+          vibeLabelEn: input.vibe.labelEn,
+          vibeSubtitleEn: input.vibe.subtitleEn,
           rankedBatches: [],
           displayResults: input.board.candidates.map(candidate => ({
             title: candidate.title || "",
@@ -4339,6 +5792,7 @@ async function approveRepeatedCalibrationEvidence({
   selectCandidates,
   beforeApproval,
   signalValueFromSelection = false,
+  expectedApprovalStatus = 200,
 }) {
   const evidenceReceiptIds = [];
   let signalValue = "";
@@ -4375,14 +5829,17 @@ async function approveRepeatedCalibrationEvidence({
     }), {});
     const marked = await markedResponse.json();
     assert.equal(markedResponse.status, 200, JSON.stringify(marked));
-    signalValue ||= marked.currentRun.editorialFeedback.operatorRescueBoard
-      .calibrationBasis.signals.reusable[signalFamily][direction][0];
+    const calibrationSignals = marked.currentRun.editorialFeedback.operatorRescueBoard
+      .calibrationBasis.signals;
+    signalValue ||= signalFamily === "candidateIds"
+      ? calibrationSignals[direction].candidateIds[0]
+      : calibrationSignals.reusable[signalFamily][direction][0];
     if (!signalValueFromSelection) assert.ok(signalValue);
   }
 
   if (signalValueFromSelection) signalValue = selectionValue;
   assert.ok(signalValue);
-  await beforeApproval?.();
+  await beforeApproval?.({ evidenceReceiptIds, selectionValue, signalValue });
   const approvalResponse = await handler(request("POST", {
     action: "approve_rescue_calibration",
     actorId: pairActor.id,
@@ -4393,10 +5850,75 @@ async function approveRepeatedCalibrationEvidence({
     signalValues: [signalValue],
   }), {});
   const approval = await approvalResponse.json();
-  assert.equal(approvalResponse.status, 200, JSON.stringify(approval));
+  assert.equal(approvalResponse.status, expectedApprovalStatus, JSON.stringify(approval));
 
-  return { approval, evidenceReceiptIds, selectionValue, signalValue };
+  return {
+    approval,
+    approvalStatus: approvalResponse.status,
+    evidenceReceiptIds,
+    selectionValue,
+    signalValue,
+  };
 }
+
+test("blank-looking audit IDs cannot satisfy calibration approval", async () => {
+  const { handler, store } = harness({ freshEvidenceOnRerun: true });
+  const vibeKey = vibeKeyFor(pairActor.id, 0);
+  let malformedProfile;
+
+  const result = await approveRepeatedCalibrationEvidence({
+    handler,
+    vibeKey,
+    adjustmentType: "class",
+    signalFamily: "sources",
+    expectedApprovalStatus: 409,
+    selectCandidates: rawResults => {
+      const bySource = rawResults.reduce((groups, candidate) => {
+        groups[candidate.source] = [...(groups[candidate.source] || []), candidate];
+        return groups;
+      }, {});
+      const [source, candidates] = Object.entries(bySource)
+        .find(([, items]) => items.length >= 9);
+      return { candidates, selectionValue: source };
+    },
+    beforeApproval: async ({ evidenceReceiptIds }) => {
+      const evidenceKeys = evidenceReceiptIds.map(receiptId =>
+        `${auditRescueCalibrationPrefix(pairActor.id, 0)}${receiptId}`);
+      const validEvidence = structuredClone(store.records.get(evidenceKeys[0]));
+      const whitespaceEvidence = structuredClone(store.records.get(evidenceKeys[1]));
+      whitespaceEvidence.sourceRunId = "   ";
+      store.records.set(evidenceKeys[1], whitespaceEvidence);
+
+      for (const [receiptId, sourceRunId] of [
+        ["missing-run-id", undefined],
+        ["empty-run-id", ""],
+      ]) {
+        const malformedEvidence = structuredClone(validEvidence);
+        malformedEvidence.sourceRescueReceiptId = receiptId;
+        if (sourceRunId === undefined) delete malformedEvidence.sourceRunId;
+        else malformedEvidence.sourceRunId = sourceRunId;
+        store.records.set(
+          `${auditRescueCalibrationPrefix(pairActor.id, 0)}${receiptId}`,
+          malformedEvidence,
+        );
+      }
+
+      const detailResponse = await handler(request(
+        "GET",
+        undefined,
+        `?actorId=${pairActor.id}&vibeKey=${encodeURIComponent(vibeKey)}`,
+      ), {});
+      const detail = await detailResponse.json();
+      assert.equal(detailResponse.status, 200, JSON.stringify(detail));
+      malformedProfile = detail.calibrationProfile;
+    },
+  });
+
+  assert.equal(malformedProfile.reviewedRunCount, 1);
+  assert.equal(malformedProfile.approvalReady, false);
+  assert.equal(result.approvalStatus, 409);
+  assert.match(result.approval.error, /at least 2 distinct reviewed audits/i);
+});
 
 test("production calibration requires repeated aggregate evidence, applies one approved class, and is reversible", async () => {
   const curateOptions = [];
@@ -4407,7 +5929,12 @@ test("production calibration requires repeated aggregate evidence, applies one a
   const vibeKey = vibeKeyFor(pairActor.id, 0);
   const listed = store.list.bind(store);
   let lagAuthorityListings = false;
+  let lagRevocationListings = false;
   store.list = async options => {
+    if (
+      lagRevocationListings
+      && options?.prefix === auditRescueCalibrationApprovalRevocationPrefix(pairActor.id, 0)
+    ) return { blobs: [] };
     if (lagAuthorityListings && (
       options?.prefix === auditRescueCalibrationApprovalPrefix(pairActor.id, 0)
       || options?.prefix === auditRescueCalibrationApprovalRevocationPrefix(pairActor.id, 0)
@@ -4456,6 +5983,40 @@ test("production calibration requires repeated aggregate evidence, applies one a
     },
   );
 
+  lagAuthorityListings = false;
+  const approvalId = approval.calibrationProfile.activeApproval.approvalId;
+  const staleRevocationKey =
+    `${auditRescueCalibrationApprovalRevocationPrefix(pairActor.id, 0)}stale-${approvalId}`;
+  await store.setJSON(
+    staleRevocationKey,
+    {
+      status: "revoked",
+      approvalId,
+      actorId: pairActor.id,
+      vibeKey,
+      revokedAt: "2026-09-11T11:00:00.000Z",
+      revokedBy: "stale-listing",
+      reason: "Stale listed state conflicts with the absent canonical revocation.",
+    },
+  );
+  assert.equal(
+    (await store.list({
+      prefix: auditRescueCalibrationApprovalRevocationPrefix(pairActor.id, 0),
+    })).blobs.some(blob => blob.key === staleRevocationKey),
+    true,
+    "fixture must expose the conflicting listed revocation",
+  );
+  const profileWithConflictingRevocation = await handler(
+    request("GET", undefined, `?actorId=${pairActor.id}&vibeKey=${encodeURIComponent(vibeKey)}`),
+    {},
+  );
+  const conflictingProfileBody = await profileWithConflictingRevocation.json();
+  assert.equal(
+    conflictingProfileBody.calibrationProfile.activeApproval.approvalId,
+    approvalId,
+    "operator profile must use the directly read canonical revocation state",
+  );
+
   await handler(request("POST", {
     action: "run", actorId: pairActor.id, vibeKey, scope: "full",
   }), {});
@@ -4483,6 +6044,65 @@ test("production calibration requires repeated aggregate evidence, applies one a
   assert.deepEqual(eligibility.calibrationProfile.positiveCandidateIds, []);
   assert.equal(eligibility.rescueCalibrationApprovalId,
     approval.calibrationProfile.activeApproval.approvalId);
+  assert.equal(
+    (await getEligibility(store, pairActor, 0))?.rescueCalibrationApprovalId,
+    approvalId,
+    "production eligibility must ignore a conflicting listed revocation for the canonical approval",
+  );
+
+  const canonicalRevocationKey = auditRescueCalibrationApprovalRevocationKey(
+    pairActor.id,
+    0,
+    approvalId,
+  );
+  lagRevocationListings = true;
+  await store.setJSON(canonicalRevocationKey, {
+    status: "revoked",
+    approvalId,
+    actorId: pairActor.id,
+    vibeKey,
+    revokedAt: "2026-09-11T11:30:00.000Z",
+    revokedBy: "canonical-revocation",
+    reason: "Canonical evidence authority revoked this approval.",
+  });
+  assert.equal(
+    (await store.list({
+      prefix: auditRescueCalibrationApprovalPrefix(pairActor.id, 0),
+    })).blobs.some(blob =>
+      blob.key === auditRescueCalibrationApprovalKey(pairActor.id, 0, approvalId)),
+    true,
+    "fixture must retain the stale listed active approval",
+  );
+  assert.deepEqual(
+    await store.list({
+      prefix: auditRescueCalibrationApprovalRevocationPrefix(pairActor.id, 0),
+    }),
+    { blobs: [] },
+    "fixture must hide the canonical revocation from lagging listings",
+  );
+  assert.equal(
+    store.records.get(canonicalRevocationKey)?.status,
+    "revoked",
+    "fixture must keep the canonical revocation directly readable",
+  );
+  const profileWithCanonicalRevocation = await handler(
+    request("GET", undefined, `?actorId=${pairActor.id}&vibeKey=${encodeURIComponent(vibeKey)}`),
+    {},
+  );
+  const canonicalRevocationProfile = await profileWithCanonicalRevocation.json();
+  assert.equal(profileWithCanonicalRevocation.status, 200, JSON.stringify(canonicalRevocationProfile));
+  assert.equal(
+    canonicalRevocationProfile.calibrationProfile.activeApproval,
+    null,
+    "operator profile must not revive a canonically revoked approval from a stale active listing",
+  );
+  assert.equal(
+    await getEligibility(store, pairActor, 0),
+    null,
+    "production eligibility must not revive a canonically revoked approval from a stale active listing",
+  );
+  lagRevocationListings = false;
+  store.records.delete(canonicalRevocationKey);
 
   const existingCalibrationKey = [...store.records.keys()].find(key =>
     key.startsWith(auditRescueCalibrationPrefix(pairActor.id, 0)));
@@ -4529,6 +6149,737 @@ test("production calibration requires repeated aggregate evidence, applies one a
   assert.equal(revokeResponse.status, 200, JSON.stringify(revoked));
   assert.equal(revoked.calibrationProfile.activeApproval, null);
   assert.equal(revoked.calibrationProfile.approvalHistory[0].effectiveStatus, "revoked");
+});
+
+test("repeated complete blind-review mistakes map to an exact approvable signal without rewriting evidence", async () => {
+  const curateOptions = [];
+  const { handler, store } = harness({
+    freshEvidenceOnRerun: true,
+    onCurateOptions: options => curateOptions.push(options),
+  });
+  const vibeKey = vibeKeyFor(pairActor.id, 0);
+  const immutableRuns = new Map();
+  const immutableJudgments = new Map();
+  const listed = store.list.bind(store);
+  let lagVisualJudgmentListings = false;
+  let lagRetainedRunListings = false;
+  store.list = async options => {
+    if (lagVisualJudgmentListings
+      && options?.prefix?.startsWith(`visual-judgments/${pairActor.id}/0/`)) {
+      return { blobs: [] };
+    }
+    if (lagRetainedRunListings
+      && options?.prefix === auditRunPrefix(pairActor.id, 0)) {
+      return { blobs: [] };
+    }
+    return listed(options);
+  };
+  let repeatedQuery = null;
+
+  for (const runId of ["run-1", "run-2"]) {
+    await handler(request("POST", {
+      action: "run", actorId: pairActor.id, vibeKey, scope: "full",
+    }), {});
+    const runKey = auditRunKey(pairActor.id, 0, runId);
+    const run = store.records.get(runKey);
+    run.calibrationAnalysis = {
+      ...(run.calibrationAnalysis || {}),
+      candidates: run.rawResults.slice(0, 5).map((candidate, index) => ({
+        ...candidate,
+        occurrenceId: `${runId}:blind:${index}`,
+        query: "blind repeated query",
+        visualClass: "supporting",
+        selected: false,
+        dropReason: "unusable_image",
+      })),
+      queryVisualYield: [{ query: "blind repeated query", ladderRung: 1 }],
+    };
+    store.records.set(runKey, run);
+    const candidates = run.calibrationAnalysis.candidates
+      .filter(candidate => candidate.selected !== true && candidate.thumbnail && candidate.occurrenceId);
+    assert.ok(candidates.length >= 5);
+    const byQuery = candidates.reduce((groups, candidate) => {
+      groups.set(candidate.query, [...(groups.get(candidate.query) || []), candidate]);
+      return groups;
+    }, new Map());
+    if (!repeatedQuery) {
+      repeatedQuery = [...byQuery.entries()]
+        .find(([, items]) => items.some(candidate => candidate.visualClass !== "core"))?.[0];
+    }
+    const disagreementCandidate = (byQuery.get(repeatedQuery) || [])
+      .find(candidate => candidate.visualClass !== "core");
+    assert.ok(disagreementCandidate, `expected ${repeatedQuery} to contain a repeatable proxy mistake`);
+    if (runId === "run-2") disagreementCandidate.visualClass = "contradictory";
+
+    const judgmentReceiptIds = [];
+    candidates.forEach((candidate, index) => {
+      const receiptId = `${runId}-blind-${index}`;
+      judgmentReceiptIds.push(receiptId);
+      const receipt = {
+        receiptId,
+        runId,
+        sourceOccurrenceId: candidate.occurrenceId,
+        classification: candidate === disagreementCandidate ? "core" : candidate.visualClass,
+        judgedAt: `2026-09-1${index % 10}T12:00:00.000Z`,
+      };
+      const key = auditVisualJudgmentKey(pairActor.id, 0, runId, receiptId);
+      store.records.set(key, receipt);
+      immutableJudgments.set(key, structuredClone(receipt));
+    });
+    store.records.set(auditVisualJudgmentIndexKey(pairActor.id, 0, runId), {
+      schemaVersion: 1,
+      runId,
+      receiptIds: judgmentReceiptIds,
+      updatedAt: "2026-09-15T12:00:00.000Z",
+    });
+    immutableRuns.set(runKey, structuredClone(run));
+
+    const detailResponse = await handler(request(
+      "GET",
+      undefined,
+      `?actorId=${pairActor.id}&vibeKey=${encodeURIComponent(vibeKey)}`,
+    ), {});
+    const detail = await detailResponse.json();
+    assert.equal(detailResponse.status, 200, JSON.stringify(detail));
+    if (runId === "run-1") {
+      assert.equal(detail.calibrationProfile.approvalReady, false);
+      const premature = await handler(request("POST", {
+        action: "approve_rescue_calibration",
+        actorId: pairActor.id,
+        vibeKey,
+        adjustmentType: "query_ladder",
+        direction: "positive",
+        signalValues: [repeatedQuery.toLowerCase()],
+      }), {});
+      assert.equal(premature.status, 409);
+    }
+  }
+
+  const detailResponse = await handler(request(
+    "GET",
+    undefined,
+    `?actorId=${pairActor.id}&vibeKey=${encodeURIComponent(vibeKey)}`,
+  ), {});
+  const detail = await detailResponse.json();
+  const profile = detail.calibrationProfile;
+  const querySignal = repeatedQuery.toLowerCase()
+    .replace(/[^\p{L}\p{N}\u4e00-\u9fff]+/gu, " ")
+    .trim();
+  const blindEvidence = profile.evidenceLedger
+    .filter(item => item.evidenceType === "blind_review_disagreement");
+  assert.equal(profile.reviewedRunCount, 2);
+  assert.equal(profile.approvalReady, true);
+  assert.equal(blindEvidence.length, 2);
+  assert.deepEqual(
+    blindEvidence.map(item => item.sourceRunId).sort(),
+    ["run-1", "run-2"],
+  );
+  assert.ok(blindEvidence.every(item =>
+    item.blindReviewEvidence.disagreements.some(disagreement =>
+      disagreement.direction === "positive"
+      && disagreement.transition.endsWith("→ core"))));
+  assert.ok(blindEvidence.some(item =>
+    item.blindReviewEvidence.disagreements.some(disagreement =>
+      disagreement.transition === "contradictory → core")));
+  assert.ok(profile.reusableSignalDeltas.queries.some(signal =>
+    signal.value === querySignal
+    && signal.selectedEvidenceCount === 2
+    && signal.delta >= 0.15));
+
+  const approvalResponse = await handler(request("POST", {
+    action: "approve_rescue_calibration",
+    actorId: pairActor.id,
+    vibeKey,
+    adjustmentType: "query_ladder",
+    direction: "positive",
+    signalValues: [querySignal],
+  }), {});
+  const approval = await approvalResponse.json();
+  assert.equal(approvalResponse.status, 200, JSON.stringify(approval));
+  assert.deepEqual(approval.calibrationProfile.activeApproval.adjustment, {
+    type: "query_ladder",
+    signalFamily: "queries",
+    direction: "positive",
+    signalValues: [querySignal],
+  });
+  assert.deepEqual(
+    approval.calibrationProfile.activeApproval.sourceRunIds,
+    ["run-1", "run-2"],
+  );
+  const approvalKey = auditRescueCalibrationApprovalKey(
+    pairActor.id,
+    0,
+    approval.calibrationProfile.activeApproval.approvalId,
+  );
+  const conflictingApprovalKey =
+    `${auditRescueCalibrationApprovalPrefix(pairActor.id, 0)}conflicting-listed-copy`;
+  const newerConflictingApprovalKey =
+    `${auditRescueCalibrationApprovalPrefix(pairActor.id, 0)}newer-conflicting-listed-copy`;
+  store.records.set(conflictingApprovalKey, {
+    ...structuredClone(store.records.get(approvalKey)),
+    sourceRunIds: ["conflicting-listed-run"],
+  });
+  store.records.set(newerConflictingApprovalKey, {
+    ...structuredClone(store.records.get(approvalKey)),
+    approvedAt: "2099-09-20T12:00:00.000Z",
+    sourceRunIds: ["newer-conflicting-listed-run"],
+  });
+  lagRetainedRunListings = true;
+  const laggedProfileResponse = await handler(request(
+    "GET",
+    undefined,
+    `?actorId=${pairActor.id}&vibeKey=${encodeURIComponent(vibeKey)}`,
+  ), {});
+  const laggedProfile = await laggedProfileResponse.json();
+  assert.equal(laggedProfileResponse.status, 200, JSON.stringify(laggedProfile));
+  assert.equal(laggedProfile.calibrationProfile.reviewedRunCount, 2);
+  assert.equal(
+    laggedProfile.calibrationProfile.activeApproval.approvalId,
+    approval.calibrationProfile.activeApproval.approvalId,
+  );
+  assert.deepEqual(
+    laggedProfile.calibrationProfile.activeApproval.sourceRunIds,
+    ["run-1", "run-2"],
+    "operator recovery must trust the directly read canonical approval",
+  );
+  store.records.delete(conflictingApprovalKey);
+  store.records.delete(newerConflictingApprovalKey);
+  const legacyApproval = structuredClone(store.records.get(approvalKey));
+  delete legacyApproval.sourceRunIds;
+  store.records.set(approvalKey, legacyApproval);
+  lagRetainedRunListings = false;
+  curateOptions.length = 0;
+  await handler(request("POST", {
+    action: "run", actorId: pairActor.id, vibeKey, scope: "full",
+  }), {});
+  const applied = curateOptions.find(options => options.calibrationProfile)?.calibrationProfile;
+  assert.deepEqual(applied?.positiveQueries, [querySignal]);
+  await handler(request("POST", {
+    action: "blind_choice", actorId: pairActor.id, vibeKey, runId: "run-3", choice: "compiled",
+  }), {});
+  const verdictResponse = await handler(request("POST", {
+    action: "verdict",
+    actorId: pairActor.id,
+    vibeKey,
+    runId: "run-3",
+    verdict: "approved",
+    vibeConfirmed: true,
+    publishableConfirmed: true,
+  }), {});
+  assert.equal(verdictResponse.status, 200, JSON.stringify(await verdictResponse.clone().json()));
+  const savedEligibility = store.records.get(eligibilityKey(pairActor.id, 0));
+  assert.equal(
+    savedEligibility.calibrationProfile.sourceRunIds,
+    undefined,
+    "the compatibility test must retain the pre-upgrade eligibility snapshot shape",
+  );
+  assert.equal(
+    savedEligibility.rescueCalibrationApprovalEvidenceHash,
+    approval.calibrationProfile.activeApproval.aggregateEvidenceHash,
+  );
+  const malformedRunKey = auditRunKey(pairActor.id, 0, "run-1");
+  const validRun = store.records.get(malformedRunKey);
+  const malformedRun = structuredClone(validRun);
+  malformedRun.calibrationAnalysis.candidates[4].occurrenceId =
+    malformedRun.calibrationAnalysis.candidates[0].occurrenceId;
+  store.records.set(malformedRunKey, malformedRun);
+  assert.equal(
+    await getEligibility(store, pairActor, 0),
+    null,
+    "eligibility reconstruction must reject occurrence identities rejected by approval evidence",
+  );
+  store.records.set(malformedRunKey, validRun);
+  assert.ok(await getEligibility(store, pairActor, 0));
+  store.records.set(conflictingApprovalKey, {
+    ...structuredClone(store.records.get(approvalKey)),
+    sourceRunIds: ["conflicting-listed-run"],
+  });
+  store.records.set(newerConflictingApprovalKey, {
+    ...structuredClone(store.records.get(approvalKey)),
+    approvedAt: "2099-09-20T12:00:00.000Z",
+    sourceRunIds: ["newer-conflicting-listed-run"],
+  });
+  lagVisualJudgmentListings = true;
+  lagRetainedRunListings = true;
+  for (let reread = 0; reread < 2; reread += 1) {
+    const currentEligibility = await getEligibility(store, pairActor, 0);
+    assert.equal(currentEligibility.runId, savedEligibility.runId);
+    assert.equal(
+      currentEligibility.rescueCalibrationApprovalId,
+      savedEligibility.rescueCalibrationApprovalId,
+    );
+    assert.equal(
+      currentEligibility.rescueCalibrationApprovalEvidenceHash,
+      savedEligibility.rescueCalibrationApprovalEvidenceHash,
+    );
+  }
+  store.records.delete(conflictingApprovalKey);
+  store.records.delete(newerConflictingApprovalKey);
+  const legacyProfileResponse = await handler(request(
+    "GET",
+    undefined,
+    `?actorId=${pairActor.id}&vibeKey=${encodeURIComponent(vibeKey)}`,
+  ), {});
+  const legacyProfile = await legacyProfileResponse.json();
+  assert.equal(legacyProfileResponse.status, 200, JSON.stringify(legacyProfile));
+  assert.equal(legacyProfile.calibrationProfile.reviewedRunCount, 2);
+  assert.equal(
+    legacyProfile.calibrationProfile.activeApproval.approvalId,
+    savedEligibility.rescueCalibrationApprovalId,
+  );
+
+  for (let index = 3; index <= 33; index += 1) {
+    store.records.set(
+      `${auditVisualJudgmentIndexPrefix(pairActor.id, 0)}z-overflow-run-${String(index).padStart(2, "0")}`,
+      { receiptIds: [] },
+    );
+  }
+  const outOfWindowRunId = "z-overflow-run-33";
+  store.records.set(
+    auditRunKey(pairActor.id, 0, outOfWindowRunId),
+    structuredClone(validRun),
+  );
+  const boundedRunIds = await approvalSourceRunIds({
+    store,
+    actorId: pairActor.id,
+    vibeIdx: 0,
+    authority: store.records.get(auditRescueCalibrationAuthorityKey(pairActor.id, 0)),
+    approval: legacyApproval,
+  });
+  assert.equal(boundedRunIds.length, 32);
+  assert.deepEqual(boundedRunIds, [...boundedRunIds].sort());
+  assert.deepEqual(boundedRunIds.slice(0, 2), ["run-1", "run-2"]);
+  assert.equal(boundedRunIds.includes(outOfWindowRunId), false);
+
+  const boundedProfileResponse = await handler(request(
+    "GET",
+    undefined,
+    `?actorId=${pairActor.id}&vibeKey=${encodeURIComponent(vibeKey)}`,
+  ), {});
+  const boundedProfile = await boundedProfileResponse.json();
+  assert.equal(boundedProfileResponse.status, 200, JSON.stringify(boundedProfile));
+  assert.deepEqual(
+    boundedProfile.calibrationProfile.evidenceLedger.map(item => item.sourceRunId).sort(),
+    ["run-1", "run-2"],
+  );
+  assert.equal(
+    boundedProfile.calibrationProfile.activeApproval.approvalId,
+    savedEligibility.rescueCalibrationApprovalId,
+  );
+  assert.equal(boundedProfile.calibrationProfile.legacyRecovery, undefined);
+  assert.equal(
+    (await getEligibility(store, pairActor, 0)).rescueCalibrationApprovalId,
+    savedEligibility.rescueCalibrationApprovalId,
+    "a source run beyond the shared recovery bound must not affect production evidence",
+  );
+  store.records.delete(auditRunKey(pairActor.id, 0, outOfWindowRunId));
+  for (let index = 3; index <= 33; index += 1) {
+    store.records.delete(
+      `${auditVisualJudgmentIndexPrefix(pairActor.id, 0)}z-overflow-run-${String(index).padStart(2, "0")}`,
+    );
+  }
+
+  const changedJudgmentKey = [...immutableJudgments.keys()][0];
+  const changedJudgment = structuredClone(store.records.get(changedJudgmentKey));
+  const sourceRun = store.records.get(
+    auditRunKey(pairActor.id, 0, changedJudgment.runId),
+  );
+  const sourceCandidate = sourceRun.calibrationAnalysis.candidates.find(candidate =>
+    candidate.occurrenceId === changedJudgment.sourceOccurrenceId);
+  changedJudgment.classification = sourceCandidate.visualClass;
+  store.records.set(changedJudgmentKey, changedJudgment);
+  assert.equal(
+    await getEligibility(store, pairActor, 0),
+    null,
+    "a legacy approval recovered from its bounded run inventory must still recompute current evidence",
+  );
+  store.records.set(changedJudgmentKey, immutableJudgments.get(changedJudgmentKey));
+
+  const revokeResponse = await handler(request("POST", {
+    action: "revoke_rescue_calibration_approval",
+    actorId: pairActor.id,
+    vibeKey,
+    approvalId: approval.calibrationProfile.activeApproval.approvalId,
+    reason: "The blind-review calibration authority is no longer approved.",
+  }), {});
+  assert.equal(revokeResponse.status, 200, JSON.stringify(await revokeResponse.clone().json()));
+  assert.equal(await getEligibility(store, pairActor, 0), null);
+  for (const [key, value] of immutableRuns) assert.deepEqual(store.records.get(key), value);
+  for (const [key, value] of immutableJudgments) assert.deepEqual(store.records.get(key), value);
+});
+
+test("an approved exact-image signal learned from blind reviews can be retired without rewriting evidence", async () => {
+  const curateOptions = [];
+  const { handler, store } = harness({
+    freshEvidenceOnRerun: true,
+    onCurateOptions: options => curateOptions.push(options),
+  });
+  const vibeKey = vibeKeyFor(pairActor.id, 0);
+  const originals = new Map();
+  const repeatedCandidateId = "blind-review:exact/candidate";
+  const listed = store.list.bind(store);
+  let lagEvidenceListings = false;
+  let lagSignalRetirementListings = false;
+  store.list = async options => {
+    if (lagSignalRetirementListings
+      && options?.prefix === auditRescueCalibrationSignalRetirementPrefix(pairActor.id, 0)) {
+      return { blobs: [] };
+    }
+    if (lagEvidenceListings && (
+      options?.prefix === auditRunPrefix(pairActor.id, 0)
+      || options?.prefix?.startsWith(`visual-judgments/${pairActor.id}/0/`)
+    )) return { blobs: [] };
+    return listed(options);
+  };
+
+  for (const runId of ["run-1", "run-2"]) {
+    await handler(request("POST", {
+      action: "run", actorId: pairActor.id, vibeKey, scope: "full",
+    }), {});
+    const runKey = auditRunKey(pairActor.id, 0, runId);
+    const run = store.records.get(runKey);
+    run.calibrationAnalysis = {
+      ...(run.calibrationAnalysis || {}),
+      candidates: run.rawResults.slice(0, 5).map((candidate, index) => ({
+        ...candidate,
+        candidateId: index === 0 ? repeatedCandidateId : candidate.candidateId,
+        occurrenceId: `${runId}:retire-blind:${index}`,
+        visualClass: "supporting",
+        selected: false,
+        dropReason: "unusable_image",
+      })),
+    };
+    store.records.set(runKey, run);
+    const judgmentReceiptIds = [];
+    for (const [index, candidate] of run.calibrationAnalysis.candidates.entries()) {
+      const receiptId = `${runId}-retire-blind-${index}`;
+      judgmentReceiptIds.push(receiptId);
+      const receipt = {
+        receiptId,
+        runId,
+        sourceOccurrenceId: candidate.occurrenceId,
+        classification: index === 0 ? "core" : "supporting",
+        judgedAt: "2026-09-15T12:00:00.000Z",
+      };
+      const key = auditVisualJudgmentKey(pairActor.id, 0, runId, receiptId);
+      store.records.set(key, receipt);
+      originals.set(key, structuredClone(receipt));
+    }
+    store.records.set(auditVisualJudgmentIndexKey(pairActor.id, 0, runId), {
+      schemaVersion: 1,
+      runId,
+      receiptIds: judgmentReceiptIds,
+      updatedAt: "2026-09-15T12:00:00.000Z",
+    });
+    originals.set(runKey, structuredClone(run));
+  }
+
+  const before = await (await handler(request("GET", undefined,
+    `?actorId=${pairActor.id}&vibeKey=${encodeURIComponent(vibeKey)}`), {})).json();
+  const blindEvidence = before.calibrationProfile.evidenceLedger
+    .filter(item => item.evidenceType === "blind_review_disagreement");
+  assert.equal(blindEvidence.length, 2);
+  assert.ok(before.calibrationProfile.reusableSignalDeltas.candidateIds.some(signal =>
+    signal.value === repeatedCandidateId
+    && signal.selectedEvidenceCount === 2));
+
+  const approvalResponse = await handler(request("POST", {
+    action: "approve_rescue_calibration",
+    actorId: pairActor.id,
+    vibeKey,
+    adjustmentType: "class",
+    signalFamily: "candidateIds",
+    direction: "positive",
+    signalValues: [repeatedCandidateId],
+  }), {});
+  const approval = await approvalResponse.json();
+  assert.equal(approvalResponse.status, 200, JSON.stringify(approval));
+  assert.deepEqual(
+    approval.calibrationProfile.activeApproval.adjustment.signalValues,
+    [repeatedCandidateId],
+  );
+  const unrelatedSignals = Object.fromEntries(
+    ["positiveQueries", "negativeQueries", "positiveSources", "negativeSources"]
+      .map(field => [field, structuredClone(approval.calibrationProfile[field])]),
+  );
+
+  curateOptions.length = 0;
+  await handler(request("POST", {
+    action: "run", actorId: pairActor.id, vibeKey, scope: "full",
+  }), {});
+  assert.deepEqual(
+    curateOptions.find(options => options.calibrationProfile)
+      .calibrationProfile.positiveCandidateIds,
+    [repeatedCandidateId],
+  );
+
+  lagEvidenceListings = true;
+  lagSignalRetirementListings = true;
+  const retirementResponse = await handler(request("POST", {
+    action: "retire_rescue_signal",
+    actorId: pairActor.id,
+    vibeKey,
+    receiptId: blindEvidence[0].sourceRescueReceiptId,
+    signalFamily: "candidate",
+    signalValue: repeatedCandidateId,
+    reason: "This exact image no longer represents reusable positive evidence.",
+  }), {});
+  const retired = await retirementResponse.json();
+  assert.equal(retirementResponse.status, 200, JSON.stringify(retired));
+  assert.equal(retired.calibrationProfile.activeApproval, null);
+  assert.equal(retired.calibrationProfile.retiredSignalCount, 1);
+  assert.equal(await getEligibility(store, pairActor, 0), null);
+  for (const [field, signals] of Object.entries(unrelatedSignals)) {
+    assert.deepEqual(retired.calibrationProfile[field], signals, field);
+  }
+  for (const [key, value] of originals) assert.deepEqual(store.records.get(key), value);
+
+  curateOptions.length = 0;
+  await handler(request("POST", {
+    action: "run", actorId: pairActor.id, vibeKey, scope: "full",
+  }), {});
+  assert.equal(
+    curateOptions.filter(options => options.calibrationProfile).length,
+    0,
+    "retiring blind-review evidence must invalidate its production authority",
+  );
+});
+
+test("one blind-review example can be excluded without rewriting its audit or judgment", async () => {
+  const { handler, store } = harness({ freshEvidenceOnRerun: true });
+  const vibeKey = vibeKeyFor(pairActor.id, 0);
+  const originals = new Map();
+  for (const runId of ["run-1", "run-2"]) {
+    await handler(request("POST", { action: "run", actorId: pairActor.id, vibeKey, scope: "full" }), {});
+    const runKey = auditRunKey(pairActor.id, 0, runId);
+    const run = store.records.get(runKey);
+    run.calibrationAnalysis = {
+      ...(run.calibrationAnalysis || {}),
+      candidates: run.rawResults.slice(0, 5).map((candidate, index) => ({
+        ...candidate, occurrenceId: `${runId}:exclude:${index}`, query: "exclude repeated query",
+        visualClass: "supporting", selected: false, dropReason: "unusable_image",
+      })),
+    };
+    store.records.set(runKey, run);
+    for (const [index, candidate] of run.calibrationAnalysis.candidates.entries()) {
+      const receiptId = `${runId}-exclude-${index}`;
+      const receipt = { receiptId, runId, sourceOccurrenceId: candidate.occurrenceId,
+        classification: index === 0 ? "core" : "supporting", judgedAt: "2026-09-15T12:00:00.000Z" };
+      const key = auditVisualJudgmentKey(pairActor.id, 0, runId, receiptId);
+      store.records.set(key, receipt);
+      originals.set(key, structuredClone(receipt));
+    }
+    originals.set(runKey, structuredClone(run));
+  }
+  const before = await (await handler(request("GET", undefined,
+    `?actorId=${pairActor.id}&vibeKey=${encodeURIComponent(vibeKey)}`), {})).json();
+  const evidence = before.calibrationProfile.evidenceLedger.find(item => item.sourceRunId === "run-1");
+  const item = evidence.blindReviewEvidence.disagreements[0];
+  const approved = await handler(request("POST", {
+    action: "approve_rescue_calibration", actorId: pairActor.id, vibeKey,
+    adjustmentType: "query_ladder", direction: "positive", signalValues: ["exclude repeated query"],
+  }), {});
+  assert.equal(approved.status, 200);
+  await handler(request("POST", {
+    action: "blind_choice", actorId: pairActor.id, vibeKey, runId: "run-2", choice: "compiled",
+  }), {});
+  const verdict = await handler(request("POST", {
+    action: "verdict", actorId: pairActor.id, vibeKey, runId: "run-2",
+    verdict: "approved", vibeConfirmed: true, publishableConfirmed: true,
+  }), {});
+  assert.equal(verdict.status, 200, JSON.stringify(await verdict.clone().json()));
+  assert.ok(await getEligibility(store, pairActor, 0));
+  const excludedResponse = await handler(request("POST", {
+    action: "exclude_blind_calibration_item", actorId: pairActor.id, vibeKey,
+    receiptId: evidence.sourceRescueReceiptId, judgmentReceiptId: item.judgmentReceiptId,
+    reason: "Later source review showed this thumbnail was mislabeled.",
+  }), {});
+  const excluded = await excludedResponse.json();
+  assert.equal(excludedResponse.status, 200, JSON.stringify(excluded));
+  assert.equal(excluded.calibrationProfile.reviewedRunCount, 1);
+  assert.equal(excluded.calibrationProfile.approvalReady, false);
+  assert.equal(excluded.calibrationProfile.activeApproval, null);
+  assert.equal(excluded.calibrationProfile.excludedBlindEvidenceCount, 1);
+  assert.notEqual(excluded.calibrationProfile.retirementHash, before.calibrationProfile.retirementHash);
+  assert.equal(await getEligibility(store, pairActor, 0), null);
+  const retry = await handler(request("POST", {
+    action: "exclude_blind_calibration_item", actorId: pairActor.id, vibeKey,
+    receiptId: evidence.sourceRescueReceiptId, runId: evidence.sourceRunId,
+    judgmentReceiptId: item.judgmentReceiptId,
+    reason: "Later source review showed this thumbnail was mislabeled.",
+  }), {});
+  assert.equal(retry.status, 200);
+  const changedSyntheticReceipt = `blind-${"f".repeat(24)}`;
+  const exclusionKey = auditBlindCalibrationExclusionKey(
+    pairActor.id, 0, evidence.sourceRunId, item.judgmentReceiptId,
+  );
+  const exclusionReceipt = store.records.get(exclusionKey);
+  assert.equal(exclusionReceipt.sourceRunId, evidence.sourceRunId);
+  assert.notEqual(exclusionReceipt.sourceRescueReceiptId, changedSyntheticReceipt);
+  for (const [key, value] of originals) assert.deepEqual(store.records.get(key), value);
+
+  for (const [field, conflictingValue] of [
+    ["status", "active"],
+    ["sourceRescueReceiptId", changedSyntheticReceipt],
+    ["sourceRunId", "run-conflicting"],
+    ["judgmentReceiptId", "judgment-conflicting"],
+    ["sourceOccurrenceId", "occurrence-conflicting"],
+    ["actorId", "actor-conflicting"],
+    ["vibeKey", "vibe-conflicting"],
+    ["exclusionId", "exclusion-conflicting"],
+    ["excludedBy", "operator-conflicting"],
+  ]) {
+    store.records.set(exclusionKey, { ...exclusionReceipt, [field]: conflictingValue });
+    const protectedRecords = new Map(
+      [...store.records.entries()].map(([key, value]) => [key, structuredClone(value)]),
+    );
+    const conflictResponse = await handler(request("POST", {
+      action: "exclude_blind_calibration_item", actorId: pairActor.id, vibeKey,
+      receiptId: evidence.sourceRescueReceiptId, runId: evidence.sourceRunId,
+      judgmentReceiptId: item.judgmentReceiptId,
+      reason: "Later source review showed this thumbnail was mislabeled.",
+    }), {});
+    const conflict = await conflictResponse.json();
+    assert.equal(conflictResponse.status, 409, `${field}: ${JSON.stringify(conflict)}`);
+    assert.equal(
+      conflict.error,
+      "That blind-review exclusion receipt is immutable.",
+      field,
+    );
+    for (const [key, value] of protectedRecords) {
+      assert.deepEqual(store.records.get(key), value, `${field}: ${key}`);
+    }
+  }
+  store.records.set(exclusionKey, exclusionReceipt);
+
+  const runKey = auditRunKey(pairActor.id, 0, evidence.sourceRunId);
+  const appendedRun = store.records.get(runKey);
+  const appendedCandidate = {
+    ...appendedRun.calibrationAnalysis.candidates[1],
+    candidateId: item.candidateId,
+    occurrenceId: `${evidence.sourceRunId}:exclude:appended`,
+    visualClass: "supporting",
+  };
+  appendedRun.calibrationAnalysis.candidates.push(appendedCandidate);
+  appendedRun.rawResults.push(appendedCandidate);
+  store.records.set(runKey, appendedRun);
+  const appendedJudgment = {
+    receiptId: `${evidence.sourceRunId}-exclude-appended`,
+    runId: evidence.sourceRunId,
+    sourceOccurrenceId: appendedCandidate.occurrenceId,
+    classification: "core",
+    judgedAt: "2026-09-15T12:30:00.000Z",
+  };
+  store.records.set(
+    auditVisualJudgmentKey(
+      pairActor.id,
+      0,
+      evidence.sourceRunId,
+      appendedJudgment.receiptId,
+    ),
+    appendedJudgment,
+  );
+  const afterAppend = await (await handler(request("GET", undefined,
+    `?actorId=${pairActor.id}&vibeKey=${encodeURIComponent(vibeKey)}`), {})).json();
+  assert.equal(afterAppend.calibrationProfile.excludedBlindEvidenceCount, 1);
+  assert.ok(afterAppend.calibrationProfile.diagnostics.blindEvidenceExclusions.some(receipt =>
+    receipt.judgmentReceiptId === item.judgmentReceiptId));
+  assert.ok(afterAppend.calibrationProfile.evidenceLedger.some(entry =>
+    entry.sourceRunId === evidence.sourceRunId
+    && entry.blindReviewEvidence.disagreements.some(disagreement =>
+      disagreement.judgmentReceiptId === appendedJudgment.receiptId
+      && disagreement.status !== "excluded")));
+  const appendedEvidence = afterAppend.calibrationProfile.evidenceLedger.find(entry =>
+    entry.sourceRunId === evidence.sourceRunId);
+  assert.ok(appendedEvidence.blindReviewEvidence.disagreements.some(disagreement =>
+    disagreement.judgmentReceiptId === item.judgmentReceiptId
+    && disagreement.status === "excluded"));
+});
+
+test("blind-review exclusion fails closed when its post-write strong read cannot verify the receipt", async () => {
+  for (const verificationFailure of ["missing", "conflicting"]) {
+    const { handler, store } = harness({ freshEvidenceOnRerun: true });
+    const vibeKey = vibeKeyFor(pairActor.id, 0);
+    for (const runId of ["run-1", "run-2"]) {
+      await handler(request("POST", {
+        action: "run", actorId: pairActor.id, vibeKey, scope: "full",
+      }), {});
+      const runKey = auditRunKey(pairActor.id, 0, runId);
+      const run = store.records.get(runKey);
+      run.calibrationAnalysis = {
+        ...(run.calibrationAnalysis || {}),
+        candidates: run.rawResults.slice(0, 5).map((candidate, index) => ({
+          ...candidate,
+          occurrenceId: `${runId}:verify-exclusion:${index}`,
+          query: "verify exclusion repeated query",
+          visualClass: "supporting",
+          selected: false,
+          dropReason: "unusable_image",
+        })),
+      };
+      store.records.set(runKey, run);
+      for (const [index, candidate] of run.calibrationAnalysis.candidates.entries()) {
+        const receiptId = `${runId}-verify-exclusion-${index}`;
+        store.records.set(
+          auditVisualJudgmentKey(pairActor.id, 0, runId, receiptId),
+          {
+            receiptId,
+            runId,
+            sourceOccurrenceId: candidate.occurrenceId,
+            classification: index === 0 ? "core" : "supporting",
+            judgedAt: "2026-09-15T12:00:00.000Z",
+          },
+        );
+      }
+    }
+    const before = await (await handler(request(
+      "GET",
+      undefined,
+      `?actorId=${pairActor.id}&vibeKey=${encodeURIComponent(vibeKey)}`,
+    ), {})).json();
+    const evidence = before.calibrationProfile.evidenceLedger
+      .find(item => item.sourceRunId === "run-1");
+    const item = evidence.blindReviewEvidence.disagreements[0];
+    const protectedRecords = new Map(
+      [...store.records.entries()]
+        .filter(([key]) => key.startsWith("vibeAtlas:actor-audit:run:")
+          || key.startsWith("vibeAtlas:actor-audit:visual-judgment:"))
+        .map(([key, value]) => [key, structuredClone(value)]),
+    );
+    const exclusionKey = auditBlindCalibrationExclusionKey(
+      pairActor.id,
+      0,
+      evidence.sourceRunId,
+      item.judgmentReceiptId,
+    );
+    const originalGet = store.get.bind(store);
+    store.get = async (key, options) => {
+      const value = await originalGet(key, options);
+      if (key !== exclusionKey || !store.records.has(key)) return value;
+      if (verificationFailure === "missing") return null;
+      return { ...value, exclusionId: "conflicting-exclusion-receipt" };
+    };
+
+    const response = await handler(request("POST", {
+      action: "exclude_blind_calibration_item",
+      actorId: pairActor.id,
+      vibeKey,
+      receiptId: evidence.sourceRescueReceiptId,
+      judgmentReceiptId: item.judgmentReceiptId,
+      reason: "Later source review showed this thumbnail was mislabeled.",
+    }), {});
+    const body = await response.json();
+
+    assert.equal(response.status, 409, `${verificationFailure}: ${JSON.stringify(body)}`);
+    assert.equal(
+      body.error,
+      "The immutable blind-review exclusion receipt could not be verified.",
+      verificationFailure,
+    );
+    for (const [key, value] of protectedRecords) {
+      assert.deepEqual(store.records.get(key), value, `${verificationFailure}: ${key}`);
+    }
+  }
 });
 
 test("repeated negative calibration applies only the approved signal and revokes without rewriting evidence", async () => {
@@ -4702,20 +7053,25 @@ test("retiring an approved negative signal preserves unrelated reusable calibrat
   );
 });
 
-async function assertNegativeSignalRetirementPreservesUnrelatedEvidence({
+async function assertSignalRetirementPreservesUnrelatedEvidence({
   adjustmentType,
   signalFamily,
   retirementFamily,
   productionField,
+  direction,
   selectCandidates,
+  prepareEvidenceForApproval,
   signalValueFromSelection = false,
   searchResultCount = 9,
+  searchResultsForQuery = null,
+  assertPunctuatedSignal = false,
 }) {
   const curateOptions = [];
   const { handler, store } = harness({
     freshEvidenceOnRerun: signalFamily !== "candidateIds",
     onCurateOptions: options => curateOptions.push(options),
     searchResultCount,
+    searchResultsForQuery,
   });
   const vibeKey = vibeKeyFor(pairActor.id, 0);
   const {
@@ -4727,16 +7083,26 @@ async function assertNegativeSignalRetirementPreservesUnrelatedEvidence({
     vibeKey,
     adjustmentType,
     signalFamily,
-    direction: "negative",
+    direction,
     selectCandidates,
+    beforeApproval: context => prepareEvidenceForApproval?.({ store, ...context }),
     signalValueFromSelection,
   });
   assert.deepEqual(approval.calibrationProfile.activeApproval.adjustment, {
     type: adjustmentType,
     signalFamily,
-    direction: "negative",
+    direction,
     signalValues: [signalValue],
   });
+  if (assertPunctuatedSignal) {
+    assert.match(signalValue, /[:/]/);
+    assert.equal(
+      approval.calibrationProfile.signalInventory.filter(item =>
+        item.directionalSignals?.candidateIds?.[direction]?.includes(signalValue)).length,
+      2,
+      "each reviewed audit must retain the exact punctuated candidate ID",
+    );
+  }
 
   const evidenceBeforeRetirement = new Map(
     [...store.records.entries()]
@@ -4776,7 +7142,7 @@ async function assertNegativeSignalRetirementPreservesUnrelatedEvidence({
     receiptId: evidenceReceiptIds[0],
     signalFamily: retirementFamily,
     signalValue,
-    reason: `This negative ${retirementFamily} signal no longer represents reusable exclusion evidence.`,
+    reason: `This ${direction} ${retirementFamily} signal no longer represents reusable calibration evidence.`,
   }), {});
   const retired = await retirementResponse.json();
   assert.equal(retirementResponse.status, 200, JSON.stringify(retired));
@@ -4796,16 +7162,17 @@ async function assertNegativeSignalRetirementPreservesUnrelatedEvidence({
   assert.equal(
     curateOptions.filter(options => options.calibrationProfile).length,
     0,
-    `retiring the approved negative ${retirementFamily} signal must remove its production effect`,
+    `retiring the approved ${direction} ${retirementFamily} signal must remove its production effect`,
   );
 }
 
 test("retiring an approved negative query preserves unrelated reusable calibration evidence", async () => {
-  await assertNegativeSignalRetirementPreservesUnrelatedEvidence({
+  await assertSignalRetirementPreservesUnrelatedEvidence({
     adjustmentType: "query_ladder",
     signalFamily: "queries",
     retirementFamily: "query",
     productionField: "negativeQueries",
+    direction: "negative",
     selectCandidates: (rawResults, omittedQuery) => {
       const query = omittedQuery || rawResults[0].query;
       return {
@@ -4817,19 +7184,73 @@ test("retiring an approved negative query preserves unrelated reusable calibrati
 });
 
 test("retiring an approved negative candidate image preserves unrelated reusable calibration evidence", async () => {
-  await assertNegativeSignalRetirementPreservesUnrelatedEvidence({
+  const punctuatedResults = query => searchResults(query, 4).map((candidate, index) => ({
+    ...candidate,
+    candidateId: `candidate:${index + 1}/${candidateIdForResult({
+      ...candidate,
+      batchKey: query,
+    })}`,
+  }));
+  await assertSignalRetirementPreservesUnrelatedEvidence({
     adjustmentType: "class",
     signalFamily: "candidateIds",
     retirementFamily: "candidate",
     productionField: "negativeCandidateIds",
+    direction: "negative",
     signalValueFromSelection: true,
     searchResultCount: 4,
+    searchResultsForQuery: punctuatedResults,
+    assertPunctuatedSignal: true,
     selectCandidates: (rawResults, omittedCandidateId) => {
       const candidateId = omittedCandidateId || rawResults[0].candidateId;
       return {
         candidates: rawResults.filter(candidate => candidate.candidateId !== candidateId),
         selectionValue: candidateId,
       };
+    },
+  });
+});
+
+test("retiring an approved positive candidate image preserves unrelated reusable calibration evidence", async () => {
+  const punctuatedResults = query => searchResults(query).map((candidate, index) => ({
+    ...candidate,
+    candidateId: `candidate:${index + 1}/${candidateIdForResult({
+      ...candidate,
+      batchKey: query,
+    })}`,
+  }));
+  await assertSignalRetirementPreservesUnrelatedEvidence({
+    adjustmentType: "class",
+    signalFamily: "candidateIds",
+    retirementFamily: "candidate",
+    productionField: "positiveCandidateIds",
+    direction: "positive",
+    signalValueFromSelection: true,
+    searchResultsForQuery: punctuatedResults,
+    assertPunctuatedSignal: true,
+    selectCandidates: (rawResults, selectedCandidateId) => {
+      const candidateId = selectedCandidateId || rawResults[0].candidateId;
+      const selectedCandidate = rawResults.find(candidate =>
+        candidate.candidateId === candidateId);
+      assert.ok(selectedCandidate);
+      return {
+        candidates: [
+          selectedCandidate,
+          ...rawResults.filter(candidate => candidate.candidateId !== candidateId),
+        ],
+        selectionValue: candidateId,
+      };
+    },
+    prepareEvidenceForApproval: ({ store, evidenceReceiptIds }) => {
+      for (const [key, evidence] of store.records) {
+        if (key.startsWith(auditRescueCalibrationPrefix(pairActor.id, 0))
+          && evidenceReceiptIds.includes(evidence?.sourceRescueReceiptId)) {
+          store.records.set(key, {
+            ...evidence,
+            selectedNine: evidence.selectedNine.slice(0, 5),
+          });
+        }
+      }
     },
   });
 });
@@ -5007,6 +7428,44 @@ test("retiring diagnostic calibration evidence appends a reason receipt and excl
   assert.equal(immutableRetirement.status, 409);
   assert.equal([...store.records.keys()].filter(key =>
     key.startsWith(auditRescueCalibrationRetirementPrefix(pairActor.id, 0))).length, 1);
+
+  const originalRetirementReceipt = structuredClone(retirementReceipt);
+  const protectedRecords = new Map(
+    [...store.records.entries()]
+      .filter(([key]) => key !== retirementKeys[0])
+      .map(([key, value]) => [key, structuredClone(value)]),
+  );
+  const alteredIdentities = {
+    retirementId: "altered-retirement-id",
+    status: "active",
+    sourceRescueReceiptId: "altered-source-receipt",
+    sourceRunId: "altered-source-run",
+    actorId: "altered-actor",
+    vibeKey: "altered-vibe",
+    retiredBy: "altered-operator",
+  };
+  for (const [field, value] of Object.entries(alteredIdentities)) {
+    store.records.set(retirementKeys[0], {
+      ...originalRetirementReceipt,
+      [field]: value,
+    });
+    const retry = await handler(request("POST", {
+      action: "retire_rescue_calibration",
+      actorId: pairActor.id,
+      vibeKey,
+      receiptId: rescueReceipt.receiptId,
+      reason,
+    }), {});
+    assert.equal(retry.status, 409, field);
+    assert.deepEqual(store.records.get(retirementKeys[0]), {
+      ...originalRetirementReceipt,
+      [field]: value,
+    }, field);
+    for (const [key, record] of protectedRecords) {
+      assert.deepEqual(store.records.get(key), record, `${field}: ${key}`);
+    }
+  }
+  store.records.set(retirementKeys[0], originalRetirementReceipt);
 });
 
 test("diagnostic transfer outcomes are retained per signal and retirement filters future calibration", async () => {
@@ -5119,6 +7578,186 @@ test("diagnostic transfer outcomes are retained per signal and retirement filter
   }), {});
   assert.equal(immutable.status, 409);
   assert.equal(retired.calibrationProfile.retiredSignalCount, 1);
+
+  const retirementKey = [...store.records.keys()].find(key =>
+    key.startsWith(auditRescueCalibrationSignalRetirementPrefix(pairActor.id, 0)));
+  const originalRetirement = structuredClone(store.records.get(retirementKey));
+  const protectedRecords = new Map(
+    [...store.records.entries()]
+      .filter(([key]) => key !== retirementKey)
+      .map(([key, value]) => [key, structuredClone(value)]),
+  );
+  const alteredIdentities = {
+    retirementId: "altered-retirement-id",
+    status: "active",
+    sourceRescueReceiptId: "altered-source-receipt",
+    sourceRunId: "altered-source-run",
+    actorId: "altered-actor",
+    vibeKey: "altered-vibe",
+    signalFamily: "query",
+    signalValue: "altered-signal",
+    retiredBy: "altered-operator",
+  };
+  for (const [field, value] of Object.entries(alteredIdentities)) {
+    store.records.set(retirementKey, {
+      ...originalRetirement,
+      [field]: value,
+    });
+    const retry = await handler(request("POST", {
+      action: "retire_rescue_signal",
+      actorId: pairActor.id,
+      vibeKey,
+      receiptId: rescueReceiptId,
+      signalFamily: "source",
+      signalValue: sourceSignal,
+      reason: "Repeated source results no longer transfer with confirmed identity.",
+    }), {});
+    assert.equal(retry.status, 409, field);
+    assert.deepEqual(store.records.get(retirementKey), {
+      ...originalRetirement,
+      [field]: value,
+    }, field);
+    for (const [key, record] of protectedRecords) {
+      assert.deepEqual(store.records.get(key), record, `${field}: ${key}`);
+    }
+  }
+  store.records.set(retirementKey, originalRetirement);
+});
+
+test("signal retirement fails closed when its post-write strong read cannot verify the receipt", async () => {
+  for (const verificationFailure of ["missing", "conflicting"]) {
+    const { handler, store } = harness({ freshEvidenceOnRerun: true });
+    const vibeKey = vibeKeyFor(pairActor.id, 0);
+    const {
+      evidenceReceiptIds: [rescueReceiptId],
+      signalValue: sourceSignal,
+    } = await approveRepeatedCalibrationEvidence({
+      handler,
+      vibeKey,
+      adjustmentType: "class",
+      signalFamily: "sources",
+      selectCandidates: (rawResults, selectedSource) => {
+        const source = selectedSource || rawResults.at(-1).source;
+        return {
+          candidates: rawResults.filter(candidate => candidate.source === source),
+          selectionValue: source,
+        };
+      },
+    });
+    const protectedRecords = new Map(
+      [...store.records.entries()]
+        .filter(([key]) =>
+          !key.startsWith(auditRescueCalibrationSignalRetirementPrefix(pairActor.id, 0)))
+        .map(([key, value]) => [key, structuredClone(value)]),
+    );
+    const originalGet = store.get.bind(store);
+    store.get = async (key, options) => {
+      const value = await originalGet(key, options);
+      if (!key.startsWith(auditRescueCalibrationSignalRetirementPrefix(pairActor.id, 0))
+        || !store.records.has(key)) {
+        return value;
+      }
+      if (verificationFailure === "missing") return null;
+      return {
+        ...value,
+        retirementId: "conflicting-retirement-receipt",
+      };
+    };
+
+    const response = await handler(request("POST", {
+      action: "retire_rescue_signal",
+      actorId: pairActor.id,
+      vibeKey,
+      receiptId: rescueReceiptId,
+      signalFamily: "source",
+      signalValue: sourceSignal,
+      reason: "This source can no longer be verified as reliable.",
+    }), {});
+    const body = await response.json();
+
+    assert.equal(response.status, 409, `${verificationFailure}: ${JSON.stringify(body)}`);
+    assert.equal(
+      body.error,
+      "The immutable signal retirement receipt could not be verified.",
+      verificationFailure,
+    );
+    for (const [key, value] of protectedRecords) {
+      assert.deepEqual(store.records.get(key), value, `${verificationFailure}: ${key}`);
+    }
+  }
+});
+
+test("calibration retirement fails closed when its post-write strong read cannot verify the receipt", async () => {
+  for (const verificationFailure of ["missing", "conflicting"]) {
+    const { handler, store } = harness({ freshEvidenceOnRerun: true });
+    const vibeKey = vibeKeyFor(pairActor.id, 0);
+    await handler(request("POST", {
+      action: "run", actorId: pairActor.id, vibeKey, scope: "full",
+    }), {});
+    const choiceResponse = await handler(request("POST", {
+      action: "blind_choice", actorId: pairActor.id, vibeKey, runId: "run-1", choice: "compiled",
+    }), {});
+    const chosen = await choiceResponse.json();
+    const selectedSource = chosen.currentRun.rawResults.at(-1).source;
+    const selectedIds = chosen.currentRun.rawResults
+      .filter(candidate => candidate.source === selectedSource)
+      .slice(0, 9)
+      .map(candidate => candidate.candidateId);
+    const saveResponse = await handler(request("POST", {
+      action: "save_rescue_board",
+      actorId: pairActor.id,
+      vibeKey,
+      runId: "run-1",
+      candidateIds: selectedIds,
+    }), {});
+    const rescueReceiptId = (await saveResponse.json())
+      .currentRun.editorialFeedback.operatorRescueBoard.receiptId;
+    await handler(request("POST", {
+      action: "mark_rescue_calibration",
+      actorId: pairActor.id,
+      vibeKey,
+      runId: "run-1",
+      receiptId: rescueReceiptId,
+    }), {});
+    const protectedRecords = new Map(
+      [...store.records.entries()]
+        .filter(([key]) =>
+          !key.startsWith(auditRescueCalibrationRetirementPrefix(pairActor.id, 0)))
+        .map(([key, value]) => [key, structuredClone(value)]),
+    );
+    const originalGet = store.get.bind(store);
+    store.get = async (key, options) => {
+      const value = await originalGet(key, options);
+      if (!key.startsWith(auditRescueCalibrationRetirementPrefix(pairActor.id, 0))
+        || !store.records.has(key)) {
+        return value;
+      }
+      if (verificationFailure === "missing") return null;
+      return {
+        ...value,
+        retirementId: "conflicting-retirement-receipt",
+      };
+    };
+
+    const response = await handler(request("POST", {
+      action: "retire_rescue_calibration",
+      actorId: pairActor.id,
+      vibeKey,
+      receiptId: rescueReceiptId,
+      reason: "This calibration evidence can no longer be independently verified.",
+    }), {});
+    const body = await response.json();
+
+    assert.equal(response.status, 409, `${verificationFailure}: ${JSON.stringify(body)}`);
+    assert.equal(
+      body.error,
+      "The immutable calibration retirement receipt could not be verified.",
+      verificationFailure,
+    );
+    for (const [key, value] of protectedRecords) {
+      assert.deepEqual(store.records.get(key), value, `${verificationFailure}: ${key}`);
+    }
+  }
 });
 
 test("calibration remains discoverable and retireable after its source run leaves retained history", async () => {
@@ -5479,15 +8118,27 @@ test("aggregate calibration rejects a negative class bundle whose members recur 
   assert.equal(curateOptions.filter(options => options.calibrationProfile).length, 0);
 });
 
-test("aggregate calibration approves a signal bundle that recurs together in distinct reviewed audits", async () => {
+test("aggregate calibration approves a repeated signal bundle regardless of order and produces a deterministic profile", async () => {
   const curateOptions = [];
-  const { handler } = harness({
+  const { handler, store } = harness({
     freshEvidenceOnRerun: true,
     onCurateOptions: options => curateOptions.push(options),
     searchResultCount: 5,
   });
   const vibeKey = vibeKeyFor(pairActor.id, 0);
   let querySignals = [];
+  const listed = store.list.bind(store);
+  let reverseEvidenceListings = false;
+  store.list = async options => {
+    const listing = await listed(options);
+    if (
+      reverseEvidenceListings
+      && options?.prefix === auditRescueCalibrationPrefix(pairActor.id, 0)
+    ) {
+      return { ...listing, blobs: [...listing.blobs].reverse() };
+    }
+    return listing;
+  };
 
   for (const runId of ["run-1", "run-2"]) {
     await handler(request("POST", {
@@ -5506,10 +8157,254 @@ test("aggregate calibration approves a signal bundle that recurs together in dis
       assert.equal(querySignals.length, 2);
     }
     const selectedCandidates = [
-      ...queryGroups.find(([query]) => query.toLowerCase() === querySignals[0])[1],
-      ...queryGroups.find(([query]) => query.toLowerCase() === querySignals[1])[1].slice(0, 4),
-    ];
+      queryGroups.find(([query]) => query.toLowerCase() === querySignals[0])[1],
+      queryGroups.find(([query]) => query.toLowerCase() === querySignals[1])[1].slice(0, 4),
+    ].flat();
+    const receiptSignalValues = runId === "run-2"
+      ? [...querySignals].reverse()
+      : querySignals;
 
+    const saveResponse = await handler(request("POST", {
+      action: "save_rescue_board",
+      actorId: pairActor.id,
+      vibeKey,
+      runId,
+      candidateIds: selectedCandidates.map(candidate => candidate.candidateId),
+    }), {});
+    const saved = await saveResponse.json();
+    assert.equal(saveResponse.status, 200, JSON.stringify(saved));
+    const receipt = saved.currentRun.editorialFeedback.operatorRescueBoard;
+    if (runId === "run-2") {
+      const storedReceipt = store.records.get(
+        auditRescueBoardKey(pairActor.id, 0, runId, receipt.receiptId),
+      );
+      storedReceipt.calibrationBasis.signals.reusable.queries.positive.reverse();
+    }
+    const markResponse = await handler(request("POST", {
+      action: "mark_rescue_calibration",
+      actorId: pairActor.id,
+      vibeKey,
+      runId,
+      receiptId: receipt.receiptId,
+    }), {});
+    const marked = await markResponse.json();
+    assert.equal(markResponse.status, 200, JSON.stringify(marked));
+    assert.deepEqual(
+      marked.currentRun.editorialFeedback.operatorRescueBoard
+        .calibrationBasis.signals.reusable.queries.positive,
+      receiptSignalValues,
+    );
+  }
+
+  const requestedSignalValues = [...querySignals].reverse();
+  const deterministicSignalValues = [...querySignals].sort();
+  const aggregateSnapshots = [];
+  for (const [listingOrder, signalValues] of [
+    ["forward", requestedSignalValues],
+    ["reversed", deterministicSignalValues],
+  ]) {
+    reverseEvidenceListings = listingOrder === "reversed";
+    const approvalResponse = await handler(request("POST", {
+      action: "approve_rescue_calibration",
+      actorId: pairActor.id,
+      vibeKey,
+      adjustmentType: "query_ladder",
+      direction: "positive",
+      signalValues,
+    }), {});
+    const approval = await approvalResponse.json();
+    assert.equal(approvalResponse.status, 200, JSON.stringify(approval));
+    assert.deepEqual(approval.calibrationProfile.activeApproval.adjustment, {
+      type: "query_ladder",
+      signalFamily: "queries",
+      direction: "positive",
+      signalValues: deterministicSignalValues,
+    });
+    assert.equal(approval.calibrationProfile.activeApproval.evidenceCount, 2);
+    await handler(request("POST", {
+      action: "run", actorId: pairActor.id, vibeKey, scope: "full",
+    }), {});
+    const productionProfile = curateOptions
+      .filter(options => options.calibrationProfile)
+      .at(-1)
+      .calibrationProfile;
+    aggregateSnapshots.push({
+      approvalId: approval.calibrationProfile.activeApproval.approvalId,
+      aggregateEvidenceHash:
+        approval.calibrationProfile.activeApproval.aggregateEvidenceHash,
+      evidenceCount: approval.calibrationProfile.activeApproval.evidenceCount,
+      adjustment: approval.calibrationProfile.activeApproval.adjustment,
+      positiveQueries: approval.calibrationProfile.positiveQueries,
+      productionPositiveQueries: productionProfile.positiveQueries,
+    });
+  }
+  assert.deepEqual(aggregateSnapshots[1], aggregateSnapshots[0]);
+  assert.deepEqual(aggregateSnapshots[0].productionPositiveQueries, deterministicSignalValues);
+});
+
+test("aggregate calibration canonicalizes reordered negative class bundles", async () => {
+  const curateOptions = [];
+  const { handler, store } = harness({
+    freshEvidenceOnRerun: true,
+    onCurateOptions: options => curateOptions.push(options),
+    searchResultCount: 5,
+  });
+  const vibeKey = vibeKeyFor(pairActor.id, 0);
+  let candidateSignals = [];
+  const listed = store.list.bind(store);
+  let reverseEvidenceListings = false;
+  store.list = async options => {
+    const listing = await listed(options);
+    if (
+      reverseEvidenceListings
+      && options?.prefix === auditRescueCalibrationPrefix(pairActor.id, 0)
+    ) {
+      return { ...listing, blobs: [...listing.blobs].reverse() };
+    }
+    return listing;
+  };
+
+  for (const runId of ["run-1", "run-2"]) {
+    await handler(request("POST", {
+      action: "run", actorId: pairActor.id, vibeKey, scope: "full",
+    }), {});
+    const choiceResponse = await handler(request("POST", {
+      action: "blind_choice", actorId: pairActor.id, vibeKey, runId, choice: "compiled",
+    }), {});
+    const chosen = await choiceResponse.json();
+    const selectedCandidates = chosen.currentRun.rawResults.slice(-9);
+
+    const saveResponse = await handler(request("POST", {
+      action: "save_rescue_board",
+      actorId: pairActor.id,
+      vibeKey,
+      runId,
+      candidateIds: selectedCandidates.slice(0, 9).map(candidate => candidate.candidateId),
+    }), {});
+    const saved = await saveResponse.json();
+    assert.equal(saveResponse.status, 200, JSON.stringify(saved));
+    const receipt = saved.currentRun.editorialFeedback.operatorRescueBoard;
+    const storedReceipt = store.records.get(
+      auditRescueBoardKey(pairActor.id, 0, runId, receipt.receiptId),
+    );
+    const negativeCandidateIds = storedReceipt.calibrationBasis.signals.negative.candidateIds;
+    if (!candidateSignals.length) {
+      candidateSignals = negativeCandidateIds.slice(0, 2);
+      assert.equal(candidateSignals.length, 2);
+    }
+
+    const markResponse = await handler(request("POST", {
+      action: "mark_rescue_calibration",
+      actorId: pairActor.id,
+      vibeKey,
+      runId,
+      receiptId: receipt.receiptId,
+    }), {});
+    const marked = await markResponse.json();
+    assert.equal(markResponse.status, 200, JSON.stringify(marked));
+    const confirmedEntry = [...store.records.entries()]
+      .find(([key, value]) =>
+        key.startsWith(auditRescueCalibrationPrefix(pairActor.id, 0))
+        && value.sourceRescueReceiptId === receipt.receiptId);
+    const confirmedReceipt = confirmedEntry?.[1];
+    assert.ok(confirmedReceipt);
+    assert.ok(confirmedReceipt.omittedAlternatives.length >= 2);
+    confirmedReceipt.omittedAlternatives = confirmedReceipt.omittedAlternatives
+      .slice(0, 2)
+      .map((candidate, index) => ({
+        ...candidate,
+        candidateId: candidateSignals[index],
+      }));
+    confirmedReceipt.signals.negative.candidateIds = runId === "run-2"
+      ? [...candidateSignals].reverse()
+      : [...candidateSignals];
+    store.records.set(confirmedEntry[0], confirmedReceipt);
+    assert.deepEqual(
+      confirmedReceipt.signals.negative.candidateIds,
+      runId === "run-2" ? [...candidateSignals].reverse() : candidateSignals,
+    );
+  }
+
+  const deterministicSignalValues = [...candidateSignals].sort();
+  const aggregateSnapshots = [];
+  for (const [listingOrder, requestedSignalValues] of [
+    ["forward", candidateSignals],
+    ["reversed", [...candidateSignals].reverse()],
+  ]) {
+    reverseEvidenceListings = listingOrder === "reversed";
+    const approvalResponse = await handler(request("POST", {
+      action: "approve_rescue_calibration",
+      actorId: pairActor.id,
+      vibeKey,
+      adjustmentType: "class",
+      signalFamily: "candidateIds",
+      direction: "negative",
+      signalValues: requestedSignalValues,
+    }), {});
+    const approval = await approvalResponse.json();
+    assert.equal(approvalResponse.status, 200, JSON.stringify(approval));
+    assert.deepEqual(approval.calibrationProfile.activeApproval.adjustment, {
+      type: "class",
+      signalFamily: "candidateIds",
+      direction: "negative",
+      signalValues: deterministicSignalValues,
+    });
+    assert.equal(approval.calibrationProfile.activeApproval.evidenceCount, 2);
+    await handler(request("POST", {
+      action: "run", actorId: pairActor.id, vibeKey, scope: "full",
+    }), {});
+    const productionProfile = curateOptions
+      .filter(options => options.calibrationProfile)
+      .at(-1)
+      .calibrationProfile;
+    aggregateSnapshots.push({
+      approvalId: approval.calibrationProfile.activeApproval.approvalId,
+      aggregateEvidenceHash:
+        approval.calibrationProfile.activeApproval.aggregateEvidenceHash,
+      negativeCandidateIds: approval.calibrationProfile.negativeCandidateIds,
+      evidenceCount: approval.calibrationProfile.activeApproval.evidenceCount,
+      adjustment: approval.calibrationProfile.activeApproval.adjustment,
+      productionNegativeCandidateIds: productionProfile.negativeCandidateIds,
+    });
+  }
+  assert.deepEqual(aggregateSnapshots[1], aggregateSnapshots[0]);
+  assert.deepEqual(
+    aggregateSnapshots[0].productionNegativeCandidateIds,
+    deterministicSignalValues,
+  );
+});
+
+test("aggregate calibration canonicalizes reordered negative query-ladder bundles", async () => {
+  const curateOptions = [];
+  const { handler, store } = harness({
+    freshEvidenceOnRerun: true,
+    onCurateOptions: options => curateOptions.push(options),
+    searchResultCount: 5,
+  });
+  const vibeKey = vibeKeyFor(pairActor.id, 0);
+  const querySignals = ["negative alpha query", "negative beta query"];
+  const listed = store.list.bind(store);
+  let reverseEvidenceListings = false;
+  store.list = async options => {
+    const listing = await listed(options);
+    if (
+      reverseEvidenceListings
+      && options?.prefix === auditRescueCalibrationPrefix(pairActor.id, 0)
+    ) {
+      return { ...listing, blobs: [...listing.blobs].reverse() };
+    }
+    return listing;
+  };
+
+  for (const runId of ["run-1", "run-2"]) {
+    await handler(request("POST", {
+      action: "run", actorId: pairActor.id, vibeKey, scope: "full",
+    }), {});
+    const choiceResponse = await handler(request("POST", {
+      action: "blind_choice", actorId: pairActor.id, vibeKey, runId, choice: "compiled",
+    }), {});
+    const chosen = await choiceResponse.json();
+    const selectedCandidates = chosen.currentRun.rawResults.slice(-9);
     const saveResponse = await handler(request("POST", {
       action: "save_rescue_board",
       actorId: pairActor.id,
@@ -5529,43 +8424,553 @@ test("aggregate calibration approves a signal bundle that recurs together in dis
     }), {});
     const marked = await markResponse.json();
     assert.equal(markResponse.status, 200, JSON.stringify(marked));
-    assert.deepEqual(
-      marked.currentRun.editorialFeedback.operatorRescueBoard
-        .calibrationBasis.signals.reusable.queries.positive,
-      querySignals,
-    );
+    const confirmedEntry = [...store.records.entries()]
+      .find(([key, value]) =>
+        key.startsWith(auditRescueCalibrationPrefix(pairActor.id, 0))
+        && value.sourceRescueReceiptId === receipt.receiptId);
+    const confirmedReceipt = confirmedEntry?.[1];
+    assert.ok(confirmedReceipt);
+    assert.ok(confirmedReceipt.omittedAlternatives.length >= 2);
+    confirmedReceipt.omittedAlternatives.slice(0, 2)
+      .forEach((candidate, index) => {
+        candidate.query = querySignals[index];
+      });
+    confirmedReceipt.signals.reusable.queries.negative = runId === "run-2"
+      ? [...querySignals].reverse()
+      : [...querySignals];
+    store.records.set(confirmedEntry[0], confirmedReceipt);
   }
 
-  const approvalResponse = await handler(request("POST", {
-    action: "approve_rescue_calibration",
-    actorId: pairActor.id,
-    vibeKey,
-    adjustmentType: "query_ladder",
-    direction: "positive",
-    signalValues: querySignals,
-  }), {});
-  const approval = await approvalResponse.json();
-  assert.equal(approvalResponse.status, 200, JSON.stringify(approval));
-  assert.deepEqual(approval.calibrationProfile.activeApproval.adjustment, {
-    type: "query_ladder",
-    signalFamily: "queries",
-    direction: "positive",
-    signalValues: querySignals,
-  });
-  assert.equal(approval.calibrationProfile.activeApproval.evidenceCount, 2);
-
-  await handler(request("POST", {
-    action: "run", actorId: pairActor.id, vibeKey, scope: "full",
-  }), {});
-  const productionProfile = curateOptions.find(options => options.calibrationProfile)
-    .calibrationProfile;
-  assert.deepEqual(productionProfile.positiveQueries, querySignals);
-  assert.deepEqual(productionProfile.negativeQueries ?? [], []);
-  assert.deepEqual(productionProfile.positiveSources ?? [], []);
-  assert.deepEqual(productionProfile.negativeSources ?? [], []);
-  assert.deepEqual(productionProfile.positiveCandidateIds, []);
-  assert.deepEqual(productionProfile.negativeCandidateIds, []);
+  const deterministicSignalValues = [...querySignals].sort();
+  const aggregateSnapshots = [];
+  for (const [listingOrder, requestedSignalValues] of [
+    ["forward", querySignals],
+    ["reversed", [...querySignals].reverse()],
+  ]) {
+    reverseEvidenceListings = listingOrder === "reversed";
+    const approvalResponse = await handler(request("POST", {
+      action: "approve_rescue_calibration",
+      actorId: pairActor.id,
+      vibeKey,
+      adjustmentType: "query_ladder",
+      direction: "negative",
+      signalValues: requestedSignalValues,
+    }), {});
+    const approval = await approvalResponse.json();
+    assert.equal(approvalResponse.status, 200, JSON.stringify(approval));
+    assert.deepEqual(approval.calibrationProfile.activeApproval.adjustment, {
+      type: "query_ladder",
+      signalFamily: "queries",
+      direction: "negative",
+      signalValues: deterministicSignalValues,
+    });
+    assert.equal(approval.calibrationProfile.activeApproval.evidenceCount, 2);
+    await handler(request("POST", {
+      action: "run", actorId: pairActor.id, vibeKey, scope: "full",
+    }), {});
+    const productionProfile = curateOptions
+      .filter(options => options.calibrationProfile)
+      .at(-1)
+      .calibrationProfile;
+    aggregateSnapshots.push({
+      approvalId: approval.calibrationProfile.activeApproval.approvalId,
+      aggregateEvidenceHash:
+        approval.calibrationProfile.activeApproval.aggregateEvidenceHash,
+      evidenceCount: approval.calibrationProfile.activeApproval.evidenceCount,
+      adjustment: approval.calibrationProfile.activeApproval.adjustment,
+      negativeQueries: approval.calibrationProfile.negativeQueries,
+      productionNegativeQueries: productionProfile.negativeQueries,
+    });
+  }
+  assert.deepEqual(aggregateSnapshots[1], aggregateSnapshots[0]);
+  assert.deepEqual(
+    aggregateSnapshots[0].productionNegativeQueries,
+    deterministicSignalValues,
+  );
 });
+
+test("aggregate calibration canonicalizes reordered positive candidate-class bundles", async () => {
+  const curateOptions = [];
+  const { handler, store } = harness({
+    freshEvidenceOnRerun: true,
+    onCurateOptions: options => curateOptions.push(options),
+    searchResultCount: 5,
+  });
+  const vibeKey = vibeKeyFor(pairActor.id, 0);
+  const candidateSignals = ["positive-candidate-alpha", "positive-candidate-beta"];
+  const listed = store.list.bind(store);
+  let reverseEvidenceListings = false;
+  store.list = async options => {
+    const listing = await listed(options);
+    if (
+      reverseEvidenceListings
+      && options?.prefix === auditRescueCalibrationPrefix(pairActor.id, 0)
+    ) {
+      return { ...listing, blobs: [...listing.blobs].reverse() };
+    }
+    return listing;
+  };
+
+  for (const runId of ["run-1", "run-2"]) {
+    await handler(request("POST", {
+      action: "run", actorId: pairActor.id, vibeKey, scope: "full",
+    }), {});
+    const choiceResponse = await handler(request("POST", {
+      action: "blind_choice", actorId: pairActor.id, vibeKey, runId, choice: "compiled",
+    }), {});
+    const chosen = await choiceResponse.json();
+    const selectedCandidates = chosen.currentRun.rawResults.slice(-9);
+    const saveResponse = await handler(request("POST", {
+      action: "save_rescue_board",
+      actorId: pairActor.id,
+      vibeKey,
+      runId,
+      candidateIds: selectedCandidates.map(candidate => candidate.candidateId),
+    }), {});
+    const saved = await saveResponse.json();
+    assert.equal(saveResponse.status, 200, JSON.stringify(saved));
+    const receipt = saved.currentRun.editorialFeedback.operatorRescueBoard;
+    const markResponse = await handler(request("POST", {
+      action: "mark_rescue_calibration",
+      actorId: pairActor.id,
+      vibeKey,
+      runId,
+      receiptId: receipt.receiptId,
+    }), {});
+    const marked = await markResponse.json();
+    assert.equal(markResponse.status, 200, JSON.stringify(marked));
+    const confirmedEntry = [...store.records.entries()]
+      .find(([key, value]) =>
+        key.startsWith(auditRescueCalibrationPrefix(pairActor.id, 0))
+        && value.sourceRescueReceiptId === receipt.receiptId);
+    const confirmedReceipt = confirmedEntry?.[1];
+    assert.ok(confirmedReceipt);
+    assert.ok(confirmedReceipt.selectedNine.length >= 2);
+    confirmedReceipt.selectedNine
+      .forEach((candidate, index) => {
+        candidate.candidateId = candidateSignals[index % 2];
+      });
+    confirmedReceipt.signals.positive.candidateIds = runId === "run-2"
+      ? [...candidateSignals].reverse()
+      : [...candidateSignals];
+    store.records.set(confirmedEntry[0], confirmedReceipt);
+  }
+
+  const deterministicSignalValues = [...candidateSignals].sort();
+  const aggregateSnapshots = [];
+  for (const [listingOrder, requestedSignalValues] of [
+    ["forward", candidateSignals],
+    ["reversed", [...candidateSignals].reverse()],
+  ]) {
+    reverseEvidenceListings = listingOrder === "reversed";
+    const approvalResponse = await handler(request("POST", {
+      action: "approve_rescue_calibration",
+      actorId: pairActor.id,
+      vibeKey,
+      adjustmentType: "class",
+      signalFamily: "candidateIds",
+      direction: "positive",
+      signalValues: requestedSignalValues,
+    }), {});
+    const approval = await approvalResponse.json();
+    assert.equal(approvalResponse.status, 200, JSON.stringify(approval));
+    assert.deepEqual(approval.calibrationProfile.activeApproval.adjustment, {
+      type: "class",
+      signalFamily: "candidateIds",
+      direction: "positive",
+      signalValues: deterministicSignalValues,
+    });
+    assert.equal(approval.calibrationProfile.activeApproval.evidenceCount, 2);
+    await handler(request("POST", {
+      action: "run", actorId: pairActor.id, vibeKey, scope: "full",
+    }), {});
+    const productionProfile = curateOptions
+      .filter(options => options.calibrationProfile)
+      .at(-1)
+      .calibrationProfile;
+    assert.deepEqual(productionProfile.positiveCandidateIds, deterministicSignalValues);
+    assert.deepEqual(productionProfile.negativeCandidateIds, []);
+    aggregateSnapshots.push({
+      approvalId: approval.calibrationProfile.activeApproval.approvalId,
+      aggregateEvidenceHash:
+        approval.calibrationProfile.activeApproval.aggregateEvidenceHash,
+      evidenceCount: approval.calibrationProfile.activeApproval.evidenceCount,
+      adjustment: approval.calibrationProfile.activeApproval.adjustment,
+      positiveCandidateIds: approval.calibrationProfile.positiveCandidateIds,
+      productionPositiveCandidateIds: productionProfile.positiveCandidateIds,
+    });
+  }
+  assert.deepEqual(aggregateSnapshots[1], aggregateSnapshots[0]);
+});
+
+test("aggregate calibration remains complete across reordered receipt listing pages", async () => {
+  const runScenario = async ({ paginated }) => {
+    const curateOptions = [];
+    const { handler, store } = harness({
+      freshEvidenceOnRerun: true,
+      onCurateOptions: options => curateOptions.push(options),
+    });
+    const vibeKey = vibeKeyFor(pairActor.id, 0);
+    const repeatedEvidence = await approveRepeatedCalibrationEvidence({
+      handler,
+      vibeKey,
+      adjustmentType: "class",
+      signalFamily: "sources",
+      selectCandidates: rawResults => {
+        const bySource = rawResults.reduce((groups, candidate) => {
+          groups[candidate.source] = [...(groups[candidate.source] || []), candidate];
+          return groups;
+        }, {});
+        const [source, candidates] = Object.entries(bySource)
+          .find(([, items]) => items.length >= 9);
+        return { candidates, selectionValue: source };
+      },
+      beforeApproval: async ({ evidenceReceiptIds }) => {
+        if (!paginated) return;
+        const listed = store.list.bind(store);
+        const evidencePrefix = auditRescueCalibrationPrefix(pairActor.id, 0);
+        const evidenceKeys = evidenceReceiptIds.map(receiptId => `${evidencePrefix}${receiptId}`);
+        store.list = options => {
+          if (options?.prefix !== evidencePrefix) return listed(options);
+          return (async function* pages() {
+            yield { blobs: [{ key: evidenceKeys[1] }] };
+            yield { blobs: [{ key: evidenceKeys[0] }] };
+          }());
+        };
+      },
+    });
+    const activeApproval = repeatedEvidence.approval.calibrationProfile.activeApproval;
+    await handler(request("POST", {
+      action: "run", actorId: pairActor.id, vibeKey, scope: "full",
+    }), {});
+    const productionProfile = curateOptions
+      .filter(options => options.calibrationProfile)
+      .at(-1)
+      .calibrationProfile;
+    return {
+      approvalId: activeApproval.approvalId,
+      aggregateEvidenceHash: activeApproval.aggregateEvidenceHash,
+      evidenceCount: activeApproval.evidenceCount,
+      adjustment: activeApproval.adjustment,
+      productionCalibration: {
+        positiveSources: productionProfile.positiveSources,
+        approvalId: productionProfile.approvalReceipt.approvalId,
+        aggregateEvidenceHash: productionProfile.approvalReceipt.aggregateEvidenceHash,
+        evidenceCount: productionProfile.evidenceCount,
+      },
+    };
+  };
+
+  const unpaginated = await runScenario({ paginated: false });
+  const paginated = await runScenario({ paginated: true });
+
+  assert.equal(paginated.evidenceCount, 2);
+  assert.deepEqual(paginated, unpaginated);
+});
+
+for (const {
+  signalFamily,
+  signalKey,
+  productionField,
+  fixtureSignalValues,
+  applyFixtureSignals,
+} of [
+  {
+    signalFamily: "sources",
+    signalKey: "sources",
+    productionField: "negativeSources",
+    fixtureSignalValues: ["negative alpha example", "negative beta example"],
+    applyFixtureSignals: (candidate, index) => {
+      candidate.source = `negative-${index ? "beta" : "alpha"}.example`;
+    },
+  },
+  {
+    signalFamily: "clusters",
+    signalKey: "clusters",
+    productionField: "negativeClusters",
+    fixtureSignalValues: ["negative alpha", "negative beta"],
+    applyFixtureSignals: (candidate, index) => {
+      candidate.promise = {
+        ...(candidate.promise || {}),
+        clusters: [{ id: `negative-${index ? "beta" : "alpha"}` }],
+      };
+    },
+  },
+  {
+    signalFamily: "composition",
+    signalKey: "composition",
+    productionField: "negativeCompositions",
+    fixtureSignalValues: ["negativealpha", "negativebeta"],
+    applyFixtureSignals: (candidate, index) => {
+      candidate.title = `negative${index ? "beta" : "alpha"}`;
+      candidate.description = "";
+    },
+  },
+]) {
+  test(`aggregate calibration canonicalizes reordered negative ${signalFamily} bundles`, async () => {
+    const curateOptions = [];
+    const { handler, store } = harness({
+      freshEvidenceOnRerun: true,
+      onCurateOptions: options => curateOptions.push(options),
+      searchResultCount: 5,
+    });
+    const vibeKey = vibeKeyFor(pairActor.id, 0);
+    let signalValues = [];
+
+    for (const runId of ["run-1", "run-2"]) {
+      await handler(request("POST", {
+        action: "run", actorId: pairActor.id, vibeKey, scope: "full",
+      }), {});
+      const choiceResponse = await handler(request("POST", {
+        action: "blind_choice", actorId: pairActor.id, vibeKey, runId, choice: "compiled",
+      }), {});
+      const chosen = await choiceResponse.json();
+      const selectedCandidates = chosen.currentRun.rawResults.slice(-9);
+      const saveResponse = await handler(request("POST", {
+        action: "save_rescue_board",
+        actorId: pairActor.id,
+        vibeKey,
+        runId,
+        candidateIds: selectedCandidates.map(candidate => candidate.candidateId),
+      }), {});
+      const saved = await saveResponse.json();
+      assert.equal(saveResponse.status, 200, JSON.stringify(saved));
+      const receipt = saved.currentRun.editorialFeedback.operatorRescueBoard;
+      const storedReceipt = store.records.get(
+        auditRescueBoardKey(pairActor.id, 0, runId, receipt.receiptId),
+      );
+      assert.ok(storedReceipt.calibrationBasis.omittedAlternatives.length >= 2);
+      storedReceipt.calibrationBasis.omittedAlternatives.slice(0, 2)
+        .forEach((candidate, index) => applyFixtureSignals(candidate, index));
+      signalValues = fixtureSignalValues;
+      storedReceipt.calibrationBasis.signals.reusable[signalKey].negative = runId === "run-2"
+        ? [...signalValues].reverse()
+        : [...signalValues];
+
+      const markResponse = await handler(request("POST", {
+        action: "mark_rescue_calibration",
+        actorId: pairActor.id,
+        vibeKey,
+        runId,
+        receiptId: receipt.receiptId,
+      }), {});
+      const marked = await markResponse.json();
+      assert.equal(markResponse.status, 200, JSON.stringify(marked));
+      assert.deepEqual(
+        marked.currentRun.editorialFeedback.operatorRescueBoard
+          .calibrationBasis.signals.reusable[signalKey].negative,
+        runId === "run-2" ? [...signalValues].reverse() : signalValues,
+      );
+    }
+
+    const deterministicSignalValues = [...signalValues].sort();
+    const approvalIdentities = [];
+    const aggregateSnapshots = [];
+    for (const [approvalIndex, requestedSignalValues] of [
+      signalValues,
+      [...signalValues].reverse(),
+    ].entries()) {
+      if (approvalIndex === 1) {
+        const list = store.list.bind(store);
+        store.list = async options => {
+          const listing = await list(options);
+          return { ...listing, blobs: [...listing.blobs].reverse() };
+        };
+      }
+      const approvalResponse = await handler(request("POST", {
+        action: "approve_rescue_calibration",
+        actorId: pairActor.id,
+        vibeKey,
+        adjustmentType: "class",
+        signalFamily,
+        direction: "negative",
+        signalValues: requestedSignalValues,
+      }), {});
+      const approval = await approvalResponse.json();
+      assert.equal(approvalResponse.status, 200, JSON.stringify(approval));
+      assert.deepEqual(approval.calibrationProfile.activeApproval.adjustment, {
+        type: "class",
+        signalFamily,
+        direction: "negative",
+        signalValues: deterministicSignalValues,
+      });
+      assert.equal(approval.calibrationProfile.activeApproval.evidenceCount, 2);
+      approvalIdentities.push({
+        approvalId: approval.calibrationProfile.activeApproval.approvalId,
+        aggregateEvidenceHash:
+          approval.calibrationProfile.activeApproval.aggregateEvidenceHash,
+      });
+      aggregateSnapshots.push({
+        negativeSources: approval.calibrationProfile.negativeSources,
+        negativeClusters: approval.calibrationProfile.negativeClusters,
+        negativeCompositions: approval.calibrationProfile.negativeCompositions,
+        evidenceCount: approval.calibrationProfile.activeApproval.evidenceCount,
+        adjustment: approval.calibrationProfile.activeApproval.adjustment,
+      });
+    }
+    assert.deepEqual(approvalIdentities[1], approvalIdentities[0]);
+    assert.deepEqual(aggregateSnapshots[1], aggregateSnapshots[0]);
+
+    await handler(request("POST", {
+      action: "run", actorId: pairActor.id, vibeKey, scope: "full",
+    }), {});
+    const productionProfile = curateOptions.find(options => options.calibrationProfile)
+      .calibrationProfile;
+    assert.deepEqual(productionProfile[productionField], deterministicSignalValues);
+  });
+}
+
+for (const {
+  signalFamily,
+  signalKey,
+  productionField,
+  fixtureSignalValues,
+  applyFixtureSignals,
+} of [
+  {
+    signalFamily: "sources",
+    signalKey: "sources",
+    productionField: "positiveSources",
+    fixtureSignalValues: ["positive alpha example", "positive beta example"],
+    applyFixtureSignals: (candidate, index) => {
+      candidate.source = `positive-${index ? "beta" : "alpha"}.example`;
+    },
+  },
+  {
+    signalFamily: "clusters",
+    signalKey: "clusters",
+    productionField: "positiveClusters",
+    fixtureSignalValues: ["positive alpha", "positive beta"],
+    applyFixtureSignals: (candidate, index) => {
+      candidate.promise = {
+        ...(candidate.promise || {}),
+        clusters: [{ id: `positive-${index ? "beta" : "alpha"}` }],
+      };
+    },
+  },
+  {
+    signalFamily: "composition",
+    signalKey: "composition",
+    productionField: "positiveCompositions",
+    fixtureSignalValues: ["positivealpha", "positivebeta"],
+    applyFixtureSignals: (candidate, index) => {
+      candidate.title = `positive${index ? "beta" : "alpha"}`;
+      candidate.description = "";
+    },
+  },
+]) {
+  test(`aggregate calibration canonicalizes reordered positive ${signalFamily} bundles`, async () => {
+    const curateOptions = [];
+    const { handler, store } = harness({
+      freshEvidenceOnRerun: true,
+      onCurateOptions: options => curateOptions.push(options),
+      searchResultCount: 5,
+    });
+    const vibeKey = vibeKeyFor(pairActor.id, 0);
+
+    for (const runId of ["run-1", "run-2"]) {
+      await handler(request("POST", {
+        action: "run", actorId: pairActor.id, vibeKey, scope: "full",
+      }), {});
+      const choiceResponse = await handler(request("POST", {
+        action: "blind_choice", actorId: pairActor.id, vibeKey, runId, choice: "compiled",
+      }), {});
+      const chosen = await choiceResponse.json();
+      const selectedCandidates = chosen.currentRun.rawResults.slice(-9);
+      const saveResponse = await handler(request("POST", {
+        action: "save_rescue_board",
+        actorId: pairActor.id,
+        vibeKey,
+        runId,
+        candidateIds: selectedCandidates.map(candidate => candidate.candidateId),
+      }), {});
+      const saved = await saveResponse.json();
+      assert.equal(saveResponse.status, 200, JSON.stringify(saved));
+      const receipt = saved.currentRun.editorialFeedback.operatorRescueBoard;
+      const storedReceipt = store.records.get(
+        auditRescueBoardKey(pairActor.id, 0, runId, receipt.receiptId),
+      );
+      assert.ok(storedReceipt.calibrationBasis.selectedNine.length >= 2);
+      storedReceipt.calibrationBasis.selectedNine
+        .forEach((candidate, index) => applyFixtureSignals(candidate, index % 2));
+      storedReceipt.calibrationBasis.signals.reusable[signalKey].positive = runId === "run-2"
+        ? [...fixtureSignalValues].reverse()
+        : [...fixtureSignalValues];
+
+      const markResponse = await handler(request("POST", {
+        action: "mark_rescue_calibration",
+        actorId: pairActor.id,
+        vibeKey,
+        runId,
+        receiptId: receipt.receiptId,
+      }), {});
+      const marked = await markResponse.json();
+      assert.equal(markResponse.status, 200, JSON.stringify(marked));
+      assert.deepEqual(
+        marked.currentRun.editorialFeedback.operatorRescueBoard
+          .calibrationBasis.signals.reusable[signalKey].positive,
+        runId === "run-2"
+          ? [...fixtureSignalValues].reverse()
+          : fixtureSignalValues,
+      );
+    }
+
+    const deterministicSignalValues = [...fixtureSignalValues].sort();
+    const approvalIdentities = [];
+    const aggregateSnapshots = [];
+    for (const [approvalIndex, requestedSignalValues] of [
+      fixtureSignalValues,
+      [...fixtureSignalValues].reverse(),
+    ].entries()) {
+      if (approvalIndex === 1) {
+        const list = store.list.bind(store);
+        store.list = async options => {
+          const listing = await list(options);
+          return { ...listing, blobs: [...listing.blobs].reverse() };
+        };
+      }
+      const approvalResponse = await handler(request("POST", {
+        action: "approve_rescue_calibration",
+        actorId: pairActor.id,
+        vibeKey,
+        adjustmentType: "class",
+        signalFamily,
+        direction: "positive",
+        signalValues: requestedSignalValues,
+      }), {});
+      const approval = await approvalResponse.json();
+      assert.equal(approvalResponse.status, 200, JSON.stringify(approval));
+      assert.deepEqual(approval.calibrationProfile.activeApproval.adjustment, {
+        type: "class",
+        signalFamily,
+        direction: "positive",
+        signalValues: deterministicSignalValues,
+      });
+      assert.equal(approval.calibrationProfile.activeApproval.evidenceCount, 2);
+      approvalIdentities.push({
+        approvalId: approval.calibrationProfile.activeApproval.approvalId,
+        aggregateEvidenceHash:
+          approval.calibrationProfile.activeApproval.aggregateEvidenceHash,
+      });
+      aggregateSnapshots.push({
+        positiveSources: approval.calibrationProfile.positiveSources,
+        positiveClusters: approval.calibrationProfile.positiveClusters,
+        positiveCompositions: approval.calibrationProfile.positiveCompositions,
+        evidenceCount: approval.calibrationProfile.activeApproval.evidenceCount,
+        adjustment: approval.calibrationProfile.activeApproval.adjustment,
+      });
+    }
+    assert.deepEqual(approvalIdentities[1], approvalIdentities[0]);
+    assert.deepEqual(aggregateSnapshots[1], aggregateSnapshots[0]);
+
+    await handler(request("POST", {
+      action: "run", actorId: pairActor.id, vibeKey, scope: "full",
+    }), {});
+    const productionProfile = curateOptions.find(options => options.calibrationProfile)
+      .calibrationProfile;
+    assert.deepEqual(productionProfile[productionField], deterministicSignalValues);
+  });
+}
 
 test("diagnostic evidence beyond the source audit display cap cannot prove transfer", async () => {
   const curateOptions = [];
@@ -5602,6 +9007,46 @@ test("diagnostic evidence beyond the source audit display cap cannot prove trans
     JSON.stringify(second.currentRun.calibrationProof, null, 2),
   );
   assert.equal(second.currentRun.calibrationProof.beyondExactSavedNineCount, 0);
+});
+
+test("malformed retained calibration proof cannot remain ready through the report API", async () => {
+  const { handler, store } = harness();
+  const vibeKey = vibeKeyFor(pairActor.id, 0);
+  const runResponse = await handler(request("POST", {
+    action: "run", actorId: pairActor.id, vibeKey, scope: "full",
+  }), {});
+  const runBody = await runResponse.json();
+  const key = auditRunKey(pairActor.id, 0, runBody.currentRun.runId);
+  const retained = structuredClone(store.records.get(key));
+  retained.profileVersion = "legacy-malformed-proof";
+  retained.calibrationProof = {
+    schemaVersion: 1,
+    calibrationVersion: 1,
+    sourceReceiptIds: ["rescue-1"],
+    retiredReceiptIds: [],
+    retiredSignalReceiptIds: [],
+    retirementHash: null,
+    ready: true,
+    status: "reproduced_beyond_saved_nine",
+    beyondExactSavedNineCount: -1.5,
+    scoreDelta: "not-a-score",
+    summary: "Malformed proof must not be trusted.",
+  };
+  store.records.set(key, structuredClone(retained));
+
+  const response = await handler(request(
+    "GET",
+    undefined,
+    `?actorId=${pairActor.id}&vibeKey=${encodeURIComponent(vibeKey)}&runId=${retained.runId}`,
+  ), {});
+  const detail = await response.json();
+
+  assert.equal(response.status, 200);
+  assert.equal(detail.run.calibrationProof.ready, false);
+  assert.equal(detail.run.calibrationProof.status, "reaudit_not_yet_reproduced");
+  assert.equal("beyondExactSavedNineCount" in detail.run.calibrationProof, false);
+  assert.equal("scoreDelta" in detail.run.calibrationProof, false);
+  assert.equal(store.records.get(key).calibrationProof.ready, true);
 });
 
 test("anti-anchor, hero, and candidate-ranking effects alone cannot prove calibration transfer", () => {
@@ -5785,7 +9230,7 @@ test("legacy rescue receipts remain records-only and cannot calibrate the curren
     receiptId,
   }), {});
   assert.equal(markResponse.status, 409);
-  assert.match((await markResponse.json()).error, /legacy rescue boards remain historical records/i);
+  assert.match((await markResponse.json()).error, /Legacy audits are retained history/i);
   assert.equal([...store.records.keys()]
     .filter(key => key.startsWith(auditRescueCalibrationPrefix(pairActor.id, 0))).length, 0);
 
@@ -5801,7 +9246,7 @@ test("legacy rescue receipts remain records-only and cannot calibrate the curren
     rescueReceiptId: receiptId,
   }), {});
   assert.equal(legacyVerdict.status, 409);
-  assert.match((await legacyVerdict.json()).error, /invalid under the current profile contract/i);
+  assert.match((await legacyVerdict.json()).error, /Legacy audits are retained history/i);
   assert.equal(
     [...store.records.keys()].filter(key =>
       key.startsWith(auditRescuePreferencePrefix(pairActor.id, 0, "run-1"))).length,
@@ -6689,6 +10134,71 @@ test("an approval from a legacy profile contract is visibly marked for reapprova
   assert.equal(staleVerdict.status, 409);
 });
 
+test("Legacy audit evidence rejects Misprint corrections without storing feedback", async () => {
+  const { handler, store } = harness();
+  const vibeKey = vibeKeyFor(pairActor.id, 0);
+  await handler(request("POST", {
+    action: "run", actorId: pairActor.id, vibeKey, scope: "full",
+  }), {});
+  const chosen = await (await handler(request("POST", {
+    action: "blind_choice",
+    actorId: pairActor.id,
+    vibeKey,
+    runId: "run-1",
+    choice: "compiled",
+  }), {})).json();
+  const candidate = chosen.currentRun.rawResults[0];
+  const runKey = auditRunKey(pairActor.id, 0, "run-1");
+  const staleRun = store.records.get(runKey);
+  delete staleRun.promiseContractVersion;
+  store.records.set(runKey, staleRun);
+  const frozenLegacyRun = structuredClone(staleRun);
+
+  const rejectedResponse = await handler(request("POST", {
+    action: "mark_misprint",
+    actorId: pairActor.id,
+    vibeKey,
+    runId: "run-1",
+    candidateId: candidate.candidateId,
+    reason: "wrong_actor",
+  }), {});
+  const rejected = await rejectedResponse.json();
+  assert.equal(rejectedResponse.status, 409);
+  assert.match(rejected.error, /Legacy audits are retained history/i);
+  assert.deepEqual(store.records.get(runKey), frozenLegacyRun);
+  assert.equal(
+    [...store.records.values()].filter(value => value?.action === "mark_misprint").length,
+    0,
+  );
+
+  await handler(request("POST", {
+    action: "run", actorId: pairActor.id, vibeKey, scope: "full",
+  }), {});
+  const current = await (await handler(request("POST", {
+    action: "blind_choice",
+    actorId: pairActor.id,
+    vibeKey,
+    runId: "run-2",
+    choice: "compiled",
+  }), {})).json();
+  const currentCandidate = current.currentRun.rawResults[0];
+  const acceptedResponse = await handler(request("POST", {
+    action: "mark_misprint",
+    actorId: pairActor.id,
+    vibeKey,
+    runId: "run-2",
+    candidateId: currentCandidate.candidateId,
+    reason: "wrong_actor",
+  }), {});
+  const accepted = await acceptedResponse.json();
+  assert.equal(acceptedResponse.status, 200, JSON.stringify(accepted));
+  assert.equal(accepted.misprint.sourceRunId, "run-2");
+  assert.equal(
+    [...store.records.values()].filter(value => value?.action === "mark_misprint").length,
+    1,
+  );
+});
+
 test("a blinded legacy run reveals retained evidence and still accepts a rescue board", async () => {
   const { handler, store } = harness();
   const vibeKey = vibeKeyFor(pairActor.id, 0);
@@ -6710,6 +10220,17 @@ test("a blinded legacy run reveals retained evidence and still accepts a rescue 
   assert.equal(detail.currentRun.auditContract.isLegacy, true);
   assert.ok(detail.currentRun.rawResults.length > 0);
   assert.equal(detail.currentRun.blindReview.status, "pending");
+
+  const recordsBeforeUndeclaredAction = structuredClone([...store.records.entries()]);
+  const undeclaredResponse = await handler(request("POST", {
+    action: "future_editorial_action",
+    actorId: pairActor.id,
+    vibeKey,
+    runId: "run-1",
+  }), {});
+  assert.equal(undeclaredResponse.status, 409);
+  assert.match((await undeclaredResponse.json()).error, /explicit Legacy write exception/i);
+  assert.deepEqual([...store.records.entries()], recordsBeforeUndeclaredAction);
 
   const choiceResponse = await handler(request("POST", {
     action: "blind_choice",

@@ -1387,6 +1387,54 @@ test("collection sync rejects a stale tab when its expected account differs from
   assert.equal(store.records.size, 0);
 });
 
+test("an authenticated free account syncs saved cards across devices without granting another account access", async () => {
+  const store = memoryStore();
+  const handlers = createCollectionHandlers({
+    auth: {
+      authenticate: async req => {
+        const cookie = req.headers.get("cookie");
+        if (cookie !== "session=free" && cookie !== "session=other") {
+          throw Object.assign(new Error("Sign in is required."), { status: 401 });
+        }
+        return { user: { accountId: cookie === "session=free" ? "usr_free" : "usr_other" } };
+      },
+    },
+    getStore: () => store,
+  });
+  const payload = (clientId, expectedAccountId, operations = []) => ({
+    schemaVersion: 1, clientId, expectedAccountId, cursor: 0, operations,
+  });
+  const first = await handlers.sync(request("/api/collection/sync", {
+    cookie: "session=free",
+    body: payload("device-a", "usr_free", [{
+      type: "upsert", mutationId: "save-one", localId: "card-one",
+      item: { imageUrl: "https://images.example/daily.jpg", thumbnailUrl: "https://images.example/daily.jpg" },
+    }]),
+  }));
+  assert.equal(first.status, 200);
+  const second = await handlers.sync(request("/api/collection/sync", {
+    cookie: "session=free", body: payload("device-b", "usr_free"),
+  }));
+  assert.equal(second.status, 200);
+  assert.equal((await second.json()).items[0].localId, "card-one");
+
+  const other = await handlers.sync(request("/api/collection/sync", {
+    cookie: "session=other", body: payload("device-c", "usr_other"),
+  }));
+  assert.equal(other.status, 200);
+  assert.deepEqual((await other.json()).items, []);
+  assert.equal((await handlers.sync(request("/api/collection/sync", {
+    body: payload("device-d", "usr_free"),
+  }))).status, 401);
+  assert.equal((await handlers.sync(request("/api/collection/sync", {
+    cookie: "session=free", body: payload("device-e", "usr_other"),
+  }))).status, 409);
+  assert.equal((await handlers.sync(request("/api/collection/sync", {
+    cookie: "session=free", body: payload("device-f", "usr_free"),
+    headers: { Origin: "https://attacker.example" },
+  }))).status, 403);
+});
+
 test("concurrent verifyMagicLink: exactly one request gets a session and the other gets 401", async () => {
   // Simulate the real concurrent race: two requests receive the same magic link and
   // both POST /api/auth/verify at the same moment. Both reads see the "issued" token

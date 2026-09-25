@@ -101,3 +101,41 @@ This check verifies live delivery to the GA4 collection endpoint. It does not
 substitute for a later aggregate funnel review in the GA4 reporting interface;
 no GA4 reporting connection or approved aggregate export was available during
 this verification.
+
+## Aggregate follow-up review — 2026-09-20
+
+The bounded review window is **2026-09-12 00:00 UTC through 2026-09-20
+(partial day)**. It begins after the corrected destination was verified on the
+production site on 2026-09-11, so it does not mix traffic sent to the previous
+destination with traffic sent to the verified stream.
+
+The project's authorized Replit analytics dataset was queried for aggregate
+counts in this window. It contained no canonical veteran journal pageviews and
+no veteran custom events. This is not treated as evidence that the production
+funnel had zero traffic: the production site is externally hosted on Netlify
+and sends these events to GA4, while Replit analytics is a separate dataset.
+No GA4 reporting connection or approved aggregate GA4 export was available in
+the workspace on the review date.
+
+| Funnel measure | Aggregate result | Interpretation |
+| --- | ---: | --- |
+| Canonical veteran journal pageviews | Unavailable | The separate Replit dataset returned 0; the production GA4 count could not be queried. |
+| Form starts | Unavailable | The separate Replit dataset returned 0; the production GA4 count could not be queried. |
+| Relation selections | Unavailable | The separate Replit dataset returned 0; the production GA4 count could not be queried. |
+| Successful submissions | Unavailable | The separate Replit dataset returned 0; the production GA4 count could not be queried. |
+| Failed submissions | Unavailable | The separate Replit dataset returned 0; the production GA4 count could not be queried. |
+
+The entry and prediction paths, including their selection counts, successful
+submission counts, and success rates, have **insufficient samples available for
+comparison**. The `validation`, `rate_limit`, `network`, `server`, and `unknown`
+failure categories likewise have **insufficient samples available for
+comparison**.
+
+There is no supported largest drop-off in the accessible data. In particular,
+the zero-result Replit query must not be used to claim a pageview-to-form,
+form-to-selection, or selection-to-submission drop-off for the Netlify
+production site. No UX change is supported by this review.
+
+This review used aggregate queries only. It did not request, retain, or report
+capability values, raw URLs, journal identifiers, submitted text, account
+details, visitor or session data, or raw event exports.

@@ -1,11 +1,14 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
 import {
+  hasMalformedGridBuilderSource,
   hasInvalidVibeAtlasEditionDate,
   initialCollectionType,
+  initialGridBuilderSource,
   initialVibeAtlasEditionDate,
   initialVibeAtlasView,
   isAdminEntryLocation,
+  isPublishingHandoffPreview,
   isVibeAtlasArchiveLocation,
   isValidVibeAtlasEditionDate,
   resolveFandomProductRoute,
@@ -57,6 +60,45 @@ test('collection links open the requested Vibe Atlas tool', () => {
   assert.equal(initialCollectionType('?view=results'), 'results');
   assert.equal(initialCollectionType('?view=builder'), 'builder');
   assert.equal(initialCollectionType(''), 'grids');
+});
+
+test('grid builder links keep Daily Drop and validated edition inventory separate from My Collection', () => {
+  assert.equal(initialGridBuilderSource('?view=builder&source=daily'), 'daily');
+  assert.equal(initialGridBuilderSource('?view=builder&source=edition&date=2026-09-19'), 'edition');
+  assert.equal(initialGridBuilderSource('?view=builder&source=edition&date=2026-02-29'), 'collection');
+  assert.equal(initialGridBuilderSource('?view=builder&source=edition'), 'collection');
+  assert.equal(initialGridBuilderSource('?view=builder'), 'collection');
+  assert.equal(initialGridBuilderSource('?view=builder&source=unknown'), 'collection');
+  assert.equal(initialGridBuilderSource('?view=collection&source=daily'), 'collection');
+  assert.equal(hasMalformedGridBuilderSource('?view=builder&source=unknown'), true);
+  assert.equal(hasMalformedGridBuilderSource('?view=builder&source=edition&date=2026-02-29'), true);
+  assert.equal(hasMalformedGridBuilderSource('?view=builder&source=edition&date=2026-09-19'), false);
+  assert.equal(hasMalformedGridBuilderSource('?view=builder&source=daily'), false);
+  assert.equal(hasMalformedGridBuilderSource('?view=builder&source=collection'), false);
+  assert.equal(hasMalformedGridBuilderSource('?view=builder'), false);
+  assert.equal(hasMalformedGridBuilderSource('?view=collection&source=unknown'), false);
+});
+
+test('publishing handoff preview access is explicit and limited to this Netlify deploy preview', () => {
+  assert.equal(
+    isPublishingHandoffPreview(
+      'deploy-preview-74--earnest-gecko-17eb0c.netlify.app',
+      '?view=builder&handoff-preview=1',
+    ),
+    true,
+  );
+  assert.equal(
+    isPublishingHandoffPreview('fandom.justlikekatie.com', '?handoff-preview=1'),
+    false,
+  );
+  assert.equal(
+    isPublishingHandoffPreview('deploy-preview-74--earnest-gecko-17eb0c.netlify.app', '?view=builder'),
+    false,
+  );
+  assert.equal(
+    isPublishingHandoffPreview('deploy-preview-74--evil-example.netlify.app', '?handoff-preview=1'),
+    false,
+  );
 });
 
 test('the archive has a dedicated public route', () => {

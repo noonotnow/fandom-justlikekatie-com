@@ -13,6 +13,9 @@ import {
   TROPE_DECODER_SHARE_EVENT,
   WATCH_JOURNAL_PUBLIC_PAGES,
 } from "./generate-public-pages.js";
+import { PUBLIC_ORIGIN, PUBLIC_STATIC_ROUTES } from "../netlify/functions/lib/public-routes.js";
+import { createPublicSitemapHandler } from "../netlify/functions/public-sitemap.js";
+import { manifestStore, publicManifest } from "../netlify/functions/public-test-fixture.js";
 
 const root = resolve(dirname(fileURLToPath(import.meta.url)), "..");
 
@@ -23,6 +26,69 @@ function read(path) {
 function sha256(path) {
   return createHash("sha256").update(readFileSync(resolve(root, path))).digest("hex");
 }
+
+function assertCanonicalMatchesRoute(html, route) {
+  const canonicalTags = [...html.matchAll(/<link\b[^>]*\brel=["'][^"']*\bcanonical\b[^"']*["'][^>]*>/gi)];
+  assert.equal(
+    canonicalTags.length,
+    1,
+    `${route.page} must contain exactly one canonical tag`,
+  );
+
+  const href = canonicalTags[0][0].match(/\bhref=["']([^"']+)["']/i)?.[1];
+  assert.equal(
+    href,
+    `${PUBLIC_ORIGIN}${route.path}`,
+    `${route.page} canonical must match its registered production URL`,
+  );
+}
+
+test("static public pages canonically match their registered production routes", () => {
+  const fileBackedRoutes = PUBLIC_STATIC_ROUTES.filter(({ page }) => page);
+  assert.ok(fileBackedRoutes.length > 0, "the registry must include static HTML pages");
+
+  for (const route of fileBackedRoutes) {
+    assertCanonicalMatchesRoute(read(route.page), route);
+  }
+});
+
+test("canonical route validation rejects conflicting indexing signals", async (t) => {
+  const route = {
+    path: "/c-drama-fandom/example/",
+    page: "public/c-drama-fandom/example/index.html",
+  };
+  const canonical = (href) => `<link rel="canonical" href="${href}">`;
+
+  await t.test("query-bearing canonical", () => {
+    assert.throws(
+      () => assertCanonicalMatchesRoute(
+        canonical(`${PUBLIC_ORIGIN}${route.path}?view=collection`),
+        route,
+      ),
+      /canonical must match its registered production URL/,
+    );
+  });
+
+  await t.test("alternate-origin canonical", () => {
+    assert.throws(
+      () => assertCanonicalMatchesRoute(
+        canonical(`https://example.com${route.path}`),
+        route,
+      ),
+      /canonical must match its registered production URL/,
+    );
+  });
+
+  await t.test("duplicate canonical tags", () => {
+    assert.throws(
+      () => assertCanonicalMatchesRoute(
+        `${canonical(`${PUBLIC_ORIGIN}${route.path}`)}${canonical(`${PUBLIC_ORIGIN}${route.path}`)}`,
+        route,
+      ),
+      /must contain exactly one canonical tag/,
+    );
+  });
+});
 
 test("the C-drama fandom routes are substantial static HTML documents", () => {
   const titles = new Set();
@@ -72,6 +138,8 @@ test("robots and sitemap expose only intended public surfaces", () => {
     "https://fandom.justlikekatie.com/c-drama-fandom/archetypes/white-moonlight-vs-cinnabar-mole/",
     "https://fandom.justlikekatie.com/c-drama-fandom/trope-decoder/",
     "https://fandom.justlikekatie.com/c-drama-fandom/fandom-games/",
+    "https://fandom.justlikekatie.com/c-drama-fandom/vibing-now/",
+    "https://fandom.justlikekatie.com/c-drama-fandom/vibing-now/against-the-current-episode-21/",
   ];
   const journalUrls = WATCH_JOURNAL_PUBLIC_PAGES.map((path) => (
     `https://fandom.justlikekatie.com/${path
@@ -143,6 +211,26 @@ test("robots and sitemap expose only intended public surfaces", () => {
       netlify,
       new RegExp(`from = "/c-drama-fandom/${slug}"[\\s\\S]*?to = "/c-drama-fandom/${slug}/index\\.html"`),
     );
+  }
+});
+
+test("generated and production sitemaps preserve every crawlable static route", async () => {
+  const staticUrls = new XMLParser({ ignoreAttributes: true })
+    .parse(read("public/sitemap.xml"))
+    .urlset.url.map(({ loc }) => loc);
+  const handler = createPublicSitemapHandler({
+    getStore: () => manifestStore([publicManifest()]),
+  });
+  const result = await handler(new Request(`${PUBLIC_ORIGIN}/sitemap.xml`), {});
+  assert.equal(result.statusCode, 200);
+
+  for (const { path } of PUBLIC_STATIC_ROUTES) {
+    const url = `${PUBLIC_ORIGIN}${path}`;
+    assert.equal(staticUrls.filter((entry) => entry === url).length, 1, `${url} must appear once in the generated sitemap`);
+    assert.equal(result.body.split(`<loc>${url}</loc>`).length - 1, 1, `${url} must appear once in the production sitemap`);
+  }
+  for (const url of staticUrls) {
+    assert.doesNotMatch(url, /\?|\/(?:api|auth)\//);
   }
 });
 
@@ -297,6 +385,55 @@ test("editorial analytics use bounded identifiers and never collect reader text"
   assert.match(script, /const toolActions = new Set\(/);
   assert.match(script, /sectionObserver\.unobserve\(entry\.target\)/);
   assert.doesNotMatch(script, /innerText|textContent|location\.href|location\.search|URLSearchParams|input\.value|formData/i);
+});
+
+test("Against the Current stays within Episode 21 and uses registered static editorial analytics", () => {
+  const path = "/c-drama-fandom/vibing-now/against-the-current-episode-21/";
+  const html = read(`public${path}index.html`);
+  const route = PUBLIC_STATIC_ROUTES.find((entry) => entry.path === path);
+  assert.ok(route);
+  assert.equal(route.changefreq, "weekly");
+  assertCanonicalMatchesRoute(html, route);
+  assert.match(html, /<body data-source-page="drama-against-the-current-episode-21" data-content-mode="drama-authority">/);
+  assert.match(html, /<script async src="https:\/\/www\.googletagmanager\.com\/gtag\/js\?id=G-FHZJ1T74TG"><\/script>/);
+  assert.match(html, /<script defer src="\/c-drama-fandom\/editorial\.js"><\/script>/);
+  assert.deepEqual(
+    [...html.matchAll(/data-section-id="([^"]+)"/g)].map(([, id]) => id),
+    ["vibing-now-intro", "survival-cost", "domestic-statecraft", "ethical-competence",
+      "damage-control", "romance-imbalance", "defining-current", "emerging-vibe", "pack-verdict"],
+  );
+  assert.match(html, /<p class="breadcrumb"><a href="\/c-drama-fandom\/">C-drama fandom<\/a> \/ <a href="\/c-drama-fandom\/vibing-now\/">Vibing Now<\/a><\/p>/);
+  assert.match(html, /view=released&amp;source=library_navigation&amp;actorId=liu-xueyi&amp;vibeIdx=2/);
+  assert.match(html, /view=released&amp;source=library_navigation&amp;actorId=liu-xueyi&amp;vibeIdx=1/);
+  assert.match(html, /Explore Liu Xueyi’s Vibe Packs/);
+  assert.match(html, /Silk-Robed Damage Control<\/strong> <em>\(Pack candidate · unreleased\)<\/em>/);
+  assert.match(html, /Spoiler boundary: Episode 21 · No preview, later-episode, novel, or endgame material included/);
+  assert.doesNotMatch(html, /Research boundary|Rendition map|Episode 2[2-9]\b|HK01|CPOP HOME/i);
+  assert.match(read("netlify.toml"), /from = "\/c-drama-fandom\/vibing-now"\s+to = "\/c-drama-fandom\/vibing-now\/index\.html"/);
+  assert.match(read("public/c-drama-fandom/index.html"), /Currently Vibing/);
+  assert.match(read("public/c-drama-fandom/index.html"), /href="\/c-drama-fandom\/vibing-now\/"/);
+  assert.match(read("netlify.toml"), /from = "\/c-drama-fandom\/vibing-now\/against-the-current-episode-21"\s+to = "\/c-drama-fandom\/vibing-now\/against-the-current-episode-21\/index\.html"/);
+  assert.match(
+    read("vite.config.ts"),
+    /'\/c-drama-fandom\/vibing-now', '\/c-drama-fandom\/vibing-now\/index\.html'/,
+  );
+  assert.match(
+    read("vite.config.ts"),
+    /'\/c-drama-fandom\/vibing-now\/against-the-current-episode-21', '\/c-drama-fandom\/vibing-now\/against-the-current-episode-21\/index\.html'/,
+  );
+});
+
+test("Vibing Now landing page is crawlable and advertises the live spoiler boundary", () => {
+  const path = "/c-drama-fandom/vibing-now/";
+  const html = read(`public${path}index.html`);
+  const route = PUBLIC_STATIC_ROUTES.find((entry) => entry.path === path);
+  assert.ok(route);
+  assert.equal(route.changefreq, "weekly");
+  assertCanonicalMatchesRoute(html, route);
+  assert.match(html, /<body data-source-page="vibing-now-index" data-content-mode="drama-authority">/);
+  assert.match(html, /Against the Current, through Episode 21/);
+  assert.match(html, /No preview material, later episodes, novel material, or endgame commentary/);
+  assert.match(read("public/c-drama-fandom/editorial.js"), /"vibing-now-index"/);
 });
 
 test("the public field journal has crawlable direct routes with spoiler-safe metadata", () => {

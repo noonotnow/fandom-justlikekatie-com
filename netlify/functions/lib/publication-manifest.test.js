@@ -10,13 +10,113 @@ import {
   manifestPayload,
   materializePublicationManifest,
   publicationActorIndexKey,
+  publicationActorIndexRepairKey,
   publicationManifestCatalogKey,
   publicationJoinReceipt,
+  readPublicationManifests,
+  isIndexablePublicationManifest,
+  publicActorDirectory,
+  publicActorPath,
+  publicEditionPath,
+  publicEditionPreview,
+  publicActorSlug,
   readPublicationCorrections,
   recordPublicationCorrectionsForMisprint,
   readLatestPublicationDatesByActor,
+  readLatestPublicationDatesByActorWithHealth,
   rebuildPublicationActorIndex,
+  repairPublicationManifestPublicRecords,
 } from "./publication-manifest.js";
+
+test("public projections are explicit allowlists with stable canonical paths", () => {
+  const manifest = storedPublicationManifest("2026-09-03", "liu-xueyi");
+  manifest.vibe.subtitleEn = "A beautiful ache held in perfect stillness.";
+  manifest.vibe.supportingCopyEn =
+    "A carefully curated visual record of Liu Xueyi's restrained, moonlit melancholy.";
+  assert.equal(isIndexablePublicationManifest(manifest), true);
+  assert.equal(publicActorSlug(manifest.actor), "liu-xueyi");
+  assert.equal(publicActorPath(manifest.actor), "/vibe-atlas/actors/liu-xueyi/");
+  assert.equal(publicEditionPath(manifest), "/vibe-atlas/editions/2026-09-03/liu-xueyi/");
+
+  const projection = publicEditionPreview(manifest);
+  assert.deepEqual(Object.keys(projection).sort(), [
+    "actor", "canonical", "date", "heroPosition", "kind", "path",
+    "previews", "publishedAt", "vibe",
+  ].sort());
+  assert.equal(projection.previews.length, 9);
+  assert.equal(projection.previews[0].thumbnailUrl, manifest.cards[0].media.thumbnailUrl);
+  assert.equal(projection.previews[0].deliveryUrl, manifest.cards[0].media.deliveryUrl);
+  const serialized = JSON.stringify(projection);
+  for (const forbidden of [
+    "query", "prompt", "diagnostic", "confidence", "score", "audit",
+    "account", "entitlement", "checksum", "provenance", "candidateId",
+    "sourceUrl", "assetId",
+  ]) {
+    assert.doesNotMatch(serialized, new RegExp(forbidden, "i"));
+  }
+
+  const directory = publicActorDirectory([manifest]);
+  assert.equal(directory.length, 1);
+  assert.equal(directory[0].path, "/vibe-atlas/actors/liu-xueyi/");
+  assert.equal(directory[0].editions[0].path, projection.path);
+  assert.deepEqual(manifestPayload(manifest).publicRecord, {
+    actorPath: "/vibe-atlas/actors/liu-xueyi/",
+    editionPath: "/vibe-atlas/editions/2026-09-03/liu-xueyi/",
+  });
+});
+
+test("public indexability fails closed for incomplete editorial or MEDIA records", () => {
+  const manifest = storedPublicationManifest("2026-09-03", "liu-xueyi");
+  assert.equal(isIndexablePublicationManifest(manifest), false);
+  assert.equal(manifestPayload(manifest).publicRecord, undefined);
+  manifest.vibe.subtitleEn = "A beautiful ache held in perfect stillness.";
+  manifest.vibe.supportingCopyEn = "A substantial original editorial context for this approved edition.";
+  assert.equal(isIndexablePublicationManifest(manifest), true);
+  manifest.cards[4].media.thumbnailUrl = "";
+  assert.equal(isIndexablePublicationManifest(manifest), false);
+  const malformed = { ...manifest, cards: manifest.cards.slice(0, 8) };
+  assert.equal(publicEditionPreview(malformed), null);
+  assert.deepEqual(publicActorDirectory([malformed]), []);
+  assert.equal(manifestPayload(manifest), null);
+});
+
+test("publication inventory requires every catalog date to resolve to its exact valid manifest", async () => {
+  const missingStore = memoryStore();
+  await missingStore.setJSON(publicationManifestCatalogKey(), {
+    schemaVersion: 1,
+    catalogVersion: "v1",
+    kind: "vibe-atlas-publication-manifest-catalog",
+    dates: ["2026-09-03"],
+  });
+  const missing = await readPublicationManifests(missingStore);
+  assert.equal(missing.inventory.complete, false);
+
+  const malformedStore = memoryStore();
+  await malformedStore.setJSON(publicationManifestCatalogKey(), {
+    schemaVersion: 1,
+    catalogVersion: "v1",
+    kind: "vibe-atlas-publication-manifest-catalog",
+    dates: ["2026-09-03"],
+  });
+  await malformedStore.setJSON(gridManifestKey("2026-09-03"), {
+    publicationDate: "2026-09-03",
+    actor: { id: "not-a-valid-manifest" },
+  });
+  const malformed = await readPublicationManifests(malformedStore);
+  assert.equal(malformed.inventory.complete, false);
+
+  const exactStore = memoryStore();
+  const valid = storedPublicationManifest("2026-09-03", "actor-a");
+  await exactStore.setJSON(publicationManifestCatalogKey(), {
+    schemaVersion: 1,
+    catalogVersion: "v1",
+    kind: "vibe-atlas-publication-manifest-catalog",
+    dates: [valid.publicationDate],
+  });
+  await exactStore.setJSON(gridManifestKey(valid.publicationDate), valid);
+  const exact = await readPublicationManifests(exactStore);
+  assert.equal(exact.inventory.complete, true);
+});
 
 test("publication join receipt preserves matched, missing, ambiguous, and unavailable audit occurrences", () => {
   const input = publicationInput();
@@ -310,6 +410,10 @@ test("materializes an immutable nine-card MEDIA manifest and reuses it idempoten
   assert.equal(first.manifest.boardHash, boardHash(input.board));
   assert.equal(first.manifest.cards.length, 9);
   assert.equal(first.manifest.heroPosition, 4);
+  assert.deepEqual(first.manifest.publicRecord, {
+    actorPath: "/vibe-atlas/actors/liu-xueyi/",
+    editionPath: "/vibe-atlas/editions/2026-09-03/liu-xueyi/",
+  });
   assert.deepEqual(first.manifest.cards.map(card => card.position), [0, 1, 2, 3, 4, 5, 6, 7, 8]);
   assert.ok(first.manifest.cards.every(card => card.media.association.type === "publication"));
   assert.ok(first.payload.displayResults.every(result => result.thumbnail.startsWith("https://media.example/thumbs/")));
@@ -333,6 +437,97 @@ test("materializes an immutable nine-card MEDIA manifest and reuses it idempoten
   });
   assert.equal(second.manifest.manifestId, first.manifest.manifestId);
   assert.deepEqual(media.stats(), { sourceCalls: 9, mediaCalls: 9 });
+});
+
+test("publication manifests reject malformed stored public reader links", () => {
+  const valid = storedPublicationManifest("2026-09-03", "liu-xueyi");
+  valid.publicRecord = {
+    actorPath: "/vibe-atlas/actors/liu-xueyi/",
+    editionPath: "/vibe-atlas/editions/2026-09-03/liu-xueyi/",
+  };
+  assert.equal(isGridManifest(valid), true);
+
+  valid.publicRecord.editionPath = "/vibe-atlas/editions/2026-09-03/other-actor/";
+  assert.equal(isGridManifest(valid), false);
+
+  valid.publicRecord = {
+    actorPath: "/vibe-atlas/actors/other-actor/",
+    editionPath: "/vibe-atlas/editions/2026-09-04/other-actor/",
+  };
+  assert.equal(isGridManifest(valid), false);
+
+  valid.publicRecord = null;
+  assert.equal(isGridManifest(valid), false);
+});
+
+test("publication reader-link repair fixes malformed paths and actor mismatches idempotently", async () => {
+  const store = memoryStore();
+  store.getWithMetadata = async key => ({
+    data: await store.get(key),
+    etag: "test-revision",
+  });
+  for (const [date, publicRecord] of [
+    ["2026-09-03", {
+      actorPath: "/admin/actors/liu-xueyi/",
+      editionPath: "/vibe-atlas/editions/2026-09-03/liu-xueyi/",
+    }],
+    ["2026-09-02", {
+      actorPath: "/vibe-atlas/actors/other/",
+      editionPath: "/vibe-atlas/editions/2026-09-02/other/",
+    }],
+  ]) {
+    const manifest = storedPublicationManifest(date, "liu-xueyi");
+    manifest.publicRecord = publicRecord;
+    await store.setJSON(gridManifestKey(date), manifest);
+  }
+  const first = await repairPublicationManifestPublicRecords(store);
+  assert.equal(first.repaired, 2);
+  assert.equal(first.cataloged, 2);
+  assert.deepEqual(first.invalid.map(item => item.status), [
+    "malformed_actor_path", "actor_mismatch",
+  ]);
+  assert.deepEqual((await readPublicationManifests(store)).inventory, {
+    catalogValid: true,
+    catalogDateCount: 2,
+    listedManifestCount: 2,
+    manifestCount: 2,
+    complete: true,
+  });
+  const second = await repairPublicationManifestPublicRecords(store);
+  assert.equal(second.repaired, 0);
+  assert.equal(second.cataloged, 0);
+  assert.deepEqual(second.invalid, []);
+});
+
+test("publication reader-link repair fails after repeated conflicts without reporting success", async () => {
+  const store = memoryStore();
+  const manifest = storedPublicationManifest("2026-09-03", "liu-xueyi");
+  manifest.publicRecord = {
+    actorPath: "/admin/actors/liu-xueyi/",
+    editionPath: "/vibe-atlas/editions/2026-09-03/liu-xueyi/",
+  };
+  await store.setJSON(gridManifestKey(manifest.publicationDate), manifest);
+  await store.setJSON(publicationManifestCatalogKey(), {
+    schemaVersion: 1,
+    catalogVersion: "v1",
+    kind: "vibe-atlas-publication-manifest-catalog",
+    dates: [manifest.publicationDate],
+    updatedAt: "2026-09-03T12:00:00.000Z",
+  });
+  store.getWithMetadata = async key => ({
+    data: await store.get(key),
+    etag: "test-revision",
+  });
+  let conflicts = 0;
+  store.setJSON = async () => {
+    conflicts += 1;
+    return { modified: false };
+  };
+  await assert.rejects(
+    repairPublicationManifestPublicRecords(store),
+    /after repeated conflicts/,
+  );
+  assert.equal(conflicts, 8);
 });
 
 test("publication revalidates eligibility inside the shared correction lock", async () => {
@@ -571,6 +766,87 @@ test("reads latest actor dates from the index and rebuilds missing or stale data
     store.records.get(publicationActorIndexKey()).actors["actor-a"].manifestId,
     "manifest-actor-a-2026-08-30",
   );
+});
+
+test("actor index repair health stays quiet once and warns on repeated or failed repairs", async () => {
+  const store = memoryStore();
+  const now = () => "2026-08-31T04:00:00.000Z";
+
+  const first = await readLatestPublicationDatesByActorWithHealth(store, { now });
+  assert.equal(first.repairHealth.warning, false);
+  assert.equal(first.repairHealth.attemptCount, 1);
+
+  store.records.delete(publicationActorIndexKey());
+  const repeated = await readLatestPublicationDatesByActorWithHealth(store, { now });
+  assert.equal(repeated.repairHealth.status, "repeated");
+  assert.equal(repeated.repairHealth.warning, true);
+  assert.equal(repeated.repairHealth.attemptCount, 2);
+
+  const originalSetJSON = store.setJSON.bind(store);
+  store.records.delete(publicationActorIndexKey());
+  store.setJSON = async (key, value, options) => {
+    if (key === publicationActorIndexKey()) throw new Error("index write unavailable");
+    return originalSetJSON(key, value, options);
+  };
+  const fallback = await readLatestPublicationDatesByActorWithHealth(store, { now });
+  assert.equal(fallback.repairHealth.status, "failed");
+  assert.equal(fallback.repairHealth.failedAttemptCount, 1);
+  assert.equal(store.records.get(publicationActorIndexRepairKey()).events.at(-1).outcome, "fallback_scan");
+});
+
+test("actor index repair health is unavailable for malformed stored events", async () => {
+  const now = () => "2026-08-31T04:00:00.000Z";
+  const malformedEvents = [
+    { reason: "missing", outcome: "rebuilt" },
+    { attemptedAt: 42, reason: "missing", outcome: "rebuilt" },
+    { attemptedAt: "not-a-date", reason: "missing", outcome: "rebuilt" },
+    { attemptedAt: "2026-08-31T03:00:00.000Z", reason: "missing" },
+  ];
+
+  for (const event of malformedEvents) {
+    const store = memoryStore();
+    await rebuildPublicationActorIndex(store, { now });
+    await store.setJSON(publicationActorIndexRepairKey(), {
+      schemaVersion: 1,
+      kind: "vibe-atlas-publication-actor-index-repair-health",
+      updatedAt: now(),
+      events: [event],
+    });
+
+    const result = await readLatestPublicationDatesByActorWithHealth(store, { now });
+    assert.deepEqual(result.repairHealth, {
+      status: "unavailable",
+      warning: true,
+      windowHours: 24,
+      attemptCount: 0,
+      failedAttemptCount: 0,
+      lastAttemptAt: null,
+      lastOutcome: null,
+    });
+  }
+});
+
+test("actor index repair health is unavailable for invalid summary inputs", async () => {
+  const store = memoryStore();
+  await rebuildPublicationActorIndex(store);
+  await store.setJSON(publicationActorIndexRepairKey(), {
+    schemaVersion: 1,
+    kind: "vibe-atlas-publication-actor-index-repair-health",
+    updatedAt: "2026-08-31T04:00:00.000Z",
+    events: [],
+  });
+
+  const result = await readLatestPublicationDatesByActorWithHealth(store, {
+    now: () => "invalid-window-end",
+  });
+  assert.equal(result.repairHealth.status, "unavailable");
+  assert.equal(result.repairHealth.warning, true);
+  assert.equal(Number.isFinite(result.repairHealth.windowHours), true);
+  assert.equal(result.repairHealth.windowHours >= 0, true);
+  assert.equal(Number.isFinite(result.repairHealth.attemptCount), true);
+  assert.equal(result.repairHealth.attemptCount >= 0, true);
+  assert.equal(Number.isFinite(result.repairHealth.failedAttemptCount), true);
+  assert.equal(result.repairHealth.failedAttemptCount >= 0, true);
 });
 
 test("a later complete listing repairs an older manifest omitted during bootstrap", async () => {

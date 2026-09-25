@@ -106,6 +106,77 @@ test("lists immutable Daily Drop editions with attached publication receipts", a
   assert.equal(body.editions[0].editionId, edition.idempotencyKey);
   assert.equal(body.editions[0].boardHash, edition.boardHash);
   assert.equal(body.editions[0].publicationReceipts[0].channel, "rednote");
+  assert.deepEqual(body.editions[0].readerLinks, { status: "missing_metadata" });
+});
+
+test("lists legacy archive records and reports malformed reader paths without exposing them", async () => {
+  const { handler, publicationStore } = harness();
+  const fixtures = [
+    {
+      version: "v10",
+      date: "2026-08-30",
+      actorId: "actor-1",
+      actorName: "Actor One",
+      actorShortNameEn: "Actor",
+      vibeIdx: 0,
+      vibeLabel: "Vibe",
+      publicRecord: {
+        actorPath: "javascript:alert('actor')",
+        editionPath: "/vibe-atlas/editions/2026-08-30/actor/",
+      },
+    },
+    {
+      version: "v9",
+      date: "2026-08-29",
+      actorId: "actor-2",
+      actorName: "Actor Two",
+      actorShortNameEn: "Actor",
+      vibeIdx: 0,
+      vibeLabel: "Vibe",
+      publicRecord: {
+        actorPath: "/vibe-atlas/actors/actor/",
+        editionPath: "https://unsafe.example/archive",
+      },
+    },
+  ];
+  for (const fixture of fixtures) {
+    await publicationStore.setJSON(
+      `starOfDay:${fixture.version}:${fixture.date}`,
+      fixture,
+    );
+  }
+
+  const response = await handler(request(), {});
+  const body = await response.json();
+
+  assert.equal(response.status, 200);
+  assert.deepEqual(body.editions.map(edition => edition.readerLinks.status), [
+    "malformed_actor_path",
+    "malformed_edition_path",
+  ]);
+  assert.equal(JSON.stringify(body).includes("javascript:"), false);
+  assert.equal(JSON.stringify(body).includes("unsafe.example"), false);
+});
+
+test("diagnoses the stored archive record instead of a regenerated manifest payload", async () => {
+  const { handler, publicationStore } = harness();
+  const edition = manifest();
+  await publicationStore.setJSON(gridManifestKey(edition.publicationDate), edition);
+  await publicationStore.setJSON(`starOfDay:v11:${edition.publicationDate}`, {
+    date: edition.publicationDate,
+    actorName: edition.actor.name,
+    vibeLabel: edition.vibe.label,
+    publicRecord: {
+      actorPath: "/vibe-atlas/actors/actor/",
+      editionPath: "https://unsafe.example/archive",
+    },
+  });
+
+  const response = await handler(request(), {});
+  const body = await response.json();
+
+  assert.deepEqual(body.editions[0].readerLinks, { status: "malformed_edition_path" });
+  assert.equal(JSON.stringify(body).includes("unsafe.example"), false);
 });
 
 test("records one idempotent manual publication receipt per channel", async () => {
@@ -129,6 +200,38 @@ test("records one idempotent manual publication receipt per channel", async () =
   assert.equal(repeated.status, 200);
   assert.equal(receipt.manifestId, edition.manifestId);
   assert.equal(receipt.channel, "rednote");
+});
+
+test("receipt responses preserve the authoritative malformed reader-link diagnostic", async () => {
+  const { handler, publicationStore } = harness();
+  const edition = manifest();
+  await publicationStore.setJSON(gridManifestKey(edition.publicationDate), edition);
+  await publicationStore.setJSON(`starOfDay:v11:${edition.publicationDate}`, {
+    date: edition.publicationDate,
+    actorName: edition.actor.name,
+    vibeLabel: edition.vibe.label,
+    publicRecord: {
+      actorPath: "/vibe-atlas/actors/actor/",
+      editionPath: "https://unsafe.example/archive",
+    },
+  });
+  const payload = {
+    action: "record_publication_receipt",
+    publicationDate: edition.publicationDate,
+    channel: "rednote",
+    publicUrl: "https://www.xiaohongshu.com/explore/post-1",
+  };
+
+  const created = await handler(request("POST", payload), {});
+  const repeated = await handler(request("POST", payload), {});
+  const createdBody = await created.json();
+  const repeatedBody = await repeated.json();
+
+  assert.equal(created.status, 201);
+  assert.equal(repeated.status, 200);
+  assert.deepEqual(createdBody.edition.readerLinks, { status: "malformed_edition_path" });
+  assert.deepEqual(repeatedBody.edition.readerLinks, { status: "malformed_edition_path" });
+  assert.equal(JSON.stringify([createdBody, repeatedBody]).includes("unsafe.example"), false);
 });
 
 test("rejects receipts without a manifest or with conflicting channel lineage", async () => {

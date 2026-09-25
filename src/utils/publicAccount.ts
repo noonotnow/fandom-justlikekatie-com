@@ -1,5 +1,7 @@
+import { PUBLIC_ROUTE_PATHS } from '../../shared/public-routes.js';
 import {
   dbApplySyncResponse,
+  dbBuildCardSyncRequest,
   dbBuildGridSyncRequest,
   dbBuildSyncRequest,
   collectionScopeForCard,
@@ -42,24 +44,30 @@ export async function requestMagicLink(email: string, next?: string): Promise<st
  * Returns the destination view to navigate to on success, or `false` if there
  * was no magic link to consume.
  */
-export async function consumeMagicLinkFromLocation(): Promise<'admin' | 'collection' | 'membership' | false> {
+export async function consumeMagicLinkFromLocation(): Promise<
+  'admin' | 'collection' | 'membership' | `archive:${string}` | false
+> {
   if (window.location.pathname !== '/auth/verify') return false;
   const params = new URLSearchParams(window.location.hash.slice(1));
   const token = params.get('token');
   const next = params.get('next');
+  const archiveDate = next?.match(/^archive:(\d{4}-\d{2}-\d{2})$/)?.[1];
   window.history.replaceState(
     {},
     '',
     next === 'plan' || next === 'admin'
-      ? '/vibe-atlas?admin=true'
+      ? `${PUBLIC_ROUTE_PATHS.vibeAtlas}?admin=true`
+      : archiveDate
+        ? `${PUBLIC_ROUTE_PATHS.vibeAtlas}?date=${encodeURIComponent(archiveDate)}`
       : next === 'membership'
-        ? '/vibe-atlas?view=membership'
-        : '/vibe-atlas?view=collection',
+        ? `${PUBLIC_ROUTE_PATHS.vibeAtlas}?view=membership`
+        : `${PUBLIC_ROUTE_PATHS.vibeAtlas}?view=collection`,
   );
   if (!token) return false;
   const response = await postJson('/api/auth/verify', { token });
   if (!response.ok) throw new Error((await response.json()).error || 'The sign-in link could not be used.');
   notifyCollection('session-changed');
+  if (archiveDate) return `archive:${archiveDate}`;
   return next === 'plan' || next === 'admin' ? 'admin' : next === 'membership' ? 'membership' : 'collection';
 }
 
@@ -117,6 +125,25 @@ export async function syncPublicGrid(user: PublicUser, gridId: string): Promise<
     const response = await postJson('/api/collection/sync', payload);
     const body = await response.json();
     if (!response.ok) throw new Error(body.error || 'Selected grid sync failed.');
+    await dbApplySyncResponse(user.accountId, body, payload.operations);
+    notifyCollection('synced');
+  };
+  if (navigator.locks) {
+    await navigator.locks.request('fandom-collection-sync', run);
+  } else {
+    await run();
+  }
+}
+
+/** Sync one deliberately saved card without opting the device into bulk merge. */
+export async function syncPublicCard(user: PublicUser, imageUrl: string): Promise<void> {
+  const run = async () => {
+    const session = await getPublicSession();
+    if (session?.accountId !== user.accountId) throw new Error('The active account changed. Refresh before syncing.');
+    const payload = await dbBuildCardSyncRequest(user.accountId, imageUrl);
+    const response = await postJson('/api/collection/sync', payload);
+    const body = await response.json();
+    if (!response.ok) throw new Error(body.error || 'Selected image sync failed.');
     await dbApplySyncResponse(user.accountId, body, payload.operations);
     notifyCollection('synced');
   };

@@ -1,6 +1,13 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
 import { readFile, readdir } from 'node:fs/promises';
+import { register } from 'node:module';
+import { createElement } from 'react';
+import { renderToStaticMarkup } from 'react-dom/server';
+import { act, create } from 'react-test-renderer';
+import { ReceiptIndexHealth } from '../src/components/FandomAdmin/ReceiptIndexHealth';
+
+register('./css-module-loader.mjs', import.meta.url);
 
 const appSource = await readFile(new URL('../src/App.tsx', import.meta.url), 'utf8');
 const adminSource = await readFile(
@@ -13,6 +20,14 @@ const actorPreflightSource = await readFile(
 );
 const releaseDeskSource = await readFile(
   new URL('../src/components/FandomAdmin/ReleaseDesk.tsx', import.meta.url),
+  'utf8',
+);
+const receiptIndexHealthSource = await readFile(
+  new URL('../src/components/FandomAdmin/ReceiptIndexHealth.tsx', import.meta.url),
+  'utf8',
+);
+const audienceEvidenceReceiptIndexSource = await readFile(
+  new URL('../src/components/FandomAdmin/AudienceEvidenceReceiptIndex.tsx', import.meta.url),
   'utf8',
 );
 const collectionSource = await readFile(
@@ -84,7 +99,20 @@ test('Release Desk is the Admin workspace for private inventory', () => {
   assert.match(releaseDeskSource, />Production<small>Readiness blockers/);
   assert.match(releaseDeskSource, /aria-selected=\{view === 'audience'\}/);
   assert.match(releaseDeskSource, />Audience evidence<small>Actual use \+ data quality/);
-  assert.match(releaseDeskSource, /engagement-export\?records=0/);
+  assert.match(audienceEvidenceReceiptIndexSource, /engagement-export\?records=0/);
+  assert.match(audienceEvidenceReceiptIndexSource, /archive-access-operations/);
+  assert.match(audienceEvidenceReceiptIndexSource, /billing-operations/);
+  assert.match(receiptIndexHealthSource, /Processed receipt retention/);
+  assert.match(receiptIndexHealthSource, /Do not consider this release complete/);
+  assert.match(receiptIndexHealthSource, /Notification delivery/);
+  assert.match(receiptIndexHealthSource, /Scheduled index alerts/);
+  assert.match(releaseDeskSource, />Archive access health</);
+  assert.match(releaseDeskSource, />Stripe identity conflicts</);
+  assert.match(releaseDeskSource, /No Stripe identity conflicts have been recorded/);
+  assert.match(releaseDeskSource, /'Acknowledge'/);
+  assert.match(releaseDeskSource, /'Mark resolved'/);
+  assert.match(releaseDeskSource, />Resolution timestamp</);
+  assert.match(releaseDeskSource, /Normal anonymous preview and sign-in gates are excluded from incident thresholds/);
   assert.match(releaseDeskSource, /Download audit dataset/);
   assert.match(releaseDeskSource, /Event ratios, not unique-user conversion/);
   assert.match(releaseDeskSource, /<h4 id="release-production-title">Production readiness<\/h4>/);
@@ -108,6 +136,153 @@ test('Release Desk is the Admin workspace for private inventory', () => {
   assert.doesNotMatch(appSource, /<span>Release Desk<\/span>/);
 });
 
+test('receipt-index readiness renders a clearly healthy release-ready state', () => {
+  const markup = renderToStaticMarkup(createElement(ReceiptIndexHealth, {
+    health: { status: 'release_ready', releaseReady: true },
+    notifications: {
+      status: 'delivered',
+      lastAttemptAt: '2026-09-20T13:00:00.000Z',
+      lastDeliveredAt: '2026-09-20T13:00:00.000Z',
+    },
+  }));
+
+  assert.match(markup, />Release-ready<\/strong>/);
+  assert.match(markup, /data-status="resolved"/);
+  assert.match(markup, /The processed-receipt retention index is valid and ready\./);
+  assert.doesNotMatch(markup, /role="alert"/);
+  assert.match(markup, /Notification delivery/);
+  assert.match(markup, />Delivered<\/strong>/);
+  assert.match(markup, /The most recent scheduled notification was delivered/);
+});
+
+test('receipt-index notification delivery failure is separate from healthy index readiness', () => {
+  const markup = renderToStaticMarkup(createElement(ReceiptIndexHealth, {
+    health: { status: 'release_ready', releaseReady: true },
+    notifications: {
+      status: 'failed',
+      lastAttemptAt: '2026-09-20T13:00:00.000Z',
+      lastDeliveredAt: '2026-09-20T12:00:00.000Z',
+    },
+  }));
+
+  assert.match(markup, /Index readiness/);
+  assert.match(markup, />Release-ready<\/strong>/);
+  assert.match(markup, /Notification delivery/);
+  assert.match(markup, />Delivery failed<\/strong>/);
+  assert.match(markup, /role="alert"/);
+  assert.match(markup, /Last attempt:/);
+  assert.match(markup, /Last delivered:/);
+});
+
+test('Release Desk Audience evidence renders billing receipt-index warnings and release-ready health', async () => {
+  const originalFetch = globalThis.fetch;
+  const originalActEnvironment = globalThis.IS_REACT_ACT_ENVIRONMENT;
+  let receiptIndex = { status: 'missing', releaseReady: false };
+  const receiptIndexNotifications = {
+    status: 'delivered',
+    lastAttemptAt: '2026-09-20T13:00:00.000Z',
+    lastDeliveredAt: '2026-09-20T13:00:00.000Z',
+  };
+  globalThis.fetch = (async input => {
+    const url = String(input);
+    if (url.includes('actor-audits')) {
+      return Response.json({ releaseInventory: {}, productionReadiness: {} });
+    }
+    if (url.includes('daily-drop-operations')) {
+      return Response.json({ editions: [] });
+    }
+    if (url.includes('engagement-export')) {
+      return Response.json({ summary: { recordCount: 0 } });
+    }
+    if (url.includes('archive-access-operations')) {
+      return Response.json({ status: {} });
+    }
+    if (url.includes('billing-operations')) {
+      return Response.json({ receiptIndex, receiptIndexNotifications, identityConflict: null });
+    }
+    return Response.json({ error: 'Unexpected request' }, { status: 404 });
+  }) as typeof fetch;
+  globalThis.IS_REACT_ACT_ENVIRONMENT = true;
+
+  try {
+    const { ReleaseDesk } = await import('../src/components/FandomAdmin/ReleaseDesk');
+    let desk: ReturnType<typeof create>;
+    await act(async () => {
+      desk = create(createElement(ReleaseDesk));
+    });
+    await act(async () => {
+      const audienceTab = desk!.root.findAllByType('button')
+        .find(button => button.props.role === 'tab' && button.props.children[0] === 'Audience evidence');
+      assert.ok(audienceTab, 'Release Desk should render the Audience evidence tab');
+      audienceTab.props.onClick();
+    });
+    const blockedMarkup = JSON.stringify(desk!.toJSON());
+    const blockedAlerts = desk!.root.findAll(node => node.props.role === 'alert');
+    assert.ok(blockedAlerts.some(node => String(node.props.children).includes('Do not consider this release complete')));
+    assert.match(blockedMarkup, /Missing/);
+
+    await act(async () => {
+      desk!.unmount();
+    });
+    receiptIndex = { status: 'release_ready', releaseReady: true };
+    await act(async () => {
+      desk = create(createElement(ReleaseDesk));
+    });
+    await act(async () => {
+      const audienceTab = desk!.root.findAllByType('button')
+        .find(button => button.props.role === 'tab' && button.props.children[0] === 'Audience evidence');
+      assert.ok(audienceTab);
+      audienceTab.props.onClick();
+    });
+    const healthyMarkup = JSON.stringify(desk!.toJSON());
+    assert.match(healthyMarkup, /Release-ready/);
+    assert.match(healthyMarkup, /resolved/);
+    assert.match(healthyMarkup, /retention index is valid and ready/);
+    assert.equal(desk!.root.findAll(node => node.props.role === 'alert').length, 0);
+    await act(async () => {
+      desk!.unmount();
+    });
+  } finally {
+    globalThis.fetch = originalFetch;
+    globalThis.IS_REACT_ACT_ENVIRONMENT = originalActEnvironment;
+  }
+});
+
+for (const state of [
+  {
+    status: 'missing',
+    label: 'Missing',
+    message: 'The processed-receipt retention index is missing. Do not consider this release complete.',
+  },
+  {
+    status: 'invalid',
+    label: 'Invalid',
+    message: 'The processed-receipt retention index is invalid. The concurrent migration must be retried.',
+  },
+  {
+    status: 'not_ready',
+    label: 'Not ready',
+    message: 'The processed-receipt retention index is not ready. The concurrent migration did not finish.',
+  },
+  {
+    status: 'unavailable',
+    label: 'Unavailable',
+    message: 'Receipt index readiness could not be checked because the production database is unavailable.',
+  },
+]) {
+  test(`receipt-index readiness renders ${state.status} as a blocking alert`, () => {
+    const markup = renderToStaticMarkup(createElement(ReceiptIndexHealth, {
+      health: { status: state.status, releaseReady: false },
+    }));
+
+    assert.match(markup, new RegExp(`>${state.label}</strong>`));
+    assert.match(markup, /data-status="active"/);
+    assert.match(markup, /role="alert"/);
+    assert.ok(markup.includes(state.message));
+    assert.doesNotMatch(markup, />Release-ready<\/strong>|data-status="resolved"/);
+  });
+}
+
 test('Actor Preflight keeps hero-only failures complete and reviewable', () => {
   assert.match(actorPreflightSource, /complete proposal cards/);
   assert.match(actorPreflightSource, /automatically publication-ready cards/);
@@ -118,8 +293,10 @@ test('Actor Preflight keeps hero-only failures complete and reviewable', () => {
 
 test('public launchpad copy does not expose internal admin or CREATE architecture', () => {
   assert.match(launchpadSource, /daily C-drama card drop/);
-  assert.match(launchpadSource, /One star, one vibe, nine pieces of evidence/);
-  assert.match(launchpadSource, /Browse today’s drop, save the cards that hit/);
+  assert.match(launchpadSource, /Collect the evidence\. Confirm your type\./);
+  assert.match(launchpadSource, /lang="zh-CN">九张证据，一眼心动/);
+  assert.doesNotMatch(launchpadSource, /Like Pokémon, but thirsty/i);
+  assert.match(launchpadSource, /Browse today’s drop, save the cards (?:that understand your type|that hit)/);
   assert.doesNotMatch(launchpadSource, /\badmin\b/i);
   assert.doesNotMatch(launchpadSource, /\bCREATE\b/);
   assert.doesNotMatch(builderSource, /\bCREATE\b/);
@@ -150,6 +327,7 @@ test('public Vibe Atlas copy names the daily card-drop promise', () => {
   assert.match(appSource, /A daily C-drama card drop/);
   assert.match(appSource, /'Vibe Atlas \| Daily C-Drama Collectible Cards \| Fandom Vibes'/);
   assert.match(appSource, /One star\. One vibe\. Nine pieces of evidence\./);
+  assert.match(appSource, /one very specific kind of heartthrob energy/);
   assert.match(appSource, /nine collectible pieces of evidence/);
   assert.match(appSource, /Today's star/);
   assert.match(appSource, /Today's vibe/);

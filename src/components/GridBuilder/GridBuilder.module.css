@@ -6,11 +6,16 @@
   display: grid;
   gap: 16px;
 }
+.builder[data-palette="moonlit-ink"] { --gb-gold: #9f9bea; --gb-panel: #17182b; }
 
 .header { display: flex; align-items: flex-end; justify-content: space-between; gap: 16px; }
 .header h3 { margin: 0; color: var(--gb-gold); }
 .header p { margin: 4px 0 0; color: var(--gb-muted); font-size: 13px; }
 .header > span { color: var(--gb-muted); font-size: 12px; white-space: nowrap; }
+.benefitBar { display: flex; flex-wrap: wrap; align-items: center; gap: 10px; padding: 10px 12px; border: 1px solid var(--gb-border); border-radius: 10px; background: color-mix(in srgb, var(--gb-gold) 7%, transparent); color: var(--gb-muted); font-size: 12px; }
+.benefitBar strong { color: var(--gb-gold); }
+.benefitBar label { display: inline-flex; align-items: center; gap: 6px; margin-left: auto; }
+.benefitBar select { border: 1px solid var(--gb-border); border-radius: 6px; padding: 4px 7px; background: var(--gb-panel); color: inherit; }
 
 .modeTabs { display: flex; gap: 8px; padding: 4px; width: fit-content; border: 1px solid var(--gb-border); border-radius: 12px; }
 .modeTabs button { min-height: 38px; padding: 7px 14px; border: 0; border-radius: 8px; background: transparent; color: inherit; }
@@ -57,6 +62,27 @@
 .chip[aria-pressed="true"] { background: var(--gb-gold); color: #15120e; border-color: var(--gb-gold); }
 .chip[aria-pressed="true"] em { color: #5b4a29; }
 
+.sourceNotes { border: 1px solid var(--gb-border); border-radius: 12px; background: var(--gb-panel); overflow: hidden; }
+.sourceNotesIntro { display: flex; align-items: center; justify-content: space-between; gap: 14px; padding: 12px 14px; }
+.sourceNotesIntro > div { display: grid; gap: 3px; }
+.sourceNotesIntro strong { color: var(--gb-gold); font-size: 13px; }
+.sourceNotesIntro span { color: var(--gb-muted); font-size: 12px; line-height: 1.4; }
+.sourceNotesIntro button, .sourceNotesUpgrade { flex: 0 0 auto; min-height: 34px; padding: 6px 11px; border: 1px solid var(--gb-gold); border-radius: 8px; background: transparent; color: var(--gb-gold); font-size: 12px; font-weight: 700; }
+.sourceNotesBody { display: grid; gap: 12px; padding: 0 14px 14px; border-top: 1px solid var(--gb-border); }
+.sourceNotesBody > p { margin: 12px 0 0; color: var(--gb-muted); font-size: 12px; line-height: 1.5; }
+.sourceNotesUpgrade { justify-self: start; }
+.sourceNotesList { display: grid; gap: 10px; padding-top: 12px; max-height: 360px; overflow: auto; }
+.sourceNotesList article { display: grid; gap: 6px; padding: 11px; border-radius: 9px; background: color-mix(in srgb, currentColor 4%, transparent); }
+.sourceNotesList article > strong { font-size: 13px; }
+.sourceNotesList small { color: var(--gb-muted); font-size: 10px; font-weight: 800; letter-spacing: .06em; text-transform: uppercase; }
+.sourceNotesList ul { display: grid; gap: 4px; margin: 0; padding-left: 18px; font-size: 12px; line-height: 1.4; }
+.sourceNotesList p { margin: 0; font-size: 12px; line-height: 1.5; white-space: pre-wrap; }
+.sourceNotesBody footer { color: var(--gb-muted); font-size: 10px; }
+@media (max-width: 620px) {
+  .sourceNotesIntro { align-items: flex-start; }
+  .sourceNotesIntro button { white-space: nowrap; }
+}
+
 .propose { justify-self: start; min-height: 42px; padding: 9px 18px; border: 1px solid var(--gb-gold); border-radius: 10px; background: var(--gb-gold); color: #15120e; font-size: 14px; font-weight: 600; }
 .propose:disabled { opacity: .45; cursor: not-allowed; }
 
@@ -73,7 +99,6 @@
 @media (max-width: 860px) { .workspace { grid-template-columns: 1fr; } }
 
 .grid { display: grid; grid-template-columns: repeat(3, 1fr); gap: 3px; border-radius: 12px; overflow: hidden; background: var(--gb-panel); }
-.eventGrid { grid-template-columns: repeat(4, 1fr); }
 .slot { position: relative; padding: 0; border: 2px solid transparent; background: none; aspect-ratio: 1; cursor: pointer; }
 .slot img { width: 100%; height: 100%; object-fit: cover; display: block; }
 .slot span { position: absolute; inset: auto 0 0 0; padding: 3px 6px; font-size: 10px; color: #f5f0e6; background: linear-gradient(transparent, rgba(0, 0, 0, .72)); text-align: left; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
@@ -101,9 +126,30 @@
 .evidence dd { margin: 0; overflow-wrap: anywhere; }
 .rationale pre { margin: 0; white-space: pre-wrap; font-family: inherit; font-size: 12.5px; line-height: 1.55; color: inherit; }
 .actions { display: grid; gap: 8px; }
-.actions button { min-height: 42px; border: 1px solid var(--gb-border); border-radius: 10px; background: transparent; color: inherit; font-size: 13px; }
-.actions button:first-child { background: var(--gb-gold); border-color: var(--gb-gold); color: #15120e; font-weight: 600; }
-.actions button:disabled { opacity: .45; cursor: not-allowed; }
+.actions > button, .handoffToggle { min-height: 42px; border: 1px solid var(--gb-border); border-radius: 10px; background: transparent; color: inherit; font-size: 13px; width: 100%; cursor: pointer; }
+.actions > button:first-child { background: var(--gb-gold); border-color: var(--gb-gold); color: #15120e; font-weight: 600; }
+.actions > button:disabled, .handoffToggle:disabled, .handoffPanel button:disabled { opacity: .45; cursor: not-allowed; }
+
+.handoffContainer { display: grid; gap: 8px; }
+.handoffPanel { display: grid; gap: 12px; padding: 12px; border: 1px solid var(--gb-border); border-radius: 10px; background: color-mix(in srgb, var(--gb-panel) 50%, transparent); }
+.handoffPanel button { cursor: pointer; }
+.handoffDestinations { display: flex; gap: 6px; overflow-x: auto; padding-bottom: 4px; }
+.handoffDestinations button { padding: 6px 12px; border: 1px solid var(--gb-border); border-radius: 999px; background: transparent; color: var(--gb-muted); font-size: 12px; white-space: nowrap; }
+.handoffDestinations button[aria-pressed="true"] { background: var(--gb-gold); color: #15120e; border-color: var(--gb-gold); font-weight: 600; }
+.handoffDestinations button:disabled { opacity: 0.4; cursor: not-allowed; }
+
+.rednoteFlow { display: grid; gap: 8px; padding: 12px; border-radius: 8px; background: color-mix(in srgb, currentColor 3%, transparent); }
+.rednoteFlow > button { width: 100%; min-height: 38px; border: 1px solid var(--gb-gold); border-radius: 8px; background: transparent; color: var(--gb-gold); font-weight: 600; font-size: 13px; }
+.handoffReady { display: grid; gap: 10px; font-size: 13px; text-align: center; }
+.expiryText { color: var(--gb-gold); font-weight: 600; font-size: 12px; }
+.expiredText { color: #ef4444; font-weight: 600; font-size: 12px; }
+.handoffActions { display: grid; grid-template-columns: 1fr 1fr; gap: 8px; }
+.handoffActions button, .handoffActions a { display: inline-flex; align-items: center; justify-content: center; padding: 8px; border: 1px solid var(--gb-border); border-radius: 8px; background: var(--gb-panel); color: inherit; text-decoration: none; font-size: 12px; font-weight: 600; }
+.handoffActions button:disabled { opacity: 0.5; cursor: not-allowed; }
+.disabledLink { opacity: 0.5; pointer-events: none; }
+.disclaimer { margin: 0; font-size: 11px; color: var(--gb-muted); line-height: 1.4; text-align: left; }
+.downloadBtn { background: transparent; border: 1px dashed var(--gb-border); color: var(--gb-muted); font-size: 12px; min-height: 36px; border-radius: 8px; width: 100%; }
+.downloadBtn:hover:not(:disabled) { border-color: var(--gb-gold); color: var(--gb-gold); }
 
 .empty, .loading { display: grid; place-items: center; gap: 6px; min-height: 180px; border: 1px dashed var(--gb-border); border-radius: 12px; color: var(--gb-muted); text-align: center; padding: 24px; }
 .loading { grid-auto-flow: column; }

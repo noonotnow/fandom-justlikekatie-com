@@ -101,6 +101,35 @@
   status = 200
 
 [[redirects]]
+  from = "/api/public-editions"
+  to = "/.netlify/functions/public-editions"
+  status = 200
+
+[[redirects]]
+  from = "/vibe-atlas/actors/*"
+  to = "/.netlify/functions/public-records"
+  status = 200
+  force = true
+
+[[redirects]]
+  from = "/vibe-atlas/editions/*"
+  to = "/.netlify/functions/public-records"
+  status = 200
+  force = true
+
+[[redirects]]
+  from = "/vibe-atlas/packs/*"
+  to = "/.netlify/functions/public-records"
+  status = 200
+  force = true
+
+[[redirects]]
+  from = "/sitemap.xml"
+  to = "/.netlify/functions/public-sitemap"
+  status = 200
+  force = true
+
+[[redirects]]
 from = "/api/billing/status"
 to = "/.netlify/functions/billing-status"
 status = 200
@@ -218,6 +247,16 @@ status = 200
 [[redirects]]
 from = "/c-drama-fandom/fandom-games"
 to = "/c-drama-fandom/fandom-games/index.html"
+status = 200
+
+[[redirects]]
+from = "/c-drama-fandom/vibing-now"
+to = "/c-drama-fandom/vibing-now/index.html"
+status = 200
+
+[[redirects]]
+from = "/c-drama-fandom/vibing-now/against-the-current-episode-21"
+to = "/c-drama-fandom/vibing-now/against-the-current-episode-21/index.html"
 status = 200
 
 [[redirects]]

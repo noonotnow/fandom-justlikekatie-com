@@ -11,6 +11,57 @@ const EXPORT_CARD_H = 1350;
 const EXPORT_TEASER_W = 1080;
 const EXPORT_TEASER_H = 1080;
 
+/** Versioned output contracts. Canvas output is explicitly requested in sRGB;
+ * browsers encode canvas PNGs as sRGB even when no ICC chunk is emitted. */
+export const EXPORT_CONTRACT_VERSION = 1;
+export const EXPORT_CONTRACTS = {
+  standard: {
+    variant: 'standard' as const, width: 1080, height: 1080, colorProfile: 'sRGB' as const,
+    mimeType: 'image/png' as const, rendererVersion: 'vibe-atlas-export-v2',
+  },
+  master: {
+    variant: 'master' as const, width: 2160, height: 2160, colorProfile: 'sRGB' as const,
+    mimeType: 'image/png' as const, rendererVersion: 'vibe-atlas-export-v2',
+  },
+};
+
+export type ExportColorProfile = 'sRGB';
+export interface ExportProvenanceAsset {
+  assetId: string;
+  checksum: string;
+  deliveryUrl: string;
+  sourceUrl?: string;
+  attribution?: { publisher?: string; title?: string };
+  permitted: true;
+}
+export interface ExportManifest {
+  schemaVersion: 1;
+  contractVersion: typeof EXPORT_CONTRACT_VERSION;
+  variant: 'master';
+  rendererVersion: string;
+  colorProfile: ExportColorProfile;
+  gridId: string;
+  boardHash: string;
+  assets: ExportProvenanceAsset[];
+  createdAt: string;
+}
+
+export function buildMasterExportManifest(
+  gridId: string,
+  boardHash: string,
+  assets: ExportProvenanceAsset[],
+  createdAt = new Date().toISOString(),
+): ExportManifest {
+  if (!gridId || !boardHash || assets.length !== 9 || assets.some(asset => asset.permitted !== true)) {
+    throw new Error('Master Export requires nine permitted MEDIA assets and a board hash.');
+  }
+  return {
+    schemaVersion: 1, contractVersion: EXPORT_CONTRACT_VERSION, variant: 'master',
+    rendererVersion: EXPORT_CONTRACTS.master.rendererVersion, colorProfile: 'sRGB',
+    gridId, boardHash, assets: assets.map(asset => ({ ...asset })), createdAt,
+  };
+}
+
 // ── Badge assets ───────────────────────────────────────────────────
 const TIER_BADGE_PATHS: Record<string, string> = {
   'star-of-day': '/assets/cards/badges/star-of-day.svg',
@@ -162,6 +213,164 @@ function wrapCanvasText(ctx: CanvasRenderingContext2D, text: string, maxWidth: n
   });
   if (current.trim()) lines.push(current.trim());
   return lines;
+}
+
+function truncateCanvasText(
+  ctx: CanvasRenderingContext2D,
+  text: string,
+  maxWidth: number,
+): string {
+  if (ctx.measureText(text).width <= maxWidth) return text;
+  const ellipsis = '…';
+  let low = 0;
+  let high = text.length;
+  while (low < high) {
+    const mid = Math.ceil((low + high) / 2);
+    if (ctx.measureText(text.slice(0, mid).trimEnd() + ellipsis).width <= maxWidth) {
+      low = mid;
+    } else {
+      high = mid - 1;
+    }
+  }
+  return text.slice(0, low).trimEnd() + ellipsis;
+}
+
+function boundedCreditLines(
+  ctx: CanvasRenderingContext2D,
+  text: string,
+  maxWidth: number,
+  trailingText = '',
+): string[] {
+  const wrapped = wrapCanvasText(ctx, text, maxWidth);
+  if (wrapped.length <= 2 && wrapped.every(line => ctx.measureText(line).width <= maxWidth)) {
+    return wrapped;
+  }
+  const firstLine = truncateCanvasText(ctx, wrapped[0] || text, maxWidth);
+  const remainder = wrapped.slice(1).join(' ')
+    .replace(trailingText, '')
+    .replace(/[·\s]+$/, '')
+    .trim();
+  if (!remainder) return [firstLine];
+  const suffix = trailingText ? ` · ${trailingText}` : '';
+  const remainderWidth = maxWidth - ctx.measureText(suffix).width;
+  return [firstLine, truncateCanvasText(ctx, remainder, remainderWidth) + suffix];
+}
+
+function sourceCreditLines(
+  ctx: CanvasRenderingContext2D,
+  sourceNames: string[],
+  maxWidth: number,
+): string[] {
+  const suffix = 'Vibe Atlas · sRGB';
+  const text = `${sourceNames.length ? `Sources: ${sourceNames.slice(0, 5).join(' · ')} · ` : ''}${suffix}`;
+  return boundedCreditLines(ctx, text, maxWidth, suffix);
+}
+
+function legacySourceCreditLines(
+  ctx: CanvasRenderingContext2D,
+  sourceNames: string[],
+  maxWidth: number,
+): string[] {
+  const text = `来源：${sourceNames.slice(0, 5).join(' · ')}`;
+  return boundedCreditLines(ctx, text, maxWidth);
+}
+
+function drawSourceCreditLines(
+  ctx: CanvasRenderingContext2D,
+  lines: string[],
+  centerX: number,
+  firstBaseline: number,
+  lineHeight: number,
+): void {
+  lines.forEach((line, index) => {
+    ctx.fillText(line, centerX, firstBaseline + index * lineHeight);
+  });
+}
+
+type LegacyFooterVariant = 'portrait' | 'teaser';
+
+interface LegacyFooterLayout {
+  zoneHeight: number;
+  sourceTop: number;
+  sourceFont: string;
+  sourceLineHeight: number;
+  brandBottom: number;
+  brandFont: string;
+  editionBottom: number;
+  editionFont: string;
+  microCopyBottom: number;
+  microCopyFont: string;
+}
+
+const LEGACY_FOOTER_LAYOUTS: Record<LegacyFooterVariant, LegacyFooterLayout> = {
+  portrait: {
+    zoneHeight: 190,
+    sourceTop: 30,
+    sourceFont: '400 18px "Inter", "Noto Sans SC", sans-serif',
+    sourceLineHeight: 22,
+    brandBottom: 96,
+    brandFont: '600 20px "Inter", "Noto Sans SC", sans-serif',
+    editionBottom: 68,
+    editionFont: '400 17px "Inter", "Noto Sans SC", sans-serif',
+    microCopyBottom: 40,
+    microCopyFont: '400 15px "Inter", "Noto Sans SC", sans-serif',
+  },
+  teaser: {
+    zoneHeight: 170,
+    sourceTop: 28,
+    sourceFont: '400 17px "Inter", "Noto Sans SC", sans-serif',
+    sourceLineHeight: 21,
+    brandBottom: 84,
+    brandFont: '600 18px "Inter", "Noto Sans SC", sans-serif',
+    editionBottom: 60,
+    editionFont: '400 15px "Inter", "Noto Sans SC", sans-serif',
+    microCopyBottom: 34,
+    microCopyFont: '400 14px "Inter", "Noto Sans SC", sans-serif',
+  },
+};
+
+function drawLegacyFooter(
+  ctx: CanvasRenderingContext2D,
+  variant: LegacyFooterVariant,
+  canvasHeight: number,
+  contentWidth: number,
+  centerX: number,
+  sourceNames: string[],
+  editionDetail: string,
+  microCopy: string,
+  colors: ExportCardColors,
+): void {
+  const layout = LEGACY_FOOTER_LAYOUTS[variant];
+  const footerTop = canvasHeight - layout.zoneHeight;
+
+  if (sourceNames.length) {
+    ctx.font = layout.sourceFont;
+    ctx.fillStyle = colors.textDarker;
+    const sourceLines = legacySourceCreditLines(ctx, sourceNames, contentWidth);
+    drawSourceCreditLines(
+      ctx, sourceLines, centerX, footerTop + layout.sourceTop, layout.sourceLineHeight,
+    );
+  }
+
+  ctx.font = layout.brandFont;
+  ctx.fillStyle = colors.gold;
+  ctx.fillText('🔮 Vibe Guide · 氛围图鉴 · fandom.justlikekatie.com', centerX, canvasHeight - layout.brandBottom);
+
+  ctx.font = layout.editionFont;
+  ctx.fillStyle = colors.textDim;
+  ctx.fillText(
+    truncateCanvasText(ctx, editionDetail, contentWidth),
+    centerX,
+    canvasHeight - layout.editionBottom,
+  );
+
+  ctx.font = layout.microCopyFont;
+  ctx.fillStyle = hexToRgba(colors.textDarker, 0.85);
+  ctx.fillText(
+    truncateCanvasText(ctx, microCopy, contentWidth),
+    centerX,
+    canvasHeight - layout.microCopyBottom,
+  );
 }
 
 function drawLetterSpacedText(
@@ -327,7 +536,7 @@ export function buildExportFilename(
   dateStr: string,
   actorNameEn: string,
   rankNum: number,
-  variant: 'full' | 'teaser',
+  variant: ExportVariant,
   tier: string,
   vibeLabel = '',
   boardShortId = '',
@@ -336,7 +545,9 @@ export function buildExportFilename(
   const vibeSlug = actorFilenameSlug(vibeLabel);
   const nn = pad2(rankNum);
   const tierTag = (tier && tier !== 'standard') ? ('_' + tier) : '';
-  const suffix = variant === 'teaser' ? '_teaser' : '';
+  const suffix = variant === 'teaser' ? '_teaser'
+    : variant === 'standard' ? '_standard'
+      : variant === 'master' ? '_master' : variant === 'raw' ? '_raw' : '';
   const boardTag = boardShortId ? '_' + actorFilenameSlug(boardShortId).slice(0, 16) : '';
   return 'vibe-guide_' + dateStr + '_' + slug + (vibeSlug ? '_' + vibeSlug : '')
     + boardTag + tierTag + '_ep' + nn + suffix + '.png';
@@ -357,6 +568,7 @@ interface ExportPayload {
   rankIndex: number | null;
   totalBatches: number | null;
   badgeTier: string;
+  presentation?: StarOfDayData['presentation'];
   editorial?: StarOfDayData['editorial'];
 }
 
@@ -369,7 +581,7 @@ export interface ExportArtifact {
 function exportResults(data: StarOfDayData, variant: ExportVariant): RankedBatch['results'] {
   const payload = buildExportPayload(data);
   const results = payload.chosen?.results?.slice(0, variant === 'teaser' ? 6 : 12) ?? [];
-  if (variant === 'full' && results.length < 9) {
+  if ((variant === 'full' || variant === 'standard' || variant === 'master') && results.length < 9) {
     throw new Error('This approved board is not complete yet. A share card requires all nine images.');
   }
   return results;
@@ -451,6 +663,7 @@ export function buildExportPayload(data: StarOfDayData): ExportPayload {
     rankIndex: 0,
     totalBatches: data.rankedBatches.length,
     badgeTier: tier !== 'standard' ? tier : 'star-of-day',
+    ...(data.presentation ? { presentation: data.presentation } : {}),
     ...(data.editorial ? { editorial: data.editorial } : {}),
   };
 }
@@ -565,7 +778,7 @@ async function renderFullExportCanvas(payload: ExportPayload): Promise<HTMLCanva
   }
 
   // 7. Standard 3×3 or bounded Event 4×3 image composition
-  const footerZoneH = 168;
+  const footerZoneH = LEGACY_FOOTER_LAYOUTS.portrait.zoneHeight;
   const gridTop = y + 36;
   const gridBottom = EXPORT_CARD_H - footerZoneH;
   const gridGap = 12;
@@ -600,25 +813,10 @@ async function renderFullExportCanvas(payload: ExportPayload): Promise<HTMLCanva
   results.forEach((r) => {
     if (r.source && !sourceNames.includes(r.source)) sourceNames.push(r.source);
   });
-  const sourcesLineY = EXPORT_CARD_H - footerZoneH + 40;
-  if (sourceNames.length) {
-    ctx.font = '400 18px "Inter", "Noto Sans SC", sans-serif';
-    ctx.fillStyle = colors.textDarker;
-    ctx.fillText('来源：' + sourceNames.slice(0, 5).join(' · '), cx, sourcesLineY);
-  }
-
-  // 9. Footer stack
-  ctx.font = '600 20px "Inter", "Noto Sans SC", sans-serif';
-  ctx.fillStyle = colors.gold;
-  ctx.fillText('🔮 Vibe Guide · 氛围图鉴 · fandom.justlikekatie.com', cx, EXPORT_CARD_H - 96);
-
-  ctx.font = '400 17px "Inter", "Noto Sans SC", sans-serif';
-  ctx.fillStyle = colors.textDim;
-  ctx.fillText(editionStamp.text, cx, EXPORT_CARD_H - 68);
-
-  ctx.font = '400 15px "Inter", "Noto Sans SC", sans-serif';
-  ctx.fillStyle = hexToRgba(colors.textDarker, 0.85);
-  ctx.fillText(microCopy, cx, EXPORT_CARD_H - 40);
+  drawLegacyFooter(
+    ctx, 'portrait', EXPORT_CARD_H, contentW, cx,
+    sourceNames, editionStamp.text, microCopy, colors,
+  );
 
   // 10. Tier badge overlay
   await compositeBadge(canvas, ctx, payload.badgeTier || tier);
@@ -709,7 +907,7 @@ async function renderTeaserExportCanvas(payload: ExportPayload): Promise<HTMLCan
   }
 
   // 5. Image grid (2×3 or 2×2)
-  const footerZoneH = 150;
+  const footerZoneH = LEGACY_FOOTER_LAYOUTS.teaser.zoneHeight;
   const gridTop = y + 34;
   const gridBottom = EXPORT_TEASER_H - footerZoneH;
   const gridGap = 12;
@@ -744,25 +942,10 @@ async function renderTeaserExportCanvas(payload: ExportPayload): Promise<HTMLCan
   results.forEach((r) => {
     if (r.source && !sourceNames.includes(r.source)) sourceNames.push(r.source);
   });
-  const sourcesLineY = EXPORT_TEASER_H - footerZoneH + 36;
-  if (sourceNames.length) {
-    ctx.font = '400 17px "Inter", "Noto Sans SC", sans-serif';
-    ctx.fillStyle = colors.textDarker;
-    ctx.fillText('来源：' + sourceNames.slice(0, 5).join(' · '), cx, sourcesLineY);
-  }
-
-  // 7. Footer stack
-  ctx.font = '600 18px "Inter", "Noto Sans SC", sans-serif';
-  ctx.fillStyle = colors.gold;
-  ctx.fillText('🔮 Vibe Guide · 氛围图鉴 · fandom.justlikekatie.com', cx, EXPORT_TEASER_H - 84);
-
-  ctx.font = '400 15px "Inter", "Noto Sans SC", sans-serif';
-  ctx.fillStyle = colors.textDim;
-  ctx.fillText(editionStamp.text, cx, EXPORT_TEASER_H - 60);
-
-  ctx.font = '400 14px "Inter", "Noto Sans SC", sans-serif';
-  ctx.fillStyle = hexToRgba(colors.textDarker, 0.85);
-  ctx.fillText(microCopy, cx, EXPORT_TEASER_H - 34);
+  drawLegacyFooter(
+    ctx, 'teaser', EXPORT_TEASER_H, contentW, cx,
+    sourceNames, editionStamp.text, microCopy, colors,
+  );
 
   // 8. Tier badge overlay
   await compositeBadge(canvas, ctx, payload.badgeTier || tier);
@@ -772,13 +955,86 @@ async function renderTeaserExportCanvas(payload: ExportPayload): Promise<HTMLCan
 
 // ── Public API ─────────────────────────────────────────────────────
 
-export type ExportVariant = 'full' | 'teaser';
+export type ExportVariant = 'full' | 'teaser' | 'standard' | 'master' | 'raw';
+
+async function renderSquareGridCanvas(
+  payload: ExportPayload,
+  contract: typeof EXPORT_CONTRACTS.standard | typeof EXPORT_CONTRACTS.master,
+): Promise<HTMLCanvasElement> {
+  const results = payload.chosen?.results?.slice(0, 9) ?? [];
+  if (results.length < 9) {
+    throw new Error('A square grid requires all nine approved images.');
+  }
+  await loadExportCardFonts();
+  const images = await Promise.all(results.map(result => loadProxiedImage(result.thumbnail)));
+  if (images.some(image => !image)) {
+    throw new Error('The square grid could not load all nine approved images.');
+  }
+  const canvas = document.createElement('canvas');
+  canvas.width = contract.width;
+  canvas.height = contract.height;
+  // Request the browser's explicit sRGB canvas color space. Older browsers
+  // ignore the option and still produce their standard sRGB canvas output.
+  const ctx = canvas.getContext('2d', { colorSpace: 'srgb' } as CanvasRenderingContext2DSettings)!;
+  const pad = Math.round(contract.width * 0.026);
+  const header = Math.round(contract.width * 0.045);
+  const footer = Math.round(contract.width * 0.052);
+  const gap = Math.round(contract.width * 0.009);
+  const tile = (contract.width - pad * 2 - gap * 2 - header - footer) / 3;
+  const moonlitInk = payload.presentation?.paletteId === 'moonlit-ink'
+    || payload.presentation?.atmosphereId === 'moonlit-ink';
+  const background = moonlitInk ? '#17182b' : '#0e0e12';
+  const heading = moonlitInk ? '#9f9bea' : '#f0ede8';
+  const attribution = moonlitInk ? '#c9a96e' : '#a3a3ad';
+  ctx.fillStyle = background;
+  ctx.fillRect(0, 0, contract.width, contract.height);
+  ctx.textAlign = 'center';
+  ctx.fillStyle = heading;
+  ctx.font = `700 ${Math.round(contract.width * 0.021)}px "Inter", sans-serif`;
+  ctx.fillText(`${payload.actorName || 'Vibe Atlas'} · ${payload.vibeLabel || 'Grid'}`, contract.width / 2, pad + header * 0.58);
+  results.forEach((_, index) => {
+    const image = images[index]!;
+    const x = pad + (index % 3) * (tile + gap);
+    const y = pad + header + (index / 3 | 0) * (tile + gap);
+    drawCoverImageRounded(ctx, image, x, y, tile, tile, Math.round(tile * 0.02));
+  });
+  const sourceNames = [...new Set(results.map(result => result.source).filter(Boolean))];
+  ctx.fillStyle = attribution;
+  ctx.font = `400 ${Math.round(contract.width * 0.0105)}px "Inter", sans-serif`;
+  const attributionLines = sourceCreditLines(ctx, sourceNames, contract.width - pad * 2);
+  const attributionLineHeight = Math.round(contract.width * 0.014);
+  const attributionBottom = contract.height - pad;
+  const attributionTop = attributionBottom - (attributionLines.length - 1) * attributionLineHeight;
+  drawSourceCreditLines(
+    ctx, attributionLines, contract.width / 2, attributionTop, attributionLineHeight,
+  );
+  return canvas;
+}
+
+
+async function renderRawExportCanvas(payload: ExportPayload): Promise<HTMLCanvasElement> {
+  const allResults = payload.chosen?.results ?? [];
+  const cols = allResults.length >= 12 ? 4 : 3;
+  const rows = 3;
+  const results = allResults.slice(0, cols * rows);
+  if (results.length < 9) throw new Error('This approved board is not complete yet. A share card requires at least nine images.');
+  const images = await Promise.all(results.map(r => loadProxiedImage(r.thumbnail)));
+  if (images.some(image => !image)) throw new Error('The share card could not load every approved image. Nothing was exported.');
+  const tileSize = 360;
+  const canvas = document.createElement('canvas'); canvas.width = cols * tileSize; canvas.height = rows * tileSize;
+  const ctx = canvas.getContext('2d')!;
+  results.forEach((_, index) => drawCoverImageRounded(ctx, images[index]!, (index % cols) * tileSize, (index / cols | 0) * tileSize, tileSize, tileSize, 0));
+  return canvas;
+}
 
 export async function renderExportCanvas(
   data: StarOfDayData,
   variant: ExportVariant = 'full',
 ): Promise<HTMLCanvasElement> {
   const payload = buildExportPayload(data);
+  if (variant === 'standard') return renderSquareGridCanvas(payload, EXPORT_CONTRACTS.standard);
+  if (variant === 'master') return renderSquareGridCanvas(payload, EXPORT_CONTRACTS.master);
+  if (variant === 'raw') return renderRawExportCanvas(payload);
   return variant === 'teaser'
     ? renderTeaserExportCanvas(payload)
     : renderFullExportCanvas(payload);
@@ -852,6 +1108,17 @@ function tierMessage(tier: string): string {
   if (tier === 'legendary') return '已导出传说级错版 · Legendary export';
   if (tier === 'legendary-misprint') return '已导出传说错版 · Intentional Legendary Misprint exported';
   return '分享卡已导出 ✓';
+}
+
+
+export async function prepareShareCard(
+  data: StarOfDayData,
+  variant: ExportVariant = 'full',
+  onBlob?: (blob: Blob) => void,
+): Promise<{ objectUrl: string; file: File; fileName: string; tier: string }> {
+  const { artifact, tier } = await createAndLogExport(data, variant);
+  notifyExportBlob(onBlob, artifact.blob);
+  return { objectUrl: URL.createObjectURL(artifact.blob), file: artifact.file, fileName: artifact.fileName, tier };
 }
 
 export async function exportShareCard(

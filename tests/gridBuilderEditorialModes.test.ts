@@ -35,17 +35,17 @@ function card(index: number, familyId: string, familyLabel = familyId): BuilderC
   };
 }
 
-test('Event mode stays in one family and expands to a bounded 12-frame composition', () => {
+test('Event mode stays in one family and limits the generated board to nine frames', () => {
   const eventFamily = Array.from({ length: 14 }, (_, index) => card(index, 'event-family', 'One devastating appearance'));
   const noise = Array.from({ length: 8 }, (_, index) => card(index, `noise-${index}`));
 
   const proposal = proposeGrid([...noise, ...eventFamily], { actor: '刘学义' }, 'event');
 
-  assert.equal(proposal.slots.length, 12);
+  assert.equal(proposal.slots.length, 9);
   assert.equal(proposal.rationale.editorialMode, 'event');
-  assert.equal(proposal.rationale.compositionSize, 12);
+  assert.equal(proposal.rationale.compositionSize, 9);
   assert.deepEqual(new Set(proposal.slots.map(item => item.familyId)), new Set(['event-family']));
-  assert.equal(proposal.alternates.length, 2);
+  assert.equal(proposal.alternates.length, 5);
   assert.ok(proposal.alternates.every(item => item.familyId === 'event-family'));
   assert.match(proposal.rationale.whyTogether, /one bounded appearance/i);
 });
@@ -162,7 +162,7 @@ test('distinct images behind the image proxy remain distinct builder cards', () 
   assert.equal([...proposal.slots, ...proposal.alternates].length, 9);
 });
 
-test('a 12-frame Event record preserves mode, family provenance, export order, and handoff context', async () => {
+test('a nine-frame Event record preserves mode, family provenance, export order, and handoff context', async () => {
   const proposal = proposeGrid(
     Array.from({ length: 12 }, (_, index) => card(index, 'event-family', 'Magazine cover night')),
     { actor: '刘学义' },
@@ -176,24 +176,24 @@ test('a 12-frame Event record preserves mode, family provenance, export order, a
   const source = await creatorDraftSourceFromGrid(grid);
   const exportEvent = gridExportEventFromRecord(grid, 'premium');
 
-  assert.equal(grid.images.length, 12);
+  assert.equal(grid.images.length, 9);
   assert.deepEqual(grid.editorial, {
     mode: 'event',
-    compositionSize: 12,
+    compositionSize: 9,
     arrangement: 'automatic',
     primaryFamilyId: 'event-family',
     primaryFamilyLabel: 'Magazine cover night',
     evidenceBasis: 'batch',
   });
   assert.ok(grid.images.every(image => image.familyId === 'event-family'));
-  assert.equal(source.orderedImages.length, 12);
+  assert.equal(source.orderedImages.length, 9);
   assert.equal(source.creativeContext.editorialMode, 'event');
-  assert.equal(source.creativeContext.compositionSize, 12);
+  assert.equal(source.creativeContext.compositionSize, 9);
   assert.equal(source.creativeContext.arrangement, 'automatic');
   assert.equal(source.creativeContext.primaryFamily, 'Magazine cover night');
   assert.equal(source.creativeContext.evidenceBasis, 'batch');
   assert.equal(exportEvent.editorialMode, 'event');
-  assert.equal(exportEvent.compositionSize, 12);
+  assert.equal(exportEvent.compositionSize, 9);
   assert.equal(exportEvent.arrangement, 'automatic');
   assert.deepEqual(exportEvent.familyIds, ['event-family']);
 });

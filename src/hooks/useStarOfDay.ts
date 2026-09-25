@@ -1,5 +1,6 @@
-import { useState, useEffect, useCallback } from 'react';
+import { useState, useEffect, useCallback, useRef } from 'react';
 import type { GridItemData } from '../types';
+import { publicArchiveRecord } from '../contracts/publicArchiveRecord.js';
 
 export interface StarOfDayResult {
   title: string;
@@ -24,6 +25,7 @@ export interface RankedBatch {
 
 export interface StarOfDayData {
   actorId: string;
+  vibeIdx?: number;
   actorName: string;
   actorShortNameEn: string;
   actorAccentColor: string;
@@ -41,6 +43,10 @@ export interface StarOfDayData {
   generationPrompt?: string;
   generationQuery?: string;
   ctaSeed?: string;
+  presentation?: {
+    paletteId?: string;
+    atmosphereId?: string;
+  };
   editorial?: {
     mode: 'event' | 'compiled';
     compositionSize: 9 | 12;
@@ -52,6 +58,23 @@ export interface StarOfDayData {
   stale?: boolean;
   building?: boolean;
   error?: string;
+  publicRecord?: PublicRecordLinks;
+}
+
+export interface PublicRecordLinks {
+  actorPath: string;
+  editionPath: string;
+}
+
+function projectPublicRecord<T extends { publicRecord?: unknown }>(
+  value: T,
+): Omit<T, 'publicRecord'> & { publicRecord?: PublicRecordLinks } {
+  const { publicRecord, ...projected } = value;
+  const validated = publicArchiveRecord(publicRecord);
+  return {
+    ...projected,
+    ...(validated ? { publicRecord: validated } : {}),
+  };
 }
 
 export interface StarOfDayArchiveEntry {
@@ -66,6 +89,14 @@ export interface StarOfDayArchiveEntry {
   previewThumbnails?: string[];
   legendaryMisprint?: boolean;
   legendaryMisprintTitle?: string;
+  legendaryMisprintCopy?: string;
+  access?: 'free' | 'member';
+  publicRecord?: PublicRecordLinks;
+}
+
+export interface ArchiveGate {
+  reason: 'sign_in' | 'upgrade' | 'billing_delay';
+  edition: StarOfDayArchiveEntry;
 }
 
 function proxyUrl(url: string): string {
@@ -125,9 +156,13 @@ export interface UseStarOfDayReturn {
   archive: StarOfDayArchiveEntry[];
   archiveLoading: boolean;
   archiveError: string | null;
+  archiveHasMore: boolean;
+  archiveTotal: number | null;
   loadArchive: () => Promise<void>;
+  loadMoreArchive: () => Promise<void>;
   loading: boolean;
   error: string | null;
+  gate: ArchiveGate | null;
 }
 
 export const useStarOfDay = (editionDate: string | null | undefined = null): UseStarOfDayReturn => {
@@ -137,8 +172,13 @@ export const useStarOfDay = (editionDate: string | null | undefined = null): Use
   const [archive, setArchive] = useState<StarOfDayArchiveEntry[]>([]);
   const [archiveLoading, setArchiveLoading] = useState(false);
   const [archiveError, setArchiveError] = useState<string | null>(null);
+  const [archiveNextCursor, setArchiveNextCursor] = useState<string | null>(null);
+  const [archiveHasMore, setArchiveHasMore] = useState(false);
+  const [archiveTotal, setArchiveTotal] = useState<number | null>(null);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
+  const [gate, setGate] = useState<ArchiveGate | null>(null);
+  const archiveFirstPageRequest = useRef<Promise<void> | null>(null);
 
   useEffect(() => {
     let cancelled = false;
@@ -147,6 +187,7 @@ export const useStarOfDay = (editionDate: string | null | undefined = null): Use
     setRawData(null);
     setLoading(true);
     setError(null);
+    setGate(null);
 
     if (editionDate === undefined) {
       setLoading(false);
@@ -157,12 +198,31 @@ export const useStarOfDay = (editionDate: string | null | undefined = null): Use
       try {
         const query = editionDate ? `?date=${encodeURIComponent(editionDate)}` : '';
         const res = await fetch(`/.netlify/functions/star-of-day${query}`);
-        if (!res.ok) throw new Error(`API error: ${res.status}`);
+        if (!res.ok) {
+          const body = await res.json().catch(() => null) as {
+            access?: ArchiveGate['reason'];
+            edition?: StarOfDayArchiveEntry;
+            error?: string;
+          } | null;
+          if (
+            (res.status === 401 || res.status === 403 || res.status === 503)
+            && body?.edition
+            && ['sign_in', 'upgrade', 'billing_delay'].includes(body.access || '')
+          ) {
+            setGate({
+              reason: body.access as ArchiveGate['reason'],
+              edition: projectPublicRecord(body.edition),
+            });
+            setLoading(false);
+            return;
+          }
+          throw new Error(body?.error || `API error: ${res.status}`);
+        }
         if (!res.headers.get('content-type')?.includes('application/json')) {
           throw new Error('Today’s Vibe Atlas data service is unavailable in this preview.');
         }
 
-        const data: StarOfDayData = await res.json();
+        const data = projectPublicRecord(await res.json() as StarOfDayData);
 
         if (cancelled) return;
 
@@ -212,23 +272,58 @@ export const useStarOfDay = (editionDate: string | null | undefined = null): Use
     return () => { cancelled = true; };
   }, [editionDate]);
 
-  const loadArchive = useCallback(async () => {
+  const fetchArchivePage = useCallback(async (cursor: string | null, append: boolean) => {
     setArchiveLoading(true);
     setArchiveError(null);
     try {
-      const res = await fetch('/.netlify/functions/star-of-day?archive=1');
+      const query = new URLSearchParams({ archive: '1' });
+      if (cursor) query.set('cursor', cursor);
+      const res = await fetch(`/.netlify/functions/star-of-day?${query}`);
       if (!res.ok) throw new Error(`API error: ${res.status}`);
       if (!res.headers.get('content-type')?.includes('application/json')) {
         throw new Error('The Vibe Atlas archive is unavailable in this preview.');
       }
-      const data: { editions?: StarOfDayArchiveEntry[] } = await res.json();
-      setArchive(Array.isArray(data.editions) ? data.editions : []);
+      const data: {
+        editions?: StarOfDayArchiveEntry[];
+        page?: { nextCursor?: string | null; hasMore?: boolean; total?: number };
+      } = await res.json();
+      const editions = Array.isArray(data.editions)
+        ? data.editions.map(projectPublicRecord)
+        : [];
+      setArchive(current => append
+        ? [...current, ...editions.filter(edition =>
+          !current.some(existing => existing.date === edition.date))]
+        : editions);
+      setArchiveNextCursor(data.page?.nextCursor || null);
+      setArchiveHasMore(data.page?.hasMore === true);
+      setArchiveTotal(Number.isInteger(data.page?.total) ? data.page!.total! : null);
     } catch (err) {
       setArchiveError(err instanceof Error ? err.message : 'Failed to load the archive');
     } finally {
       setArchiveLoading(false);
     }
   }, []);
+
+  const loadArchive = useCallback(async () => {
+    if (archiveFirstPageRequest.current) {
+      return archiveFirstPageRequest.current;
+    }
+
+    const request = fetchArchivePage(null, false);
+    archiveFirstPageRequest.current = request;
+    try {
+      await request;
+    } finally {
+      if (archiveFirstPageRequest.current === request) {
+        archiveFirstPageRequest.current = null;
+      }
+    }
+  }, [fetchArchivePage]);
+
+  const loadMoreArchive = useCallback(
+    () => archiveNextCursor ? fetchArchivePage(archiveNextCursor, true) : Promise.resolve(),
+    [archiveNextCursor, fetchArchivePage],
+  );
 
   return {
     items,
@@ -237,8 +332,12 @@ export const useStarOfDay = (editionDate: string | null | undefined = null): Use
     archive,
     archiveLoading,
     archiveError,
+    archiveHasMore,
+    archiveTotal,
     loadArchive,
+    loadMoreArchive,
     loading,
     error,
+    gate,
   };
 };

@@ -3,7 +3,9 @@ import {
   GRID_MANIFEST_PREFIX,
   gridManifestKey,
   isGridManifest,
+  manifestPayload,
 } from "./publication-manifest.js";
+import { archiveReaderLinkDiagnostic } from "./archive-access.js";
 
 const RECEIPT_PREFIX = "vibeAtlas:publication-receipts:v1:";
 const DATE_RE = /^\d{4}-\d{2}-\d{2}$/;
@@ -30,7 +32,7 @@ function isPublicUrl(value) {
   }
 }
 
-function editionProjection(manifest, receipts) {
+function manifestEditionProjection(manifest, payload, receipts) {
   return {
     schemaVersion: 1,
     editionId: manifest.idempotencyKey,
@@ -49,6 +51,33 @@ function editionProjection(manifest, receipts) {
       labelEn: manifest.vibe.labelEn,
     },
     cardCount: manifest.cardCount,
+    readerLinks: archiveReaderLinkDiagnostic(payload),
+    publicationReceipts: receipts,
+  };
+}
+
+function historicalEditionProjection(payload, version, receipts) {
+  return {
+    schemaVersion: 1,
+    editionId: `starOfDay:${version}:${payload.date}`,
+    publicationDate: payload.date,
+    publishedAt: payload.generatedAt,
+    manifestId: null,
+    boardHash: null,
+    actor: {
+      id: payload.actorId,
+      name: payload.actorName,
+      shortNameEn: payload.actorShortNameEn,
+    },
+    vibe: {
+      key: typeof payload.actorId === "string" && Number.isInteger(payload.vibeIdx)
+        ? `${payload.actorId}:${payload.vibeIdx}`
+        : null,
+      label: payload.vibeLabel,
+      labelEn: payload.vibeLabelEn,
+    },
+    cardCount: Array.isArray(payload.displayResults) ? payload.displayResults.length : 0,
+    readerLinks: archiveReaderLinkDiagnostic(payload),
     publicationReceipts: receipts,
   };
 }
@@ -62,23 +91,72 @@ async function readReceipts(store, date) {
   return values.filter(value => value && typeof value === "object");
 }
 
+async function readStoredArchivePayload(store, date) {
+  const listing = await store.list({ prefix: "starOfDay:" });
+  let selected = null;
+  for (const blob of listing?.blobs ?? []) {
+    const match = String(blob?.key || "").match(/^starOfDay:(v(\d+)):(\d{4}-\d{2}-\d{2})$/);
+    if (!match || match[3] !== date) continue;
+    if (!selected || Number(match[2]) > selected.number) {
+      selected = { key: blob.key, number: Number(match[2]) };
+    }
+  }
+  return selected
+    ? store.get(selected.key, { type: "json", consistency: "strong" })
+    : null;
+}
+
 async function listEditions(publicationStore, operationsStore, limit) {
-  const listing = await publicationStore.list({ prefix: GRID_MANIFEST_PREFIX });
-  const keys = (listing?.blobs ?? [])
+  const [manifestListing, historicalListing] = await Promise.all([
+    publicationStore.list({ prefix: GRID_MANIFEST_PREFIX }),
+    publicationStore.list({ prefix: "starOfDay:" }),
+  ]);
+  const manifestKeys = new Map((manifestListing?.blobs ?? [])
     .map(blob => blob?.key)
-    .filter(key => typeof key === "string")
+    .filter(key => typeof key === "string" && key.startsWith(GRID_MANIFEST_PREFIX))
+    .map(key => [key.slice(GRID_MANIFEST_PREFIX.length), key]));
+  const historicalKeys = new Map();
+  for (const blob of historicalListing?.blobs ?? []) {
+    const match = String(blob?.key || "").match(/^starOfDay:(v(\d+)):(\d{4}-\d{2}-\d{2})$/);
+    if (!match) continue;
+    const current = historicalKeys.get(match[3]);
+    if (!current || Number(match[2]) > current.number) {
+      historicalKeys.set(match[3], {
+        key: blob.key,
+        version: match[1],
+        number: Number(match[2]),
+      });
+    }
+  }
+  const dates = [...new Set([...manifestKeys.keys(), ...historicalKeys.keys()])]
     .sort()
     .reverse()
     .slice(0, limit);
-  const manifests = await Promise.all(keys.map(key => publicationStore.get(key, {
-    type: "json",
-    consistency: "strong",
-  })));
-  const valid = manifests.filter(isGridManifest);
-  const receipts = await Promise.all(
-    valid.map(manifest => readReceipts(operationsStore, manifest.publicationDate)),
-  );
-  return valid.map((manifest, index) => editionProjection(manifest, receipts[index]));
+  const records = await Promise.all(dates.map(async date => {
+    const [manifest, payload, receipts] = await Promise.all([
+      manifestKeys.has(date)
+        ? publicationStore.get(manifestKeys.get(date), {
+          type: "json",
+          consistency: "strong",
+        })
+        : null,
+      historicalKeys.has(date)
+        ? publicationStore.get(historicalKeys.get(date).key, {
+          type: "json",
+          consistency: "strong",
+        })
+        : null,
+      readReceipts(operationsStore, date),
+    ]);
+    if (isGridManifest(manifest)) {
+      return manifestEditionProjection(manifest, payload ?? manifestPayload(manifest), receipts);
+    }
+    if (payload?.date === date && payload?.actorName && payload?.vibeLabel) {
+      return historicalEditionProjection(payload, historicalKeys.get(date).version, receipts);
+    }
+    return null;
+  }));
+  return records.filter(Boolean);
 }
 
 export function createDailyDropOperationsHandler({
@@ -151,9 +229,14 @@ export function createDailyDropOperationsHandler({
             error: `A ${channel} publication receipt is already attached to this edition.`,
           });
         }
+        const storedPayload = await readStoredArchivePayload(
+          publicationStore,
+          publicationDate,
+        );
         return json(200, {
-          edition: editionProjection(
+          edition: manifestEditionProjection(
             manifest,
+            storedPayload ?? manifestPayload(manifest),
             await readReceipts(operationsStore, publicationDate),
           ),
         });
@@ -182,9 +265,14 @@ export function createDailyDropOperationsHandler({
           error: `A ${channel} publication receipt is already attached to this edition.`,
         });
       }
+      const storedPayload = await readStoredArchivePayload(
+        publicationStore,
+        publicationDate,
+      );
       return json(201, {
-        edition: editionProjection(
-          manifest,
+          edition: manifestEditionProjection(
+            manifest,
+          storedPayload ?? manifestPayload(manifest),
           await readReceipts(operationsStore, publicationDate),
         ),
       });

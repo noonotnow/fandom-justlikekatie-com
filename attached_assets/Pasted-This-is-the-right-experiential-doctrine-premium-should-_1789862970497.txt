@@ -1,0 +1,157 @@
+This is the **right experiential doctrine**: premium should emerge from the quality of the artifact and interaction, not from shouting “PREMIUM” at someone every eleven seconds.
+
+I added it to [PR #73](https://github.com/noonotnow/fandom-justlikekatie-com/pull/73) as a third companion plan covering the Grid Builder experience.
+
+## What I’d adopt
+
+### Product vocabulary
+
+Use:
+
+- **Vibe Atlas Canvas** — public Fandom builder
+- **Master Export** — eligible higher-resolution composite
+- **Atmosphere** or **Palette** — whole-grid treatments
+- **Collector Archive** — historical source access
+- **Send to Creator OS** — only for the real cross-product handoff
+
+I prefer **Vibe Atlas Canvas** over “Editorial Layout Room.” It feels polished without sounding like the UI is wearing a tiny beret and demanding to be taken seriously.
+
+Keep the namespace clear:
+
+- **Vibe Atlas Canvas:** fandom artifact creation
+- **Creator OS Workstation:** production and publishing
+
+### Free creation loop
+
+Agreed: do not block the first completed grid.
+
+Free users should be able to:
+
+- Build and rearrange a standard 3×3
+- Export a web-ready 1080×1080 composite
+- Share it
+- Use current and otherwise free inputs
+- Experiment freely in local/device storage
+
+Collector can monetize:
+
+- Historical and actor-pack source depth
+- Cross-device persistence
+- Additional saved canvases
+- Premium Atmospheres
+- Eligible Master Exports
+- Custom curator signatures
+- Original Collector packs
+
+That makes free genuinely useful while paid becomes meaningfully richer.
+
+### Editorial export footer
+
+Strong yes. This aligns with the existing intentional Vibe Guide/Vibe Atlas footer rather than treating branding as debris.
+
+Something like:
+
+```
+VIBE ATLAS · DROP 116 · 刘学义
+fandom.justlikekatie.com · source attribution
+```
+
+should feel like a gallery caption or magazine colophon.
+
+Collector could receive:
+
+- Custom curator signature
+- Alternate approved footer treatments
+- Minimal branded treatment
+- Different type and palette options
+
+I would **not** promise universally attribution-free exports. Membership cannot erase source obligations, and the branded footer is part of the artifact’s identity—not a punishment for being free.
+
+## Corrections to Gemini’s proposal
+
+### Technical specifications must be real
+
+Do not display:
+
+```
+CANVAS: 4000 × 4000 PX
+COLOR SPACE: SRGB DISPLAY P3
+```
+
+unless the actual downloaded file meets those specifications.
+
+`sRGB` and `Display P3` are different color spaces. “sRGB Display P3” is premium-flavored word salad.
+
+The interface should report the actual output:
+
+```
+ASPECT  1:1
+OUTPUT  1080 × 1080 PX
+COLOR   sRGB
+```
+
+Only advertise 4000×4000, Display P3, print-ready, or 4K after the renderer and embedded color profile genuinely support them.
+
+### Split Collector from Creator OS
+
+Gemini combines “VIP / Creator Tier,” but those should remain different entitlements.
+
+**Fandom Collector**
+
+- Atmospheres and palettes
+- Archive and actor-pack access
+- Persistence
+- Eligible higher-resolution composite exports
+
+**Creator OS or ecosystem bundle**
+
+- Selected-artifact handoff
+- Platform renditions
+- Copy and production workflow
+- Planning, publishing, and analytics
+
+“Creator Handoff” should never be cosmetic wording for an ordinary Fandom feature. It should mean an actual transfer into Creator OS.
+
+### Do not sell unrestricted source files
+
+“Export individual high-res source files” remains risky when those files originated from search engines, studios, publishers, or fan accounts.
+
+The safer paid value is:
+
+- Katie-created composites
+- Original treatments and templates
+- Permitted renditions
+- Collection and layout utility
+- Selected-artifact handoff with provenance intact
+
+## Interaction quality
+
+Adopt:
+
+- Magnetic placement feedback
+- Subtle scale/spring response
+- Stable drag previews
+- Predictable crop and reorder behavior
+- Undo/redo where practical
+- Keyboard-operable placement
+- Visible focus states
+- Touch-friendly targets
+- `prefers-reduced-motion` support
+
+Browser haptics are inconsistent—especially on iOS—so vibration should be optional enhancement, never the only placement confirmation.
+
+## Social strategy
+
+Also correct: market the finished artifact, not the software.
+
+For Rednote, the final promotional post should remain Chinese-only. The content formula is:
+
+```
+Finished grid
++ actor/vibe identity
++ light creation provenance
++ canonical actor or edition link
++ restrained invitation to build
+```
+
+The public output becomes the advertisement. The grid says, “I came from a serious little editorial machine,” without the site appearing behind it with a megaphone and a quarterly SaaS revenue target.

@@ -29,7 +29,10 @@
       var analyticsPath = window.location.pathname.replace(/\/+$/, '') || '/';
       var analyticsLocation = analyticsPath === '/vibe-atlas/veteran-journal'
         ? window.location.origin + '/vibe-atlas/veteran-journal'
+        : analyticsPath === '/vibe-atlas' && new URLSearchParams(window.location.search).get('view') === 'released'
+          ? window.location.origin + '/vibe-atlas?view=released'
         : window.location.href;
+      window.__initialAnalyticsLocation = analyticsLocation;
       gtag('config', 'G-FHZJ1T74TG', {
         page_location: analyticsLocation
       });
@@ -46,13 +49,13 @@
     <meta name="viewport" content="width=device-width, initial-scale=1.0" />
     <meta name="description" content="Fandom Vibes is a creative universe by Katie Hendley, creator of Just Like Katie. Browse Vibe Atlas, a daily C-drama collectible of stars, vibes, and nine pieces of evidence." />
     <meta name="robots" content="index,follow,max-image-preview:large" />
-    <link rel="canonical" href="https://fandom.justlikekatie.com/" />
+    <link rel="canonical" href="%PUBLIC_LAUNCHPAD_CANONICAL%" />
     <meta property="og:type" content="website" />
     <meta property="og:site_name" content="Fandom Vibes" />
     <meta property="og:title" content="Fandom Vibes | Daily C-Drama Collectibles & Fandom Guides" />
     <meta property="og:description" content="Browse Vibe Atlas’s daily C-drama collectible: one star, one vibe, and nine pieces of evidence, alongside guides and fandom games." />
-    <meta property="og:url" content="https://fandom.justlikekatie.com/" />
-    <meta property="og:image" content="https://fandom.justlikekatie.com/assets/c-drama-fandom/lg01-master-og.jpg" />
+    <meta property="og:url" content="%PUBLIC_LAUNCHPAD_OG_URL%" />
+    <meta property="og:image" content="%PUBLIC_LAUNCHPAD_OG_IMAGE%" />
     <meta name="twitter:card" content="summary_large_image" />
     <title>Fandom Vibes | Daily C-Drama Collectibles & Fandom Guides</title>
     <script>

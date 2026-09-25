@@ -1,0 +1,382 @@
+Gemini is directionally right, but the proposed snippets assume a simpler codebase than the one you actually have. I inspected the current actor-pack, daily-drop, authentication, billing, webhook, and Netlify configuration.
+
+## Executive verdict
+
+**Do the SEO/sitemap and public-data-contract work before connecting the paywall.**
+
+The repository already has:
+
+- Magic-link accounts using a secure session cookie
+- Stripe Checkout and Customer Portal
+- Membership-status storage
+- Subscription webhook processing
+- A reusable entitlement checker
+- Archive listing and historical retrieval
+- A configured `seo-indexing` edge function for `/vibe-atlas/*`
+
+So we are not “adding Stripe.” We are defining **which data each entitlement may receive** and then connecting the existing billing infrastructure to those boundaries.
+
+---
+
+# 1. Gemini’s `actor-packs.js` recommendations
+
+## Caching: correct only after splitting the API
+
+The public actor-pack endpoint currently returns the entire `ACTOR_PACKS` object with:
+
+```
+Cache-Control: public, max-age=300
+```
+
+A longer CDN cache would reduce invocations. But it would be dangerous to combine that with personalized member output.
+
+These cannot safely share one publicly cached endpoint:
+
+```
+Signed-out response → preview metadata
+Collector response → complete pack
+```
+
+Otherwise, the CDN could cache a Collector response and serve it to everyone.
+
+### Correct design
+
+**Public directory endpoint**
+
+```
+/api/actors
+```
+
+Contains approved public metadata:
+
+- actor slug
+- Chinese and English names
+- editorial description
+- published vibe labels
+- sample preview
+- canonical URL
+
+This can use long shared caching.
+
+**Authenticated pack endpoint**
+
+```
+/api/actors/:slug/pack
+```
+
+Contains the full eligible Fandom product data after checking Collector or bundle access.
+
+Initially, this should use:
+
+```
+Cache-Control: private, no-store
+```
+
+We can optimize authenticated caching later. Cache safety first; serverless pennies second.
+
+## SEO routes: correct, with an editorial filter
+
+Actor pages should exist:
+
+```
+/actor/liu-xueyi
+```
+
+Potential vibe pages can exist:
+
+```
+/vibe/xianmen-lengyu
+```
+
+But we should not automatically create an indexable page for every internal actor × vibe combination. That could create dozens of thin pages derived from configuration data.
+
+Only index combinations that have:
+
+- an approved editorial identity;
+- meaningful original copy;
+- a valid public sample;
+- related editions or useful context;
+- an intentional canonical page.
+
+Actor pages can list additional member-only vibes as product inventory without giving every combination its own SEO route.
+
+## VIP masking: the sample implementation does not fit the repo
+
+Gemini suggests:
+
+```jsx
+verifyVipToken(req.headers.get("authorization"))
+```
+
+But the current site does not use that model. It uses a secure, same-origin, HTTP-only Fandom session cookie through `public-auth.js`.
+
+The correct entitlement flow is approximately:
+
+```
+Authenticate Fandom session
+→ obtain account ID
+→ read billing membership/entitlements
+→ authorize requested Fandom capability
+→ return appropriate DTO
+```
+
+Gemini also assumes fields such as `cards[].hdUrl`. That may be illustrative rather than representative of the actual `ACTOR_PACKS` schema.
+
+More importantly, the free/member split should not be:
+
+> Same giant object, but `hdUrl` is null.
+> 
+
+It should be:
+
+> Different explicitly approved response contracts.
+> 
+
+That prevents accidental leakage of search spells, internal prompts, unpublished vibes, diagnostics, or other fields we later forget to mask.
+
+And “full Workstation exports” should **not** be a Fandom VIP benefit. The neutral Creator OS handoff belongs to Creator OS or the ecosystem bundle.
+
+---
+
+# 2. Gemini’s `star-of-day.js` recommendations
+
+## Archive paywall: yes, but not by returning only a dead 403
+
+Gemini correctly identified that historical requests currently return the full archived payload anonymously.
+
+That payload can contain considerably more than a simple display grid, including fields such as:
+
+- generation prompt
+- generation query
+- ranked batches
+- display results
+- curation data
+- thumbnail and source references
+
+Therefore, sanitization must be broader than removing hypothetical high-resolution URLs.
+
+### Correct response model
+
+**Public edition preview**
+
+Available to everyone and crawlers:
+
+```
+date
+actor ID and public names
+vibe labels and editorial copy
+standard composite/sample preview
+legendary-misprint label where public
+canonical URL
+membership CTA
+```
+
+**Full edition board**
+
+Available when:
+
+- the edition is in the rolling free window;
+- the account has `fandom_collector`;
+- the account has `ecosystem_bundle`;
+- or the requester is an authorized operator.
+
+The public edition page should return a substantive `200` preview. A subsequent request for the protected full board can return `403` with a structured `collector_required` response.
+
+That preserves SEO and product teasing without leaking the product payload.
+
+## “Last three days” needs one clarification
+
+Gemini proposes calendar-day arithmetic. I recommend:
+
+> **Today plus the previous three published editions.**
+> 
+
+That handles:
+
+- missed publication days;
+- failed daily builds;
+- intentionally paused days;
+- archive gaps.
+
+A calendar-based rule might provide only one free edition after a publishing gap. A publication-based window consistently gives visitors four complete drops.
+
+## Caching: right diagnosis, more complicated solution
+
+`star-of-day.js` currently applies `no-store` universally. Gemini is correct that finalized historical manifests are strong caching candidates.
+
+But caching should be divided by response class:
+
+| Response | Recommended initial policy |
+| --- | --- |
+| Public archive index | Shared CDN cache |
+| Public edition preview | Shared CDN cache |
+| Finalized free-window board | Shared cache if its payload is strictly public |
+| Collector full board | Private/no-store initially |
+| Today while building | No-store |
+| Lock/build response | No-store |
+| Error response | No-store |
+| Yesterday fallback presented as today | Short or no-store |
+| Auth or billing status | No-store |
+
+Only **materialized, final publication manifests** should receive immutable-style historical caching. Legacy cache entries or operational states deserve more caution.
+
+## Sitemap: yes, but not Gemini’s query URL
+
+Gemini proposes:
+
+```
+/vibe-atlas?date=2026-08-04
+```
+
+That is currently the wrong canonical form because the React application treats URLs containing query parameters as private/noindex.
+
+The sitemap should contain stable paths:
+
+```
+/vibe-atlas/archive/2026-08-04
+/actor/liu-xueyi
+```
+
+Legacy `?date=` links can remain functional and redirect or canonicalize to the stable path.
+
+Also, sitemap submission does not **guarantee** indexing. It makes discovery and indexing more likely. Google remains tragically unwilling to sign legally binding indexing oaths.
+
+## Dynamic Open Graph: yes
+
+This is one of Gemini’s strongest recommendations.
+
+However, the OG image should come from the **materialized publication artifact**, not trigger a fresh nine-image composition when a social crawler arrives.
+
+Recommended flow:
+
+```
+Daily board is finalized
+→ branded standard-resolution share composite is generated
+→ immutable rendition URL is stored with the publication manifest
+→ edition HTML references it as og:image
+```
+
+That provides:
+
+- stable social previews;
+- no runtime image-search dependency;
+- consistent attribution and branding;
+- predictable caching;
+- no accidental regeneration differences.
+
+---
+
+# 3. What the billing inspection revealed
+
+Stripe is already substantially implemented.
+
+The current system has:
+
+- authenticated Checkout creation;
+- a configured membership Price ID;
+- Stripe customer linking;
+- subscription Checkout;
+- Customer Portal sessions;
+- signed raw-body webhook verification;
+- `checkout.session.completed` handling;
+- subscription-created/updated/deleted handling;
+- membership status retrieval;
+- a reusable `createEntitlementChecker()`.
+
+So Gemini’s framing—“shall we configure Stripe next?”—understates what already exists.
+
+## What billing still needs for this product model
+
+### 1. Replace the single boolean concept
+
+The frontend currently understands essentially:
+
+```
+isMember: true / false
+```
+
+The billing checker similarly asks whether membership status is active.
+
+We need capability-specific entitlements:
+
+```
+fandom_collector
+creator_os
+fandom_creator_bridge
+ecosystem_bundle
+```
+
+Access should be checked by capability, not a universal `isVip`.
+
+### 2. Review webhook idempotency
+
+The current Blob webhook path processes signed events and records subscription state with event timestamps. That is already more complete than Gemini implied.
+
+However, the code inspected does not show an explicit durable “this Stripe event ID has already been processed” receipt at the dispatcher level. That deserves a targeted audit before launch.
+
+### 3. Add promotion and attribution deliberately
+
+The current Checkout input does not enable promotion codes or capture UTM attribution.
+
+Those can be added later with:
+
+- bounded, sanitized attribution values;
+- no arbitrary metadata dumping;
+- tests preventing user-controlled account or price manipulation.
+
+### 4. Do not use billing status as an API call on every card
+
+Authorization should not repeatedly invoke Stripe. The application should rely on the locally reconciled entitlement record, with Stripe remaining the billing source of truth.
+
+---
+
+# Recommended implementation order
+
+## PR A — SEO and public response contracts
+
+1. Inspect and extend the existing `seo-indexing` edge function.
+2. Add stable historical-edition paths.
+3. Add crawlable actor pages.
+4. Generate sitemap entries.
+5. Define public archive-preview and actor-directory DTOs.
+6. Create materialized OG images.
+
+## PR B — Split public and protected data
+
+1. Stop returning the complete `ACTOR_PACKS` object anonymously.
+2. Separate public actor metadata from authenticated pack data.
+3. Separate public edition previews from complete historical boards.
+4. Add leakage and cache-separation tests.
+
+## PR C — Capability-based entitlements
+
+1. Evolve `isMember` into explicit product capabilities.
+2. Connect Collector and bundle access to actor packs and archive boards.
+3. Confirm Creator OS-only accounts do not inherit Fandom access.
+4. Keep admin access separately authorized.
+
+## PR D — Caching
+
+Apply long shared caching only after the public DTOs are guaranteed identical for everyone.
+
+## PR E — Billing hardening
+
+- Promotion codes
+- UTM attribution
+- Explicit webhook-event idempotency
+- Reconciliation tests
+- Checkout conversion events
+
+## Recommendation
+
+**Set up the SEO/public-data foundation first—not the Stripe triggers.**
+
+Stripe already works. The dangerous unresolved question is what the server considers:
+
+- public editorial metadata;
+- free interactive content;
+- Collector content;
+- bundle-only bridge data;
+- private operational data.
+
+Once those contracts are explicit, connecting the existing entitlement checker becomes a controlled implementation instead of playing paywall whack-a-mole across enormous JSON responses.

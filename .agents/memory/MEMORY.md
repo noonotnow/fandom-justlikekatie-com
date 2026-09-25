@@ -9,6 +9,7 @@
 - [Netlify Function-log verification](netlify-function-log-verification.md) — Real-time can appear empty; verify current Production calls in Last hour with filters cleared.
 - [Netlify dual-lockfile parity](netlify-dual-lockfile-parity.md) — Netlify freezes pnpm-lock.yaml when both npm and pnpm locks exist; npm-only CI can miss release-blocking drift.
 - [Netlify function root layout](netlify-function-root-layout.md) — keep tests and helpers out of the function directory root or Netlify may deploy them as endpoints.
+- [Netlify secret runtime audits](netlify-secret-runtime-audits.md) — secret-scoped values are redacted through CLI reads; production audits needing them must execute inside a protected function.
 - [Collection local-first loading](collection-local-first-loading.md) — render browser saves before account sync; sync failures must never make an existing Collection appear empty.
 - [Vite preview port](vite-preview-port.md) — keep the Vite server and Start application webview workflow aligned on port 5000.
 - [Browser test concurrency](browser-test-concurrency.md) — keep Chromium checks parallel with a bounded runner concurrency so native resources remain available.
@@ -16,7 +17,8 @@
 - [MemeForge reaction-card format](memeforge-reaction-card.md) — clean-still aesthetic reaction cards are a finished path alongside unchanged memes and future reworks.
 - [MemeForge uploaded-source staging](memeforge-uploaded-source-staging.md) — canonicalize uploads to MEDIA with a stable UUID before creating durable packets.
 - [Distinct data-URL derivatives](distinct-data-url-derivatives.md) — use URL fragments for unique collection keys without changing image bytes or MIME type.
-- [Vibe Atlas billing boundary](vibe-atlas-billing-boundary.md) — Stripe membership gates Vibe Atlas cloud sync, Grid Builder, and premium exports; existing content storage and MemeForge remain separate.
+- [Vibe Atlas billing boundary](vibe-atlas-billing-boundary.md) — public historical records stay browsable; Collector gates deeper archive utility, cloud persistence, treatments, and Master Exports.
+- [Editorial record access boundary](editorial-record-access-boundary.md) — index substantive editorial records, gate collectible utility, and make premium emerge from artifact quality rather than raw-result access.
 - [External Netlify deployment](external-netlify-deployment.md) — verify the custom domain’s bundle and function routes before production-only tests; Replit deployment metadata is separate.
 - [Stripe account alignment](stripe-account-alignment.md) — Netlify credentials, Price IDs, and webhook secrets must share one Stripe account and mode; Replit can be connected to another.
 - [Creator OS packet retirement](creator-os-packet-retirement.md) — legacy packets are retired; CREATE holds migrated history, while selected grids sync directly through Collection.
@@ -27,8 +29,11 @@
 - [Capability-link analytics](capability-link-analytics.md) — remove public capability values from browser URLs before trackers initialize; canonicalize pageview and event locations.
 - [Vibe Atlas public positioning](vibe-atlas-public-positioning.md) — daily-drop messaging is funnel-wide; audit crawlable guides and regenerate derived previews when it changes.
 - [Daily Drop grid curation contract](grid-curation-contract.md) — Event is a bounded, evidence-backed exception that must beat a competitive Compiled board on scored evidence.
+- [Star of the Day collection loop](star-of-day-collection-loop.md) — today’s collection fuels free grids; Collectors can build from missed drops and deeper actor packs without losing public archive browsing.
+- [Grid proposal quotas](grid-proposal-quotas.md) — future multi-grid proposals may use a configurable daily free quota; edits, exports, and failed attempts must not consume it.
 - [Daily Drop actor eligibility](daily-drop-eligibility.md) — approvals are pair-specific, bound to current audit evidence, and revalidated across builds, caches, and fallbacks.
 - [Private operator console](private-operator-console.md) — keep admin tools private for preflight, audits, and controlled publishing; do not make them part of the public product.
+- [Access grant ontology](access-grant-ontology.md) — keep paid products, membership designations, preview grants, and admin authority separate; founding status may confer revocable previews.
 - [Actor image-query ladders](actor-image-query-ladders.md) — start broad, then add light role/style anchors; stacked show, character, mood, and wardrobe terms can erase a popular actor’s evidence.
 - [Long audit result handoff](long-audit-result-handoff.md) — after a long audit mutation, reload and validate the stored run before announcing that an editorial review is ready.
 - [Actor image feedback](actor-image-feedback.md) — automated picks stay weak; rescue boards are exact operator overrides from frozen displayable evidence without changing eligibility.
@@ -36,6 +41,10 @@
 - [Rescue preference boundary](rescue-preference-boundary.md) — a saved rescue can be preferred as point-in-time editorial metadata without changing curator approval or Daily Drop eligibility.
 - [Adobe Firefly entitlement](adobe-firefly-entitlement.md) — connector discovery does not guarantee Firefly Services API access; check the Adobe project/license entitlement first.
 - [Netlify Blob canonical reads](netlify-blob-canonical-reads.md) — fetch known immutable run and verdict keys directly; prefix listings can lag behind successful writes.
+- [Netlify Blobs test-server etags](netlify-blobs-test-server-etags.md) — SDK test-server GET and HEAD reads may omit etags even though writes and listings return them.
 - [Publication MEDIA boundary](publication-media-boundary.md) — MEDIA owns immutable image bytes; the date manifest owns the approved nine-card composition and provenance.
 - [Calibration authority boundary](calibration-authority-boundary.md) — repeated diagnostic image evidence is inert until a bounded approval; live eligibility must match current evidence and authority.
 - [SerpAPI diagnostic bypass](serpapi-diagnostic-bypass.md) — HTTP no-cache headers do not bypass SerpAPI’s result cache; explicit diagnostic refreshes require its provider parameter.
+- [Archive access incident signals](archive-access-incident-signals.md) — alert only on aggregate authenticated checks; anonymous previews and sign-in gates are funnel activity, not incidents.
+- [Playwright WebKit on Replit Nix](playwright-webkit-replit-nix.md) — bypass ldconfig-only preflight and the WebKit wrapper’s overwritten library path while retaining a real launch probe.
+- [Archive link diagnostics](archive-link-diagnostics.md) — diagnose authoritative stored archive metadata, not regenerated safe projections, or malformed-link failures become invisible.

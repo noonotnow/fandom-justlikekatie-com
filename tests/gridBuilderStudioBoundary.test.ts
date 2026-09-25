@@ -2,13 +2,105 @@ import test from 'node:test';
 import assert from 'node:assert/strict';
 import {
   applyLens,
+  buildDailyDropPool,
   buildVibeAtlasPool,
   gridRecordFromProposal,
   proposeGrid,
 } from '../src/utils/gridBuilder';
-import { markGridAsLegendaryMisprint, type CardRecord, type GridRecord } from '../src/utils/collectionDB';
+import {
+  historicalEditionHref,
+  markGridAsLegendaryMisprint,
+  normalizeGridRecord,
+  type CardRecord,
+  type GridRecord,
+} from '../src/utils/collectionDB';
 import { starDataFromCollectionGrid } from '../src/utils/collectionHistoryModel';
 import { classifyEditionTier } from '../src/utils/exportCanvas';
+
+test('Daily Drop inventory stays a distinct builder source rather than a saved Collection', () => {
+  const pool = buildDailyDropPool({
+    actorId: 'actor-1',
+    actorName: '今日之星',
+    actorShortNameEn: 'Star Today',
+    actorAccentColor: '#123456',
+    vibeEmoji: '✨',
+    vibeLabel: '今日氛围',
+    vibeLabelEn: 'Today Vibe',
+    vibeSubtitle: '今天',
+    vibeSubtitleEn: 'Today',
+    date: '2026-09-20',
+    rankedBatches: [{
+      query: 'approved daily family',
+      results: [{
+        title: 'Approved image',
+        thumbnail: 'https://images.example.test/a.jpg',
+        link: 'https://source.example.test/a',
+        source: 'Source',
+      }],
+    }],
+  });
+
+  assert.equal(pool.length, 1);
+  assert.equal(pool[0].origin, 'daily-drop');
+  assert.equal(pool[0].capturedDate, '2026-09-20');
+  assert.equal(pool[0].sourceUrl, 'https://source.example.test/a');
+  assert.match(pool[0].imageUrl, /^\/\.netlify\/functions\/image-proxy\?url=/);
+});
+
+test('saved grids preserve historical edition provenance without copying edition cards into saved results', () => {
+  const pool = buildDailyDropPool({
+    actorId: 'actor-archive',
+    actorName: '往期之星',
+    actorShortNameEn: 'Archive Star',
+    actorAccentColor: '#654321',
+    vibeEmoji: '🌙',
+    vibeLabel: '往期氛围',
+    vibeLabelEn: 'Archive Vibe',
+    vibeSubtitle: '往期',
+    vibeSubtitleEn: 'Archive',
+    date: '2026-09-19',
+    rankedBatches: [{
+      query: 'immutable edition family',
+      results: Array.from({ length: 9 }, (_, index) => ({
+        title: `Edition image ${index + 1}`,
+        thumbnail: `https://images.example.test/archive-${index + 1}.jpg`,
+      })),
+    }],
+  });
+  const proposal = proposeGrid(pool, {}, 'compiled');
+  const record = gridRecordFromProposal(
+    proposal.slots,
+    proposal.rationale,
+    new Date('2026-09-20T12:00:00.000Z'),
+    undefined,
+    { kind: 'edition', editionDate: '2026-09-19' },
+  );
+
+  assert.deepEqual(record.sourceProvenance, {
+    kind: 'edition',
+    editionDate: '2026-09-19',
+  });
+  assert.deepEqual(normalizeGridRecord(record).sourceProvenance, record.sourceProvenance);
+  assert.equal(historicalEditionHref(record), '/vibe-atlas?date=2026-09-19');
+  assert.equal(record.images.length, 9);
+  assert.ok(record.images.every(image => image.resultId.includes('/archive-')));
+});
+
+test('older grids without valid historical provenance render without an archive link', () => {
+  const legacy = normalizeGridRecord({
+    id: 'legacy-grid',
+    sourceProvenance: undefined,
+  });
+  const malformed = normalizeGridRecord({
+    id: 'malformed-grid',
+    sourceProvenance: { kind: 'edition', editionDate: 'not-a-date' },
+  });
+
+  assert.equal(legacy.sourceProvenance, undefined);
+  assert.equal(historicalEditionHref(legacy), undefined);
+  assert.equal(malformed.sourceProvenance, undefined);
+  assert.equal(historicalEditionHref(malformed), undefined);
+});
 
 function card(actor: string, id: string, collectionScope: CardRecord['collectionScope'] = 'vibe-atlas'): CardRecord {
   return {

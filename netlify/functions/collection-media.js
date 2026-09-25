@@ -3,4 +3,4 @@ import { createPublicAuth } from "./lib/public-auth.js";
 import { createCollectionMediaHandler } from "./lib/collection-media.js";
 
 const auth = createPublicAuth({ getStore: getBlobStore });
-export default createCollectionMediaHandler({ auth });
+export default createCollectionMediaHandler({ auth, getStore: getBlobStore });

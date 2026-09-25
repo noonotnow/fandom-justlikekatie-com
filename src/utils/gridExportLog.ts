@@ -1,5 +1,20 @@
-import type { ExportVariant } from './exportCanvas';
+import type { ExportManifest, ExportVariant } from './exportCanvas';
 import type { GridRecord } from './collectionDB';
+
+export const GRID_EXPORT_PERSISTED_EVENT = 'fandom-grid-export-persisted';
+
+export interface GridExportPersistedEventDetail {
+  gridId: string;
+}
+
+/** Notify an open Collection that one saved grid's export history changed. */
+export function notifyGridExportPersisted(gridId: string): void {
+  if (typeof window === 'undefined') return;
+  window.dispatchEvent(new CustomEvent<GridExportPersistedEventDetail>(
+    GRID_EXPORT_PERSISTED_EVENT,
+    { detail: { gridId } },
+  ));
+}
 
 /**
  * Fire-and-forget logging of a full 3×3 grid export (the main share card),
@@ -87,11 +102,15 @@ export function uploadExportedCard(
   blob: Blob,
   variant: ExportVariant,
   tier: string,
+  manifest?: ExportManifest,
 ): Promise<boolean> {
   const params = new URLSearchParams({ gridId, exportId, variant, tier });
   return fetch(`/.netlify/functions/grid-exports?${params.toString()}`, {
     method: 'POST',
-    headers: { 'Content-Type': 'image/png' },
+    headers: {
+      'Content-Type': 'image/png',
+      ...(manifest ? { 'X-Export-Manifest': JSON.stringify(manifest) } : {}),
+    },
     body: blob,
   })
     .then(response => response.ok)

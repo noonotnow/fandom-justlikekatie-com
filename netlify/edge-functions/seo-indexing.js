@@ -1,3 +1,5 @@
+import { PUBLIC_ROUTE_PATHS } from "../../shared/public-routes.js";
+
 const SITE_ORIGIN = "https://fandom.justlikekatie.com";
 
 /**
@@ -11,10 +13,12 @@ export function shouldNoindexUrl(input) {
 
   if (pathname === "/auth/verify" || pathname.startsWith("/auth/")) return true;
 
-  const isStudioRoute = pathname === "/vibe-atlas"
-    || pathname === "/vibe-atlas/archive"
+  const isStudioRoute = pathname === PUBLIC_ROUTE_PATHS.vibeAtlas
+    || pathname === PUBLIC_ROUTE_PATHS.vibeAtlasArchive
     || pathname === "/memeforge/middle-earth";
-  return isStudioRoute && url.search.length > 0;
+  const isPublicRecordRoute = pathname.startsWith(`${PUBLIC_ROUTE_PATHS.vibeAtlasActors}/`)
+    || pathname.startsWith(`${PUBLIC_ROUTE_PATHS.vibeAtlasEditions}/`);
+  return (isStudioRoute || isPublicRecordRoute) && url.search.length > 0;
 }
 
 export default async function seoIndexing(request, context) {

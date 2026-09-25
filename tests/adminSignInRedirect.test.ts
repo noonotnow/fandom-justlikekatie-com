@@ -45,17 +45,18 @@ function extractUseEffectBody(src: string, anchor: string): string {
 
   let start = effectIdx;
   while (start !== -1) {
-    const slice = src.slice(start);
-    if (slice.includes(anchor)) {
-      // Find the opening paren of useEffect(
-      const openParen = src.indexOf('(', start);
-      // Walk the slice to find the matching closing paren of useEffect(...)
-      let depth = 0;
-      for (let i = openParen; i < src.length; i++) {
-        if (src[i] === '(') depth++;
-        else if (src[i] === ')') {
-          depth--;
-          if (depth === 0) return src.slice(openParen, i + 1);
+    // Find the opening paren of useEffect(
+    const openParen = src.indexOf('(', start);
+    // Walk the slice to find the matching closing paren of useEffect(...)
+    let depth = 0;
+    for (let i = openParen; i < src.length; i++) {
+      if (src[i] === '(') depth++;
+      else if (src[i] === ')') {
+        depth--;
+        if (depth === 0) {
+          const effect = src.slice(openParen, i + 1);
+          if (effect.includes(anchor)) return effect;
+          break;
         }
       }
     }

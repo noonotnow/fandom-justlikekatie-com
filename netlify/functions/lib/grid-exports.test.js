@@ -22,9 +22,14 @@ const PNG_MAGIC = [0x89, 0x50, 0x4e, 0x47, 0x0d, 0x0a, 0x1a, 0x0a];
 const EXPORT_ID = "11111111-2222-4333-8444-555555555555";
 const GRID_ID = "vibe-atlas-2026-08-01-actor-1";
 
-function pngBytes(size = 64) {
+function pngBytes(size = 64, width, height) {
   const bytes = new Uint8Array(size);
   PNG_MAGIC.forEach((b, i) => { bytes[i] = b; });
+  if (width && height && size >= 24) {
+    const view = new DataView(bytes.buffer);
+    view.setUint32(16, width);
+    view.setUint32(20, height);
+  }
   return bytes;
 }
 
@@ -54,7 +59,13 @@ function makeStore({ failDeleteKeys = new Set() } = {}) {
   };
 }
 
-function makeHandlers({ accountId = "usr_a", store = makeStore(), authFails = false, now } = {}) {
+function makeHandlers({
+  accountId = "usr_a",
+  store = makeStore(),
+  authFails = false,
+  now,
+  verifyMasterAssets = async () => true,
+} = {}) {
   const auth = {
     authenticate: async () => {
       if (authFails) {
@@ -70,18 +81,77 @@ function makeHandlers({ accountId = "usr_a", store = makeStore(), authFails = fa
     return store;
   };
   const clock = now || (() => new Date("2026-08-17T12:00:00.000Z"));
-  return { handlers: createGridExportHandlers({ auth, getStore, now: clock }), store };
+  return {
+    handlers: createGridExportHandlers({ auth, getStore, now: clock, verifyMasterAssets }),
+    store,
+  };
 }
 
-function uploadReq({ gridId = GRID_ID, exportId = EXPORT_ID, body = pngBytes(), variant = "full", tier = "misprint", contentLength } = {}) {
+function uploadReq({ gridId = GRID_ID, exportId = EXPORT_ID, body = pngBytes(), variant = "full", tier = "misprint", contentLength, manifest } = {}) {
   const params = new URLSearchParams({ gridId, exportId, variant, tier });
   return {
     method: "POST",
     url: `https://example.test/.netlify/functions/grid-exports?${params}`,
-    headers: { get: (name) => (name === "content-length" ? String(contentLength ?? body.byteLength) : null) },
+    headers: { get: (name) => {
+      if (name === "content-length") return String(contentLength ?? body.byteLength);
+      if (name === "x-export-manifest") return manifest ? JSON.stringify(manifest) : null;
+      return null;
+    } },
     arrayBuffer: async () => body.buffer ?? body,
   };
 }
+
+test("standard square uploads enforce the 1080×1080 contract", async () => {
+  const { handlers } = makeHandlers();
+  const wrong = await handlers.handler(uploadReq({
+    variant: "standard",
+    body: pngBytes(64, 1080, 1350),
+  }), {});
+  assert.equal(wrong.status, 400);
+  const right = await handlers.handler(uploadReq({
+    exportId: "22222222-3333-4333-8444-555555555555",
+    variant: "standard",
+    body: pngBytes(64, 1080, 1080),
+  }), {});
+  assert.equal(right.status, 200);
+});
+
+test("master uploads require nine unique permitted MEDIA assets", async () => {
+  const { handlers } = makeHandlers();
+  const body = pngBytes(64, 2160, 2160);
+  const missing = await handlers.handler(uploadReq({ variant: "master", body }), {});
+  assert.equal(missing.status, 400);
+  const assets = Array.from({ length: 9 }, (_, index) => ({
+    assetId: `11111111-2222-4${String(index).padStart(3, "0")}-8444-555555555555`,
+    checksum: "a".repeat(64),
+    deliveryUrl: `https://media.example.test/assets/${index}`,
+    permitted: true,
+  }));
+  const accepted = await handlers.handler(uploadReq({
+    exportId: "33333333-4444-4333-8444-555555555555",
+    variant: "master",
+    body,
+    manifest: {
+      schemaVersion: 1, contractVersion: 1, variant: "master",
+      rendererVersion: "vibe-atlas-export-v2", colorProfile: "sRGB",
+      gridId: GRID_ID, boardHash: "board-hash-v1", assets,
+    },
+  }), {});
+  assert.equal(accepted.status, 200);
+
+  const forged = makeHandlers({ verifyMasterAssets: async () => false }).handlers;
+  const denied = await forged.handler(uploadReq({
+    exportId: "44444444-5555-4333-8444-555555555555",
+    variant: "master",
+    body,
+    manifest: {
+      schemaVersion: 1, contractVersion: 1, variant: "master",
+      rendererVersion: "vibe-atlas-export-v2", colorProfile: "sRGB",
+      gridId: GRID_ID, boardHash: "board-hash-v1", assets,
+    },
+  }), {});
+  assert.equal(denied.status, 409);
+});
 
 function getReq(query) {
   return {
@@ -110,6 +180,24 @@ test("upload stores the PNG keyed by account, grid, and export event", async () 
   assert.equal(index[0].variant, "full");
   assert.equal(index[0].tier, "misprint");
   assert.equal(index[0].exportedAt, "2026-08-17T12:00:00.000Z");
+});
+
+test("raw-grid uploads retain their distinct export identity", async () => {
+  const { handlers, store } = makeHandlers({ accountId: "usr_a" });
+  const res = await handlers.handler(uploadReq({ variant: "raw" }), {});
+  assert.equal(res.status, 200);
+
+  const index = JSON.parse(store.db.get(`exports/usr_a/${GRID_ID}/index.json`));
+  assert.equal(index[0].variant, "raw");
+});
+
+test("unsupported export variants are rejected instead of becoming treated cards", async () => {
+  const { handlers } = makeHandlers();
+  for (const variant of ["unknown", ""]) {
+    const res = await handlers.handler(uploadReq({ variant }), {});
+    assert.equal(res.status, 400);
+    assert.deepEqual(await res.json(), { error: "Invalid export variant." });
+  }
 });
 
 test("re-uploading the same exportId does not duplicate the index entry", async () => {

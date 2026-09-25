@@ -23,7 +23,36 @@ import {
   gridManifestKey,
   manifestPayload,
   materializePublicationManifest,
+  publicEditionPreview,
+  repairPublicationManifestPublicRecords,
 } from "./lib/publication-manifest.js";
+import { createPublicAuth } from "./lib/public-auth.js";
+import { createBillingServices } from "./lib/billing.js";
+import {
+  archiveAccessDecision,
+  archiveAccessWindowDates,
+  ARCHIVE_ACCESS_WINDOW_KEY,
+  ARCHIVE_CATALOG_KEY,
+  archiveCatalogEditions,
+  archiveEditionMetadata,
+  enrichCanonicalLegendaryMisprint,
+  archiveGateEnabled,
+  ensureArchiveAccessWindow,
+  listArchiveCatalogEditions,
+  listArchiveCatalogPage,
+  publicArchiveEdition,
+  reconcileArchiveCatalogIndexes,
+  repairArchiveCatalogPublicRecords,
+  updateArchiveCatalog,
+} from "./lib/archive-access.js";
+import {
+  archiveRepairErrorClassification,
+  listArchiveRepairHistory,
+  recordArchiveAccessCheck,
+  recordArchiveRepairAttempt,
+} from "./lib/archive-access-operations.js";
+import { capabilitiesForMembership } from "./lib/capabilities.js";
+import { candidateFingerprint } from "./lib/search-candidate-fingerprint.js";
 
 // Server-side daily cache for "Star of the Day".
 //
@@ -50,11 +79,21 @@ const LEGACY_READ_VERSIONS = ["v10", "v9", "v8", "v7", "v6", "v5"];
 // One excellent, human-approved board is enough to release. A second approved
 // pairing remains useful inventory and range, but it is not a publication gate.
 export const MIN_RELEASE_READY_PAIRS = 1;
+const COLLECTOR_REFRESH_RESULTS_PER_QUERY = 30;
+const COLLECTOR_REFRESH_RANKED_BATCH_LIMIT = 5;
+const COLLECTOR_REFRESH_CANDIDATE_LIMIT = 60;
+const COLLECTOR_REFRESH_SECOND_PASS_QUERY_LIMIT = 4;
+const COLLECTOR_REFRESH_MIN_UNSEEN_CANDIDATES = 18;
+const COLLECTOR_REFRESH_TELEMETRY_QUERY_LIMIT = 120;
 const STORE_NAME = "star-of-day";
 const LOCK_TTL_MS = 25000; // a stale/abandoned lock is ignored after this long
 const POLL_INTERVAL_MS = 700;
 const POLL_MAX_WAIT_MS = 12000;
 const DATE_RE = /^\d{4}-\d{2}-\d{2}$/;
+export const ARCHIVE_PAGE_SIZE = 24;
+export const ARCHIVE_MAX_PAGE_SIZE = 100;
+export const ARCHIVE_CATALOG_MIGRATION_MARKER_KEY =
+  "archiveCatalog:v2:legacy-migration-complete";
 
 function cacheKeyFor(dateString) {
   return `starOfDay:${VERSION}:${dateString}`;
@@ -81,6 +120,80 @@ function sleep(ms) {
   return new Promise((resolve) => setTimeout(resolve, ms));
 }
 
+function normalizedCollectorFingerprint(result) {
+  return candidateFingerprint(result);
+}
+
+function partitionCollectorResults(results, excludedThumbnails, excludedChecksums) {
+  const seen = new Set();
+  const unseen = [];
+  const seenSafe = [];
+  for (const result of results || []) {
+    const key = normalizedCollectorFingerprint(result);
+    if (!result?.thumbnail || seen.has(key)) continue;
+    seen.add(key);
+    const previouslySeen = excludedThumbnails.has(result.thumbnail)
+      || (result.imageChecksum && excludedChecksums.has(result.imageChecksum));
+    if (previouslySeen) seenSafe.push(result);
+    else unseen.push(result);
+  }
+  return { unseen, seenSafe };
+}
+
+function countUniqueUnseenCandidates(rankedBatches, excludedThumbnails, excludedChecksums) {
+  const seen = new Set();
+  for (const batch of rankedBatches || []) {
+    for (const result of batch?.results || []) {
+      if (!result?.thumbnail) continue;
+      if (excludedThumbnails.has(result.thumbnail)
+        || (result.imageChecksum && excludedChecksums.has(result.imageChecksum))) continue;
+      seen.add(normalizedCollectorFingerprint(result));
+    }
+  }
+  return seen.size;
+}
+
+function targetedCollectorQueries({
+  actor,
+  vibe,
+  promise,
+  calibrationProfile,
+  firstPassQueries = [],
+}) {
+  const terms = [
+    actor?.name,
+    actor?.shortName,
+    actor?.shortName_en,
+    ...(actor?.canonicalNames || []),
+    ...(calibrationProfile?.positiveQueries || []),
+    ...(vibe?.queries || []),
+  ].filter(Boolean);
+  const clusters = promise?.aestheticClusters || [];
+  const seen = new Set(firstPassQueries.map(query => String(query).toLowerCase()));
+  const queries = [];
+  const pushQuery = (parts) => {
+    const value = [...new Set(parts.map(part => String(part || "").trim()).filter(Boolean))]
+      .join(" ")
+      .slice(0, 500);
+    const key = value.toLowerCase();
+    if (!value || seen.has(key)) return;
+    seen.add(key);
+    queries.push(value);
+  };
+  for (const cluster of clusters) {
+    if (queries.length >= COLLECTOR_REFRESH_SECOND_PASS_QUERY_LIMIT) break;
+    pushQuery([actor?.name, cluster.work, cluster.character, ...(cluster.sceneAnchors || []).slice(0, 1)]);
+    if (queries.length >= COLLECTOR_REFRESH_SECOND_PASS_QUERY_LIMIT) break;
+    pushQuery([actor?.name, cluster.character, ...(cluster.emotionalStates || cluster.mood || []).slice(0, 2)]);
+    if (queries.length >= COLLECTOR_REFRESH_SECOND_PASS_QUERY_LIMIT) break;
+    pushQuery([actor?.name, cluster.character, ...(cluster.look || cluster.wardrobeAnchors || []).slice(0, 2)]);
+  }
+  if (queries.length < COLLECTOR_REFRESH_SECOND_PASS_QUERY_LIMIT) {
+    pushQuery([actor?.name, vibe?.label, ...terms.slice(0, 2)]);
+  }
+  return queries.slice(0, COLLECTOR_REFRESH_SECOND_PASS_QUERY_LIMIT);
+}
+
 // Builds the full resolved display payload for a given Shanghai date string by
 // running the actual search+rank flow. Only called by whichever request wins
 // the lock for that date.
@@ -98,26 +211,39 @@ export async function buildPayloadForDate(
     materializePublication = null,
     mediaEnv = process.env,
     fetchImpl = fetch,
+    selectedPair = null,
+    excludedCollectorThumbnails = [],
+    excludedCollectorChecksums = [],
+    refreshCollectorSearch = false,
   } = {},
 ) {
-  if (!await hasReleaseReadyCohort(packs, eligibilityStore, MIN_RELEASE_READY_PAIRS)) return null;
+  if (!selectedPair && !await hasReleaseReadyCohort(packs, eligibilityStore, MIN_RELEASE_READY_PAIRS)) return null;
   const recentHistory = publicationStore
     ? await readRecentDailyDropHistory(publicationStore, dateString)
     : [];
   const excluded = new Set();
   while (true) {
-    const seed = await selectRotatingReleasePair(
-      packs,
-      dateString,
-      eligibilityStore,
-      excluded,
-      recentHistory,
-    );
+    const seed = selectedPair
+      ? (() => {
+        const aIdx = packs.findIndex(actor => actor?.id === selectedPair.actorId);
+        const vIdx = Number(selectedPair.vibeIdx);
+        return aIdx >= 0 && Number.isInteger(vIdx) && packs[aIdx]?.vibes?.[vIdx]
+          ? { aIdx, vIdx }
+          : null;
+      })()
+      : await selectRotatingReleasePair(
+        packs,
+        dateString,
+        eligibilityStore,
+        excluded,
+        recentHistory,
+      );
     if (!seed) return null;
     const actor = packs[seed.aIdx];
     const vibe = actor.vibes[seed.vIdx];
     const approval = await getEligibility(eligibilityStore, actor, seed.vIdx);
-    if (approval?.verdict !== "approved") {
+    if (!isReleaseReady(approval)) {
+      if (selectedPair) return null;
       excluded.add(`${actor.id}:${seed.vIdx}`);
       continue;
     }
@@ -138,18 +264,52 @@ export async function buildPayloadForDate(
       generatedAt,
     });
     const searchQueries = searchQueriesFor(actor, seed.vIdx, approval.calibrationProfile);
-    const candidates = await evaluate(searchQueries, search);
-    let ranked = rank(candidates).slice(0, RANKED_BATCH_LIMIT);
+    const promise = vibePromiseFor(actor, seed.vIdx);
+    const excludedThumbnails = new Set(excludedCollectorThumbnails);
+    const excludedChecksums = new Set(excludedCollectorChecksums);
+    const refreshSearch = query => search(query, {
+      cacheMode: "refresh",
+      providerPolicy: "collector-refresh-pool",
+      resultLimit: COLLECTOR_REFRESH_RESULTS_PER_QUERY,
+    });
+    const firstPassQueries = searchQueries;
+    const firstPassCandidates = await evaluate(
+      firstPassQueries,
+      refreshCollectorSearch ? refreshSearch : search,
+    );
+    const secondPassQueries = refreshCollectorSearch
+      && countUniqueUnseenCandidates(
+        rank(firstPassCandidates).slice(0, COLLECTOR_REFRESH_RANKED_BATCH_LIMIT),
+        excludedThumbnails,
+        excludedChecksums,
+      ) < COLLECTOR_REFRESH_MIN_UNSEEN_CANDIDATES
+      ? targetedCollectorQueries({
+          actor,
+          vibe,
+          promise,
+          calibrationProfile: approval.calibrationProfile,
+          firstPassQueries,
+        })
+      : [];
+    const secondPassCandidates = secondPassQueries.length
+      ? await evaluate(secondPassQueries, refreshSearch)
+      : [];
+    const candidates = [...firstPassCandidates, ...secondPassCandidates];
+    let ranked = rank(candidates).slice(
+      0,
+      refreshCollectorSearch ? COLLECTOR_REFRESH_RANKED_BATCH_LIMIT : RANKED_BATCH_LIMIT,
+    );
 
     if (!ranked.length) {
       const backup = await tryEditorialBackup();
       if (backup) return backup;
+      if (selectedPair) return null;
       excluded.add(`${actor.id}:${seed.vIdx}`);
       continue;
     }
 
-    let { displayResults, curation } = await curate(ranked, {
-      promise: vibePromiseFor(actor, seed.vIdx),
+    const curationOptions = {
+      promise,
       calibrationProfile: approval.calibrationProfile || null,
       preferredCandidateIds: approval.calibrationProfile?.positiveCandidateIds || [],
       profileVersions: {
@@ -157,7 +317,103 @@ export async function buildPayloadForDate(
         aestheticClusterVersion: AESTHETIC_CLUSTER_VERSION,
         promiseContractVersion: VIBE_PROMISE_CONTRACT_VERSION,
       },
-    });
+      candidateLimit: refreshCollectorSearch
+        ? COLLECTOR_REFRESH_CANDIDATE_LIMIT
+        : undefined,
+      diagnostics: refreshCollectorSearch,
+    };
+    // Collector refreshes prefer new images without weakening image-safety gates.
+    const freshRanked = selectedPair && (excludedThumbnails.size || excludedChecksums.size)
+      ? ranked.map(batch => ({
+        ...batch,
+        results: partitionCollectorResults(
+          batch.results,
+          excludedThumbnails,
+          excludedChecksums,
+        ).unseen,
+      }))
+      : ranked;
+    let { displayResults, curation } = await curate(freshRanked, curationOptions);
+    if (selectedPair && (excludedThumbnails.size || excludedChecksums.size) && displayResults.length < 9) {
+      const mixedRanked = ranked.map(batch => {
+        const partitioned = partitionCollectorResults(
+          batch.results,
+          excludedThumbnails,
+          excludedChecksums,
+        );
+        return {
+          ...batch,
+          results: [...partitioned.unseen, ...partitioned.seenSafe],
+        };
+      });
+      ({ displayResults, curation } = await curate(mixedRanked, curationOptions));
+      if (displayResults.length < 9) {
+        ({ displayResults, curation } = await curate(ranked, curationOptions));
+      }
+    }
+    if (refreshCollectorSearch) {
+      curation = {
+        ...curation,
+        firstPassQueries: firstPassQueries.slice(0, COLLECTOR_REFRESH_TELEMETRY_QUERY_LIMIT),
+        secondPassQueries: secondPassQueries.slice(0, COLLECTOR_REFRESH_SECOND_PASS_QUERY_LIMIT),
+      };
+    }
+    const collectorRefreshTelemetry = refreshCollectorSearch
+      ? (() => {
+        const providerContributionCounts = {};
+        const pooledUniqueFingerprints = new Set();
+        const pooledPostFilterFingerprints = new Set();
+        for (const batch of ranked) {
+          for (const result of batch?.results || []) {
+            const fingerprint = normalizedCollectorFingerprint(result);
+            pooledUniqueFingerprints.add(fingerprint);
+            pooledPostFilterFingerprints.add(fingerprint);
+          }
+        }
+        for (const batch of ranked) {
+          const contributions = batch?.providerContributionCounts || {};
+          for (const [provider, counts] of Object.entries(contributions)) {
+            const existing = providerContributionCounts[provider] || { rawCount: 0, normalizedCount: 0, acceptedCount: 0 };
+            providerContributionCounts[provider] = {
+              rawCount: Math.max(existing.rawCount, Number(counts?.rawCount) || 0),
+              normalizedCount: Math.max(existing.normalizedCount, Number(counts?.normalizedCount) || 0),
+              acceptedCount: existing.acceptedCount,
+            };
+          }
+        }
+        for (const batch of ranked) {
+          for (const result of batch?.results || []) {
+            const provider = String(result?.provider || "");
+            if (!provider) continue;
+            const entry = providerContributionCounts[provider]
+              || { rawCount: 0, normalizedCount: 0, acceptedCount: 0, _fingerprints: new Set() };
+            if (!entry._fingerprints) entry._fingerprints = new Set();
+            entry._fingerprints.add(normalizedCollectorFingerprint(result));
+            providerContributionCounts[provider] = entry;
+          }
+        }
+        for (const entry of Object.values(providerContributionCounts)) {
+          entry.acceptedCount = entry._fingerprints?.size || entry.acceptedCount || 0;
+          delete entry._fingerprints;
+        }
+        const historyExcludedCount = ranked.reduce((total, batch) =>
+          total + (batch?.results || []).filter(result =>
+            excludedThumbnails.has(result.thumbnail)
+            || (result.imageChecksum && excludedChecksums.has(result.imageChecksum))).length, 0);
+        return {
+          rawProviderCount: Object.keys(providerContributionCounts).length,
+          postFilterCount: pooledPostFilterFingerprints.size,
+          pooledUniqueCount: pooledUniqueFingerprints.size,
+          historyExcludedCount,
+          unseenCount: countUniqueUnseenCandidates(ranked, excludedThumbnails, excludedChecksums),
+          analyzedCount: Number(curation?.diagnostics?.sourceEvidenceCandidates?.length || 0),
+          selectedCount: displayResults.length,
+          providerContributionCounts,
+          firstPassQueries: firstPassQueries.slice(0, COLLECTOR_REFRESH_TELEMETRY_QUERY_LIMIT),
+          secondPassQueries: secondPassQueries.slice(0, COLLECTOR_REFRESH_SECOND_PASS_QUERY_LIMIT),
+        };
+      })()
+      : null;
     if (displayResults.length >= 9 && pairHistory.length) {
       const initialOverlap = greatestBoardOverlap(displayResults, pairHistory);
       if (initialOverlap >= 7) {
@@ -203,10 +459,12 @@ export async function buildPayloadForDate(
     if (displayResults.length < 9) {
       const backup = await tryEditorialBackup();
       if (backup) return backup;
+      if (selectedPair) return null;
       excluded.add(`${actor.id}:${seed.vIdx}`);
       continue;
     }
     if (!await selectedEligibilityIsCurrent(actor, seed.vIdx, eligibilityStore, approval)) {
+      if (selectedPair) return null;
       excluded.add(`${actor.id}:${seed.vIdx}`);
       continue;
     }
@@ -266,6 +524,10 @@ export async function buildPayloadForDate(
           fetchImpl,
           now: generatedAt,
         });
+        const archiveEdition = archiveEditionMetadata(materialized.payload);
+        if (archiveEdition) {
+          await updateArchiveCatalog(publicationStore, archiveEdition, generatedAt);
+        }
         return materialized.payload;
       } catch {
         const backup = await tryEditorialBackup();
@@ -300,6 +562,7 @@ export async function buildPayloadForDate(
       rankedBatches: ranked,
       displayResults,
       curation,
+      collectorRefresh: collectorRefreshTelemetry,
       generatedAt: generatedAt(),
     };
   }
@@ -402,6 +665,10 @@ async function buildEditorialBackup({
           fetchImpl,
           now: generatedAt,
         });
+        const archiveEdition = archiveEditionMetadata(materialized.payload);
+        if (archiveEdition) {
+          await updateArchiveCatalog(publicationStore, archiveEdition, generatedAt);
+        }
         return materialized.payload;
       } catch {
         continue;
@@ -666,19 +933,154 @@ export async function releaseLock(store, dateString, lock) {
   }
 }
 
-export default async (req, context) => {
+export function createStarOfDayHandler({
+  env = process.env,
+  auth = createPublicAuth({ env, getStore: getBlobStore }),
+  billing = createBillingServices({ env }),
+  getStore = getBlobStore,
+  getDiagnosticsStore = context => getBlobStore("archive-access-operations", context),
+  repairArchiveLinks = repairArchiveCatalogPublicRecords,
+  repairPublicationLinks = repairPublicationManifestPublicRecords,
+  today = getShanghaiDateString,
+  now = () => new Date(),
+} = {}) {
+  return async (req, context) => {
   if (req.method && req.method !== "GET") {
     return jsonResponse(405, { error: "Method not allowed" });
   }
 
   try {
-    const store = getBlobStore(STORE_NAME, context);
-    const eligibilityStore = getBlobStore(ELIGIBILITY_STORE, context);
-    const todayStr = getShanghaiDateString();
+    const store = getStore(STORE_NAME, context);
+    const eligibilityStore = getStore(ELIGIBILITY_STORE, context);
+    const todayStr = today();
     const url = new URL(req.url || "https://fandom.local/.netlify/functions/star-of-day");
 
+    if (url.searchParams.get("readerLinkRepair") === "1") {
+      try {
+        await auth.authenticateAdmin(req, context);
+      } catch (error) {
+        return jsonResponse(error?.status === 403 ? 403 : 401, {
+          error: error?.message || "Admin access is required.",
+        }, { "Cache-Control": "private, no-store" });
+      }
+      const archiveCursor = url.searchParams.get("archiveRepairCursor");
+      const publicationCursor = url.searchParams.get("publicationRepairCursor");
+      if ((archiveCursor && !/^\d{4}-\d{2}-\d{2}$/.test(archiveCursor))
+        || (publicationCursor && publicationCursor.length > 512)) {
+        return jsonResponse(400, { error: "Invalid reader-link repair cursor." });
+      }
+      const [archive, publications] = await Promise.all([
+        repairArchiveLinks(store, {
+          throughDate: todayStr,
+          ...(archiveCursor ? { cursor: archiveCursor } : {}),
+        }),
+        repairPublicationLinks(store, {
+          ...(publicationCursor ? { cursor: publicationCursor } : {}),
+        }),
+      ]);
+      return jsonResponse(200, {
+        readerLinkRepair: { archive, publications },
+      }, {
+        "Cache-Control": "private, no-store",
+        Vary: "Cookie",
+      });
+    }
+
+    if (url.searchParams.get("archiveRepair") === "1"
+      || url.searchParams.get("archiveRepairHistory") === "1") {
+      let admin;
+      try {
+        admin = await auth.authenticateAdmin(req, context);
+      } catch (error) {
+        return jsonResponse(error?.status === 403 ? 403 : 401, {
+          error: error?.message || "Admin access is required.",
+        }, { "Cache-Control": "private, no-store" });
+      }
+      const diagnosticsStore = getDiagnosticsStore(context);
+      if (url.searchParams.get("archiveRepairHistory") === "1") {
+        const history = await listArchiveRepairHistory(diagnosticsStore);
+        return jsonResponse(200, { history }, {
+          "Cache-Control": "private, no-store",
+          Vary: "Cookie",
+        });
+      }
+      const cursor = url.searchParams.get("repairCursor");
+      if (cursor !== null && (cursor.length < 1 || cursor.length > 512)) {
+        await recordArchiveRepairAttempt(diagnosticsStore, {
+          operatorId: admin?.user?.accountId || admin?.accountId,
+          attemptedAt: now(),
+          scanned: 0,
+          errorClassification: "invalid_request",
+        });
+        return jsonResponse(400, { error: "Invalid archive repair cursor." }, {
+          "Cache-Control": "private, no-store",
+          Vary: "Cookie",
+        });
+      }
+      const attemptedAt = now();
+      let reconciliation;
+      try {
+        reconciliation = await reconcileArchiveCatalogIndexes(store, {
+          throughDate: todayStr,
+          ...(cursor ? { cursor } : {}),
+        });
+      } catch (error) {
+        await recordArchiveRepairAttempt(diagnosticsStore, {
+          operatorId: admin?.user?.accountId || admin?.accountId,
+          attemptedAt,
+          scanned: Number.isSafeInteger(error?.reconciliationScanned)
+            ? error.reconciliationScanned
+            : 0,
+          errorClassification: archiveRepairErrorClassification(error),
+          affectedResource: error?.archiveResourceKey || error?.archiveResource,
+        });
+        console.error("[archive-catalogue] reconciliation failed", {
+          classification: archiveRepairErrorClassification(error),
+        });
+        return jsonResponse(500, { error: "Archive repair failed." }, {
+          "Cache-Control": "private, no-store",
+          Vary: "Cookie",
+        });
+      }
+      try {
+        await recordArchiveRepairAttempt(diagnosticsStore, {
+          operatorId: admin?.user?.accountId || admin?.accountId,
+          attemptedAt,
+          scanned: reconciliation.scanned,
+          repairedDates: reconciliation.missingDates,
+          nextCursor: reconciliation.nextCursor,
+        });
+      } catch {
+        console.error("[archive-catalogue] reconciliation receipt unavailable", {
+          outcome: reconciliation.repaired > 0 ? "repaired" : "no_op",
+        });
+        return jsonResponse(500, {
+          error: "Archive repair completed, but its receipt could not be confirmed.",
+        }, {
+          "Cache-Control": "private, no-store",
+          Vary: "Cookie",
+        });
+      }
+      console.info("[archive-catalogue] reconciliation completed", {
+        scanned: reconciliation.scanned,
+        repaired: reconciliation.repaired,
+        dates: reconciliation.missingDates,
+        moreRecordsRemain: Boolean(reconciliation.nextCursor),
+      });
+      return jsonResponse(200, { reconciliation }, {
+        "Cache-Control": "private, no-store",
+        Vary: "Cookie",
+      });
+    }
+
     if (url.searchParams.get("archive") === "1") {
-      return jsonResponse(200, await listArchivedEditions(store, todayStr));
+      const archivePage = parseArchivePage(url.searchParams);
+      if (!archivePage) {
+        return jsonResponse(400, { error: "Invalid archive pagination." });
+      }
+      return jsonResponse(200, await listArchivedEditions(store, todayStr, archivePage), {
+        "Cache-Control": "public, max-age=300, stale-while-revalidate=3600",
+      });
     }
 
     const requestedDate = url.searchParams.get("date");
@@ -697,7 +1099,88 @@ export default async (req, context) => {
         if (!archived) {
           return jsonResponse(404, { error: "That Vibe Atlas edition is not available." });
         }
-        return jsonResponse(200, archived);
+        let accessWindow = await store.get(ARCHIVE_ACCESS_WINDOW_KEY, {
+          type: "json",
+          consistency: "strong",
+        });
+        if (!accessWindow) {
+          accessWindow = await backfillArchiveAccessWindow(store, todayStr);
+        }
+        const freeDates = archiveAccessWindowDates(accessWindow);
+        let session = null;
+        let membership = null;
+        if (!freeDates.has(requestedDate) && archiveGateEnabled(env)) {
+          try {
+            session = await auth.authenticate(req, context);
+          } catch (error) {
+            if (error?.status !== 401) throw error;
+          }
+          if (session) {
+            try {
+              await billing.initialize(context);
+              membership = await billing.repository(context)
+                .membershipForAccount(session.user.accountId);
+            } catch (error) {
+              console.error("[archive-access] membership lookup failed", {
+                date: requestedDate,
+                name: error?.name || "Error",
+              });
+              await recordArchiveDiagnostic(
+                () => getDiagnosticsStore(context),
+                { outcome: "billing_delay", authenticated: true },
+                now(),
+              );
+              return jsonResponse(503, {
+                error: "archive_billing_unavailable",
+                access: "billing_delay",
+                edition: publicArchiveEdition(archived),
+              });
+            }
+          }
+        }
+        const decision = archiveAccessDecision({
+          requestedDate,
+          editions: [],
+          freeDates,
+          session,
+          membership,
+          capabilities: capabilitiesForMembership(membership, env),
+          enforcementEnabled: archiveGateEnabled(env),
+        });
+        if (!decision.allowed) {
+          console.info("[archive-access] full edition denied", {
+            date: requestedDate,
+            reason: decision.reason,
+          });
+          await recordArchiveDiagnostic(
+            () => getDiagnosticsStore(context),
+            {
+              outcome: decision.reason,
+              authenticated: Boolean(session),
+            },
+            now(),
+          );
+          return jsonResponse(decision.reason === "sign_in" ? 401 : 403, {
+            error: "archive_access_required",
+            access: decision.reason,
+            capability: decision.capability,
+            edition: publicArchiveEdition(archived),
+          });
+        }
+        if (session) {
+          await recordArchiveDiagnostic(
+            () => getDiagnosticsStore(context),
+            { outcome: "allowed", authenticated: true },
+            now(),
+          );
+        }
+        return jsonResponse(200, archived, {
+          "Cache-Control": decision.reason === "active_member"
+            ? "private, no-store"
+            : "public, max-age=300",
+          ...(decision.reason === "active_member" ? { Vary: "Cookie" } : {}),
+          "X-Archive-Access": decision.reason,
+        });
       }
     }
 
@@ -801,7 +1284,21 @@ export default async (req, context) => {
   } catch (err) {
     return jsonResponse(500, { error: err.message || "Unknown error", rankedBatches: [] });
   }
-};
+  };
+}
+
+async function recordArchiveDiagnostic(getStore, event, date) {
+  try {
+    await recordArchiveAccessCheck(getStore(), event, date);
+  } catch (error) {
+    console.error("[archive-access] diagnostic write failed", {
+      outcome: event.outcome,
+      name: error?.name || "Error",
+    });
+  }
+}
+
+export default createStarOfDayHandler();
 
 function isUsableDate(value) {
   if (!DATE_RE.test(value)) return false;
@@ -809,10 +1306,117 @@ function isUsableDate(value) {
   return Number.isFinite(parsed.getTime()) && parsed.toISOString().slice(0, 10) === value;
 }
 
-async function listArchivedEditions(store, todayStr) {
-  const canonicalLegendaryMisprints = new Map([
-    ["2026-08-04|王鹤棣", "The Dylan Wangtermelon incident"],
-  ]);
+function parseArchivePage(searchParams) {
+  const cursor = searchParams.get("cursor");
+  if (cursor !== null && !isUsableDate(cursor)) return null;
+  const rawLimit = searchParams.get("limit");
+  if (rawLimit === null) return { cursor, limit: ARCHIVE_PAGE_SIZE };
+  if (!/^\d+$/.test(rawLimit)) return null;
+  const limit = Number(rawLimit);
+  if (!Number.isSafeInteger(limit) || limit < 1 || limit > ARCHIVE_MAX_PAGE_SIZE) return null;
+  return { cursor, limit };
+}
+
+async function listArchivedEditions(
+  store,
+  todayStr,
+  { cursor = null, limit = ARCHIVE_PAGE_SIZE } = {},
+) {
+  const existing = await store.get(ARCHIVE_CATALOG_KEY, {
+    type: "json",
+    consistency: "strong",
+  });
+  const legacyEditions = existing ? archiveCatalogEditions(existing) : null;
+  if (existing && !legacyEditions) {
+    throw new Error("The archive catalogue is invalid.");
+  }
+  if (legacyEditions) {
+    await Promise.all(legacyEditions.map(edition => updateArchiveCatalog(store, edition)));
+    if (typeof store.delete === "function") await store.delete(ARCHIVE_CATALOG_KEY);
+  }
+  let catalogPage = await listArchiveCatalogPage(store, {
+    cursor,
+    limit,
+    throughDate: todayStr,
+  });
+  const migrationMarker = await store.get(ARCHIVE_CATALOG_MIGRATION_MARKER_KEY, {
+    type: "json",
+    consistency: "strong",
+  });
+  const migrationComplete = migrationMarker?.schemaVersion === 1
+    && migrationMarker?.catalogVersion === 2;
+  if (!migrationComplete && !legacyEditions) {
+    await migrateArchiveCatalog(store, todayStr);
+    await store.setJSON(ARCHIVE_CATALOG_MIGRATION_MARKER_KEY, {
+      schemaVersion: 1,
+      catalogVersion: 2,
+    });
+    catalogPage = await listArchiveCatalogPage(store, {
+      cursor,
+      limit,
+      throughDate: todayStr,
+    });
+  } else if (!migrationComplete && legacyEditions) {
+    await store.setJSON(ARCHIVE_CATALOG_MIGRATION_MARKER_KEY, {
+      schemaVersion: 1,
+      catalogVersion: 2,
+    });
+  }
+  const existingAccessWindow = await store.get(ARCHIVE_ACCESS_WINDOW_KEY, {
+    type: "json",
+    consistency: "strong",
+  });
+  const accessWindowSeed = existingAccessWindow
+    ? catalogPage.editions
+    : (await listArchiveCatalogPage(store, {
+      limit: 4,
+      throughDate: todayStr,
+    })).editions;
+  const accessWindow = await ensureArchiveAccessWindow(
+    store,
+    accessWindowSeed.map(edition => edition.date),
+  );
+  const freeDates = archiveAccessWindowDates(accessWindow);
+  const page = catalogPage.editions;
+  const hasMore = catalogPage.hasMore;
+  // Catalog links are historical metadata, not proof that the public record
+  // still passes the publication manifest's editorial and media checks.
+  const verifiedRecords = await Promise.all(page.map(async edition => {
+    if (!edition.publicRecord) return null;
+    try {
+      const manifest = await store.get(gridManifestKey(edition.date), {
+        type: "json",
+        consistency: "strong",
+      });
+      const publicEdition = publicEditionPreview(manifest);
+      return publicEdition?.path === edition.publicRecord.editionPath
+        && publicEdition.actor.path === edition.publicRecord.actorPath
+        ? edition.publicRecord
+        : null;
+    } catch {
+      return null;
+    }
+  }));
+  return {
+    version: VERSION,
+    editions: page.map((edition, index) => {
+      const { publicRecord: _unverified, ...visible } = enrichCanonicalLegendaryMisprint(edition);
+      return {
+        ...visible,
+        ...(verifiedRecords[index] ? { publicRecord: verifiedRecords[index] } : {}),
+        access: freeDates.has(edition.date) ? "free" : "member",
+      };
+    }),
+    page: {
+      limit,
+      nextCursor: hasMore ? page.at(-1)?.date || null : null,
+      hasMore,
+      total: catalogPage.total,
+    },
+  };
+}
+
+async function migrateArchiveCatalog(store, todayStr) {
   const [listing, manifestListing] = await Promise.all([
     store.list({ prefix: "starOfDay:" }),
     store.list({ prefix: GRID_MANIFEST_PREFIX }),
@@ -835,7 +1439,6 @@ async function listArchivedEditions(store, todayStr) {
       const date = key.slice(GRID_MANIFEST_PREFIX.length);
       if (isUsableDate(date) && date <= todayStr) versionsByDate.set(date, "manifest");
     });
-
   const editions = await Promise.all([...versionsByDate].map(async ([date, version]) => {
     const payload = version === "manifest"
       ? manifestPayload(await store.get(gridManifestKey(date), {
@@ -843,38 +1446,35 @@ async function listArchivedEditions(store, todayStr) {
         consistency: "strong",
       }), VERSION)
       : await store.get(`starOfDay:${version}:${date}`, { type: "json" });
-    if (!payload || payload.date !== date || !payload.actorName || !payload.vibeLabel) return null;
-    const previewResults = Array.isArray(payload.displayResults) && payload.displayResults.length
-      ? payload.displayResults
-      : (payload.rankedBatches || []).flatMap(batch => batch?.results || []);
-    const legendaryMisprint = (payload.rankedBatches || []).some(batch =>
-      batch?.intentionalMisprint === true || (batch?.legendary === true && batch?.misprint === true)
-    );
-    const canonicalMisprintTitle = canonicalLegendaryMisprints.get(`${date}|${payload.actorName}`);
-    return {
-      date,
-      actorName: payload.actorName,
-      actorShortNameEn: payload.actorShortNameEn,
-      vibeEmoji: payload.vibeEmoji,
-      vibeLabel: payload.vibeLabel,
-      vibeLabelEn: payload.vibeLabelEn,
-      vibeSubtitleEn: payload.vibeSubtitleEn,
-      generatedAt: payload.generatedAt,
-      previewThumbnails: [...new Set(previewResults
-        .map(result => result?.thumbnail)
-        .filter(thumbnail => typeof thumbnail === "string" && thumbnail.length > 0))]
-        .slice(0, 9),
-      ...(legendaryMisprint || canonicalMisprintTitle ? { legendaryMisprint: true } : {}),
-      ...(canonicalMisprintTitle ? { legendaryMisprintTitle: canonicalMisprintTitle } : {}),
-    };
+    if (!payload || payload.date !== date) return null;
+    return archiveEditionMetadata(payload);
   }));
+  if (editions.some(edition => !edition)) {
+    throw new Error("The archive catalogue migration found an invalid edition.");
+  }
+  await Promise.all(editions.map(edition => updateArchiveCatalog(store, edition)));
+  return listArchiveCatalogEditions(store);
+}
 
-  return {
-    version: VERSION,
-    editions: editions
-      .filter(Boolean)
-      .sort((a, b) => b.date.localeCompare(a.date)),
-  };
+async function backfillArchiveAccessWindow(store, todayStr) {
+  const [legacyListing, manifestListing] = await Promise.all([
+    store.list({ prefix: "starOfDay:" }),
+    store.list({ prefix: GRID_MANIFEST_PREFIX }),
+  ]);
+  const availableVersions = new Set([VERSION, ...LEGACY_READ_VERSIONS]);
+  const dates = new Set();
+  for (const blob of legacyListing?.blobs || []) {
+    const match = String(blob?.key || "").match(/^starOfDay:(v\d+):(\d{4}-\d{2}-\d{2})$/);
+    if (match && availableVersions.has(match[1]) && match[2] <= todayStr) dates.add(match[2]);
+  }
+  for (const blob of manifestListing?.blobs || []) {
+    const key = String(blob?.key || "");
+    const date = key.slice(GRID_MANIFEST_PREFIX.length);
+    if (key.startsWith(GRID_MANIFEST_PREFIX) && isUsableDate(date) && date <= todayStr) {
+      dates.add(date);
+    }
+  }
+  return ensureArchiveAccessWindow(store, [...dates]);
 }
 
 async function pollForCache(store, eligibilityStore, todayKey, todayStr) {
@@ -962,12 +1562,13 @@ export async function hasReleaseReadyCohort(
   return false;
 }
 
-function jsonResponse(statusCode, body) {
+function jsonResponse(statusCode, body, extraHeaders = {}) {
   return new Response(JSON.stringify(body), {
     status: statusCode,
     headers: {
       "Content-Type": "application/json",
-      "Cache-Control": "no-store"
+      "Cache-Control": "no-store",
+      ...extraHeaders,
     }
   });
 }

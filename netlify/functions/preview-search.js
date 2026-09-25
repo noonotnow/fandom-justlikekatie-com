@@ -1,6 +1,7 @@
 import { createHash } from "node:crypto";
 import { ACTOR_PACKS } from "./lib/actor-packs.js";
 import { searchBaiduImages } from "./lib/baidu-images.js";
+import { candidateFingerprint } from "./lib/search-candidate-fingerprint.js";
 
 export const SEARCH_CACHE_PROVENANCE_VERSION = "provider-fetch-v1";
 
@@ -180,6 +181,16 @@ function dedupeResults(items) {
     const thumbKey = r.thumbnail || "";
     if (thumbKey && seenThumbs.has(thumbKey)) return false;
     if (thumbKey) seenThumbs.add(thumbKey);
+    return true;
+  });
+}
+
+function dedupePooledResults(items) {
+  const seen = new Set();
+  return items.filter((item) => {
+    const key = candidateFingerprint(item);
+    if (!item.thumbnail || seen.has(key)) return false;
+    seen.add(key);
     return true;
   });
 }
@@ -474,6 +485,7 @@ export async function searchOneQuery(
     baiduOptions = {},
     providerPolicy = "default",
     cacheMode = "default",
+    resultLimit = 18,
   } = {},
 ) {
   if (!q) {
@@ -565,6 +577,25 @@ export async function searchOneQuery(
 
   const googleFirst = providerPolicy === "middle-earth";
   const middleEarthFallback = providerPolicy === "middle-earth-fallback";
+  const collectorRefreshPool = providerPolicy === "collector-refresh-pool";
+  const providerContributionCounts = {};
+  const pooledCandidates = [];
+  const pushProviderContribution = (provider, { rawCount = 0, normalizedCount = 0, acceptedCount = 0 } = {}) => {
+    providerContributionCounts[provider] = {
+      rawCount: Math.max(0, Number(rawCount) || 0),
+      normalizedCount: Math.max(0, Number(normalizedCount) || 0),
+      acceptedCount: Math.max(0, Number(acceptedCount) || 0),
+    };
+  };
+  const addPooledResults = (provider, results = [], { rawCount = results.length, normalizedCount = results.length } = {}) => {
+    const accepted = results.map(result => ({ ...result, provider }));
+    pushProviderContribution(provider, {
+      rawCount,
+      normalizedCount,
+      acceptedCount: accepted.length,
+    });
+    pooledCandidates.push(...accepted);
+  };
   const baiduEligible = containsCjk(q) && !googleFirst && !middleEarthFallback;
   const baiduAttemptLog = createBaiduAttemptLog(baiduEligible);
   if (baiduEligible) {
@@ -576,14 +607,23 @@ export async function searchOneQuery(
           : baiduOptions,
       });
       recordBaiduSuccess(baiduAttemptLog, baidu);
+      if (collectorRefreshPool) {
+        addPooledResults("baidu", baidu.qualified ? baidu.results : [], {
+          rawCount: baidu.rawCount || 0,
+          normalizedCount: baidu.normalizedCount || 0,
+        });
+      }
       if (baidu.qualified) {
-        return attachProvenance(baiduResponse(q, baidu, baiduAttemptLog, debug));
+        if (!collectorRefreshPool) return attachProvenance(baiduResponse(q, baidu, baiduAttemptLog, debug));
       }
     } catch (baiduError) {
       baiduAttemptLog.error = baiduError.message || "Baidu fetch error";
       baiduAttemptLog.errorCode = baiduError.code || "unknown";
       baiduAttemptLog.httpStatus = baiduError.status ?? null;
       baiduAttemptLog.fallbackReason = "provider_exception";
+      if (collectorRefreshPool) {
+        pushProviderContribution("baidu", { rawCount: 0, normalizedCount: 0, acceptedCount: 0 });
+      }
       console.warn("Baidu Images provider failed; continuing fallback cascade", {
         query: q,
         code: baiduAttemptLog.errorCode,
@@ -696,7 +736,18 @@ export async function searchOneQuery(
         : qualityBelowThreshold
           ? `quality_below_threshold (${braveQuality.overall.toFixed(2)} < ${QUALITY_FALLBACK_THRESHOLD}, diversity=${braveQuality.diversity.toFixed(2)}, sources=${braveQuality.uniqueSources})`
           : `sufficient_quality (${braveQuality.overall.toFixed(2)} >= ${QUALITY_FALLBACK_THRESHOLD}, sources=${braveQuality.uniqueSources})`;
-    if (preferActorIdentityProvider || !braveSubjectGuardPassed || hasCommerceResults || braveUseful.length < USEFUL_FALLBACK_THRESHOLD || qualityBelowThreshold) {
+    if (collectorRefreshPool) {
+      addPooledResults("brave", braveSubjectGuardPassed ? braveUseful : [], {
+        rawCount: braveRaw.length,
+        normalizedCount: braveUseful.length,
+      });
+    }
+    if (collectorRefreshPool
+      || preferActorIdentityProvider
+      || !braveSubjectGuardPassed
+      || hasCommerceResults
+      || braveUseful.length < USEFUL_FALLBACK_THRESHOLD
+      || qualityBelowThreshold) {
       const serpKey = process.env.SERPAPI_KEY;
       serpApiConfigured = !!serpKey;
       if (serpKey) {
@@ -780,14 +831,21 @@ export async function searchOneQuery(
             engineLog.subjectGuardPassed = subjectGuardPassed;
 
             if (serpNormalized.length > 0 && subjectGuardPassed) {
-              finalResults = serpNormalized;
-              finalProvider = engine;
+              if (collectorRefreshPool) {
+                addPooledResults(engine, serpNormalized, {
+                  rawCount: serpRaw.length,
+                  normalizedCount: serpNormalized.length,
+                });
+              } else {
+                finalResults = serpNormalized;
+                finalProvider = engine;
+              }
               engineLog.usedAsFinal = true;
               subjectGuardReason =
                 `passed_on_${engine} (${subjectHitCount}/${serpRaw.length} mention "${subjectToken}", ` +
                 `ratio=${serpGuard.subjectHitRatio.toFixed(2)})`;
               serpApiEngineLog.push(engineLog);
-              break;
+              if (!collectorRefreshPool) break;
             } else {
               engineLog.skippedReason = serpNormalized.length === 0
                 ? "zero_useful_results_after_filtering"
@@ -804,9 +862,15 @@ export async function searchOneQuery(
             serpApiError = serpErr.message || "fetch error";
             engineLog.error = serpApiError;
             engineLog.skippedReason = "exception";
+            if (collectorRefreshPool) {
+              pushProviderContribution(engine, { rawCount: 0, normalizedCount: 0, acceptedCount: 0 });
+            }
             serpApiEngineLog.push(engineLog);
           }
         }
+      } else if (collectorRefreshPool) {
+        ["google_images", "bing_images", "yandex_images"].forEach(engine =>
+          pushProviderContribution(engine, { rawCount: 0, normalizedCount: 0, acceptedCount: 0 }));
       }
     }
 
@@ -823,12 +887,18 @@ export async function searchOneQuery(
       });
     }
 
+    const pooledUnique = collectorRefreshPool
+      ? dedupePooledResults(pooledCandidates)
+      : [];
     const response = {
       query: q,
-      provider: finalProvider,
-      results: finalResults
-        .slice(0, 18)
-        .map(({ isLogo, thumbnailOriginal, ...result }) => ({ ...result, provider: finalProvider }))
+      provider: collectorRefreshPool ? "collector_refresh_pool" : finalProvider,
+      results: (collectorRefreshPool ? pooledUnique : finalResults)
+        .slice(0, Math.max(1, Number(resultLimit) || 18))
+        .map(({ isLogo, thumbnailOriginal, ...result }) => ({
+          ...result,
+          provider: collectorRefreshPool ? result.provider : finalProvider,
+        })),
     };
 
     if (debug) {
@@ -881,6 +951,13 @@ export async function searchOneQuery(
       response.rawTopLevelKeys = Object.keys(braveData);
       response.firstResultKeys = braveRaw[0] ? Object.keys(braveRaw[0]) : [];
       response.firstResultSample = braveRaw[0] ?? null;
+      if (collectorRefreshPool) {
+        response.rawProviderCount = Object.keys(providerContributionCounts).length;
+        response.postFilterCount = Object.values(providerContributionCounts)
+          .reduce((total, item) => total + (item.normalizedCount || 0), 0);
+        response.pooledUniqueCount = pooledUnique.length;
+        response.providerContributionCounts = providerContributionCounts;
+      }
     }
 
     return attachProvenance(response);

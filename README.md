@@ -93,6 +93,15 @@ existing Netlify Blobs setup, so it does not need the Replit `DATABASE_URL`.
 The Replit connector and Postgres Stripe Sync remain the local/development
 fallback. Never prefix these secrets with `VITE_`, commit them, or expose them
 in browser responses.
+
+### Historical archive membership gate
+
+The public archive catalogue contains bounded edition metadata and three preview
+images per published edition. Today plus the three most recent published editions
+are fully usable without membership; older full boards require the existing active
+Founding Member entitlement. Set `FANDOM_ARCHIVE_GATE_ENABLED=false` only during
+a controlled preview-only rollout. Entitled responses are private and must not be
+stored by shared caches.
 The browser never receives MEDIA or Workstation credentials. Do not add them as
 `VITE_` variables. Deployment must preserve the same-origin redirect for
 `/api/workstation-handoff`.

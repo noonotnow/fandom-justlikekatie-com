@@ -10,6 +10,7 @@ import starOfDay, {
   selectRotatingReleasePair,
   releaseLock,
   tryAcquireLock,
+  ARCHIVE_CATALOG_MIGRATION_MARKER_KEY,
 } from "../star-of-day.js";
 import {
   auditHeadKey,
@@ -30,7 +31,18 @@ import {
   VIBE_PROMISE_CONTRACT_VERSION,
 } from "./actor-identity-profiles.js";
 import { CURATION_VERSION } from "./grid-curation.js";
-import { boardHash, gridManifestKey } from "./publication-manifest.js";
+import {
+  boardHash,
+  gridManifestKey,
+  publicationManifestCatalogKey,
+} from "./publication-manifest.js";
+import {
+  ARCHIVE_ACCESS_WINDOW_KEY,
+  ARCHIVE_CATALOG_KEY,
+  ARCHIVE_CATALOG_EDITION_PREFIX,
+  ARCHIVE_CATALOG_INDEX_KEY,
+  ARCHIVE_CATALOG_YEAR_PREFIX,
+} from "./archive-access.js";
 
 function makeStore(entries = {}) {
   const values = new Map(Object.entries(entries));
@@ -83,6 +95,63 @@ function makeStore(entries = {}) {
   };
 }
 
+function archiveCatalogEntries(editions) {
+  const years = [...new Set(editions.map(edition => edition.date.slice(0, 4)))].sort().reverse();
+  const yearCounts = Object.fromEntries(years.map(year => [
+    year,
+    editions.filter(edition => edition.date.startsWith(`${year}-`)).length,
+  ]));
+  return {
+    [ARCHIVE_CATALOG_MIGRATION_MARKER_KEY]: {
+      schemaVersion: 1,
+      catalogVersion: 2,
+    },
+    [ARCHIVE_CATALOG_INDEX_KEY]: {
+      schemaVersion: 1,
+      catalogVersion: 2,
+      kind: "vibe-atlas-archive-catalog-index",
+      years,
+      yearCounts,
+      total: editions.length,
+    },
+    ...Object.fromEntries(years.map(year => [
+      `${ARCHIVE_CATALOG_YEAR_PREFIX}${year}`,
+      {
+        schemaVersion: 1,
+        catalogVersion: 2,
+        kind: "vibe-atlas-archive-catalog-year",
+        year,
+        dates: editions
+          .map(edition => edition.date)
+          .filter(date => date.startsWith(`${year}-`))
+          .sort()
+          .reverse(),
+      },
+    ])),
+    ...Object.fromEntries(editions.map(edition => [
+      `${ARCHIVE_CATALOG_EDITION_PREFIX}${edition.date}`,
+      edition,
+    ])),
+  };
+}
+
+function multiDecadeArchiveEditions() {
+  const dates = [];
+  for (let year = 2026; year >= 1996; year -= 1) {
+    const suffixes = year === 2026
+      ? ["09-20", "06-30", "01-01"]
+      : ["12-31", "06-30", "01-01"];
+    dates.push(...suffixes.map(suffix => `${year}-${suffix}`));
+  }
+  return dates.map(date => ({
+    date,
+    actorName: `Actor ${date}`,
+    actorShortNameEn: `Actor ${date}`,
+    vibeLabel: "Night",
+    access: "member",
+  }));
+}
+
 test("the daily build lock admits only one concurrent builder", async () => {
   const store = makeStore();
   const [first, second] = await Promise.all([
@@ -97,6 +166,16 @@ test("the daily build lock admits only one concurrent builder", async () => {
 
 function contextFor(store) {
   return { blobs: { getStore: () => store } };
+}
+
+function archiveAccessWindow(...dates) {
+  return {
+    schemaVersion: 1,
+    accessWindowVersion: 1,
+    kind: "vibe-atlas-archive-access-window",
+    freeArchiveDates: [...dates].sort((left, right) => right.localeCompare(left)).slice(0, 4),
+    updatedAt: "2026-09-20T00:00:00.000Z",
+  };
 }
 
 function approvedEligibility(actor, vibeIdx, verdict = "approved") {
@@ -390,7 +469,8 @@ function publicationManifest(date) {
       subtitle: "",
       subtitleEn: "Born to suffer beautifully.",
       supportingCopy: "",
-      supportingCopyEn: "",
+      supportingCopyEn:
+        "A carefully curated visual record of Liu Xueyi's restrained, moonlit melancholy.",
       generationPrompt: "",
     },
     heroPosition: 4,
@@ -469,11 +549,453 @@ test("archive preserves the Dylan Wangtermelon edition as a named legendary misp
   const body = await response.json();
   assert.equal(body.editions[0].legendaryMisprint, true);
   assert.equal(body.editions[0].legendaryMisprintTitle, "The Dylan Wangtermelon incident");
+  assert.equal(
+    body.editions[0].legendaryMisprintCopy,
+    "The Vibe Pack was asked for Dylan Wang: Variety Show Chaos, examined the evidence, and returned biblically accurate watermelon man.",
+  );
+});
+
+test("archive reads use precomputed metadata without listing or loading historical payloads", async () => {
+  const date = "2026-08-30";
+  const metadata = {
+    date,
+    actorName: "Actor 2026-08-30",
+    actorShortNameEn: "Actor 2026-08-30",
+    vibeEmoji: "✨",
+    vibeLabel: "夜色",
+    vibeLabelEn: "Night",
+    vibeSubtitleEn: "A midnight assignment",
+    previewThumbnails: ["https://images.test/evidence.jpg"],
+    access: "member",
+  };
+  const store = makeStore({
+    ...archiveCatalogEntries([metadata]),
+    [ARCHIVE_ACCESS_WINDOW_KEY]: archiveAccessWindow(date),
+    [`starOfDay:v6:${date}`]: archivePayload(date),
+  });
+
+  const response = await starOfDay(
+    { method: "GET", url: "https://example.test/star-of-day?archive=1" },
+    contextFor(store),
+  );
+
+  assert.equal(response.status, 200);
+  assert.deepEqual((await response.json()).editions, [{ ...metadata, access: "free" }]);
+  assert.deepEqual(store.stats(), { listCalls: 0, setCalls: 0 });
+});
+
+test("partial v2 archive catalogues recover legacy editions once and record completion", async () => {
+  const indexedDate = "2026-08-30";
+  const recoveredDate = "2026-08-29";
+  const indexed = {
+    date: indexedDate,
+    actorName: "Indexed Actor",
+    vibeLabel: "夜色",
+    previewThumbnails: [],
+    access: "member",
+  };
+  const entries = archiveCatalogEntries([indexed]);
+  delete entries[ARCHIVE_CATALOG_MIGRATION_MARKER_KEY];
+  entries[`starOfDay:v6:${recoveredDate}`] = archivePayload(recoveredDate);
+  entries[ARCHIVE_ACCESS_WINDOW_KEY] = archiveAccessWindow(indexedDate, recoveredDate);
+  const store = makeStore(entries);
+
+  const response = await starOfDay(
+    { method: "GET", url: "https://example.test/star-of-day?archive=1" },
+    contextFor(store),
+  );
+
+  assert.equal(response.status, 200);
+  const body = await response.json();
+  assert.equal(body.page.total, 2);
+  assert.deepEqual(body.editions.map(edition => edition.date), [indexedDate, recoveredDate]);
+  assert.deepEqual(
+    await store.get(ARCHIVE_CATALOG_MIGRATION_MARKER_KEY, { type: "json" }),
+    { schemaVersion: 1, catalogVersion: 2 },
+  );
+  assert.equal(store.stats().listCalls, 2);
+});
+
+test("marker-present bounded archive reads do not list historical payloads", async () => {
+  const date = "2026-08-30";
+  const metadata = {
+    date,
+    actorName: "Actor 2026-08-30",
+    vibeLabel: "夜色",
+    previewThumbnails: [],
+    access: "member",
+  };
+  const store = makeStore({
+    ...archiveCatalogEntries([metadata]),
+    [ARCHIVE_ACCESS_WINDOW_KEY]: archiveAccessWindow(date),
+    [`starOfDay:v6:${date}`]: archivePayload(date),
+  });
+
+  const response = await starOfDay(
+    { method: "GET", url: "https://example.test/star-of-day?archive=1" },
+    contextFor(store),
+  );
+
+  assert.equal(response.status, 200);
+  assert.equal((await response.json()).page.total, 1);
+  assert.deepEqual(store.stats(), { listCalls: 0, setCalls: 0 });
+});
+
+test("archive reads migrate the legacy catalogue once without losing metadata", async () => {
+  const metadata = {
+    date: "2026-08-30",
+    actorName: "Legacy Actor",
+    vibeLabel: "Legacy Vibe",
+    previewThumbnails: ["https://images.test/legacy.jpg"],
+    access: "member",
+  };
+  const store = makeStore({
+    [ARCHIVE_CATALOG_KEY]: {
+      schemaVersion: 1,
+      catalogVersion: 1,
+      kind: "vibe-atlas-archive-catalog",
+      editions: [metadata],
+      updatedAt: "2026-08-30T00:00:00.000Z",
+    },
+    [ARCHIVE_ACCESS_WINDOW_KEY]: archiveAccessWindow(metadata.date),
+  });
+
+  const response = await starOfDay(
+    { method: "GET", url: "https://example.test/star-of-day?archive=1" },
+    contextFor(store),
+  );
+
+  assert.equal(response.status, 200);
+  assert.deepEqual((await response.json()).editions, [{ ...metadata, access: "free" }]);
+  assert.equal(await store.get(ARCHIVE_CATALOG_KEY, { type: "json" }), null);
+  assert.deepEqual(
+    await store.get(`${ARCHIVE_CATALOG_EDITION_PREFIX}${metadata.date}`, { type: "json" }),
+    metadata,
+  );
+});
+
+test("archive pages stay newest-first and keep global free badges across boundaries", async () => {
+  const dates = Array.from(
+    { length: 7 },
+    (_, index) => `2026-09-${String(20 - index).padStart(2, "0")}`,
+  );
+  const editions = dates.map(date => ({
+    date,
+    actorName: `Actor ${date}`,
+    actorShortNameEn: `Actor ${date}`,
+    vibeLabel: "夜色",
+    vibeLabelEn: "Night",
+    previewThumbnails: [],
+    access: "member",
+  }));
+  const store = makeStore({
+    ...archiveCatalogEntries(editions),
+    [ARCHIVE_ACCESS_WINDOW_KEY]: archiveAccessWindow(...dates),
+  });
+
+  const first = await starOfDay(
+    { method: "GET", url: "https://example.test/star-of-day?archive=1&limit=3" },
+    contextFor(store),
+  );
+  const firstBody = await first.json();
+  assert.deepEqual(firstBody.editions.map(edition => [edition.date, edition.access]), [
+    ["2026-09-20", "free"],
+    ["2026-09-19", "free"],
+    ["2026-09-18", "free"],
+  ]);
+  assert.deepEqual(firstBody.page, {
+    limit: 3,
+    nextCursor: "2026-09-18",
+    hasMore: true,
+    total: 7,
+  });
+
+  const second = await starOfDay(
+    {
+      method: "GET",
+      url: `https://example.test/star-of-day?archive=1&limit=3&cursor=${firstBody.page.nextCursor}`,
+    },
+    contextFor(store),
+  );
+  const secondBody = await second.json();
+  assert.deepEqual(secondBody.editions.map(edition => [edition.date, edition.access]), [
+    ["2026-09-17", "free"],
+    ["2026-09-16", "member"],
+    ["2026-09-15", "member"],
+  ]);
+  assert.equal(secondBody.page.nextCursor, "2026-09-15");
+  assert.equal(secondBody.page.total, 7);
+});
+
+test("archive pages load only the year buckets and edition records needed for the page", async () => {
+  const editions = [
+    "2026-09-20",
+    "2026-09-19",
+    "2025-12-31",
+    "2024-12-31",
+  ].map(date => ({
+    date,
+    actorName: `Actor ${date}`,
+    vibeLabel: "Night",
+    access: "member",
+  }));
+  const base = makeStore({
+    ...archiveCatalogEntries(editions),
+    [ARCHIVE_ACCESS_WINDOW_KEY]: archiveAccessWindow(...editions.map(item => item.date)),
+  });
+  const reads = [];
+  const store = {
+    ...base,
+    async get(key, options) {
+      reads.push(key);
+      return base.get(key, options);
+    },
+  };
+
+  const response = await starOfDay(
+    { method: "GET", url: "https://example.test/star-of-day?archive=1&limit=1" },
+    contextFor(store),
+  );
+  const body = await response.json();
+
+  assert.equal(body.page.total, 4);
+  assert.equal(body.page.hasMore, true);
+  assert.deepEqual(body.editions.map(edition => edition.date), ["2026-09-20"]);
+  assert.equal(reads.includes(`${ARCHIVE_CATALOG_YEAR_PREFIX}2025`), false);
+  assert.equal(reads.includes(`${ARCHIVE_CATALOG_YEAR_PREFIX}2024`), false);
+  assert.equal(reads.includes(`${ARCHIVE_CATALOG_EDITION_PREFIX}2026-09-19`), false);
+});
+
+test("multi-decade archive pages read only the buckets and editions needed at each cursor", async () => {
+  const editions = multiDecadeArchiveEditions();
+  const base = makeStore({
+    ...archiveCatalogEntries(editions),
+    [ARCHIVE_ACCESS_WINDOW_KEY]: archiveAccessWindow(...editions.map(item => item.date)),
+  });
+  const reads = [];
+  const store = {
+    ...base,
+    async get(key, options) {
+      reads.push(key);
+      return base.get(key, options);
+    },
+  };
+
+  const first = await starOfDay(
+    { method: "GET", url: "https://example.test/star-of-day?archive=1&limit=2" },
+    contextFor(store),
+  );
+  const firstBody = await first.json();
+  assert.deepEqual(firstBody.editions.map(edition => [edition.date, edition.access]), [
+    ["2026-09-20", "free"],
+    ["2026-06-30", "free"],
+  ]);
+  assert.deepEqual(firstBody.page, {
+    limit: 2,
+    nextCursor: "2026-06-30",
+    hasMore: true,
+    total: editions.length,
+  });
+  assert.deepEqual(
+    reads.filter(key => key.startsWith(ARCHIVE_CATALOG_YEAR_PREFIX)),
+    [`${ARCHIVE_CATALOG_YEAR_PREFIX}2026`],
+  );
+  assert.deepEqual(
+    reads.filter(key => key.startsWith(ARCHIVE_CATALOG_EDITION_PREFIX)),
+    [
+      `${ARCHIVE_CATALOG_EDITION_PREFIX}2026-09-20`,
+      `${ARCHIVE_CATALOG_EDITION_PREFIX}2026-06-30`,
+    ],
+  );
+
+  reads.length = 0;
+  const deep = await starOfDay(
+    {
+      method: "GET",
+      url: "https://example.test/star-of-day?archive=1&limit=2&cursor=2006-07-01",
+    },
+    contextFor(store),
+  );
+  const deepBody = await deep.json();
+  assert.deepEqual(deepBody.editions.map(edition => [edition.date, edition.access]), [
+    ["2006-06-30", "member"],
+    ["2006-01-01", "member"],
+  ]);
+  assert.deepEqual(deepBody.page, {
+    limit: 2,
+    nextCursor: "2006-01-01",
+    hasMore: true,
+    total: editions.length,
+  });
+  assert.deepEqual(
+    reads.filter(key => key.startsWith(ARCHIVE_CATALOG_YEAR_PREFIX)),
+    [
+      `${ARCHIVE_CATALOG_YEAR_PREFIX}2026`,
+      `${ARCHIVE_CATALOG_YEAR_PREFIX}2006`,
+      `${ARCHIVE_CATALOG_YEAR_PREFIX}2005`,
+    ],
+  );
+  assert.deepEqual(
+    reads.filter(key => key.startsWith(ARCHIVE_CATALOG_EDITION_PREFIX)),
+    [
+      `${ARCHIVE_CATALOG_EDITION_PREFIX}2006-06-30`,
+      `${ARCHIVE_CATALOG_EDITION_PREFIX}2006-01-01`,
+    ],
+  );
+  assert.deepEqual(base.stats(), { listCalls: 0, setCalls: 0 });
+});
+
+test("multi-decade legacy indexes upgrade once before returning to bounded page reads", async () => {
+  const editions = multiDecadeArchiveEditions();
+  const entries = archiveCatalogEntries(editions);
+  delete entries[ARCHIVE_CATALOG_INDEX_KEY].yearCounts;
+  delete entries[ARCHIVE_CATALOG_INDEX_KEY].total;
+  const base = makeStore({
+    ...entries,
+    [ARCHIVE_ACCESS_WINDOW_KEY]: archiveAccessWindow(...editions.map(item => item.date)),
+  });
+  const reads = [];
+  const store = {
+    ...base,
+    async get(key, options) {
+      reads.push(key);
+      return base.get(key, options);
+    },
+  };
+
+  const upgrade = await starOfDay(
+    { method: "GET", url: "https://example.test/star-of-day?archive=1&limit=2" },
+    contextFor(store),
+  );
+  const upgradeBody = await upgrade.json();
+  assert.equal(upgradeBody.page.total, editions.length);
+  assert.deepEqual(upgradeBody.editions.map(edition => edition.date), [
+    "2026-09-20",
+    "2026-06-30",
+  ]);
+  assert.deepEqual(
+    new Set(reads.filter(key => key.startsWith(ARCHIVE_CATALOG_YEAR_PREFIX))),
+    new Set(entries[ARCHIVE_CATALOG_INDEX_KEY].years.map(
+      year => `${ARCHIVE_CATALOG_YEAR_PREFIX}${year}`,
+    )),
+  );
+  assert.equal(base.stats().setCalls, 1);
+
+  reads.length = 0;
+  const steadyState = await starOfDay(
+    { method: "GET", url: "https://example.test/star-of-day?archive=1&limit=2" },
+    contextFor(store),
+  );
+  const steadyStateBody = await steadyState.json();
+  assert.equal(steadyStateBody.page.total, editions.length);
+  assert.deepEqual(
+    reads.filter(key => key.startsWith(ARCHIVE_CATALOG_YEAR_PREFIX)),
+    [`${ARCHIVE_CATALOG_YEAR_PREFIX}2026`],
+  );
+  assert.equal(base.stats().setCalls, 1);
+});
+
+test("archive totals remain global when a cursor moves into an older year", async () => {
+  const editions = ["2026-01-02", "2026-01-01", "2025-12-31", "2024-12-31"].map(date => ({
+    date,
+    actorName: `Actor ${date}`,
+    vibeLabel: "Night",
+    access: "member",
+  }));
+  const store = makeStore({
+    ...archiveCatalogEntries(editions),
+    [ARCHIVE_ACCESS_WINDOW_KEY]: archiveAccessWindow(...editions.map(item => item.date)),
+  });
+
+  const response = await starOfDay(
+    {
+      method: "GET",
+      url: "https://example.test/star-of-day?archive=1&limit=1&cursor=2026-01-01",
+    },
+    contextFor(store),
+  );
+  const body = await response.json();
+
+  assert.deepEqual(body.editions.map(edition => edition.date), ["2025-12-31"]);
+  assert.equal(body.page.total, 4);
+  assert.equal(body.page.hasMore, true);
+});
+
+test("archive cursors do not shift when a newer edition publishes", async () => {
+  const metadata = date => ({
+    date,
+    actorName: `Actor ${date}`,
+    vibeLabel: "夜色",
+    access: "member",
+  });
+  const initial = ["2026-09-19", "2026-09-18", "2026-09-17", "2026-09-16"].map(metadata);
+  const store = makeStore({
+    ...archiveCatalogEntries(initial),
+    [ARCHIVE_ACCESS_WINDOW_KEY]: archiveAccessWindow(...initial.map(item => item.date)),
+  });
+  const first = await starOfDay(
+    { method: "GET", url: "https://example.test/star-of-day?archive=1&limit=2" },
+    contextFor(store),
+  );
+  const cursor = (await first.json()).page.nextCursor;
+
+  await store.setJSON(
+    `${ARCHIVE_CATALOG_EDITION_PREFIX}2026-09-20`,
+    metadata("2026-09-20"),
+  );
+  await store.setJSON(`${ARCHIVE_CATALOG_YEAR_PREFIX}2026`, {
+    schemaVersion: 1,
+    catalogVersion: 2,
+    kind: "vibe-atlas-archive-catalog-year",
+    year: "2026",
+    dates: ["2026-09-20", ...initial.map(item => item.date)],
+  });
+  const second = await starOfDay(
+    {
+      method: "GET",
+      url: `https://example.test/star-of-day?archive=1&limit=2&cursor=${cursor}`,
+    },
+    contextFor(store),
+  );
+  assert.deepEqual((await second.json()).editions.map(edition => edition.date), [
+    "2026-09-17",
+    "2026-09-16",
+  ]);
+});
+
+test("archive pagination rejects invalid cursors and oversized pages", async () => {
+  const store = makeStore();
+  for (const url of [
+    "https://example.test/star-of-day?archive=1&cursor=not-a-date",
+    "https://example.test/star-of-day?archive=1&limit=101",
+  ]) {
+    const response = await starOfDay({ method: "GET", url }, contextFor(store));
+    assert.equal(response.status, 400);
+  }
+  assert.deepEqual(store.stats(), { listCalls: 0, setCalls: 0 });
+});
+
+test("archive migration fails closed instead of publishing an incomplete catalogue", async () => {
+  const store = makeStore({
+    "starOfDay:v6:2026-08-30": archivePayload("2026-08-30"),
+    "starOfDay:v6:2026-08-29": { date: "2026-08-29", actorName: "Incomplete" },
+  });
+
+  const response = await starOfDay(
+    { method: "GET", url: "https://example.test/star-of-day?archive=1" },
+    contextFor(store),
+  );
+
+  assert.equal(response.status, 500);
+  assert.equal(await store.get(ARCHIVE_CATALOG_KEY, { type: "json" }), null);
 });
 
 test("historical date reads use the existing cache without starting a build", async () => {
   const archived = archivePayload("2026-08-29");
-  const store = makeStore({ "starOfDay:v6:2026-08-29": archived });
+  const store = makeStore({
+    "starOfDay:v6:2026-08-29": archived,
+    [ARCHIVE_ACCESS_WINDOW_KEY]: archiveAccessWindow("2026-08-29"),
+  });
 
   const response = await starOfDay(
     { method: "GET", url: "https://example.test/star-of-day?date=2026-08-29" },
@@ -487,7 +1009,10 @@ test("historical date reads use the existing cache without starting a build", as
 
 test("historical date reads preserve legacy v5 editions after the curation upgrade", async () => {
   const archived = { ...archivePayload("2026-08-28"), version: "v5" };
-  const store = makeStore({ "starOfDay:v5:2026-08-28": archived });
+  const store = makeStore({
+    "starOfDay:v5:2026-08-28": archived,
+    [ARCHIVE_ACCESS_WINDOW_KEY]: archiveAccessWindow("2026-08-28"),
+  });
 
   const response = await starOfDay(
     { method: "GET", url: "https://example.test/star-of-day?date=2026-08-28" },
@@ -510,6 +1035,13 @@ test("historical and archive reads prefer the verified publication manifest over
   const store = makeStore({
     [`starOfDay:v10:${date}`]: transient,
     [gridManifestKey(date)]: publicationManifest(date),
+    [publicationManifestCatalogKey()]: {
+      schemaVersion: 1,
+      catalogVersion: "v1",
+      kind: "vibe-atlas-publication-manifest-catalog",
+      dates: [date],
+    },
+    [ARCHIVE_ACCESS_WINDOW_KEY]: archiveAccessWindow(date),
   });
 
   const historical = await starOfDay(
@@ -523,6 +1055,10 @@ test("historical and archive reads prefer the verified publication manifest over
   assert.ok(payload.displayResults.every(result =>
     result.thumbnail.startsWith("https://media.example/thumbs/")));
   assert.equal(payload.displayResults[4].title, "Manifest frame 4");
+  assert.deepEqual(payload.publicRecord, {
+    actorPath: "/vibe-atlas/actors/liu-xueyi/",
+    editionPath: "/vibe-atlas/editions/2026-08-29/liu-xueyi/",
+  });
 
   const archive = await starOfDay(
     { method: "GET", url: "https://example.test/star-of-day?archive=1" },
@@ -531,6 +1067,47 @@ test("historical and archive reads prefer the verified publication manifest over
   const archived = await archive.json();
   assert.equal(archived.editions[0].actorName, "刘学义");
   assert.equal(archived.editions[0].vibeLabelEn, "Professionally Devastated");
+  assert.deepEqual(archived.editions[0].publicRecord, payload.publicRecord);
+});
+
+test("archive does not advertise a public record for a missing or non-indexable manifest", async () => {
+  const validDate = "2026-08-29";
+  const missingDate = "2026-08-28";
+  const thinDate = "2026-08-27";
+  const valid = publicationManifest(validDate);
+  const thin = publicationManifest(thinDate);
+  thin.vibe.supportingCopyEn = "Too short";
+  const record = date => ({
+    actorPath: "/vibe-atlas/actors/liu-xueyi/",
+    editionPath: `/vibe-atlas/editions/${date}/liu-xueyi/`,
+  });
+  const editions = [validDate, missingDate, thinDate].map(date => ({
+    date,
+    actorName: "刘学义",
+    actorShortNameEn: "Liu Xueyi",
+    vibeLabel: "破碎感美人",
+    vibeLabelEn: "Professionally Devastated",
+    previewThumbnails: [],
+    publicRecord: record(date),
+    access: "member",
+  }));
+  const store = makeStore({
+    ...archiveCatalogEntries(editions),
+    [gridManifestKey(validDate)]: valid,
+    [gridManifestKey(thinDate)]: thin,
+    [ARCHIVE_ACCESS_WINDOW_KEY]: archiveAccessWindow(validDate),
+  });
+  const response = await starOfDay(
+    { method: "GET", url: "https://example.test/star-of-day?archive=1" },
+    contextFor(store),
+  );
+  assert.equal(response.status, 200);
+  const page = (await response.json()).editions;
+  assert.deepEqual(page.map(edition => edition.date), [validDate, missingDate, thinDate]);
+  assert.deepEqual(page[0].publicRecord, record(validDate));
+  assert.equal(Object.hasOwn(page[1], "publicRecord"), false);
+  assert.equal(Object.hasOwn(page[2], "publicRecord"), false);
+  assert.equal(store.stats().listCalls, 0);
 });
 
 test("recent Daily Drop history uses the inclusive 30-day calendar window", async () => {
@@ -711,6 +1288,187 @@ test("the builder prefers fresh curation over an approved retained-evidence boar
   assert.deepEqual(curateOptions.preferredCandidateIds, ["saved-example"]);
   assert.equal(searchedQueries[0], "learned query");
   assert.ok(searchedQueries.includes("unused-a") || searchedQueries.includes("unused-b"));
+});
+
+test("selectedPair runs the approved pair fresh and never publishes", async () => {
+  const actorA = {
+    id: "selected-a", name: "A", shortName_en: "A", accentColor: "#111",
+    vibes: [{ label: "A", label_en: "A", queries: ["a-query"] }],
+  };
+  const actorB = {
+    id: "selected-b", name: "B", shortName_en: "B", accentColor: "#222",
+    vibes: [{ label: "B", label_en: "B", queries: ["b-query"] }],
+  };
+  const entries = {
+    ...approvedEligibility(actorA, 0),
+    ...approvedEligibility(actorB, 0, "approved_override"),
+  };
+  const store = makeStore(entries);
+  const images = Array.from({ length: 9 }, (_, i) => ({
+    candidateId: `selected-${i}`, thumbnail: `https://images.test/${i}.jpg`,
+    title: `Selected ${i}`, source: `images.test`,
+  }));
+  let queries;
+  const payload = await buildPayloadForDate("2026-09-03", store, {
+    packs: [actorA, actorB],
+    selectedPair: { actorId: "selected-b", vibeIdx: 0 },
+    evaluate: async searchQueries => {
+      queries = searchQueries;
+      return [{ query: "selected-fresh", results: images }];
+    },
+    rank: candidates => candidates,
+    curate: async () => ({ displayResults: images, curation: { mode: "compiled" } }),
+  });
+  assert.equal(payload.actorId, "selected-b");
+  assert.equal(queries.includes("b-query"), true);
+  assert.equal(store.stats().setCalls, 0);
+
+  const rejected = makeStore({
+    ...approvedEligibility(actorA, 0),
+    ...approvedEligibility(actorB, 0, "rejected"),
+  });
+  assert.equal(await buildPayloadForDate("2026-09-03", rejected, {
+    packs: [actorA, actorB],
+    selectedPair: { actorId: "selected-b", vibeIdx: 0 },
+    evaluate: async () => { throw new Error("ineligible pair searched"); },
+  }), null);
+});
+
+test("Collector refresh bypasses cache and prefers new candidates, filling from earlier images if needed", async () => {
+  const actor = {
+    id: "collector", name: "Collector", shortName_en: "Collector",
+    vibes: [{ label: "Vibe", label_en: "Vibe", queries: ["collector-query"] }],
+  };
+  const previous = Array.from({ length: 9 }, (_, index) => ({
+    thumbnail: `https://images.test/previous-${index}.jpg`,
+  }));
+  const novel = { thumbnail: "https://images.test/new.jpg" };
+  const modes = [];
+  const attempts = [];
+  const payload = await buildPayloadForDate("2026-09-03", makeStore(approvedEligibility(actor, 0)), {
+    packs: [actor],
+    selectedPair: { actorId: actor.id, vibeIdx: 0 },
+    excludedCollectorThumbnails: previous.map(image => image.thumbnail),
+    refreshCollectorSearch: true,
+    search: async (_query, options) => {
+      modes.push(options?.cacheMode);
+      return { results: [...previous, novel] };
+    },
+    evaluate: async (_queries, search) => [{
+      query: "collector-query", results: (await search("collector-query")).results,
+    }],
+    rank: batches => batches,
+    curate: async batches => {
+      const results = batches.flatMap(batch => batch.results);
+      attempts.push(results.length);
+      return { displayResults: results.length >= 9 ? results.slice(0, 9) : [], curation: { mode: "compiled" } };
+    },
+  });
+  assert.deepEqual(modes, ["refresh", "refresh"]);
+  assert.deepEqual(attempts, [2, 20]);
+  assert.equal(payload.displayResults.length, 9);
+  assert.ok(payload.displayResults.some(image => image.thumbnail === novel.thumbnail));
+});
+
+test("Collector refresh applies 30/5/60 limits and bounded second-pass queries", async () => {
+  const actor = {
+    id: "collector-depth",
+    name: "Collector Depth",
+    shortName_en: "Collector Depth",
+    vibes: [{
+      label: "Vibe",
+      label_en: "Vibe",
+      queries: Array.from({ length: 80 }, (_, index) => `collector-query-${index}`),
+    }],
+  };
+  const evaluateQueries = [];
+  const curateOptions = [];
+  let evaluatePass = 0;
+  const payload = await buildPayloadForDate("2026-09-03", makeStore(approvedEligibility(actor, 0)), {
+    packs: [actor],
+    selectedPair: { actorId: actor.id, vibeIdx: 0 },
+    refreshCollectorSearch: true,
+    evaluate: async (queries) => {
+      evaluatePass += 1;
+      evaluateQueries.push(queries);
+      return queries.map((query, index) => ({
+        query,
+        results: Array.from({ length: 3 }, (_, offset) => ({
+          thumbnail: evaluatePass === 1
+            ? "https://images.test/same.jpg"
+            : `https://images.test/second-pass-${index}-${offset}.jpg`,
+          link: `https://source.test/${evaluatePass}/${index}/${offset}`,
+          source: `source-${evaluatePass}-${index}-${offset}.test`,
+        })),
+        count: 1,
+        distinctSources: 1,
+      }));
+    },
+    rank: candidates => candidates,
+    curate: async (ranked, options) => {
+      curateOptions.push(options);
+      const all = ranked.flatMap(batch => batch.results || []);
+      return {
+        displayResults: all.slice(0, 9),
+        curation: { mode: "compiled" },
+      };
+    },
+  });
+
+  assert.equal(evaluateQueries[0].length, 80);
+  assert.equal(evaluateQueries[1].length <= 4, true);
+  assert.equal(payload.rankedBatches.length, 5);
+  assert.equal(curateOptions[0].candidateLimit, 60);
+  assert.deepEqual(payload.collectorRefresh.firstPassQueries.length, 80);
+  assert.equal(payload.collectorRefresh.secondPassQueries.length <= 4, true);
+});
+
+test("Collector refresh fallback keeps unseen-first order within each batch without duplicating batches", async () => {
+  const actor = {
+    id: "collector-order",
+    name: "Collector Order",
+    shortName_en: "Collector Order",
+    vibes: [{ label: "Vibe", label_en: "Vibe", queries: ["collector-order-query"] }],
+  };
+  const seen = "https://images.test/seen.jpg";
+  const unseen = "https://images.test/unseen.jpg";
+  let curateCalls = 0;
+  let fallbackRanked = null;
+  const payload = await buildPayloadForDate("2026-09-03", makeStore(approvedEligibility(actor, 0)), {
+    packs: [actor],
+    selectedPair: { actorId: actor.id, vibeIdx: 0 },
+    refreshCollectorSearch: true,
+    excludedCollectorThumbnails: [seen],
+    evaluate: async () => [
+      {
+        query: "batch-a",
+        results: [
+          { thumbnail: seen, link: "https://source.test/seen", source: "source.test" },
+          { thumbnail: unseen, link: "https://source.test/unseen", source: "source.test" },
+        ],
+        count: 2,
+        distinctSources: 1,
+      },
+    ],
+    rank: candidates => candidates,
+    curate: async (ranked) => {
+      curateCalls += 1;
+      if (curateCalls === 1) return { displayResults: [], curation: { mode: "compiled" } };
+      fallbackRanked = ranked;
+      return { displayResults: Array.from({ length: 9 }, (_, index) => ({
+        thumbnail: `https://images.test/final-${index}.jpg`,
+        link: `https://source.test/final-${index}`,
+        source: "source.test",
+      })), curation: { mode: "compiled" } };
+    },
+  });
+
+  assert.equal(fallbackRanked.length >= 1, true);
+  assert.deepEqual(
+    fallbackRanked[0].results.map(result => result.thumbnail),
+    [unseen, seen],
+  );
+  assert.equal(payload.displayResults.length, 9);
 });
 
 test("a repeated pairing refreshes search and rearranges the same nine when refresh cannot improve them", async () => {
@@ -1125,7 +1883,7 @@ test("the builder does not search when no pairing has a current approval", async
   assert.equal(searches, 0);
 });
 
-test("Star of the Day accepts one plain operator approval", async () => {
+test("Star of the Day accepts ordinary approval and approved overrides", async () => {
   const packs = [
     { id: "actor-a", name: "Actor A", shortName_en: "A", vibes: [{ label: "A0", label_en: "A0", queries: ["a"] }] },
     { id: "actor-b", name: "Actor B", shortName_en: "B", vibes: [{ label: "B0", label_en: "B0", queries: ["b"] }] },
@@ -1145,7 +1903,7 @@ test("Star of the Day accepts one plain operator approval", async () => {
 
   assert.equal(await hasReleaseReadyCohort(packs, eligibilityStore), true);
   assert.equal(payload, null);
-  assert.equal(searches, 1);
+  assert.equal(searches, 2);
 });
 
 test("release rotation uses all approved actors and avoids yesterday's actor when possible", async () => {

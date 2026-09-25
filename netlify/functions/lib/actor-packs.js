@@ -298,9 +298,9 @@ export const ACTOR_PACKS = [
       {
         "emoji": "🪷",
         "label": "玉色祸水",
-        "label_en": "If jade could ruin your life",
-        "subtitle": "不幸的是，他让这件事看起来像遗传",
-        "subtitle_en": "Unfortunately, he made it look hereditary",
+        "label_en": "Jade-Faced Calamity",
+        "subtitle": "美得像玉，危险得像天灾。",
+        "subtitle_en": "Beauty like polished jade. Consequences like a natural disaster.",
         "queries": [
           "张凌赫 古装 玉 宁安如梦 度华年",
           "张凌赫 度华年 古装 帅",
@@ -602,3 +602,95 @@ export const ACTOR_PACKS = [
     ]
   }
 ];
+
+/**
+ * Public actor-directory contract.
+ *
+ * Keep this projection explicit rather than masking the private pack objects:
+ * retrieval queries, generation prompts, source inventories, diagnostics, and
+ * scoring fields must not be able to cross the public endpoint by accident
+ * when the private pack schema evolves.
+ */
+const PUBLIC_ACTOR_FIELDS = [
+  "id",
+  "name",
+  "shortName",
+  "shortName_en",
+  "title",
+  "title_en",
+  "icon",
+  "accentColor",
+  "cardBg",
+];
+
+const PUBLIC_VIBE_FIELDS = [
+  "emoji",
+  "label",
+  "label_en",
+  "subtitle",
+  "subtitle_en",
+  "supportingCopy",
+  "supportingCopy_en",
+  "shareFragment",
+];
+
+function pickFields(source, fields) {
+  return Object.fromEntries(fields
+    .filter(field => Object.prototype.hasOwnProperty.call(source, field))
+    .map(field => [field, source[field]]));
+}
+
+export function toPublicActorPack(actor) {
+  if (!actor || typeof actor !== "object") return null;
+  return {
+    ...pickFields(actor, PUBLIC_ACTOR_FIELDS),
+    vibes: Array.isArray(actor.vibes)
+      ? actor.vibes
+        .map(vibe => pickFields(vibe, PUBLIC_VIBE_FIELDS))
+        .filter(vibe => Object.keys(vibe).length > 0)
+      : [],
+  };
+}
+
+export const PUBLIC_ACTOR_PACKS = ACTOR_PACKS
+  .map(toPublicActorPack)
+  .filter(Boolean);
+
+// This is deliberately separate from private retrieval and operator caches.
+// Public records are identical for every visitor and contain no account data.
+export const PUBLIC_ACTOR_PACKS_CACHE_CONTROL =
+  "public, max-age=300, s-maxage=3600, stale-while-revalidate=86400";
+
+/**
+ * Collector-only source-depth contract.
+ *
+ * This projection deliberately lives beside the public projection so adding a
+ * field to the private pack cannot accidentally broaden the public endpoint.
+ * Queries and authoring prompts are useful source depth for an authenticated
+ * Collector, but must never be included in PUBLIC_ACTOR_PACKS.
+ */
+export function toCollectorActorPack(actor) {
+  if (!actor || typeof actor !== "object" || typeof actor.id !== "string") return null;
+  return {
+    ...pickFields(actor, PUBLIC_ACTOR_FIELDS),
+    provenance: {
+      source: "vibe-atlas-actor-pack",
+      sourcePackId: actor.id,
+      attribution: "Vibe Atlas Fandom editorial actor pack",
+    },
+    vibes: Array.isArray(actor.vibes)
+      ? actor.vibes
+        .map((vibe, vibeIdx) => ({
+          ...pickFields(vibe, PUBLIC_VIBE_FIELDS),
+          vibeIdx,
+          sourceDepth: {
+            queries: Array.isArray(vibe.queries) ? [...vibe.queries] : [],
+            ...(typeof vibe.mjPrompt === "string" && vibe.mjPrompt
+              ? { authoringPrompt: vibe.mjPrompt }
+              : {}),
+          },
+        }))
+        .filter(vibe => Object.keys(vibe).length > 0)
+      : [],
+  };
+}

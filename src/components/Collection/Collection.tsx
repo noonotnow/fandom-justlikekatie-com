@@ -1,4 +1,5 @@
 import { useEffect, useRef, useState } from 'react';
+import { PUBLIC_ROUTE_PATHS } from '../../../shared/public-routes.js';
 import {
   dbGetSyncState,
   dbGetVisibleCards,
@@ -11,6 +12,7 @@ import {
   dbGetVisibleGrids,
   dbSaveCard,
   dbSaveGrid,
+  historicalEditionHref,
   type CardRecord,
   type GridRecord,
   type MisprintLearningScope,
@@ -32,16 +34,31 @@ import {
   recoverCollectionGrid,
   uploadCollectionImage,
 } from '../../utils/collectionMedia';
-import { buildExportPayload, classifyEditionTier, saveShareCard } from '../../utils/exportCanvas';
+import {
+  buildMasterExportManifest,
+  buildExportPayload,
+  classifyEditionTier,
+  saveShareCard,
+  prepareShareCard,
+  type ExportManifest,
+  type ExportProvenanceAsset,
+  type ExportVariant,
+} from '../../utils/exportCanvas';
 import {
   exportDownloadUrl,
   fetchExportHistory,
+  GRID_EXPORT_PERSISTED_EVENT,
+  gridExportEventFromRecord,
+  logGridExport,
+  notifyGridExportPersisted,
   retryPendingExportCleanups,
   uploadExportedCard,
+  type GridExportPersistedEventDetail,
   type PersistedExportEntry,
 } from '../../utils/gridExportLog';
 import { ArtifactZoomDialog } from '../ArtifactZoomDialog/ArtifactZoomDialog';
 import { GridBuilder } from '../GridBuilder/GridBuilder';
+import { isVerifiedMediaReference } from '../../utils/mediaReference';
 import {
   getPublicSession,
   hasMergeDecision,
@@ -54,6 +71,7 @@ import {
   type PublicUser,
 } from '../../utils/publicAccount';
 import styles from './Collection.module.css';
+import type { BuilderCard } from '../../utils/gridBuilder';
 
 const UNDO_WINDOW_MS = 8_000;
 const MAX_UPLOADED_MEME_BYTES = 8 * 1024 * 1024;
@@ -62,9 +80,14 @@ const SUPPORTED_MEME_TYPES = new Set(['image/png', 'image/jpeg', 'image/webp']);
 interface Props {
   scope?: 'vibe-atlas' | 'middle-earth';
   initialType?: 'grids' | 'results' | 'builder';
+  hasCollectorAccess?: boolean;
+  membershipResolved?: boolean;
   isMember?: boolean;
   onUpgrade?: () => void;
   onTypeChange?: (type: 'grids' | 'results' | 'builder') => void;
+  builderSourceKind?: 'collection' | 'daily' | 'edition';
+  builderSourceEditionDate?: string;
+  builderSourcePool?: BuilderCard[];
 }
 
 type ExpandedArtifact =
@@ -111,17 +134,29 @@ async function correctLegendaryGridEvidence(grid: GridRecord): Promise<number> {
 export const Collection: React.FC<Props> = ({
   scope = 'vibe-atlas',
   initialType = 'grids',
+  hasCollectorAccess = false,
+  membershipResolved = true,
   isMember = false,
   onUpgrade,
   onTypeChange,
+  builderSourceKind = 'collection',
+  builderSourceEditionDate,
+  builderSourcePool = [],
 }) => {
   const isMiddleEarth = scope === 'middle-earth';
+  // Vibe Atlas account sync is a sign-in benefit, not a paid capability.
+  // Middle-earth sync remains limited to its separate admin workspace.
+  const canSyncCloud = !isMiddleEarth || hasCollectorAccess;
+  const canSyncCloudRef = useRef(canSyncCloud);
+  canSyncCloudRef.current = canSyncCloud;
   const [cards, setCards] = useState<CardRecord[]>([]);
   const [grids, setGrids] = useState<GridRecord[]>([]);
   const [loading, setLoading] = useState(true);
   const [activeType, setActiveType] = useState<'grids' | 'results' | 'builder'>(
     isMiddleEarth ? 'results' : initialType,
   );
+  const isExternalBuilder = !isMiddleEarth && activeType === 'builder' && builderSourceKind !== 'collection';
+  const isEditionBuilder = isExternalBuilder && builderSourceKind === 'edition';
   const [filterActor, setFilterActor] = useState<string | null>(null);
   const [user, setUser] = useState<PublicUser | null>(null);
   const [email, setEmail] = useState('');
@@ -131,12 +166,14 @@ export const Collection: React.FC<Props> = ({
     return notice;
   });
   const [needsMergeChoice, setNeedsMergeChoice] = useState(false);
+  const [syncEnabled, setSyncEnabled] = useState(false);
   const [busyKey, setBusyKey] = useState('');
   const [pendingRemoval, setPendingRemoval] = useState<PendingRemoval | null>(null);
   const [expandedArtifact, setExpandedArtifact] = useState<ExpandedArtifact | null>(null);
   const [failedCardImages, setFailedCardImages] = useState<Record<string, boolean>>({});
   const [failedGridImages, setFailedGridImages] = useState<Record<string, boolean>>({});
   const [misprintDrafts, setMisprintDrafts] = useState<Record<string, MisprintDraft>>({});
+  const [exportHistoryRevisions, setExportHistoryRevisions] = useState<Record<string, number>>({});
   const accountIdRef = useRef<string | undefined>(undefined);
   const pendingRemovalRef = useRef<PendingRemoval | null>(null);
 
@@ -156,18 +193,21 @@ export const Collection: React.FC<Props> = ({
   }
 
   useEffect(() => {
+    if (!membershipResolved) return;
     const refreshSession = async () => {
       try {
         const session = await getPublicSession();
         accountIdRef.current = session?.accountId;
         setUser(session);
         let shouldSync = false;
-        if (session) {
+        if (session && canSyncCloud) {
           const decided = await hasMergeDecision(session.accountId);
           setNeedsMergeChoice(!decided);
-          shouldSync = decided && await shouldSyncCollection(session.accountId);
+          shouldSync = canSyncCloud && decided && await shouldSyncCollection(session.accountId);
+          setSyncEnabled(shouldSync);
         } else {
           setNeedsMergeChoice(false);
+          setSyncEnabled(false);
         }
 
         await recoverPendingRemoval();
@@ -177,7 +217,7 @@ export const Collection: React.FC<Props> = ({
         await loadCollection(session?.accountId);
         setLoading(false);
 
-        if (session && shouldSync) {
+        if (session && canSyncCloud && shouldSync) {
           try {
             await syncPublicCollection(session);
             await loadCollection(session.accountId);
@@ -193,13 +233,14 @@ export const Collection: React.FC<Props> = ({
         // records are already gone locally, so this queue is the only path left
         // to finish deleting their server-side export blobs.  Runs after session
         // resolution so only the matching account's queue entries are retried.
-        void retryPendingExportCleanups(session?.accountId);
+        if (canSyncCloud) void retryPendingExportCleanups(session?.accountId);
       } catch (error) {
         // Session lookup itself may fail while IndexedDB remains healthy. Keep
         // anonymous/device-owned saves visible and report the account problem.
         accountIdRef.current = undefined;
         setUser(null);
         setNeedsMergeChoice(false);
+        setSyncEnabled(false);
         await loadCollection();
         setAccountNotice(
           `Saved items on this browser are still shown, but account status could not be checked: ${messageFrom(error, 'try again after reconnecting')}`,
@@ -224,13 +265,30 @@ export const Collection: React.FC<Props> = ({
       channel?.close();
       window.removeEventListener('storage', handleStorage);
     };
-  }, [scope]);
+  }, [membershipResolved, scope, canSyncCloud]);
+
+  useEffect(() => {
+    const handleExportPersisted = (event: Event) => {
+      const gridId = (event as CustomEvent<GridExportPersistedEventDetail>).detail?.gridId;
+      if (!gridId) return;
+      setExportHistoryRevisions(current => ({
+        ...current,
+        [gridId]: (current[gridId] || 0) + 1,
+      }));
+    };
+    window.addEventListener(GRID_EXPORT_PERSISTED_EVENT, handleExportPersisted);
+    return () => window.removeEventListener(GRID_EXPORT_PERSISTED_EVENT, handleExportPersisted);
+  }, []);
 
   async function recoverPendingRemoval() {
     const stored = readPendingRemoval();
     if (!stored) return;
     try {
-      await persistRemoval(stored.pending, stored.accountId ?? accountIdRef.current);
+      await persistRemoval(
+        stored.pending,
+        canSyncCloud ? stored.accountId ?? accountIdRef.current : undefined,
+        canSyncCloud,
+      );
       forgetPendingRemoval(stored.pending.token);
     } catch (error) {
       setAccountNotice(messageFrom(error, 'The item could not be removed.'));
@@ -241,7 +299,12 @@ export const Collection: React.FC<Props> = ({
     const pending = pendingRemovalRef.current;
     if (!pending) return;
     window.clearTimeout(pending.timeoutId);
-    void persistRemoval(pending, accountIdRef.current).then(() => {
+    const cleanupExports = canSyncCloudRef.current;
+    void persistRemoval(
+      pending,
+      cleanupExports ? accountIdRef.current : undefined,
+      cleanupExports,
+    ).then(() => {
       forgetPendingRemoval(pending.token);
     }).catch(error => {
       sessionStorage.setItem('fandom_auth_notice', messageFrom(error, 'The item could not be removed.'));
@@ -254,7 +317,11 @@ export const Collection: React.FC<Props> = ({
     pendingRemovalRef.current = null;
     setPendingRemoval(null);
     try {
-      await persistRemoval(pending, accountIdRef.current);
+      await persistRemoval(
+        pending,
+        canSyncCloud ? accountIdRef.current : undefined,
+        canSyncCloud,
+      );
       forgetPendingRemoval(pending.token);
     } catch (error) {
       if (pending.kind === 'grid') {
@@ -306,10 +373,16 @@ export const Collection: React.FC<Props> = ({
 
   async function handleMerge(merge: boolean) {
     if (!user) return;
+    if (!canSyncCloud) {
+      setNeedsMergeChoice(false);
+      setAccountNotice('Your local saves remain on this device. Cloud sync is unavailable here.');
+      return;
+    }
     try {
       await setDeviceMerge(user.accountId, merge);
       setNeedsMergeChoice(false);
-      if (merge) await syncPublicCollection(user);
+      setSyncEnabled(merge);
+      if (merge && canSyncCloud) await syncPublicCollection(user);
       await loadCollection(user.accountId);
       setAccountNotice(merge ? 'This device is now synced.' : 'This device’s local saves will stay separate.');
     } catch (error) {
@@ -323,6 +396,7 @@ export const Collection: React.FC<Props> = ({
       await logoutPublicAccount(user);
       accountIdRef.current = undefined;
       setUser(null);
+      setSyncEnabled(false);
       await loadCollection();
       setAccountNotice('Signed out. Local saves still work on this device.');
     } catch (error) {
@@ -378,7 +452,7 @@ export const Collection: React.FC<Props> = ({
         contentKind: targetScope === 'middle-earth' ? 'middle-earth-meme' : undefined,
       });
       await loadCollection(user?.accountId);
-      schedulePublicCollectionSync();
+      if (canSyncCloud) schedulePublicCollectionSync();
       setAccountNotice(
         targetScope === 'middle-earth'
           ? 'Saved result moved to the Middle-earth Collection.'
@@ -396,7 +470,7 @@ export const Collection: React.FC<Props> = ({
     try {
       await dbSaveGrid(markGridAsLegendaryMisprint(grid));
       await loadCollection(user?.accountId);
-      schedulePublicCollectionSync();
+      if (canSyncCloud) schedulePublicCollectionSync();
       setFilterActor(MISPRINT_FILTER);
       try {
         const correctedCount = await correctLegendaryGridEvidence(grid);
@@ -478,7 +552,7 @@ export const Collection: React.FC<Props> = ({
         }, new Date(payload.misprint.markedAt)),
       });
       await loadCollection(user?.accountId);
-      schedulePublicCollectionSync();
+      if (canSyncCloud) schedulePublicCollectionSync();
       setFilterActor(MISPRINT_FILTER);
       setMisprintDrafts(current => {
         const next = { ...current };
@@ -515,7 +589,7 @@ export const Collection: React.FC<Props> = ({
         legendaryMisprint: createLegendaryMisprint(card, identity),
       });
       await loadCollection(user?.accountId);
-      schedulePublicCollectionSync();
+      if (canSyncCloud) schedulePublicCollectionSync();
       setFilterActor(MISPRINT_FILTER);
       setAccountNotice('Promoted to Legendary Misprint. Its correction remains negative evidence for the curator.');
     } catch (error) {
@@ -531,7 +605,7 @@ export const Collection: React.FC<Props> = ({
     try {
       await dbSaveCard({ ...card, savedAt: new Date().toISOString(), legendaryMisprint: undefined });
       await loadCollection(user?.accountId);
-      schedulePublicCollectionSync();
+      if (canSyncCloud) schedulePublicCollectionSync();
       setAccountNotice('Legendary promotion removed. The result remains a Misprint.');
     } catch (error) {
       setAccountNotice(messageFrom(error, 'The Legendary promotion could not be removed.'));
@@ -620,6 +694,56 @@ export const Collection: React.FC<Props> = ({
     }
   }
 
+  async function exportSavedGrid(grid: GridRecord, variant: Extract<ExportVariant, 'standard' | 'master'>) {
+    const exportKey = `export:${variant}:${grid.id}`;
+    setBusyKey(exportKey);
+    try {
+      let exportGrid = grid;
+      let manifest: ExportManifest | undefined;
+      if (variant === 'master') {
+        const assets: ExportProvenanceAsset[] = grid.images.map(image => {
+          if (!isVerifiedMediaReference(image.media)) {
+            throw new Error('Master Export needs nine materialized MEDIA assets. Recover every image first.');
+          }
+          return {
+            assetId: image.media.assetId,
+            checksum: image.media.checksum,
+            deliveryUrl: image.media.deliveryUrl,
+            sourceUrl: image.sourceUrl,
+            attribution: { publisher: image.publisher, title: image.title },
+            permitted: true,
+          };
+        });
+        manifest = buildMasterExportManifest(grid.id, grid.id, assets);
+        exportGrid = {
+          ...grid,
+          images: grid.images.map(image => ({ ...image, imageUrl: image.media!.deliveryUrl })),
+        };
+      }
+      const starData = starDataFromCollectionGrid(exportGrid);
+      let renderedBlob: Blob | null = null;
+      const message = await saveShareCard(starData, variant, (blob) => { renderedBlob = blob; });
+      try {
+        const tier = classifyEditionTier(buildExportPayload(starData).chosen);
+        const persistedExportId = renderedBlob ? crypto.randomUUID() : undefined;
+        if (renderedBlob && persistedExportId) {
+          void uploadExportedCard(grid.id, persistedExportId, renderedBlob, variant, tier, manifest)
+            .then((persisted) => {
+              if (persisted) notifyGridExportPersisted(grid.id);
+            });
+        }
+        logGridExport(gridExportEventFromRecord(grid, variant, tier, true, persistedExportId));
+      } catch (bookkeepingError) {
+        console.warn('Post-export logging failed (export succeeded):', bookkeepingError);
+      }
+      setAccountNotice(message);
+    } catch (error) {
+      setAccountNotice(messageFrom(error, 'The grid could not be exported.'));
+    } finally {
+      setBusyKey('');
+    }
+  }
+
   async function handleMiddleEarthUpload(event: React.ChangeEvent<HTMLInputElement>) {
     const file = event.target.files?.[0];
     event.target.value = '';
@@ -657,7 +781,7 @@ export const Collection: React.FC<Props> = ({
       });
       await loadCollection(user?.accountId);
 
-      if (user && await shouldSyncCollection(user.accountId)) {
+      if (canSyncCloud && user && await shouldSyncCollection(user.accountId)) {
         try {
           await syncPublicCollection(user);
           await loadCollection(user.accountId);
@@ -666,7 +790,7 @@ export const Collection: React.FC<Props> = ({
           setAccountNotice(`“${file.name}” is saved on this device, but MEDIA sync failed: ${messageFrom(error, 'try again after reconnecting')}`);
         }
       } else {
-        schedulePublicCollectionSync();
+        if (canSyncCloud) schedulePublicCollectionSync();
         setAccountNotice(`“${file.name}” is saved in this Collection. Sign in and merge this device to register it in MEDIA.`);
       }
     } catch (error) {
@@ -700,12 +824,20 @@ export const Collection: React.FC<Props> = ({
     <main className={styles.collection}>
       <header className={styles.hero}>
         <div>
-          <h2>{isMiddleEarth ? 'Middle-earth Collection' : 'Your Collection'}</h2>
+          <h2>{isMiddleEarth
+            ? 'Middle-earth Collection'
+            : isExternalBuilder
+              ? isEditionBuilder ? 'Archive Edition Grid Builder' : 'Today’s Grid Builder'
+              : 'Your Collection'}</h2>
           <p>{isMiddleEarth
             ? 'Your separate MemeForge shelf for finished Middle-earth memes.'
-            : 'Collect individual finds, keep finished worlds, and compose Event or Compiled editorial sets.'}</p>
+            : isExternalBuilder
+              ? isEditionBuilder
+                ? 'Rebuild or remix this immutable historical edition. Its images are not added to My Collection.'
+                : 'Build only with the active Star of the Day inventory. Nothing from My Collection is added here.'
+              : 'Collect individual finds, keep finished worlds, and compose Event or Compiled editorial sets.'}</p>
         </div>
-        <div className={styles.heroActions}>
+        {!isExternalBuilder && <div className={styles.heroActions}>
           <span>{isMiddleEarth ? `${cards.length} memes` : `${grids.length} grids · ${cards.length} results`}</span>
           <button
             type="button"
@@ -714,13 +846,13 @@ export const Collection: React.FC<Props> = ({
           >
             {busyKey === 'diagnostic-export' ? 'Preparing data…' : 'Download diagnostic data'}
           </button>
-        </div>
+        </div>}
       </header>
 
-      <section className={styles.account}>
+      {!isExternalBuilder && <section className={styles.account}>
         {user ? (
           <div className={styles.signedIn}>
-            <p>{isMiddleEarth ? 'Middle-earth memes synced as' : 'Synced as'} <strong>{user.email}</strong></p>
+            <p>{syncEnabled ? (isMiddleEarth ? 'Middle-earth sync enabled for' : 'Cloud sync enabled for') : 'Signed in as'} <strong>{user.email}</strong></p>
             <button type="button" onClick={() => void handleLogout()}>Sign out</button>
           </div>
         ) : (
@@ -749,9 +881,24 @@ export const Collection: React.FC<Props> = ({
           </div>
         )}
         {accountNotice && <p className={styles.notice} role="status">{accountNotice}</p>}
-      </section>
+      </section>}
 
-      {isMiddleEarth ? (
+      {isExternalBuilder ? (
+        <div className={styles.collectionScopeNav}>
+          <strong>
+            {isEditionBuilder
+              ? `Historical edition${builderSourceEditionDate ? ` · ${builderSourceEditionDate}` : ''}`
+              : 'Active Daily Drop inventory'}
+          </strong>
+          <div className={styles.collectionScopeActions}>
+            <a href={isEditionBuilder && builderSourceEditionDate
+              ? `${PUBLIC_ROUTE_PATHS.vibeAtlas}?date=${encodeURIComponent(builderSourceEditionDate)}`
+              : PUBLIC_ROUTE_PATHS.vibeAtlas}>
+              {isEditionBuilder ? 'Back to this edition' : 'Back to today’s drop'}
+            </a>
+          </div>
+        </div>
+      ) : isMiddleEarth ? (
         <div className={styles.collectionScopeNav}>
           <strong>Saved memes <span>{cards.length}</span></strong>
           <div className={styles.collectionScopeActions}>
@@ -807,18 +954,20 @@ export const Collection: React.FC<Props> = ({
         </div>
       )}
 
-      {activeType === 'builder' && !isMember ? (
-        <section className={styles.upgradeGate}>
-          <span>✦ Founding Member</span>
-          <h3>Build a new world from your saved finds.</h3>
-          <p>Your local saves remain here. Upgrade to use Grid Builder and make premium exports.</p>
-          <button type="button" onClick={onUpgrade}>Explore membership</button>
-        </section>
-      ) : activeType === 'builder' ? (
+      {activeType === 'builder' ? (
         <GridBuilder
           accountId={user?.accountId}
-          isMember={isMember}
+          hasCollectorAccess={hasCollectorAccess}
           onUpgrade={onUpgrade}
+          sourceKind={builderSourceKind}
+          sourceEditionDate={builderSourceEditionDate}
+          sourcePool={builderSourcePool}
+          onCollectionChanged={async () => {
+            await loadCollection();
+            if (canSyncCloud && user && await shouldSyncCollection(user.accountId)) {
+              await syncPublicCollection(user);
+            }
+          }}
           onExported={() => {
             setActiveType('grids');
             void loadCollection();
@@ -865,6 +1014,14 @@ export const Collection: React.FC<Props> = ({
                   </div>
                   {grid.searchSpell && <p className={styles.spell}>⌕ {grid.searchSpell}</p>}
                   {grid.vibeSubtitle && <p className={styles.subtitle}>{grid.vibeSubtitle}</p>}
+                  {historicalEditionHref(grid) && (
+                    <p className={styles.editionSource}>
+                      Historical Daily Drop ·{' '}
+                      <a href={historicalEditionHref(grid)}>
+                        {formatDate(grid.sourceProvenance!.editionDate!)}
+                      </a>
+                    </p>
+                  )}
                   <p className={styles.provenance}>
                     {grid.images.length} source results · {grid.rendererVersion}
                     {grid.legendaryMisprint || grid.intent === 'legendary-misprint'
@@ -906,28 +1063,23 @@ export const Collection: React.FC<Props> = ({
                    })()}
                 </div>
                 <div className={styles.gridActions}>
+                  {isMember && <GridPublishingHandoff grid={grid} />}
                   <button
                     type="button"
                     disabled={Boolean(busyKey)}
-                    onClick={async () => {
-                      setBusyKey(`export:${grid.id}`);
-                      try {
-                        // Persist the render for this saved grid, fire-and-forget —
-                        // the upload never blocks the download/share path.
-                        const starData = starDataFromCollectionGrid(grid);
-                        setAccountNotice(await saveShareCard(starData, 'full', (blob) => {
-                          const tier = classifyEditionTier(buildExportPayload(starData).chosen);
-                          void uploadExportedCard(grid.id, crypto.randomUUID(), blob, 'full', tier);
-                        }));
-                      } catch (error) {
-                        setAccountNotice(messageFrom(error, 'The grid could not be exported.'));
-                      } finally {
-                        setBusyKey('');
-                      }
-                    }}
+                     onClick={() => void exportSavedGrid(grid, 'standard')}
                   >
-                    {busyKey === `export:${grid.id}` ? 'Rendering…' : 'Export grid'}
+                     {busyKey === `export:standard:${grid.id}` ? 'Rendering…' : 'Export standard PNG'}
                   </button>
+                   {hasCollectorAccess && (
+                     <button
+                       type="button"
+                       disabled={Boolean(busyKey)}
+                       onClick={() => void exportSavedGrid(grid, 'master')}
+                     >
+                       {busyKey === `export:master:${grid.id}` ? 'Rendering…' : 'Export Master PNG'}
+                     </button>
+                   )}
                   {!grid.legendaryMisprint && (
                     <button
                       type="button"
@@ -946,7 +1098,11 @@ export const Collection: React.FC<Props> = ({
                     Remove
                   </button>
                 </div>
-                <GridExportHistory gridId={grid.id} signedIn={Boolean(user)} />
+                <GridExportHistory
+                  gridId={grid.id}
+                  signedIn={Boolean(user)}
+                  refreshRevision={exportHistoryRevisions[grid.id] || 0}
+                />
               </article>
             ))}
           </section>
@@ -1169,13 +1325,26 @@ export const Collection: React.FC<Props> = ({
           subtitle={`${expandedArtifact.record.vibe} · ${expandedArtifact.record.vibeEn}`}
           images={expandedArtifact.record.images.map(image => ({ src: image.imageUrl, alt: image.title }))}
           singleImage={Boolean(expandedArtifact.record.legacyCompositeUrl)}
-          footer={expandedArtifact.record.legacyCompositeUrl
-            ? 'Legacy saved share card'
-            : `${expandedArtifact.record.images.length} source results · ${expandedArtifact.record.editorial
-              ? `${expandedArtifact.record.editorial.mode === 'event' ? 'Event' : 'Compiled'} · ${expandedArtifact.record.editorial.arrangement === 'creator-arranged' ? 'creator-arranged' : 'automatic'} · `
-              : ''}${expandedArtifact.record.rendererVersion}${expandedArtifact.record.legendaryMisprint || expandedArtifact.record.intent === 'legendary-misprint'
-              ? ` · Intentional Legendary Misprint · unexpected ${expandedArtifact.record.legendaryMisprint?.unexpectedActor.name || expandedArtifact.record.misprintMetadata?.unexpectedImageIdentities.join(', ') || 'identity recorded in provenance'}`
-              : ''}`}
+          footer={(() => {
+            const grid = expandedArtifact.record;
+            const editionHref = historicalEditionHref(grid);
+            const details = grid.legacyCompositeUrl
+              ? 'Legacy saved share card'
+              : `${grid.images.length} source results · ${grid.editorial
+                ? `${grid.editorial.mode === 'event' ? 'Event' : 'Compiled'} · ${grid.editorial.arrangement === 'creator-arranged' ? 'creator-arranged' : 'automatic'} · `
+                : ''}${grid.rendererVersion}${grid.legendaryMisprint || grid.intent === 'legendary-misprint'
+                ? ` · Intentional Legendary Misprint · unexpected ${grid.legendaryMisprint?.unexpectedActor.name || grid.misprintMetadata?.unexpectedImageIdentities.join(', ') || 'identity recorded in provenance'}`
+                : ''}`;
+            return editionHref ? (
+              <>
+                <span>{details}</span>
+                <span className={styles.zoomEditionSource}>
+                  Historical Daily Drop ·{' '}
+                  <a href={editionHref}>{formatDate(grid.sourceProvenance!.editionDate!)}</a>
+                </span>
+              </>
+            ) : details;
+          })()}
           onClose={() => setExpandedArtifact(null)}
         />
       )}
@@ -1215,23 +1384,163 @@ export const Collection: React.FC<Props> = ({
  * History is loaded lazily on first expand — export storage is server-side
  * and account-scoped, so anonymous visitors are pointed at sign-in instead.
  */
-function GridExportHistory({ gridId, signedIn }: { gridId: string; signedIn: boolean }) {
+function GridPublishingHandoff({ grid }: { grid: GridRecord }) {
+  const [expanded, setExpanded] = useState(false);
+  const [busy, setBusy] = useState(false);
+  const [notice, setNotice] = useState('');
+  const [prepared, setPrepared] = useState<{
+    objectUrl: string;
+    file: File;
+    expiresAt: number;
+  } | null>(null);
+
+  useEffect(() => {
+    if (!prepared) return;
+    const remaining = prepared.expiresAt - Date.now();
+    const timeout = window.setTimeout(() => setPrepared(null), Math.max(0, remaining));
+    const url = prepared.objectUrl;
+    return () => {
+      window.clearTimeout(timeout);
+      URL.revokeObjectURL(url);
+    };
+  }, [prepared]);
+
+  async function prepareHandoff() {
+    if (busy) return;
+    setBusy(true);
+    setNotice('Preparing the exact saved grid…');
+    try {
+      const starData = starDataFromCollectionGrid(grid);
+      let renderedBlob: Blob | null = null;
+      const artifact = await prepareShareCard(starData, 'raw', blob => {
+        renderedBlob = blob;
+      });
+      if (renderedBlob) {
+        const tier = classifyEditionTier(buildExportPayload(starData).chosen);
+        void uploadExportedCard(grid.id, crypto.randomUUID(), renderedBlob, 'raw', tier);
+      }
+      setPrepared({
+        objectUrl: artifact.objectUrl,
+        file: artifact.file,
+        expiresAt: Date.now() + 120_000,
+      });
+      setNotice('Handoff prepared for two minutes.');
+    } catch (error) {
+      setNotice(messageFrom(error, 'The publishing handoff could not be prepared.'));
+    } finally {
+      setBusy(false);
+    }
+  }
+
+  async function sharePrepared() {
+    if (!prepared || prepared.expiresAt <= Date.now()) {
+      setPrepared(null);
+      setNotice('This handoff expired. Prepare it again.');
+      return;
+    }
+    const shareData: ShareData = { files: [prepared.file] };
+    if (
+      typeof navigator.share !== 'function'
+      || typeof navigator.canShare !== 'function'
+      || !navigator.canShare(shareData)
+    ) {
+      setNotice('Native file sharing is unavailable here. Use Download PNG.');
+      return;
+    }
+    try {
+      await navigator.share(shareData);
+      setNotice('Share sheet closed. This does not prove publication.');
+    } catch (error) {
+      if (error instanceof DOMException && error.name === 'AbortError') {
+        setNotice('Sharing cancelled. Nothing was downloaded.');
+        return;
+      }
+      setNotice('Native sharing failed. Use Download PNG.');
+    }
+  }
+
+  function downloadPrepared() {
+    if (!prepared || prepared.expiresAt <= Date.now()) {
+      setPrepared(null);
+      setNotice('This handoff expired. Prepare it again.');
+      return;
+    }
+    const link = document.createElement('a');
+    link.href = prepared.objectUrl;
+    link.download = prepared.file.name;
+    document.body.appendChild(link);
+    link.click();
+    link.remove();
+    setNotice('PNG downloaded.');
+  }
+
+  return (
+    <div className={styles.publishingHandoff}>
+      <button type="button" onClick={() => setExpanded(current => !current)}>
+        {expanded ? 'Close handoff' : 'Handoff Publishing Grid'}
+      </button>
+      {expanded && (
+        <div className={styles.publishingHandoffPanel}>
+          <strong>RedNote</strong>
+          {!prepared ? (
+            <button type="button" onClick={() => void prepareHandoff()} disabled={busy}>
+              {busy ? 'Preparing…' : 'Prepare RedNote handoff'}
+            </button>
+          ) : (
+            <div className={styles.publishingHandoffActions}>
+              <button type="button" onClick={() => void sharePrepared()}>Share to device</button>
+              <button type="button" onClick={downloadPrepared}>Download PNG</button>
+              <a href="https://creator.rednote.com/publish/publish" target="_blank" rel="noreferrer">
+                Open RedNote
+              </a>
+            </div>
+          )}
+          <span>Weibo · Instagram · Facebook — coming next</span>
+          <small>Opening RedNote or closing the share sheet does not prove publication.</small>
+          {notice && <p role="status">{notice}</p>}
+        </div>
+      )}
+    </div>
+  );
+}
+
+
+function GridExportHistory({
+  gridId,
+  signedIn,
+  refreshRevision,
+}: {
+  gridId: string;
+  signedIn: boolean;
+  refreshRevision: number;
+}) {
   const [entries, setEntries] = useState<PersistedExportEntry[] | null>(null);
   const [historyError, setHistoryError] = useState('');
   const [loadingHistory, setLoadingHistory] = useState(false);
+  const historyRequestRef = useRef(0);
 
-  async function loadHistory() {
-    if (entries || loadingHistory) return;
+  async function loadHistory(force = false) {
+    if (!force && (entries || loadingHistory)) return;
+    const requestId = historyRequestRef.current + 1;
+    historyRequestRef.current = requestId;
     setLoadingHistory(true);
     setHistoryError('');
     try {
-      setEntries(await fetchExportHistory(gridId));
+      const nextEntries = await fetchExportHistory(gridId);
+      if (historyRequestRef.current === requestId) setEntries(nextEntries);
     } catch (error) {
-      setHistoryError(messageFrom(error, 'Export history could not be loaded.'));
+      if (historyRequestRef.current === requestId) {
+        setHistoryError(messageFrom(error, 'Export history could not be loaded.'));
+      }
     } finally {
-      setLoadingHistory(false);
+      if (historyRequestRef.current === requestId) setLoadingHistory(false);
     }
   }
+
+  useEffect(() => {
+    if (!signedIn || refreshRevision === 0) return;
+    void loadHistory(true);
+  }, [refreshRevision, signedIn]);
 
   if (!signedIn) return null;
 
@@ -1254,7 +1563,7 @@ function GridExportHistory({ gridId, signedIn }: { gridId: string; signedIn: boo
             <li key={entry.exportId}>
               <span>
                 {formatDate(entry.exportedAt.slice(0, 10))}
-                {' · '}{entry.variant}
+                {' · '}{exportVariantLabel(entry.variant)}
                 {entry.tier && entry.tier !== 'standard' ? ` · ${entry.tier}` : ''}
               </span>
               <a href={exportDownloadUrl(gridId, entry.exportId)} download>
@@ -1266,6 +1575,12 @@ function GridExportHistory({ gridId, signedIn }: { gridId: string; signedIn: boo
       )}
     </details>
   );
+}
+
+function exportVariantLabel(variant: ExportVariant): string {
+  if (variant === 'master') return 'Master';
+  if (variant === 'standard') return 'Standard';
+  return variant;
 }
 
 function GridVisual({

@@ -18,6 +18,9 @@ const RECORD_FIELDS = [
   "saved",
   "engagementReason",
   "shareMethod",
+  "pagePath",
+  "recordType",
+  "location",
 ];
 
 export function createEngagementExportHandler({
@@ -36,8 +39,13 @@ export function createEngagementExportHandler({
       const blobs = await listAllBlobs(store);
       const normalized = await Promise.all(blobs.map(blob => normalizeBlob(store, blob)));
       const records = normalized.flatMap(item => item.records);
-      const summary = summarize(normalized, records);
       const url = new URL(req.url);
+      if (url.searchParams.get("archiveLinkReview") === "1") {
+        const range = parseArchiveReviewRange(url);
+        if (!range.ok) return json(400, { error: range.error });
+        return json(200, archiveLinkReview(records, range));
+      }
+      const summary = summarize(normalized, records);
       const includeRecords = url.searchParams.get("records") !== "0";
       const payload = {
         schemaVersion: 1,
@@ -55,6 +63,71 @@ export function createEngagementExportHandler({
       if (status === 500) console.error("[engagement-export] request failed", error);
       return json(status, { error: status === 500 ? "Engagement export unavailable." : error.message });
     }
+  };
+}
+
+function parseArchiveReviewRange(url) {
+  const from = url.searchParams.get("from");
+  const to = url.searchParams.get("to");
+  if (!from || !to) return { ok: false, error: "from and to are required ISO calendar dates." };
+  const start = new Date(`${from}T00:00:00.000Z`);
+  const end = new Date(`${to}T00:00:00.000Z`);
+  if (
+    !/^\d{4}-\d{2}-\d{2}$/.test(from)
+    || !/^\d{4}-\d{2}-\d{2}$/.test(to)
+    || !Number.isFinite(start.getTime())
+    || !Number.isFinite(end.getTime())
+    || start.toISOString().slice(0, 10) !== from
+    || end.toISOString().slice(0, 10) !== to
+    || start >= end
+    || end - start > 93 * 24 * 60 * 60 * 1000
+  ) return { ok: false, error: "Use a valid half-open date range no longer than 93 days." };
+  return { ok: true, from, to, start: start.toISOString(), end: end.toISOString() };
+}
+
+function archiveLinkReview(records, range) {
+  const bounded = records.filter(record =>
+    typeof record.timestamp === "string"
+    && record.timestamp >= range.start
+    && record.timestamp < range.end
+  );
+  const pageviews = { "/vibe-atlas": 0, "/vibe-atlas/archive": 0 };
+  let gatedPreviewViews = 0;
+  const placements = {};
+  for (const record of bounded) {
+    if (record.event === "archive_page_view" && pageviews[record.pagePath] !== undefined) {
+      pageviews[record.pagePath] += 1;
+    } else if (record.event === "archive_gated_preview_view") {
+      gatedPreviewViews += 1;
+    } else if (record.event === "archive_record_opened") {
+      const key = `${record.location}:${record.recordType}`;
+      placements[key] = (placements[key] ?? 0) + 1;
+    }
+  }
+  const rows = [];
+  for (const location of ["daily", "archive_picker", "locked_preview", "full_archive"]) {
+    const denominator = location === "locked_preview"
+      ? gatedPreviewViews
+      : location === "full_archive"
+        ? pageviews["/vibe-atlas/archive"]
+        : pageviews["/vibe-atlas"];
+    for (const recordType of ["actor", "edition"]) {
+      const clicks = placements[`${location}:${recordType}`] ?? 0;
+      rows.push({
+        location,
+        recordType,
+        clicks,
+        relevantPageviews: denominator,
+        clicksPerPageview: denominator > 0 ? clicks / denominator : null,
+      });
+    }
+  }
+  return {
+    schemaVersion: 1,
+    range: { from: range.from, toExclusive: range.to },
+    pageviews,
+    gatedPreviewViews,
+    rows,
   };
 }
 

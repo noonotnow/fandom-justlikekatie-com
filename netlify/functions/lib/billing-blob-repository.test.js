@@ -1,22 +1,58 @@
 import test from "node:test";
 import assert from "node:assert/strict";
-import { createBlobBillingRepository } from "./billing-blob-repository.js";
+import {
+  BILLING_EVENT_RETENTION_DAYS,
+  createBlobBillingRepository,
+} from "./billing-blob-repository.js";
 import { applyBlobBillingEvent } from "./billing-blob-webhook.js";
 
 function createMemoryStore() {
   const values = new Map();
+  const versions = new Map();
+  let pageSize = Infinity;
   return {
     async get(key) {
       return values.get(key) || null;
     },
-    async setJSON(key, value) {
+    async getWithMetadata(key) {
+      return values.has(key)
+        ? { data: values.get(key), etag: `"${versions.get(key)}"` }
+        : null;
+    },
+    async setJSON(key, value, options = {}) {
+      if (options.onlyIfNew && values.has(key)) return { modified: false };
+      if (options.onlyIfMatch && options.onlyIfMatch !== `"${versions.get(key)}"`) {
+        return { modified: false };
+      }
       values.set(key, value);
+      versions.set(key, (versions.get(key) || 0) + 1);
+      return { modified: true, etag: `"${versions.get(key)}"` };
+    },
+    async delete(key) {
+      values.delete(key);
+      versions.delete(key);
+    },
+    list({ prefix, paginate }) {
+      const blobs = [...values.keys()]
+        .filter(key => key.startsWith(prefix))
+        .sort()
+        .map(key => ({ key }));
+      if (!paginate) return Promise.resolve({ blobs });
+      return {
+        async *[Symbol.asyncIterator]() {
+          for (let index = 0; index < blobs.length; index += pageSize) {
+            yield { blobs: blobs.slice(index, index + pageSize) };
+          }
+        },
+      };
+    },
+    setPageSize(size) {
+      pageSize = size;
     },
   };
 }
 
-function createRepository() {
-  const store = createMemoryStore();
+function createRepository(store = createMemoryStore()) {
   return {
     store,
     repository: createBlobBillingRepository({
@@ -28,55 +64,68 @@ function createRepository() {
 
 test("blob billing links a customer and records an entitled subscription", async () => {
   const { repository } = createRepository();
-  await repository.linkCustomer("account/one", "cus_test");
-  await repository.recordSubscription({
-    accountId: "account/one",
-    customerId: "cus_test",
-    subscriptionId: "sub_test",
-    status: "active",
-    currentPeriodEnd: "2026-09-30T00:00:00.000Z",
-    cancelAtPeriodEnd: false,
-    eventCreated: 10,
+  await applyBlobBillingEvent({
+    repository,
+    event: {
+      id: "evt_created",
+      created: 30,
+      type: "customer.subscription.created",
+      data: {
+        object: {
+          id: "sub_test",
+          customer: "cus_test",
+          status: "trialing",
+          current_period_end: 1790726400,
+          cancel_at_period_end: false,
+          metadata: { fandom_account_id: "account_one" },
+        },
+      },
+    },
   });
 
-  assert.equal(await repository.customerForAccount("account/one"), "cus_test");
-  assert.deepEqual(await repository.membershipForAccount("account/one"), {
+  assert.deepEqual(await repository.membershipForAccount("account_one"), {
     status: "active",
-    stripeStatus: "active",
+    stripeStatus: "trialing",
     currentPeriodEnd: "2026-09-30T00:00:00.000Z",
     cancelAtPeriodEnd: false,
   });
 });
 
-test("older subscription webhooks cannot overwrite newer membership state", async () => {
+test("subscription webhook persists one canonical product capability", async () => {
   const { repository } = createRepository();
-  await repository.recordSubscription({
-    accountId: "account_one",
-    customerId: "cus_test",
-    subscriptionId: "sub_test",
-    status: "active",
-    currentPeriodEnd: "2026-10-01T00:00:00.000Z",
-    eventCreated: 20,
-  });
-  await repository.recordSubscription({
-    accountId: "account_one",
-    customerId: "cus_test",
-    subscriptionId: "sub_test",
-    status: "canceled",
-    currentPeriodEnd: null,
-    eventCreated: 19,
+  await repository.linkCustomer("account_one", "cus_test");
+  await applyBlobBillingEvent({
+    repository,
+    env: { FANDOM_STRIPE_MEMBERSHIP_PRICE_ID: "price_collector" },
+    event: {
+      id: "evt_product",
+      created: 35,
+      type: "customer.subscription.created",
+      data: {
+        object: {
+          id: "sub_test",
+          customer: "cus_test",
+          status: "active",
+          current_period_end: 1790726400,
+          cancel_at_period_end: false,
+          metadata: { fandom_account_id: "account_one" },
+          items: { data: [{ price: { id: "price_collector", product: "prod_provider" } }] },
+        },
+      },
+    },
   });
 
   const membership = await repository.membershipForAccount("account_one");
-  assert.equal(membership.status, "active");
-  assert.equal(membership.currentPeriodEnd, "2026-10-01T00:00:00.000Z");
+  assert.equal(membership.product, "fandom_collector");
+  assert.equal(membership.priceId, "price_collector");
 });
 
-test("subscription webhook metadata binds the account without exposing provider data", async () => {
+test("deleted subscription webhooks remove entitlement", async () => {
   const { repository } = createRepository();
   await applyBlobBillingEvent({
     repository,
     event: {
+      id: "evt_created",
       created: 30,
       type: "customer.subscription.created",
       data: {
@@ -106,6 +155,7 @@ test("deleted subscription webhooks remove entitlement", async () => {
   await applyBlobBillingEvent({
     repository,
     event: {
+      id: "evt_deleted",
       created: 40,
       type: "customer.subscription.deleted",
       data: {
@@ -125,4 +175,557 @@ test("deleted subscription webhooks remove entitlement", async () => {
   assert.equal(membership.status, "inactive");
   assert.equal(membership.stripeStatus, "canceled");
   assert.equal(membership.cancelAtPeriodEnd, true);
+});
+
+test("duplicate event deliveries are recorded once and remain harmless", async () => {
+  const { repository, store } = createRepository();
+  const event = (id, type, status) => ({
+    id,
+    created: 110,
+    type,
+    data: { object: {
+      id: "sub_test",
+      customer: "cus_test",
+      status,
+      metadata: { fandom_account_id: "account_one" },
+    } },
+  });
+  const duplicate = event("evt_duplicate", "customer.subscription.created", "active");
+  assert.deepEqual(await applyBlobBillingEvent({ repository, event: duplicate }), { applied: true });
+  assert.deepEqual(await applyBlobBillingEvent({ repository, event: duplicate }), { duplicate: true });
+  assert.equal((await store.get("events/evt_duplicate")).eventId, "evt_duplicate");
+});
+
+test("receipt cleanup preserves recent duplicate protection across the retention boundary", async () => {
+  const { repository, store } = createRepository();
+  const event = id => ({
+    id,
+    created: 110,
+    type: "customer.subscription.created",
+    data: { object: {
+      id: `sub_${id}`,
+      customer: `cus_${id}`,
+      status: "active",
+      metadata: { fandom_account_id: `account_${id}` },
+    } },
+  });
+  const oldEvent = event("old");
+  const recentEvent = event("recent");
+  await applyBlobBillingEvent({ repository, event: oldEvent });
+  await applyBlobBillingEvent({ repository, event: recentEvent });
+  const now = Date.parse("2026-09-20T00:00:00.000Z");
+  const oldProcessedAt = new Date(
+    now - (BILLING_EVENT_RETENTION_DAYS * 24 * 60 * 60_000) - 1,
+  ).toISOString();
+  const recentProcessedAt = new Date(
+    now - (BILLING_EVENT_RETENTION_DAYS * 24 * 60 * 60_000) + 1,
+  ).toISOString();
+  await store.setJSON("events/old", {
+    ...await store.get("events/old"),
+    processedAt: oldProcessedAt,
+  });
+  await store.setJSON("events/recent", {
+    ...await store.get("events/recent"),
+    processedAt: recentProcessedAt,
+  });
+  for (const key of await listedKeys(store, "event-expirations/")) await store.delete(key);
+  await store.setJSON(
+    `event-expirations/${new Date(now - 1).toISOString()}/old`,
+    { eventKey: "events/old", processedAt: oldProcessedAt },
+  );
+  await store.setJSON(
+    `event-expirations/${new Date(now + 1).toISOString()}/recent`,
+    { eventKey: "events/recent", processedAt: recentProcessedAt },
+  );
+
+  assert.deepEqual(await applyBlobBillingEvent({ repository, event: recentEvent }), { duplicate: true });
+  assert.equal(await repository.pruneProcessedEvents({ now }), 1);
+  assert.equal(await store.get("events/old"), null);
+  assert.equal((await store.get("events/recent")).state, "processed");
+  assert.deepEqual(await applyBlobBillingEvent({ repository, event: recentEvent }), { duplicate: true });
+});
+
+test("receipt cleanup is bounded and never removes active claims", async () => {
+  const { repository, store } = createRepository();
+  const old = "2020-01-01T00:00:00.000Z";
+  for (let index = 0; index < 30; index += 1) {
+    await store.setJSON(`events/expired_${index}`, {
+      eventId: `expired_${index}`,
+      state: "processed",
+      processedAt: old,
+    });
+    await store.setJSON(`event-expirations/2020-01-31T00:00:00.000Z/expired_${index}`, {
+      eventKey: `events/expired_${index}`,
+      processedAt: old,
+    });
+  }
+  await store.setJSON("events/processing", {
+    eventId: "processing",
+    state: "processing",
+    claimedAt: old,
+  });
+
+  assert.equal(await repository.pruneProcessedEvents(), 25);
+  assert.notEqual(await store.get("events/processing"), null);
+  const remainingExpired = await Promise.all(
+    Array.from({ length: 30 }, (_, index) => store.get(`events/expired_${index}`)),
+  );
+  assert.equal(remainingExpired.filter(Boolean).length, 5);
+});
+
+test("expiration ordering reaches old receipts beyond the first event-ledger page", async () => {
+  const { repository, store } = createRepository();
+  store.setPageSize(2);
+  const now = Date.parse("2026-09-20T00:00:00.000Z");
+  const recent = new Date(now - 60_000).toISOString();
+  const old = new Date(now - (BILLING_EVENT_RETENTION_DAYS + 1) * 24 * 60 * 60_000).toISOString();
+  await store.setJSON("events/a_recent", { state: "processed", processedAt: recent });
+  await store.setJSON("events/b_processing", { state: "processing", claimedAt: recent });
+  await store.setJSON("events/z_expired", { state: "processed", processedAt: old });
+  await store.setJSON(
+    `event-expirations/${new Date(Date.parse(old) + BILLING_EVENT_RETENTION_DAYS * 24 * 60 * 60_000).toISOString()}/z_expired`,
+    { eventKey: "events/z_expired", processedAt: old },
+  );
+  await store.setJSON(
+    `event-expirations/${new Date(Date.parse(recent) + BILLING_EVENT_RETENTION_DAYS * 24 * 60 * 60_000).toISOString()}/a_recent`,
+    { eventKey: "events/a_recent", processedAt: recent },
+  );
+
+  assert.equal(await repository.pruneProcessedEvents({ now }), 1);
+  assert.equal(await store.get("events/z_expired"), null);
+  assert.notEqual(await store.get("events/a_recent"), null);
+  assert.notEqual(await store.get("events/b_processing"), null);
+});
+
+async function listedKeys(store, prefix) {
+  return (await store.list({ prefix })).blobs.map(blob => blob.key);
+}
+
+test("an abandoned event claim can be recovered after its lease expires", async () => {
+  const { repository, store } = createRepository();
+  const event = (id, type, status) => ({
+    id,
+    created: 110,
+    type,
+    data: { object: {
+      id: "sub_test",
+      customer: "cus_test",
+      status,
+      metadata: { fandom_account_id: "account_one" },
+    } },
+  });
+  const abandonedEvent = event("evt_abandoned", "customer.subscription.created", "active");
+  assert.equal(await repository.claimEvent(abandonedEvent), true);
+  const abandoned = await store.get("events/evt_abandoned");
+  await store.setJSON("events/evt_abandoned", {
+    ...abandoned,
+    claimedAt: "2020-01-01T00:00:00.000Z",
+  });
+  assert.deepEqual(await applyBlobBillingEvent({ repository, event: abandonedEvent }), { applied: true });
+  assert.equal((await repository.membershipForAccount("account_one")).status, "active");
+  assert.equal((await store.get("events/evt_abandoned")).state, "processed");
+});
+
+test("reordered lifecycle events preserve the newest authoritative state", async () => {
+  const { repository } = createRepository();
+  const apply = (id, created, type, status) => applyBlobBillingEvent({
+    repository,
+    event: {
+      id,
+      created,
+      type,
+      data: { object: {
+        id: "sub_test",
+        customer: "cus_test",
+        status,
+        metadata: { fandom_account_id: "account_one" },
+      } },
+    },
+  });
+  await apply("evt_resubscribed", 80, "customer.subscription.updated", "active");
+  await apply("evt_deleted_old", 70, "customer.subscription.deleted", "canceled");
+  await apply("evt_created_oldest", 60, "customer.subscription.created", "trialing");
+  assert.equal((await repository.membershipForAccount("account_one")).stripeStatus, "active");
+});
+
+test("equal-second lifecycle events reconcile deterministically", async () => {
+  const { repository } = createRepository();
+  const event = (id, type, status, subscriptionId = "sub_test") => ({
+    id,
+    created: 110,
+    type,
+    data: { object: {
+      id: subscriptionId,
+      customer: "cus_test",
+      status,
+      metadata: { fandom_account_id: "account_one" },
+    } },
+  });
+  await applyBlobBillingEvent({
+    repository,
+    event: event("evt_deleted", "customer.subscription.deleted", "canceled"),
+  });
+  await applyBlobBillingEvent({
+    repository,
+    event: event("evt_updated", "customer.subscription.updated", "active"),
+  });
+  assert.equal((await repository.membershipForAccount("account_one")).status, "inactive");
+
+  await applyBlobBillingEvent({
+    repository,
+    event: event("evt_resubscribed", "customer.subscription.created", "active", "sub_new"),
+  });
+  assert.equal((await repository.membershipForAccount("account_one")).status, "active");
+});
+
+test("concurrent equal-second deliveries converge through conditional writes", async () => {
+  const store = createMemoryStore();
+  const originalGetWithMetadata = store.getWithMetadata;
+  let waiting = 0;
+  let releaseReads;
+  const readsReady = new Promise(resolve => { releaseReads = resolve; });
+  store.getWithMetadata = async key => {
+    if (key === "subscriptions/account_one" && waiting < 2) {
+      waiting += 1;
+      if (waiting === 2) releaseReads();
+      await readsReady;
+    }
+    return originalGetWithMetadata(key);
+  };
+  const { repository } = createRepository();
+  const event = (id, type, status) => ({
+    id,
+    created: 110,
+    type,
+    data: { object: {
+      id: "sub_test",
+      customer: "cus_test",
+      status,
+      metadata: { fandom_account_id: "account_one" },
+    } },
+  });
+  await Promise.all([
+    applyBlobBillingEvent({
+      repository,
+      event: event("evt_active", "customer.subscription.updated", "active"),
+    }),
+    applyBlobBillingEvent({
+      repository,
+      event: event("evt_deleted", "customer.subscription.deleted", "canceled"),
+    }),
+  ]);
+  assert.equal((await repository.membershipForAccount("account_one")).status, "inactive");
+});
+
+test("customer and account mismatches never grant membership", async () => {
+  const { repository, store } = createRepository();
+  await repository.linkCustomer("account_owner", "cus_shared");
+  const event = {
+    id: "evt_mismatch",
+    created: 90,
+    type: "customer.subscription.updated",
+    data: { object: {
+      id: "sub_shared",
+      customer: "cus_shared",
+      status: "active",
+      metadata: { fandom_account_id: "account_attacker" },
+    } },
+  };
+  const result = await applyBlobBillingEvent({ repository, event });
+  assert.equal(result.reason, "stripe_identity_conflict");
+  const operation = await store.get("operations/stripe-identity-conflict");
+  assert.deepEqual(
+    Object.keys(operation).sort(),
+    ["count", "eventCategory", "firstOccurredAt", "lastOccurredAt", "reason", "schemaVersion", "type"].sort(),
+  );
+  assert.equal(operation.eventCategory, "subscription");
+  assert.equal(operation.count, 1);
+  const operatorOutput = JSON.stringify(operation);
+  assert.doesNotMatch(operatorOutput, /cus_shared|collector@example\.com|account_attacker|rawPayload/);
+  assert.deepEqual(await applyBlobBillingEvent({ repository, event }), { duplicate: true });
+  assert.equal((await store.get("operations/stripe-identity-conflict")).count, 1);
+  assert.equal((await repository.membershipForAccount("account_attacker")).status, "inactive");
+  assert.equal((await repository.membershipForAccount("account_owner")).status, "inactive");
+});
+
+test("checkout identity conflicts use a distinct bounded operational record", async () => {
+  const { repository, store } = createRepository();
+  await repository.linkCustomer("account_owner", "cus_shared");
+  const result = await applyBlobBillingEvent({
+    repository,
+    event: {
+      id: "evt_checkout_conflict",
+      type: "checkout.session.completed",
+      data: { object: {
+        customer: { id: "cus_shared", email: "private@example.com" },
+        metadata: { fandom_account_id: "account_other" },
+      } },
+    },
+  });
+  assert.equal(result.reason, "stripe_identity_conflict");
+  const operation = await store.get("operations/stripe-identity-conflict");
+  assert.equal(operation.eventCategory, "checkout");
+  assert.doesNotMatch(JSON.stringify(operation), /cus_shared|private@example\.com|account_other/);
+  assert.deepEqual(await repository.identityConflictSummary(), {
+    reason: "stripe_identity_conflict",
+    category: "checkout",
+    count: 1,
+    firstOccurredAt: operation.firstOccurredAt,
+    lastOccurredAt: operation.lastOccurredAt,
+    status: "active",
+    resolutionTimestamp: null,
+    handlingHistory: [],
+  });
+});
+
+test("resolving an identity conflict projects privacy-safe occurrence history", async () => {
+  const { repository, store } = createRepository();
+  const first = await repository.recordIdentityConflict({ eventCategory: "subscription" });
+  const second = await repository.recordIdentityConflict({ eventCategory: "checkout" });
+  const result = await repository.resolveIdentityConflict({
+    status: "resolved",
+    expectedCount: second.count,
+    expectedLastOccurredAt: second.lastOccurredAt,
+    resolvedBy: "operator-1",
+  });
+  assert.equal(result.outcome, "applied");
+  assert.equal(result.summary.status, "resolved");
+  assert.ok(result.summary.resolutionTimestamp);
+  assert.equal(result.summary.count, 2);
+  assert.equal(result.summary.firstOccurredAt, first.firstOccurredAt);
+  assert.equal(result.summary.lastOccurredAt, second.lastOccurredAt);
+  assert.deepEqual(result.summary.handlingHistory, [{
+    status: "resolved",
+    timestamp: result.summary.resolutionTimestamp,
+    coveredOccurrenceCount: 2,
+  }]);
+  const stored = await store.get("operations/stripe-identity-conflict");
+  assert.equal(stored.count, 2);
+  assert.equal(stored.firstOccurredAt, first.firstOccurredAt);
+  assert.equal(stored.lastOccurredAt, second.lastOccurredAt);
+  assert.equal(stored.resolution.status, "resolved");
+  assert.doesNotMatch(JSON.stringify(result.summary), /operator-1|resolvedBy|customer|account/i);
+});
+
+test("a concurrent new identity conflict stays active and cannot be resolved by a stale view", async () => {
+  const { repository } = createRepository();
+  const reviewed = await repository.recordIdentityConflict({ eventCategory: "subscription" });
+  await repository.recordIdentityConflict({ eventCategory: "checkout" });
+  const result = await repository.resolveIdentityConflict({
+    status: "acknowledged",
+    expectedCount: reviewed.count,
+    expectedLastOccurredAt: reviewed.lastOccurredAt,
+    resolvedBy: "operator-1",
+  });
+  assert.equal(result.outcome, "changed");
+  assert.equal(result.summary.status, "active");
+  assert.equal(result.summary.count, 2);
+  assert.equal(result.summary.resolutionTimestamp, null);
+  assert.deepEqual(result.summary.handlingHistory, []);
+});
+
+test("a new occurrence reactivates a previously resolved aggregate", async () => {
+  const { repository, store } = createRepository();
+  const reviewed = await repository.recordIdentityConflict({ eventCategory: "subscription" });
+  await repository.resolveIdentityConflict({
+    status: "acknowledged",
+    expectedCount: reviewed.count,
+    expectedLastOccurredAt: reviewed.lastOccurredAt,
+    resolvedBy: "operator-1",
+  });
+  const next = await repository.recordIdentityConflict({ eventCategory: "subscription" });
+  const claim = await repository.claimIdentityConflictNotification({
+    now: new Date(next.lastOccurredAt),
+  });
+  assert.deepEqual(claim.payload, {
+    kind: "stripe_identity_conflict_reactivated",
+    category: "subscription",
+    count: 2,
+    occurredAt: next.lastOccurredAt,
+  });
+  const repeated = await repository.recordIdentityConflict({ eventCategory: "checkout" });
+  assert.equal(await repository.claimIdentityConflictNotification(), null);
+  await repository.settleIdentityConflictNotification({
+    claimId: claim.claimId,
+    delivered: true,
+  });
+  const summary = await repository.identityConflictSummary();
+  assert.equal(summary.status, "active");
+  assert.equal(summary.count, 3);
+  assert.equal(summary.firstOccurredAt, reviewed.firstOccurredAt);
+  assert.equal(summary.lastOccurredAt, repeated.lastOccurredAt);
+  assert.equal(summary.resolutionTimestamp, null);
+  assert.equal(summary.handlingHistory.length, 1);
+  await repository.resolveIdentityConflict({
+    status: "resolved",
+    expectedCount: summary.count,
+    expectedLastOccurredAt: summary.lastOccurredAt,
+    resolvedBy: "operator-2",
+  });
+  const stored = await store.get("operations/stripe-identity-conflict");
+  assert.equal(stored.resolutionHistory.length, 2);
+  assert.deepEqual(
+    stored.resolutionHistory.map(receipt => ({
+      status: receipt.status,
+      throughCount: receipt.throughCount,
+      resolvedBy: receipt.resolvedBy,
+    })),
+    [
+      { status: "acknowledged", throughCount: 1, resolvedBy: "operator-1" },
+      { status: "resolved", throughCount: 3, resolvedBy: "operator-2" },
+    ],
+  );
+  assert.deepEqual((await repository.identityConflictSummary()).handlingHistory.map(receipt => ({
+    status: receipt.status,
+    coveredOccurrenceCount: receipt.coveredOccurrenceCount,
+  })), [
+    { status: "acknowledged", coveredOccurrenceCount: 1 },
+    { status: "resolved", coveredOccurrenceCount: 3 },
+  ]);
+  assert.doesNotMatch(
+    JSON.stringify((await repository.identityConflictSummary()).handlingHistory),
+    /operator-1|operator-2|resolvedBy|customer|account/i,
+  );
+  assert.deepEqual(stored.reactivationNotification, {
+    throughCount: 2,
+    createdAt: next.lastOccurredAt,
+    status: "sent",
+    sentAt: stored.reactivationNotification.sentAt,
+  });
+});
+
+test("concurrent reactivation occurrences claim only one notification cycle", async () => {
+  const { repository } = createRepository();
+  const reviewed = await repository.recordIdentityConflict({ eventCategory: "subscription" });
+  await repository.resolveIdentityConflict({
+    status: "resolved",
+    expectedCount: reviewed.count,
+    expectedLastOccurredAt: reviewed.lastOccurredAt,
+    resolvedBy: "operator-1",
+  });
+
+  await Promise.all([
+    repository.recordIdentityConflict({ eventCategory: "subscription" }),
+    repository.recordIdentityConflict({ eventCategory: "checkout" }),
+    repository.recordIdentityConflict({ eventCategory: "subscription" }),
+  ]);
+  const claims = await Promise.all([
+    repository.claimIdentityConflictNotification(),
+    repository.claimIdentityConflictNotification(),
+    repository.claimIdentityConflictNotification(),
+  ]);
+  assert.equal(claims.filter(Boolean).length, 1);
+  assert.equal((await repository.identityConflictSummary()).count, 4);
+});
+
+test("failed and abandoned notification claims can be retried", async () => {
+  const { repository } = createRepository();
+  const reviewed = await repository.recordIdentityConflict({ eventCategory: "subscription" });
+  await repository.resolveIdentityConflict({
+    status: "resolved",
+    expectedCount: reviewed.count,
+    expectedLastOccurredAt: reviewed.lastOccurredAt,
+    resolvedBy: "operator-1",
+  });
+  await repository.recordIdentityConflict({ eventCategory: "subscription" });
+  const first = await repository.claimIdentityConflictNotification({
+    now: new Date("2026-09-20T12:00:00.000Z"),
+  });
+  await repository.settleIdentityConflictNotification({
+    claimId: first.claimId,
+    delivered: false,
+    now: new Date("2026-09-20T12:01:00.000Z"),
+  });
+  const retry = await repository.claimIdentityConflictNotification({
+    now: new Date("2026-09-20T12:02:00.000Z"),
+  });
+  assert.ok(retry);
+  assert.notEqual(retry.claimId, first.claimId);
+  assert.equal(await repository.claimIdentityConflictNotification({
+    now: new Date("2026-09-20T12:03:00.000Z"),
+  }), null);
+  const recovered = await repository.claimIdentityConflictNotification({
+    now: new Date("2026-09-20T12:08:00.001Z"),
+  });
+  assert.ok(recovered);
+  assert.notEqual(recovered.claimId, retry.claimId);
+});
+
+test("legacy identity conflict resolutions remain visible without an append-only history", async () => {
+  const { repository, store } = createRepository();
+  await store.setJSON("operations/stripe-identity-conflict", {
+    schemaVersion: 1,
+    type: "billing_reconciliation_rejected",
+    reason: "stripe_identity_conflict",
+    eventCategory: "subscription",
+    count: 4,
+    firstOccurredAt: "2026-09-18T10:00:00.000Z",
+    lastOccurredAt: "2026-09-18T11:00:00.000Z",
+    resolution: {
+      status: "acknowledged",
+      resolvedAt: "2026-09-18T11:05:00.000Z",
+      resolvedBy: "private-operator",
+      throughCount: 4,
+      throughLastOccurredAt: "2026-09-18T11:00:00.000Z",
+    },
+  });
+
+  const summary = await repository.identityConflictSummary();
+  assert.equal(summary.status, "acknowledged");
+  assert.deepEqual(summary.handlingHistory, [{
+    status: "acknowledged",
+    timestamp: "2026-09-18T11:05:00.000Z",
+    coveredOccurrenceCount: 4,
+  }]);
+  assert.doesNotMatch(JSON.stringify(summary), /private-operator|resolvedBy/);
+});
+
+test("handling a reactivated legacy conflict preserves both privacy-safe history entries", async () => {
+  const { repository, store } = createRepository();
+  await store.setJSON("operations/stripe-identity-conflict", {
+    schemaVersion: 1,
+    type: "billing_reconciliation_rejected",
+    reason: "stripe_identity_conflict",
+    eventCategory: "subscription",
+    count: 4,
+    firstOccurredAt: "2026-09-18T10:00:00.000Z",
+    lastOccurredAt: "2026-09-18T11:00:00.000Z",
+    resolution: {
+      status: "acknowledged",
+      resolvedAt: "2026-09-18T11:05:00.000Z",
+      resolvedBy: "private-legacy-operator",
+      throughCount: 4,
+      throughLastOccurredAt: "2026-09-18T11:00:00.000Z",
+    },
+  });
+
+  const reactivated = await repository.recordIdentityConflict({ eventCategory: "checkout" });
+  const result = await repository.resolveIdentityConflict({
+    status: "resolved",
+    expectedCount: reactivated.count,
+    expectedLastOccurredAt: reactivated.lastOccurredAt,
+    resolvedBy: "private-current-operator",
+  });
+
+  assert.equal(result.outcome, "applied");
+  assert.deepEqual(result.summary.handlingHistory.map(receipt => ({
+    status: receipt.status,
+    timestamp: receipt.timestamp,
+    coveredOccurrenceCount: receipt.coveredOccurrenceCount,
+  })), [
+    {
+      status: "acknowledged",
+      timestamp: "2026-09-18T11:05:00.000Z",
+      coveredOccurrenceCount: 4,
+    },
+    {
+      status: "resolved",
+      timestamp: result.summary.resolutionTimestamp,
+      coveredOccurrenceCount: 5,
+    },
+  ]);
+  assert.doesNotMatch(
+    JSON.stringify(result.summary),
+    /private-legacy-operator|private-current-operator|resolvedBy/,
+  );
 });

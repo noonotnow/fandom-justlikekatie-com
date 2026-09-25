@@ -36,6 +36,8 @@ const downloadCalibrationExport = functionBody('downloadCalibrationExport');
 const markRescueCalibration = functionBody('markRescueCalibration');
 const saveRescueBoard = functionBody('saveRescueBoard');
 const saveRescueReceiptToCollection = functionBody('saveRescueReceiptToCollection');
+
+const saveVisualJudgment = functionBody('saveVisualJudgment');
 const requestedReviewStart = source.indexOf('function RequestedGridReview');
 const requestedReviewEnd = source.indexOf('\nfunction PartialBoards', requestedReviewStart);
 const requestedReview = source.slice(requestedReviewStart, requestedReviewEnd);
@@ -51,12 +53,20 @@ test('a completed actor audit reloads its authoritative saved review', () => {
   assert.match(startAudit, /refreshed\.currentRun\?\.runId===startedRunId/);
 });
 
+test('a saved visual judgment repairs its contended index without repeating classification', () => {
+  assert.match(saveVisualJudgment, /receiptSaved===true/);
+  assert.match(saveVisualJudgment, /action:'repair_visual_judgment_index'/);
+  assert.match(saveVisualJudgment, /api\(undefined,\{actorId,vibeKey\}\)/);
+  assert.equal((saveVisualJudgment.match(/action:'record_visual_judgment'/g) ?? []).length, 1);
+});
+
 test('calibration evidence export is a credentialed date-bounded read-only download', () => {
   assert.match(downloadCalibrationExport, /export:'calibration'/);
   assert.match(downloadCalibrationExport, /from:auditFrom,\s*to:auditTo/);
   assert.match(downloadCalibrationExport, /method:'GET'/);
   assert.match(downloadCalibrationExport, /credentials:'include'/);
   assert.doesNotMatch(downloadCalibrationExport, /api\(\{action:/);
+  assert.match(source, /Download an editorial packet that compares complete, minimum-sample human-versus-proxy reviews across actors and Vibe pairings/);
   assert.match(source, /Cross-audit proxy review/);
   assert.match(source, /Download editorial review packet/);
   assert.match(source, /stored evidence only · no ranking, eligibility, scoring, or publication changes/);
@@ -142,6 +152,13 @@ test('the Release Desk shows grouped release depth and the Shanghai noon cutoff'
   assert.match(releaseDeskSource, /Last actor Daily Drop/);
   assert.match(releaseDeskSource, /12:00 PM Asia\/Shanghai/);
   assert.match(releaseDeskSource, /inventory\.actorPacks/);
+  assert.match(releaseDeskSource, /Release inventory repair needs attention/);
+  assert.match(releaseDeskSource, /repairHealth\?\.warning/);
+  assert.match(releaseDeskSource, /repairHealth\.status === 'unavailable'/);
+  assert.match(releaseDeskSource, /action: 'recover_publication_index_repair_health'/);
+  assert.match(releaseDeskSource, /Recover repair health/);
+  assert.match(releaseDeskSource, /setInventory\(refreshed\.releaseInventory/);
+  assert.match(releaseDeskSource, /Repair health could not be recovered/);
   assert.doesNotMatch(source, /ReleaseInventory|releaseInventory/);
 });
 
@@ -181,6 +198,26 @@ test('legacy audits are visibly historical and require a fresh audit', () => {
   assert.match(source, /legacyBoardReview/);
 });
 
+test('legacy audit controls explain the read-only default and both explicit write exceptions', () => {
+  assert.match(source, /run-scoped controls are read-only unless the server policy declares an explicit Legacy write exception/);
+  assert.match(source, /Still available on this current Legacy head:/);
+  assert.match(source, /retained image annotations, including duplicate-classification disputes/);
+  assert.match(source, /append-only rescue-board handling/);
+  assert.match(source, /Board choices, judgments, reasons, Misprint changes, publication backfills, and calibration confirmation are read-only/);
+  assert.match(source, /Legacy · annotations only/);
+  assert.match(source, /Retained Legacy image annotations/);
+  assert.match(source, /Retained annotation exception:/);
+  assert.match(source, /Misprint correction is read-only on Legacy audits/);
+  assert.match(source, /isCurrent&&!isLegacy&&!misprint/);
+  assert.match(source, /Retained rescue-board exception:/);
+  assert.match(source, /Calibration confirmation and other run-scoped changes remain read-only/);
+  assert.match(source, /Fully read-only retained Legacy run/);
+  assert.match(source, /Write exceptions apply only while a Legacy run is the current audit head/);
+  assert.match(source, /Read-only Legacy rescue history:/);
+  assert.match(source, /disabled=\{Boolean\(busy\)\|\|Boolean\(run\.auditContract\?\.isLegacy\)\|\|Boolean\(receipt\.calibrationEvidence\)\}/);
+  assert.match(source, /<RawResultGrid run=\{run\} isCurrent=\{isCurrent\} isLegacy=\{isLegacy\}/);
+});
+
 test('rescue calibration is explicit, future-facing, and reports transfer proof', () => {
   assert.match(markRescueCalibration, /action:'mark_rescue_calibration'/);
   assert.match(markRescueCalibration, /fresh audit must reproduce its signals beyond these exact nine/i);
@@ -200,4 +237,11 @@ test('rescue calibration is explicit, future-facing, and reports transfer proof'
   assert.match(source, /calibration_reaudit_required/);
   assert.match(source, /Legacy evidence · records only/);
   assert.match(source, /run\.auditContract\?\.isLegacy/);
+});
+
+test('bounded legacy approval recovery uses the ordinary active approval controls', () => {
+  assert.doesNotMatch(source, /legacyRecovery\?\.status==='recovery_window_exhausted'/);
+  assert.doesNotMatch(source, /Legacy approval recovery paused/);
+  assert.match(source, /Active approval/);
+  assert.match(source, /Revoke approved adjustment/);
 });

@@ -26,6 +26,7 @@ const VALID_EVENTS = [
   "fandom_share_open",
   "daily_drop_view", "daily_drop_engaged", "daily_drop_card_save",
   "daily_drop_share", "daily_drop_collection_open",
+  "archive_page_view", "archive_gated_preview_view", "archive_record_opened",
 ];
 const PUBLIC_GAME_EVENTS = new Set([
   "fandom_game_start", "fandom_game_reveal", "fandom_game_share",
@@ -37,6 +38,14 @@ const DAILY_DROP_EVENTS = new Set([
 ]);
 const DAILY_DROP_ENGAGEMENT_REASONS = new Set(["three_cards", "twenty_seconds"]);
 const DAILY_DROP_SHARE_METHODS = new Set(["edition_link", "image"]);
+const ARCHIVE_REVIEW_EVENTS = new Set([
+  "archive_page_view", "archive_gated_preview_view", "archive_record_opened",
+]);
+const ARCHIVE_PAGE_PATHS = new Set(["/vibe-atlas", "/vibe-atlas/archive"]);
+const ARCHIVE_RECORD_TYPES = new Set(["actor", "edition"]);
+const ARCHIVE_RECORD_LOCATIONS = new Set([
+  "daily", "archive_picker", "locked_preview", "full_archive",
+]);
 const ATTRIBUTED_COLLECTION_EVENTS = new Set(["collection_save", "plan_add"]);
 const LG01_OUTCOMES = new Set([
   "moonlit-strategist", "exiled-immortal", "chaos-prince",
@@ -82,7 +91,7 @@ export default async (req, context) => {
   const {
     event, batchKey, imageUrl, actor, vibe, editionTier, resultPositions, grid,
     contentId, outcomeId, source, editionDate, position, saved, engagementReason,
-    shareMethod, capturedDate,
+    shareMethod, capturedDate, pagePath, recordType, location,
   } = body;
 
   if (!event || !VALID_EVENTS.includes(event)) {
@@ -133,6 +142,19 @@ export default async (req, context) => {
     }
   }
 
+  if (ARCHIVE_REVIEW_EVENTS.has(event)) {
+    const valid = batchKey === "archive-link-review"
+      && (event !== "archive_page_view" || ARCHIVE_PAGE_PATHS.has(pagePath))
+      && (event !== "archive_record_opened"
+        || (ARCHIVE_RECORD_TYPES.has(recordType) && ARCHIVE_RECORD_LOCATIONS.has(location)));
+    if (!valid) {
+      return new Response(
+        JSON.stringify({ error: "Invalid archive review event payload" }),
+        { status: 400, headers: { "Content-Type": "application/json" } },
+      );
+    }
+  }
+
   if (PUBLIC_GAME_EVENTS.has(event)) {
     const requiresOutcome = event !== "fandom_game_start";
     const validOutcome = outcomeId === undefined || LG01_OUTCOMES.has(outcomeId);
@@ -177,6 +199,12 @@ export default async (req, context) => {
       entry.contentId = contentId;
       if (outcomeId !== undefined) entry.outcomeId = outcomeId;
       if (source !== undefined) entry.source = source;
+    } else if (ARCHIVE_REVIEW_EVENTS.has(event)) {
+      if (event === "archive_page_view") entry.pagePath = pagePath;
+      if (event === "archive_record_opened") {
+        entry.recordType = recordType;
+        entry.location = location;
+      }
     } else if (DAILY_DROP_EVENTS.has(event)) {
       entry.editionDate = editionDate;
       if (event === "daily_drop_card_save") {

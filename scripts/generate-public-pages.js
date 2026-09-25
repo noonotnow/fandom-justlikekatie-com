@@ -4,6 +4,11 @@ import { existsSync, mkdirSync, readFileSync, writeFileSync } from "node:fs";
 import { dirname, resolve } from "node:path";
 import { fileURLToPath } from "node:url";
 import sharp from "sharp";
+import {
+  PUBLIC_ROUTE_PATHS,
+  PUBLIC_STATIC_ROUTES,
+  staticSitemapXml,
+} from "../netlify/functions/lib/public-routes.js";
 
 const scriptFile = fileURLToPath(import.meta.url);
 const root = resolve(dirname(scriptFile), "..");
@@ -39,32 +44,15 @@ const journalRanges = [
   url: `/c-drama-fandom/watch-journal/episodes-${start}-${end}/`,
 }));
 
-export const REQUIRED_PUBLIC_PAGES = [
-  "public/c-drama-fandom/index.html",
-  "public/c-drama-fandom/getting-started/index.html",
-  "public/c-drama-fandom/glossary/index.html",
-  "public/c-drama-fandom/glossary/cp/index.html",
-  "public/c-drama-fandom/glossary/cultivation/index.html",
-  "public/c-drama-fandom/glossary/xianxia/index.html",
-  "public/c-drama-fandom/glossary/jianghu/index.html",
-  "public/c-drama-fandom/glossary/wuxia/index.html",
-  "public/c-drama-fandom/glossary/wuxia-vs-xianxia-vs-xuanhuan/index.html",
-  "public/c-drama-fandom/glossary/historical-vs-costume-drama/index.html",
-  "public/c-drama-fandom/glossary/duanju-microdrama-vertical-drama/index.html",
-  "public/c-drama-fandom/archetypes/index.html",
-  "public/c-drama-fandom/archetypes/cold-male-lead-vs-tsundere/index.html",
-  "public/c-drama-fandom/archetypes/black-bellied-vs-white-cut-black/index.html",
-  "public/c-drama-fandom/archetypes/white-moonlight-vs-cinnabar-mole/index.html",
-  "public/c-drama-fandom/trope-decoder/index.html",
-  "public/c-drama-fandom/fandom-games/index.html",
-];
+export const REQUIRED_PUBLIC_PAGES = PUBLIC_STATIC_ROUTES
+  .filter(({ group }) => group === "editorial")
+  .map(({ page }) => page);
 
 export const TROPE_DECODER_SHARE_EVENT = "decoder_share_succeeded";
 
-export const WATCH_JOURNAL_PUBLIC_PAGES = [
-  "public/c-drama-fandom/watch-journal/index.html",
-  ...journalRanges.map((range) => range.path),
-];
+export const WATCH_JOURNAL_PUBLIC_PAGES = PUBLIC_STATIC_ROUTES
+  .filter(({ group }) => group === "journal")
+  .map(({ page }) => page);
 
 function loadLg01Outcomes() {
   const script = readFileSync(gameScript, "utf8");
@@ -175,7 +163,7 @@ function journalPageHtml({ start = null, end = null } = {}) {
         <a href="/c-drama-fandom/trope-decoder/">Trope decoder</a>
         <a href="/c-drama-fandom/fandom-games/">Fandom games</a>
         <a href="/c-drama-fandom/watch-journal/" aria-current="page">Field journal</a>
-        <a href="/vibe-atlas">Vibe Atlas</a>
+        <a href="${PUBLIC_ROUTE_PATHS.vibeAtlas}">Vibe Atlas</a>
       </nav>
     </div>
   </header>
@@ -217,7 +205,7 @@ function journalPageHtml({ start = null, end = null } = {}) {
       </aside>
     </div>
   </main>
-  <footer class="site-footer"><div class="site-footer__inner"><div><h2>Fandom Vibes</h2><p>A creative home for the tools, rituals, and artifacts fans make around the worlds they love.</p></div><div><strong>Learn</strong><a href="/c-drama-fandom/">C-drama fandom guide</a><a href="/c-drama-fandom/glossary/">Glossary</a></div><div><strong>Create</strong><a href="/c-drama-fandom/fandom-games/">Fandom games</a><a href="/vibe-atlas">Vibe Atlas</a></div></div></footer>
+  <footer class="site-footer"><div class="site-footer__inner"><div><h2>Fandom Vibes</h2><p>A creative home for the tools, rituals, and artifacts fans make around the worlds they love.</p></div><div><strong>Learn</strong><a href="/c-drama-fandom/">C-drama fandom guide</a><a href="/c-drama-fandom/glossary/">Glossary</a></div><div><strong>Create</strong><a href="/c-drama-fandom/fandom-games/">Fandom games</a><a href="${PUBLIC_ROUTE_PATHS.vibeAtlas}">Vibe Atlas</a></div></div></footer>
   <script>
   (() => {
     const settingKey = "fandom-watch-journal-safe-through:the-untamed";
@@ -515,6 +503,7 @@ export async function preparePublicPages() {
         : {},
     ));
   }
+  writeFileSync(resolve(root, "public/sitemap.xml"), staticSitemapXml());
 
   mkdirSync(outputDir, { recursive: true });
   const template = readFileSync(gamePage, "utf8");

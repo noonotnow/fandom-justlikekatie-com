@@ -133,7 +133,14 @@ export async function evaluateCandidates(queries, searchOneQuery) {
           results: cleanResults,
           count: cleanResults.length,
           distinctSources: countDistinctSources(cleanResults),
-          provider: data.provider || null
+          provider: data.provider || null,
+          rawProviderCount: Number.isFinite(data.rawProviderCount) ? data.rawProviderCount : null,
+          postFilterCount: Number.isFinite(data.postFilterCount) ? data.postFilterCount : null,
+          pooledUniqueCount: Number.isFinite(data.pooledUniqueCount) ? data.pooledUniqueCount : null,
+          providerContributionCounts: data.providerContributionCounts || null,
+          providerFetchOrder: Array.isArray(data.providerFetchOrder)
+            ? data.providerFetchOrder.slice(0, 8)
+            : [],
         };
       } catch (e) {
         return { query: q, results: [], count: 0, distinctSources: 0, provider: null };

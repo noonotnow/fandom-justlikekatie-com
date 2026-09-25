@@ -125,17 +125,16 @@ test('exportGrid resets showSaveNudge to false at the start of each export attem
   );
 });
 
-test('exportGrid calls onExported (not nudge) when grid was already saved', () => {
-  // The else branch must call onExported instead of setShowSaveNudge(true).
-  const elseIdx    = exportGridBody.indexOf('} else {');
-  const navCall    = exportGridBody.indexOf('onExported?.()', elseIdx);
-  assert.ok(elseIdx !== -1, 'exportGrid() must have an else branch for wasGridSaved === true');
-  assert.ok(navCall !== -1, 'else branch must call onExported?.()');
-  // Confirm setShowSaveNudge(true) does NOT appear in the else branch.
-  const elseBody   = exportGridBody.slice(elseIdx);
+test('saved-grid downloads navigate after completion, but prepared handoffs stay open', () => {
+  const downloadBranch = exportGridBody.indexOf("if (action === 'download_raw' || action === 'full')");
+  const handoffBranch = exportGridBody.indexOf('} else {', downloadBranch);
+  const navCall = exportGridBody.indexOf('if (wasGridSaved) onExported?.()', downloadBranch);
+  assert.ok(downloadBranch !== -1, 'exportGrid() must distinguish immediate downloads from prepared handoffs');
+  assert.ok(navCall !== -1 && navCall < handoffBranch,
+    'saved-grid downloads must preserve the existing post-export navigation');
   assert.ok(
-    !elseBody.includes('setShowSaveNudge(true)'),
-    'setShowSaveNudge(true) must not appear in the else (already-saved) branch',
+    !exportGridBody.slice(handoffBranch).includes('onExported?.()'),
+    'preparing a handoff must not navigate away before the user can share or open the destination',
   );
 });
 
@@ -146,7 +145,7 @@ test('exportGrid calls onExported (not nudge) when grid was already saved', () =
 test('saveGrid clears showSaveNudge(false) inside its try block, before the confirmation notice', () => {
   const tryIdx      = saveGridBody.indexOf('try {');
   const nudgeOff    = saveGridBody.indexOf('setShowSaveNudge(false)', tryIdx);
-  const saveNotice  = saveGridBody.indexOf("setNotice('Grid saved to your collection.')", tryIdx);
+  const saveNotice  = saveGridBody.indexOf('setNotice(syncFailed', tryIdx);
   assert.ok(nudgeOff   !== -1, 'saveGrid() must call setShowSaveNudge(false) inside its try block');
   assert.ok(saveNotice !== -1, 'saveGrid() must call setNotice with the save confirmation');
   assert.ok(

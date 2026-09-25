@@ -1,6 +1,17 @@
+import { PUBLIC_ROUTE_PATHS } from '../../shared/public-routes.js';
+
 export type FandomProductRoute = 'launchpad' | 'vibe-atlas' | 'middle-earth' | 'veteran-journal';
 
 const EDITION_DATE_RE = /^\d{4}-\d{2}-\d{2}$/;
+
+export function vibeAtlasPath(params?: Record<string, string | number | null | undefined>): string {
+  const query = new URLSearchParams(
+    Object.entries(params ?? {})
+      .filter(([, value]) => value !== null && value !== undefined && value !== '')
+      .map(([key, value]) => [key, String(value)]),
+  ).toString();
+  return `${PUBLIC_ROUTE_PATHS.vibeAtlas}${query ? `?${query}` : ''}`;
+}
 
 export function isAdminEntryLocation(pathname: string, search = '', hash = ''): boolean {
   if (new URLSearchParams(search).get('admin') === 'true') return true;
@@ -10,23 +21,24 @@ export function isAdminEntryLocation(pathname: string, search = '', hash = ''): 
 
 export function resolveFandomProductRoute(pathname: string, search = ''): FandomProductRoute {
   const normalized = pathname.replace(/\/+$/, '') || '/';
-  if (normalized === '/vibe-atlas' || normalized === '/vibe-atlas/archive' || normalized === '/auth/verify') return 'vibe-atlas';
+  if (normalized === PUBLIC_ROUTE_PATHS.vibeAtlas || normalized === PUBLIC_ROUTE_PATHS.vibeAtlasArchive || normalized === '/auth/verify') return 'vibe-atlas';
   if (normalized === '/' && isAdminEntryLocation(normalized, search)) return 'vibe-atlas';
-  if (normalized === '/vibe-atlas/veteran-journal') return 'veteran-journal';
+  if (normalized === PUBLIC_ROUTE_PATHS.vibeAtlasVeteranJournal) return 'veteran-journal';
   if (normalized === '/memeforge/middle-earth') return 'middle-earth';
   return 'launchpad';
 }
 
 export function isVibeAtlasArchiveLocation(pathname: string): boolean {
   const normalized = pathname.replace(/\/+$/, '') || '/';
-  return normalized === '/vibe-atlas/archive';
+  return normalized === PUBLIC_ROUTE_PATHS.vibeAtlasArchive;
 }
 
-export function initialVibeAtlasView(search: string): 'daily' | 'collection' | 'admin' | 'membership' {
+export function initialVibeAtlasView(search: string): 'daily' | 'collection' | 'admin' | 'membership' | 'released' {
   const params = new URLSearchParams(search);
   if (params.get('admin') === 'true') return 'admin';
   const view = params.get('view');
   if (view === 'collection' || view === 'results' || view === 'builder') return 'collection';
+  if (view === 'released') return 'released';
   return view === 'plan' || view === 'admin' ? 'admin' : view === 'membership' ? 'membership' : 'daily';
 }
 
@@ -50,4 +62,28 @@ export function initialCollectionType(search: string): 'grids' | 'results' | 'bu
   const view = new URLSearchParams(search).get('view');
   if (view === 'results' || view === 'builder') return view;
   return 'grids';
+}
+
+export function isPublishingHandoffPreview(hostname: string, search: string): boolean {
+  const isDeployPreview = /^deploy-preview-\d+--earnest-gecko-17eb0c\.netlify\.app$/i.test(hostname);
+  return isDeployPreview && new URLSearchParams(search).get('handoff-preview') === '1';
+}
+
+export type GridBuilderSource = 'collection' | 'daily' | 'edition';
+
+export function hasMalformedGridBuilderSource(search: string): boolean {
+  const params = new URLSearchParams(search);
+  if (params.get('view') !== 'builder') return false;
+  const source = params.get('source');
+  if (source === null || source === 'collection' || source === 'daily') return false;
+  return source !== 'edition' || !isValidVibeAtlasEditionDate(params.get('date') || '');
+}
+
+export function initialGridBuilderSource(search: string): GridBuilderSource {
+  const params = new URLSearchParams(search);
+  if (params.get('view') !== 'builder') return 'collection';
+  if (params.get('source') === 'daily') return 'daily';
+  return params.get('source') === 'edition' && isValidVibeAtlasEditionDate(params.get('date') || '')
+    ? 'edition'
+    : 'collection';
 }

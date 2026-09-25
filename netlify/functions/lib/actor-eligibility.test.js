@@ -8,12 +8,18 @@ import {
   VIBE_PROMISE_CONTRACT_VERSION,
 } from "./actor-identity-profiles.js";
 import { CURATION_VERSION } from "./grid-curation.js";
+import { blindCalibrationEvidence } from "./blind-calibration-evidence.js";
+import { BLIND_REVIEW_CANDIDATE_SHAPES } from "./blind-review-candidate-fixtures.js";
 import {
+  auditRescueCalibrationApprovalKey,
+  auditRescueCalibrationAuthorityKey,
   auditHeadKey,
   auditCalibrationKey,
   auditRunKey,
   auditRescueCalibrationKey,
   auditVerdictKey,
+  auditVisualJudgmentIndexKey,
+  auditVisualJudgmentKey,
   eligibilityKey,
   pairingFingerprintFor,
   selectEligiblePair,
@@ -25,7 +31,7 @@ const packs = [
 ];
 const PREVIOUS_CURATION_VERSION = 7;
 
-function storeWith(entries = {}) {
+function storeWith(entries = {}, { hiddenFromList = new Set() } = {}) {
   return {
     async get(key) {
       return entries[key] || null;
@@ -34,6 +40,7 @@ function storeWith(entries = {}) {
       return {
         blobs: Object.keys(entries)
           .filter(key => !prefix || key.startsWith(prefix))
+          .filter(key => !hiddenFromList.has(key))
           .map(key => ({ key })),
       };
     },
@@ -171,6 +178,76 @@ function boardSnapshot(board, mode) {
 
 function recordHash(value) {
   return createHash("sha256").update(JSON.stringify(value)).digest("hex");
+}
+
+function approvedWithBlindCandidateShapes(actor, vibeIdx) {
+  const entries = approved(actor, vibeIdx);
+  const runId = `${actor.id}-${vibeIdx}-run`;
+  const runKey = auditRunKey(actor.id, vibeIdx, runId);
+  const run = entries[runKey];
+  const candidates = BLIND_REVIEW_CANDIDATE_SHAPES.map(({ candidate }) =>
+    structuredClone(candidate));
+  const judgments = BLIND_REVIEW_CANDIDATE_SHAPES.map(({ candidate }, index) => ({
+    receiptId: `shape-judgment-${index}`,
+    sourceOccurrenceId: candidate.occurrenceId,
+    classification: "core",
+    judgedAt: `2026-09-05T10:00:${String(index).padStart(2, "0")}.000Z`,
+  }));
+  run.calibrationAnalysis = { candidates };
+  const evidence = blindCalibrationEvidence(run, judgments, {
+    profileVersion: IDENTITY_PROFILE_VERSION,
+    identityProfileVersion: IDENTITY_PROFILE_VERSION,
+    aestheticClusterVersion: AESTHETIC_CLUSTER_VERSION,
+    promiseContractVersion: VIBE_PROMISE_CONTRACT_VERSION,
+    curationVersion: CURATION_VERSION,
+    pairingFingerprint: pairingFingerprintFor(actor, vibeIdx),
+  });
+  assert.ok(evidence);
+
+  entries[auditVisualJudgmentIndexKey(actor.id, vibeIdx, runId)] = {
+    receiptIds: judgments.map(judgment => judgment.receiptId),
+  };
+  for (const judgment of judgments) {
+    entries[auditVisualJudgmentKey(
+      actor.id,
+      vibeIdx,
+      runId,
+      judgment.receiptId,
+    )] = judgment;
+  }
+
+  const approvalId = "blind-shape-approval";
+  const evidenceReceiptIds = [evidence.sourceRescueReceiptId];
+  const aggregateEvidenceHash = recordHash({
+    calibrationVersion: 1,
+    evidenceReceiptIds,
+    retirementHash: null,
+    signalFamily: null,
+    direction: null,
+    signalValues: [],
+  });
+  entries[auditRescueCalibrationApprovalKey(actor.id, vibeIdx, approvalId)] = {
+    status: "approved",
+    approvalId,
+    actorId: actor.id,
+    vibeKey: `${actor.id}:${vibeIdx}`,
+    evidenceReceiptIds,
+    aggregateEvidenceHash,
+    sourceRunIds: [runId],
+    adjustment: {},
+    approvedAt: "2026-09-05T11:00:00.000Z",
+  };
+  entries[auditRescueCalibrationAuthorityKey(actor.id, vibeIdx)] = {
+    status: "approved",
+    approvalId,
+    aggregateEvidenceHash,
+  };
+  Object.assign(entries[eligibilityKey(actor.id, vibeIdx)], {
+    calibrationProfile: { sourceRunIds: [runId] },
+    rescueCalibrationApprovalId: approvalId,
+    rescueCalibrationApprovalEvidenceHash: aggregateEvidenceHash,
+  });
+  return { entries, runKey, evidence };
 }
 
 test("the legacy date pair stays selected when its current audit is approved", async () => {
@@ -338,4 +415,41 @@ test("superseded rescue calibration contracts are records-only for Daily Drop el
     assert.equal(selected?.aIdx, legacy.aIdx, field);
     assert.equal(selected?.vIdx, legacy.vIdx, field);
   }
+});
+
+test("eligibility and recovered runs share the blind-review candidate-shape contract", async () => {
+  const date = "2026-09-05";
+  const legacy = getRandomForDate(packs, date);
+  const actor = packs[legacy.aIdx];
+  const { entries, runKey, evidence } = approvedWithBlindCandidateShapes(
+    actor,
+    legacy.vIdx,
+  );
+  const evidenceEligible = BLIND_REVIEW_CANDIDATE_SHAPES
+    .filter(shape => shape.evidenceEligible);
+
+  assert.equal(evidence.reviewedCount, evidenceEligible.length);
+  assert.deepEqual(
+    evidence.disagreements.map(item => item.occurrenceId).sort(),
+    evidenceEligible.map(shape => shape.candidate.occurrenceId).sort(),
+  );
+
+  for (const hiddenFromList of [new Set(), new Set([runKey])]) {
+    const selected = await selectEligiblePair(
+      packs,
+      date,
+      storeWith(entries, { hiddenFromList }),
+    );
+    assert.equal(selected?.aIdx, legacy.aIdx);
+    assert.equal(selected?.vIdx, legacy.vIdx);
+  }
+
+  entries[runKey].calibrationAnalysis.candidates = evidenceEligible
+    .slice(0, 4)
+    .map(({ candidate }) => structuredClone(candidate));
+  assert.equal(await selectEligiblePair(
+    packs,
+    date,
+    storeWith(entries, { hiddenFromList: new Set([runKey]) }),
+  ), null);
 });

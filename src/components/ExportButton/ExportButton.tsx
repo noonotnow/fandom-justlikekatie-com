@@ -10,7 +10,14 @@ interface ExportButtonProps {
 }
 
 export const ExportButton: React.FC<ExportButtonProps> = ({ rawData, onShareComplete }) => {
-  const { exportCard, isExporting, imagesReady, toastMessage, dismissToast } = useExportCard(rawData);
+  const {
+    exportCard,
+    handoffForPublishing,
+    isExporting,
+    imagesReady,
+    toastMessage,
+    dismissToast,
+  } = useExportCard(rawData);
 
   const handleShare = () => {
     void exportCard('full', 'share').then(outcome => {
@@ -18,6 +25,11 @@ export const ExportButton: React.FC<ExportButtonProps> = ({ rawData, onShareComp
     });
   };
   const handleDownload = () => { void exportCard('full', 'download'); };
+  const handlePublishingHandoff = () => {
+    void handoffForPublishing().then(outcome => {
+      if (outcome === 'shared') onShareComplete?.();
+    });
+  };
 
   return (
     <>
@@ -26,25 +38,34 @@ export const ExportButton: React.FC<ExportButtonProps> = ({ rawData, onShareComp
           className={styles.exportButton}
           onClick={handleShare}
           disabled={isExporting || !imagesReady}
-          aria-label="Share or copy full image"
+          aria-label="Share Spell Sheet"
         >
-          分享 / Share or copy full image
-          <span className={styles.enHelper}>原生分享 / Copy image</span>
+          Share Spell Sheet
+          <span className={styles.enHelper}>Finished collectible with copy and visual treatment</span>
         </button>
         <button
           className={styles.downloadButton}
           onClick={handleDownload}
           disabled={isExporting || !imagesReady}
-          aria-label="Download full PNG"
+          aria-label="Download Spell Sheet as PNG"
         >
-          下载 / Download PNG
-          <span className={styles.enHelper}>下载 PNG</span>
+          Download Spell Sheet
+          <span className={styles.enHelper}>Finished collectible PNG</span>
+        </button>
+        <button
+          className={styles.handoffButton}
+          onClick={handlePublishingHandoff}
+          disabled={isExporting || !imagesReady}
+          aria-label="Handoff Publishing Grid"
+        >
+          Handoff Publishing Grid
+          <span className={styles.enHelper}>Only the 3×3 images · no copy or styling</span>
         </button>
         <p className={styles.autoSaveNote}>
           {isExporting
             ? '正在准备九张原图…… · Preparing all nine images…'
             : imagesReady
-              ? '九张原图已就绪 · All nine images loaded'
+              ? 'Spell Sheet and Publishing Grid are different files. Either action preserves the Collection Grid.'
               : '等待九张原图全部加载；不会导出占位图 · Waiting for all nine images; placeholders are blocked'}
         </p>
       </div>

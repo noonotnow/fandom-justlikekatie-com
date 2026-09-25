@@ -1,0 +1,75 @@
+## Stripe integration task
+
+### Objective
+Implement this Stripe integration using the blueprint below. The blueprint describes the required API operations, parameters, and sequencing. Adapt the implementation to your architecture, data models, and tech stack.
+
+### How to use the resources
+- Treat the blueprint as the source of truth for required API operations and parameters.
+- Prefer reusing outputs from earlier steps as inputs to later ones (e.g., use the created customer ID when creating a subscription).
+- Persist and retrieve required Stripe resource identifiers in your datastore (e.g., customer_id, subscription_id) and associate them with existing domain models.
+- Do NOT use chapter numbers as names in your code. Name all functions, routes, CLI commands, variables, and files after the domain action they perform (e.g., `create_account`, `/create-checkout-session`, `onboard`) rather than the step they came from (e.g., avoid `chapter1`, `step2`, `/chapter1/create-account`).
+- Template variables like ${node...} represent outputs from earlier steps that should be used as inputs to later ones. For example, ${node.createProduct.createProductRequest:default_price} refers to the default_price field from the response of the createProductRequest fixture within the createProduct node.
+- If connected to the Stripe MCP server, use tool calls as much as possible to create dependent resources (such as products and prices) if they don't exist already.
+- Do not guess as to what the required Stripe API version should be. Leave the API version argument empty when initializing the Stripe client unless the blueprint specifies otherwise.
+- When populating .env files or constructing commands for the CLI, use environment variable placeholders for API keys (STRIPE_SECRET_KEY, STRIPE_PUBLISHABLE_KEY) and instruct the user to obtain them from the Stripe Dashboard.
+
+---
+
+### Resources
+
+#### Blueprints (authoritative "what to call")
+```toon
+title: Set up Managed Payments
+steps[4]:
+  - key: create-product-chapter
+    title: Create a product
+    description: Create a digital product with an eligible tax code. View eligibility requirements
+    nodes[1]:
+      - type: apiRequests
+        key: create-subscription-product
+        title: API request
+        requests[1]:
+          - key: create-subscription-product-request
+            path: /v1/products
+            method: post
+            params:
+              name: Basic subscription
+              description: A basic subscription to our service
+              tax_code: txcd_10103100
+              default_price_data:
+                unit_amount: 1000
+                currency: usd
+                recurring:
+                  interval: month
+            requestOptions:
+              headers:
+                "stripe-version": 2026-02-25.preview
+  - key: create-checkout-session-chapter
+    title: Create a Checkout Session
+    nodes[1]:
+      - type: apiRequests
+        key: create-checkout-session
+        title: API request
+        description: "Set the managed_payments[enabled] parameter to true and use 2026.02-25.preview or above as your version header."
+        requests[1]:
+          - key: create-checkout-session-request
+            path: /v1/checkout/sessions
+            method: post
+            requestOptions:
+              headers:
+                "stripe-version": 2026-02-25.preview
+  - key: complete-checkout-chapter
+    title: Test your checkout
+    nodes[1]{type,key,title,description,link}:
+      uiComponent,complete-checkout,Complete a test payment,"Try different billing addresses to see how tax is calculated for customers in different locations. Then, process a test payment using this test card information.","${node.create-checkout-session-chapter.create-checkout-session.create-checkout-session-request:url}"
+  - key: handle-webhooks-chapter
+    title: Set up webhooks
+    description: Monitor successful payments instantly.
+    nodes[1]:
+      - type: asyncHandler
+        key: wait-for-checkout-completed
+        title: Listen for checkout.session.completed
+        events[1]{eventType,eventPayloadType}:
+          checkout.session.completed,snapshot
+        expectedNumberOfEvents: 1
+```

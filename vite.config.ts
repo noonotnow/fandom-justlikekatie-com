@@ -1,5 +1,31 @@
 import { defineConfig } from 'vite'
 import react from '@vitejs/plugin-react'
+import { PUBLIC_ORIGIN, PUBLIC_ROUTE_PATHS, publicRouteUrl } from './shared/public-routes.js'
+
+const launchpadCanonicalPlaceholder = '%PUBLIC_LAUNCHPAD_CANONICAL%'
+const launchpadOgUrlPlaceholder = '%PUBLIC_LAUNCHPAD_OG_URL%'
+const launchpadOgImagePlaceholder = '%PUBLIC_LAUNCHPAD_OG_IMAGE%'
+const launchpadOgImagePath = '/assets/c-drama-fandom/lg01-master-og.jpg'
+
+export function injectLaunchpadCanonical(html: string) {
+  const replacements = new Map([
+    [launchpadCanonicalPlaceholder, publicRouteUrl(PUBLIC_ROUTE_PATHS.launchpad)],
+    [launchpadOgUrlPlaceholder, publicRouteUrl(PUBLIC_ROUTE_PATHS.launchpad)],
+    [launchpadOgImagePlaceholder, `${PUBLIC_ORIGIN}${launchpadOgImagePath}`],
+  ])
+
+  let transformedHtml = html
+  for (const [placeholder, value] of replacements) {
+    const occurrences = transformedHtml.split(placeholder).length - 1
+    if (occurrences !== 1) {
+      throw new Error(
+        `Expected exactly one ${placeholder} placeholder in index.html; found ${occurrences}`,
+      )
+    }
+    transformedHtml = transformedHtml.replace(placeholder, value)
+  }
+  return transformedHtml
+}
 
 const editorialRouteFiles = new Map([
   ['/c-drama-fandom', '/c-drama-fandom/index.html'],
@@ -19,6 +45,8 @@ const editorialRouteFiles = new Map([
   ['/c-drama-fandom/archetypes/white-moonlight-vs-cinnabar-mole', '/c-drama-fandom/archetypes/white-moonlight-vs-cinnabar-mole/index.html'],
   ['/c-drama-fandom/trope-decoder', '/c-drama-fandom/trope-decoder/index.html'],
   ['/c-drama-fandom/fandom-games', '/c-drama-fandom/fandom-games/index.html'],
+  ['/c-drama-fandom/vibing-now', '/c-drama-fandom/vibing-now/index.html'],
+  ['/c-drama-fandom/vibing-now/against-the-current-episode-21', '/c-drama-fandom/vibing-now/against-the-current-episode-21/index.html'],
   ['/c-drama-fandom/watch-journal', '/c-drama-fandom/watch-journal/index.html'],
   ...[
     [1, 4], [5, 8], [9, 12], [13, 16], [17, 20], [21, 24], [25, 28],
@@ -32,6 +60,13 @@ const editorialRouteFiles = new Map([
 // https://vite.dev/config/
 export default defineConfig({
   plugins: [
+    {
+      name: 'fandom-launchpad-canonical',
+      transformIndexHtml: {
+        order: 'pre',
+        handler: injectLaunchpadCanonical,
+      },
+    },
     {
       name: 'fandom-editorial-clean-routes',
       configureServer(server) {

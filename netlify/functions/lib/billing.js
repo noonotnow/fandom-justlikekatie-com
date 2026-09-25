@@ -6,6 +6,7 @@ import { applyBlobBillingEvent } from "./billing-blob-webhook.js";
 import { getBlobStore } from "./blob-store.js";
 import { getStripeCredentials, getStripeSync, getUncachableStripeClient } from "./stripe-client.js";
 import { json } from "./public-auth.js";
+import { capabilitiesForMembership, hasCapability } from "./capabilities.js";
 
 let initialized;
 
@@ -16,6 +17,8 @@ export function createBillingServices({
   poolFactory = config => new pg.Pool(config),
   runStripeMigrations = runMigrations,
   getStore = getBlobStore,
+  notifyIdentityConflict = payload => sendIdentityConflictReactivationNotification({ payload, env }),
+  logger = console,
 } = {}) {
   const useBlobBilling = env.NETLIFY === "true"
     || Boolean(env.AWS_LAMBDA_FUNCTION_NAME)
@@ -32,6 +35,7 @@ export function createBillingServices({
     if (useBlobBilling) return null;
     ready ||= (async () => {
       await runStripeMigrations({ databaseUrl: env.DATABASE_URL });
+      await repository().ensureApplicationSchema?.();
       const sync = await stripeSync({ env });
       const webhookOrigin = env.FANDOM_PUBLIC_ORIGIN || env.URL;
       if (!webhookOrigin) throw new Error("FANDOM_PUBLIC_ORIGIN is required for managed Stripe webhooks.");
@@ -45,16 +49,55 @@ export function createBillingServices({
   const repository = context => useBlobBilling
     ? createBlobBillingRepository({ getStore, context })
     : createBillingRepository({ query: (...args) => database().query(...args) });
-  const processWebhook = async (body, signature, context) => {
-    if (!useBlobBilling) {
-      const sync = await initialize(context);
-      await sync.processWebhook(body, signature);
-      return;
+  const pruneEventReceipts = async repo => {
+    try {
+      await repo.pruneProcessedEvents?.();
+    } catch (error) {
+      logger.warn("[billing] event receipt cleanup failed", {
+        name: typeof error?.name === "string" ? error.name : "Error",
+      });
     }
+  };
+  const processWebhook = async (body, signature, context) => {
     const { webhookSecret } = await getStripeCredentials({ env });
     const stripe = await stripeClient({ env });
-    const event = stripe.webhooks.constructEvent(body, signature, webhookSecret);
-    await applyBlobBillingEvent({ event, repository: repository(context) });
+    let event = stripe.webhooks.constructEvent(body, signature, webhookSecret);
+    if (!useBlobBilling) {
+      const sync = await initialize(context);
+      const repo = repository(context);
+      if (!await repo.claimEvent(event)) return;
+      try {
+        await sync.processWebhook(body, signature);
+        await repo.recordProcessedEvent?.(event);
+      } catch (error) {
+        await repo.releaseEvent?.(event.id);
+        throw error;
+      }
+      await pruneEventReceipts(repo);
+      return;
+    }
+    if (event.type.startsWith("customer.subscription.") && event.type !== "customer.subscription.deleted") {
+      const current = await stripe.subscriptions.retrieve(event.data.object.id);
+      event = { ...event, data: { ...event.data, object: current } };
+    }
+    const repo = repository(context);
+    const result = await applyBlobBillingEvent({ event, repository: repo, env });
+    if (result?.reason === "stripe_identity_conflict") {
+      logger.warn("[billing] membership update rejected", {
+        type: result.operation.type,
+        reason: result.operation.reason,
+        eventCategory: result.operation.eventCategory,
+        count: result.operation.count,
+        firstOccurredAt: result.operation.firstOccurredAt,
+        lastOccurredAt: result.operation.lastOccurredAt,
+      });
+    }
+    await deliverPendingIdentityConflictNotification({
+      repository: repo,
+      notify: notifyIdentityConflict,
+      logger,
+    });
+    await pruneEventReceipts(repo);
   };
   return {
     initialize,
@@ -64,18 +107,90 @@ export function createBillingServices({
   };
 }
 
-export function createEntitlementChecker({ billing }) {
+async function deliverPendingIdentityConflictNotification({ repository, notify, logger }) {
+  let claimed;
+  try {
+    claimed = await repository.claimIdentityConflictNotification?.();
+    if (!claimed) return;
+    await notify(claimed.payload);
+    await repository.settleIdentityConflictNotification({
+      claimId: claimed.claimId,
+      delivered: true,
+    });
+  } catch (error) {
+    if (claimed?.claimId) {
+      try {
+        await repository.settleIdentityConflictNotification({
+          claimId: claimed.claimId,
+          delivered: false,
+        });
+      } catch (settleError) {
+        logger.error("[billing] identity conflict notification claim could not be released", {
+          name: typeof settleError?.name === "string" ? settleError.name : "Error",
+        });
+      }
+    }
+    logger.error("[billing] identity conflict reactivation notification failed", {
+      name: typeof error?.name === "string" ? error.name : "Error",
+    });
+  }
+}
+
+export async function sendIdentityConflictReactivationNotification({
+  payload,
+  env = process.env,
+  fetchImpl = fetch,
+} = {}) {
+  const recipients = String(env.FANDOM_ADMIN_EMAILS || "")
+    .split(",")
+    .map(value => value.trim())
+    .filter(Boolean);
+  if (!env.RESEND_API_KEY || !env.FANDOM_AUTH_FROM_EMAIL || recipients.length === 0) {
+    throw new Error("Billing identity conflict notifications are not configured.");
+  }
+  const title = "Stripe identity conflict reactivated";
+  const response = await fetchImpl("https://api.resend.com/emails", {
+    method: "POST",
+    headers: {
+      Authorization: `Bearer ${env.RESEND_API_KEY}`,
+      "Content-Type": "application/json",
+      "Idempotency-Key": `stripe-identity-conflict-reactivation:${payload.count}:${payload.occurredAt}`,
+    },
+    body: JSON.stringify({
+      from: env.FANDOM_AUTH_FROM_EMAIL,
+      to: recipients,
+      subject: `[Fandom operations] ${title}`,
+      text: [
+        title,
+        `Category: ${payload.category}`,
+        `Aggregate count: ${payload.count}`,
+        `Occurred at: ${payload.occurredAt}`,
+        "Review the private Audience evidence before changing account links.",
+      ].join("\n"),
+    }),
+  });
+  if (!response.ok) {
+    throw new Error(`Billing identity conflict notification delivery failed (${response.status}).`);
+  }
+}
+
+export function createCapabilityChecker({ billing, capability = "fandom_collector", env = process.env }) {
   return async (session, context) => {
     await billing.initialize(context);
     const membership = await billing.repository(context).membershipForAccount(session.user.accountId);
-    if (membership.status !== "active") {
-      const error = new Error("An active membership is required.");
+    const allowed = Array.isArray(capability)
+      ? capability.some(item => hasCapability(membership, item, env))
+      : hasCapability(membership, capability, env);
+    if (!allowed) {
+      const error = new Error(`The ${capability} capability is required.`);
       error.status = 403;
       throw error;
     }
     return membership;
   };
 }
+
+export const createEntitlementChecker = options => createCapabilityChecker(options);
 
 export function createBillingHandlers({ auth, billing, env = process.env }) {
   const sameOrigin = req => {
@@ -125,12 +240,22 @@ export function createBillingHandlers({ auth, billing, env = process.env }) {
       return json(200, {
         state: membership.status,
         isMember: membership.status === "active",
+        capabilities: capabilitiesForMembership(membership, env),
         ...(membership.currentPeriodEnd ? { renewsAt: membership.currentPeriodEnd } : {}),
       });
     }),
     checkout: guarded(async (req, context) => {
       if (req.method !== "POST") return json(405, { error: "Method not allowed." }, { Allow: "POST" });
       sameOrigin(req);
+      const input = await req.json().catch(() => ({}));
+      const returnDate = typeof input?.returnDate === "string"
+        && /^\d{4}-\d{2}-\d{2}$/.test(input.returnDate)
+        ? input.returnDate
+        : null;
+      const campaign = typeof input?.campaign === "string"
+        && (env.FANDOM_STRIPE_CAMPAIGNS || "").split(",").map(value => value.trim()).includes(input.campaign)
+        ? input.campaign
+        : null;
       const session = await atStage("auth", () => auth.authenticate(req, context));
       const price = await atStage("price-config", () => {
         const configured = env.FANDOM_STRIPE_MEMBERSHIP_PRICE_ID;
@@ -160,21 +285,41 @@ export function createBillingHandlers({ auth, billing, env = process.env }) {
       const checkoutInput = {
         mode: "subscription", customer, line_items: [{ price, quantity: 1 }],
         managed_payments: { enabled: false },
-        success_url: `${origin}/vibe-atlas?view=membership&membership=success`,
-        cancel_url: `${origin}/vibe-atlas?view=membership&membership=cancelled`,
-        metadata: { fandom_account_id: session.user.accountId },
-        subscription_data: { metadata: { fandom_account_id: session.user.accountId } },
+        success_url: returnDate
+          ? `${origin}/vibe-atlas?date=${encodeURIComponent(returnDate)}&membership=success`
+          : `${origin}/vibe-atlas?view=membership&membership=success`,
+        cancel_url: returnDate
+          ? `${origin}/vibe-atlas?date=${encodeURIComponent(returnDate)}&membership=cancelled`
+          : `${origin}/vibe-atlas?view=membership&membership=cancelled`,
+        metadata: {
+          fandom_account_id: session.user.accountId,
+          capability: "fandom_collector",
+          product: "fandom_collector",
+          ...(campaign ? { campaign } : {}),
+        },
+        subscription_data: {
+          metadata: {
+            fandom_account_id: session.user.accountId,
+            capability: "fandom_collector",
+            product: "fandom_collector",
+            ...(campaign ? { campaign } : {}),
+          },
+        },
+        ...(env.FANDOM_STRIPE_ALLOW_PROMOTION_CODES === "true" ? { allow_promotion_codes: true } : {}),
+      };
+      const checkoutOptions = {
+        idempotencyKey: `collector-checkout:${session.user.accountId}:${price}:${returnDate || "membership"}:${campaign || "direct"}`,
       };
       let checkout;
       try {
-        checkout = await atStage("checkout-session", () => stripe.checkout.sessions.create(checkoutInput));
+        checkout = await atStage("checkout-session", () => stripe.checkout.sessions.create(checkoutInput, checkoutOptions));
       } catch (error) {
         const resourceMissing = error?.code === "resource_missing" || error?.raw?.code === "resource_missing";
         if (!customer || !resourceMissing) throw error;
         const { customer: ignoredCustomer, ...emailCheckoutInput } = checkoutInput;
         checkout = await atStage("checkout-session-retry", () => stripe.checkout.sessions.create({
           ...emailCheckoutInput, customer_email: session.user.email,
-        }));
+        }, { ...checkoutOptions, idempotencyKey: `${checkoutOptions.idempotencyKey}:email` }));
       }
       return json(200, { url: checkout.url });
     }),

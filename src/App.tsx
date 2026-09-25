@@ -1,4 +1,4 @@
-import { useState, useEffect, useCallback, useRef } from 'react';
+import { useState, useEffect, useCallback, useMemo, useRef } from 'react';
 import type { ImageTier } from './types';
 import FandomLaunchpad from './components/FandomLaunchpad/FandomLaunchpad';
 import { MiddleEarthWorkspace } from './components/MiddleEarthWorkspace/MiddleEarthWorkspace';
@@ -19,35 +19,123 @@ import { useDarkMode } from './hooks/useDarkMode';
 import { useStarOfDay, type StarOfDayArchiveEntry } from './hooks/useStarOfDay';
 import { useWholeCardTier } from './hooks/useWholeCardTier';
 import { consumeMagicLinkFromLocation, requestMagicLink } from './utils/publicAccount';
-import { getMembershipStatus } from './utils/membership';
+import {
+  createMembershipCheckout,
+  getMembershipStatus,
+  hasCollectorCapability,
+  refreshMembershipAfterBilling,
+  type MembershipCapability,
+  type MembershipStatus,
+} from './utils/membership';
 import { Membership } from './components/Membership/Membership';
+import { ReleasedPackLibrary } from './components/ReleasedPackLibrary/ReleasedPackLibrary';
 import { useIsAdmin } from './hooks/useIsAdmin';
 import {
+  hasMalformedGridBuilderSource,
   hasInvalidVibeAtlasEditionDate,
   initialCollectionType,
+  initialGridBuilderSource,
+  type GridBuilderSource,
   initialVibeAtlasEditionDate,
   initialVibeAtlasView,
   isValidVibeAtlasEditionDate,
   isVibeAtlasArchiveLocation,
+  isPublishingHandoffPreview,
   resolveFandomProductRoute,
+  vibeAtlasPath,
 } from './utils/fandomRoutes';
+import { buildDailyDropPool } from './utils/gridBuilder';
 import './App.css';
 import { VeteranSubmissionForm } from './components/VeteranSubmissionForm/VeteranSubmissionForm';
 import {
+  consumeReleasedLibrarySignInReturn,
   trackCollectionOpened,
   trackDailyArchiveEditionSelected,
-  trackDailyArchiveOpened,
+  trackArchiveAccess,
+  trackArchiveGatedPreviewView,
+  trackArchivePageView,
+  trackArchiveRecordImpression,
+  trackArchiveRecordOpened,
+  trackArchiveRebuildLaunched,
   trackDailyDropCardSave,
   trackDailyDropEngaged,
   trackDailyDropShared,
   trackDailyDropViewed,
   trackGridBuilderPreviewOpened,
+  trackReleasedLibraryCollectorActivated,
   trackUpgradeStarted,
 } from './utils/analytics';
+import type {
+  ArchiveRebuildPlacement,
+  ArchiveRecordLocation,
+  ArchiveRecordType,
+} from './utils/analytics';
+import { PUBLIC_ROUTE_PATHS, publicRouteUrl } from '../shared/public-routes.js';
 
 /** Number of columns in the grid — used to calculate preview row insertion */
 const GRID_COLS = 3;
 const LAST_SAVED_EDITION_KEY = 'fandom_vibe_atlas_last_saved_edition';
+
+function VisibleArchiveRecordPlacement({
+  as: Element,
+  location,
+  recordTypes,
+  presentationKey,
+  className,
+  ariaLabel,
+  href,
+  onClick,
+  children,
+}: {
+  as: 'a' | 'nav' | 'span';
+  location: ArchiveRecordLocation;
+  recordTypes: readonly ArchiveRecordType[];
+  presentationKey: string;
+  className?: string;
+  ariaLabel?: string;
+  href?: string;
+  onClick?: () => void;
+  children: React.ReactNode;
+}) {
+  const elementRef = useRef<HTMLElement | null>(null);
+  const impressedPresentationRef = useRef<string | null>(null);
+
+  useEffect(() => {
+    const element = elementRef.current;
+    if (!element || impressedPresentationRef.current === presentationKey) return;
+
+    const recordImpression = () => {
+      if (impressedPresentationRef.current === presentationKey) return;
+      impressedPresentationRef.current = presentationKey;
+      trackArchiveRecordImpression(recordTypes, location);
+    };
+    if (typeof IntersectionObserver === 'undefined') {
+      recordImpression();
+      return;
+    }
+
+    const observer = new IntersectionObserver(entries => {
+      if (entries.some(entry => entry.isIntersecting)) {
+        recordImpression();
+        observer.disconnect();
+      }
+    });
+    observer.observe(element);
+    return () => observer.disconnect();
+  }, [location, presentationKey, recordTypes]);
+
+  return (
+    <Element
+      ref={elementRef as never}
+      className={className}
+      aria-label={ariaLabel}
+      href={href}
+      onClick={onClick}
+    >
+      {children}
+    </Element>
+  );
+}
 
 function formatEditionDate(value: string): string {
   const date = new Date(`${value}T00:00:00Z`);
@@ -69,7 +157,7 @@ function syncVibeAtlasEditionUrl(date: string | null, replace = false) {
   }
 
   const query = params.toString();
-  const nextUrl = `/vibe-atlas${query ? `?${query}` : ''}`;
+  const nextUrl = `${PUBLIC_ROUTE_PATHS.vibeAtlas}${query ? `?${query}` : ''}`;
   if (`${window.location.pathname}${window.location.search}` === nextUrl) return;
   const update = replace ? window.history.replaceState : window.history.pushState;
   update.call(window.history, {}, '', nextUrl);
@@ -89,7 +177,7 @@ function MiddleEarthApp() {
   const { isAdmin } = useIsAdmin();
   const showCollection = new URLSearchParams(window.location.search).get('view') === 'collection';
 
-  if (showCollection) return <Collection scope="middle-earth" />;
+  if (showCollection) return <Collection scope="middle-earth" hasCollectorAccess={isAdmin} />;
   return <MiddleEarthWorkspace isAdmin={isAdmin} />;
 }
 
@@ -99,23 +187,23 @@ function VibeAtlasApp({ archiveEntry = false }: { archiveEntry?: boolean }) {
   const [dailyGridZoomOpen, setDailyGridZoomOpen] = useState(false);
   const [selectedEditionDate, setSelectedEditionDate] = useState<string | null>(
     () => initialVibeAtlasView(window.location.search) === 'daily'
+      || initialGridBuilderSource(window.location.search) === 'edition'
       ? initialVibeAtlasEditionDate(window.location.search)
       : null,
   );
-  const [archiveOpen, setArchiveOpen] = useState(
-    () => archiveEntry || (initialVibeAtlasView(window.location.search) === 'daily'
-      && (
-        hasInvalidVibeAtlasEditionDate(window.location.search)
-        || Boolean(initialVibeAtlasEditionDate(window.location.search))
-      )),
-  );
   const [archivePage, setArchivePage] = useState(archiveEntry);
-  const [view, setView] = useState<'daily' | 'collection' | 'admin' | 'membership'>(
+  const [view, setView] = useState<'daily' | 'collection' | 'admin' | 'membership' | 'released'>(
     () => initialVibeAtlasView(window.location.search),
   );
   const [collectionTab, setCollectionTab] = useState<'grids' | 'results' | 'builder'>(
     () => initialCollectionType(window.location.search),
   );
+  const [builderSource, setBuilderSource] = useState<GridBuilderSource>(
+    () => initialGridBuilderSource(window.location.search),
+  );
+  const activeEditionDate = builderSource === 'edition'
+    ? selectedEditionDate ?? initialVibeAtlasEditionDate(window.location.search)
+    : selectedEditionDate;
   const { isAdmin, loading: adminLoading, recheck: recheckAdmin } = useIsAdmin();
   const { isDark, toggle: toggleDarkMode } = useDarkMode();
   const {
@@ -125,19 +213,49 @@ function VibeAtlasApp({ archiveEntry = false }: { archiveEntry?: boolean }) {
     archive,
     archiveLoading,
     archiveError,
+    archiveHasMore,
+    archiveTotal,
     loadArchive,
+    loadMoreArchive,
     loading,
     error,
-  } = useStarOfDay(archivePage && !selectedEditionDate ? undefined : selectedEditionDate);
+    gate,
+  } = useStarOfDay(archivePage && !activeEditionDate ? undefined : activeEditionDate);
+  const dailyBuilderPool = useMemo(
+    () => rawData ? buildDailyDropPool(rawData) : [],
+    [rawData],
+  );
   const [imageTiers, setImageTiers] = useState<Record<string, ImageTier>>({});
-  const [isMember, setIsMember] = useState(false);
+  const [membershipCapabilities, setMembershipCapabilities] = useState<MembershipCapability[]>([]);
+  const [membershipStatus, setMembershipStatus] = useState<MembershipStatus | null>(null);
+  const canUsePremiumTools = hasCollectorCapability({ capabilities: membershipCapabilities })
+    || isPublishingHandoffPreview(window.location.hostname, window.location.search);
   const [membershipResolved, setMembershipResolved] = useState(false);
   const [editionShareNotice, setEditionShareNotice] = useState('');
+  const [archiveGateEmail, setArchiveGateEmail] = useState('');
+  const [archiveGateBusy, setArchiveGateBusy] = useState('');
+  const [archiveGateNotice, setArchiveGateNotice] = useState('');
   const dropEngagement = useRef({
     editionDate: '',
     openedCards: new Set<string>(),
     tracked: false,
   });
+  const lastArchiveReviewPagePath = useRef<string | null>(null);
+
+  useEffect(() => {
+    const pagePath = archivePage
+      ? PUBLIC_ROUTE_PATHS.vibeAtlasArchive
+      : view === 'daily'
+        ? PUBLIC_ROUTE_PATHS.vibeAtlas
+        : null;
+    if (!pagePath) {
+      lastArchiveReviewPagePath.current = null;
+      return;
+    }
+    if (lastArchiveReviewPagePath.current === pagePath) return;
+    lastArchiveReviewPagePath.current = pagePath;
+    trackArchivePageView(pagePath);
+  }, [archivePage, view]);
 
   // Whole-board (share-card) manual tier override — distinct from per-image
   // `imageTiers` above. Resets automatically whenever a new board (new
@@ -148,10 +266,15 @@ function VibeAtlasApp({ archiveEntry = false }: { archiveEntry?: boolean }) {
   const refreshMembership = useCallback(async () => {
     setMembershipResolved(false);
     try {
-      const status = await getMembershipStatus();
-      setIsMember(status.isMember);
+      const returnedFromBilling = new URLSearchParams(window.location.search).get('membership') === 'success';
+      const status = returnedFromBilling
+        ? await refreshMembershipAfterBilling()
+        : await getMembershipStatus();
+      setMembershipStatus(status);
+      setMembershipCapabilities(status.capabilities ?? []);
     } catch {
-      setIsMember(false);
+      setMembershipStatus(null);
+      setMembershipCapabilities([]);
     } finally {
       setMembershipResolved(true);
     }
@@ -166,7 +289,44 @@ function VibeAtlasApp({ archiveEntry = false }: { archiveEntry?: boolean }) {
           // Recheck the admin session with the freshly-issued cookie so that
           // useIsAdmin transitions to isAdmin=true before the Admin view renders.
           recheckAdmin();
-          setView(destination);
+          const archiveReturnDate = destination.startsWith('archive:')
+            ? destination.slice('archive:'.length)
+            : null;
+          if (
+            archiveReturnDate
+            && isValidVibeAtlasEditionDate(archiveReturnDate)
+          ) {
+            syncVibeAtlasEditionUrl(archiveReturnDate, true);
+            setSelectedEditionDate(archiveReturnDate);
+            setView('daily');
+            trackArchiveAccess('restored', archiveReturnDate, 'sign_in');
+          } else {
+            const releasedReturn = destination === 'collection'
+              ? consumeReleasedLibrarySignInReturn()
+              : null;
+            if (releasedReturn) {
+              const params = new URLSearchParams({
+                view: 'released',
+                source: releasedReturn.source,
+              });
+              if (releasedReturn.actorId) params.set('actorId', releasedReturn.actorId);
+              if (releasedReturn.vibeIndex !== undefined) {
+                params.set('vibeIdx', String(releasedReturn.vibeIndex));
+              }
+              window.history.replaceState(
+                {},
+                '',
+                `${PUBLIC_ROUTE_PATHS.vibeAtlas}?${params.toString()}`,
+              );
+              setView('released');
+            } else if (
+              destination === 'admin'
+              || destination === 'membership'
+              || destination === 'collection'
+            ) {
+              setView(destination);
+            }
+          }
         }
       })
       .catch(error => {
@@ -179,13 +339,28 @@ function VibeAtlasApp({ archiveEntry = false }: { archiveEntry?: boolean }) {
   }, [refreshMembership]);
 
   useEffect(() => {
+    if (
+      membershipResolved
+      && hasCollectorCapability(membershipStatus)
+      && new URLSearchParams(window.location.search).get('membership') === 'success'
+    ) {
+      trackReleasedLibraryCollectorActivated();
+    }
+  }, [membershipResolved, membershipStatus]);
+
+  useEffect(() => {
     // Keep old PLAN URLs usable, but do not leave the retired product name in
     // the browser location after routing them to the Operator Console.
     const params = new URLSearchParams(window.location.search);
     if (params.get('view') !== 'plan') return;
     params.delete('view');
     params.set('admin', 'true');
-    window.history.replaceState({}, '', `/vibe-atlas?${params.toString()}`);
+    window.history.replaceState({}, '', `${PUBLIC_ROUTE_PATHS.vibeAtlas}?${params.toString()}`);
+  }, []);
+
+  useEffect(() => {
+    if (!hasMalformedGridBuilderSource(window.location.search)) return;
+    window.history.replaceState({}, '', `${PUBLIC_ROUTE_PATHS.vibeAtlas}?view=builder`);
   }, []);
 
   useEffect(() => {
@@ -217,6 +392,25 @@ function VibeAtlasApp({ archiveEntry = false }: { archiveEntry?: boolean }) {
   }, [rawData?.date, view]);
 
   useEffect(() => {
+    if (!gate || !selectedEditionDate) return;
+    trackArchiveGatedPreviewView();
+    trackArchiveAccess('preview_view', selectedEditionDate, gate.reason);
+    if (gate.reason !== 'sign_in') {
+      trackArchiveAccess('denied', selectedEditionDate, gate.reason);
+    }
+  }, [gate, selectedEditionDate]);
+
+  useEffect(() => {
+    if (!rawData?.date || !selectedEditionDate) return;
+    trackArchiveAccess(
+      new URLSearchParams(window.location.search).get('membership') === 'success'
+        ? 'restored'
+        : 'full_use',
+      rawData.date,
+    );
+  }, [rawData?.date, selectedEditionDate]);
+
+  useEffect(() => {
     if (view !== 'collection') return;
     const lastSavedEdition = window.localStorage.getItem(LAST_SAVED_EDITION_KEY) ?? undefined;
     trackCollectionOpened(
@@ -232,22 +426,25 @@ function VibeAtlasApp({ archiveEntry = false }: { archiveEntry?: boolean }) {
       && view === 'collection'
       && collectionTab === 'builder'
     ) {
-      trackGridBuilderPreviewOpened(isMember);
+      trackGridBuilderPreviewOpened(hasCollectorCapability({ capabilities: membershipCapabilities }));
     }
-  }, [collectionTab, isMember, membershipResolved, view]);
+  }, [collectionTab, membershipCapabilities, membershipResolved, view]);
 
   useEffect(() => {
     const privateView = window.location.pathname === '/auth/verify'
       || window.location.search.length > 0
       || view === 'collection'
       || view === 'admin'
-      || view === 'membership';
+      || view === 'membership'
+      || view === 'released';
     const title = archivePage
       ? 'Vibe Atlas Archive | Fandom Vibes'
       : view === 'daily'
         ? 'Vibe Atlas | Daily C-Drama Collectible Cards | Fandom Vibes'
       : view === 'membership'
         ? 'Vibe Atlas Founding Member | Fandom Vibes'
+        : view === 'released'
+          ? 'Released Vibe Packs | Fandom Vibes'
         : view === 'collection'
           ? 'Your Vibe Atlas Studio | Fandom Vibes'
           : 'Operator Console | Fandom Vibes';
@@ -261,21 +458,26 @@ function VibeAtlasApp({ archiveEntry = false }: { archiveEntry?: boolean }) {
     const canonical = document.querySelector<HTMLLinkElement>('link[rel="canonical"]')
       ?? document.head.appendChild(document.createElement('link'));
     canonical.rel = 'canonical';
-    canonical.href = archivePage
-      ? 'https://fandom.justlikekatie.com/vibe-atlas/archive'
-      : 'https://fandom.justlikekatie.com/vibe-atlas';
+    canonical.href = publicRouteUrl(
+      archivePage ? PUBLIC_ROUTE_PATHS.vibeAtlasArchive : PUBLIC_ROUTE_PATHS.vibeAtlas,
+    );
   }, [archivePage, view]);
 
   useEffect(() => {
-    if (archivePage && !archive.length && !archiveLoading) void loadArchive();
-  }, [archivePage, archive.length, archiveLoading, loadArchive]);
+    if (archivePage && !archive.length && !archiveLoading && !archiveError) void loadArchive();
+  }, [archiveError, archivePage, archive.length, archiveLoading, loadArchive]);
 
   useEffect(() => {
     setEditionShareNotice('');
   }, [selectedEditionDate]);
 
   const openArchivePicker = useCallback(() => {
-    setArchiveOpen(true);
+    setArchivePage(true);
+    setSelectedEditionDate(null);
+    setExpandedId(null);
+    setLightboxIndex(null);
+    setDailyGridZoomOpen(false);
+    window.history.replaceState({}, '', PUBLIC_ROUTE_PATHS.vibeAtlasArchive);
     if (!archive.length && !archiveLoading) void loadArchive();
   }, [archive.length, archiveLoading, loadArchive]);
 
@@ -298,7 +500,7 @@ function VibeAtlasApp({ archiveEntry = false }: { archiveEntry?: boolean }) {
   const copyArchivedEditionLink = async () => {
     if (!selectedEditionDate || !isValidVibeAtlasEditionDate(selectedEditionDate)) return;
 
-    const shareUrl = new URL('/vibe-atlas', window.location.origin);
+    const shareUrl = new URL(PUBLIC_ROUTE_PATHS.vibeAtlas, window.location.origin);
     shareUrl.searchParams.set('date', selectedEditionDate);
 
     try {
@@ -315,49 +517,66 @@ function VibeAtlasApp({ archiveEntry = false }: { archiveEntry?: boolean }) {
 
   const openArchivePage = () => {
     setArchivePage(true);
-    setArchiveOpen(true);
     setSelectedEditionDate(null);
     setExpandedId(null);
     setLightboxIndex(null);
     setDailyGridZoomOpen(false);
-    window.history.pushState({}, '', '/vibe-atlas/archive');
+    window.history.pushState({}, '', PUBLIC_ROUTE_PATHS.vibeAtlasArchive);
     if (!archive.length && !archiveLoading) void loadArchive();
   };
 
   const navigateAtlas = (
-    destination: 'daily' | 'collection' | 'membership',
+    destination: 'daily' | 'collection' | 'membership' | 'released',
     tab: 'grids' | 'results' | 'builder' = 'grids',
   ) => {
-    const search = destination === 'daily'
-      ? ''
+    const nextPath = destination === 'daily'
+      ? vibeAtlasPath()
       : destination === 'membership'
-        ? '?view=membership'
-      : `?view=${tab === 'grids' ? 'collection' : tab}`;
-    window.history.pushState({}, '', `/vibe-atlas${search}`);
+        ? vibeAtlasPath({ view: 'membership' })
+      : destination === 'released'
+        ? vibeAtlasPath({ view: 'released' })
+        : vibeAtlasPath({ view: tab === 'grids' ? 'collection' : tab });
+    window.history.pushState({}, '', nextPath);
     setArchivePage(false);
     setCollectionTab(tab);
+    setBuilderSource('collection');
     setView(destination);
     if (destination === 'daily') selectEdition(null);
   };
 
+  const openEditionBuilder = (date: string, placement: ArchiveRebuildPlacement) => {
+    if (!isValidVibeAtlasEditionDate(date)) return;
+    trackArchiveRebuildLaunched(date, placement);
+    window.history.pushState({}, '', `${PUBLIC_ROUTE_PATHS.vibeAtlas}?view=builder&source=edition&date=${encodeURIComponent(date)}`);
+    setArchivePage(false);
+    setView('collection');
+    setCollectionTab('builder');
+    setBuilderSource('edition');
+    setSelectedEditionDate(date);
+  };
+
   useEffect(() => {
     const restoreUrlState = () => {
+      const malformedBuilderSource = hasMalformedGridBuilderSource(window.location.search);
       const restoredView = initialVibeAtlasView(window.location.search);
       const restoredArchivePage = isVibeAtlasArchiveLocation(window.location.pathname);
       const invalidEditionDate = hasInvalidVibeAtlasEditionDate(window.location.search);
       setArchivePage(restoredArchivePage);
       setView(restoredView);
       setCollectionTab(initialCollectionType(window.location.search));
+      setBuilderSource(initialGridBuilderSource(window.location.search));
       setExpandedId(null);
       setLightboxIndex(null);
       setDailyGridZoomOpen(false);
       setImageTiers({});
-      const restoredEditionDate = restoredView === 'daily' && !restoredArchivePage
+      const restoredBuilderSource = initialGridBuilderSource(window.location.search);
+      const restoredEditionDate = (restoredView === 'daily' && !restoredArchivePage)
+        || restoredBuilderSource === 'edition'
         ? initialVibeAtlasEditionDate(window.location.search)
         : null;
       setSelectedEditionDate(restoredEditionDate);
-      if (restoredArchivePage || (restoredView === 'daily' && restoredEditionDate)) {
-        setArchiveOpen(true);
+      if (malformedBuilderSource) {
+        window.history.replaceState({}, '', `${PUBLIC_ROUTE_PATHS.vibeAtlas}?view=builder`);
       }
       if (restoredView === 'daily' && !restoredArchivePage && invalidEditionDate) {
         syncVibeAtlasEditionUrl(null, true);
@@ -379,18 +598,11 @@ function VibeAtlasApp({ archiveEntry = false }: { archiveEntry?: boolean }) {
     // A valid date can still point at a cache entry that has been retired or
     // was never generated. Return the visitor to a usable picker rather than
     // leaving them on an empty/error grid.
-    if (!selectedEditionDate || loading || !error) return;
+    if (view !== 'daily' || !selectedEditionDate || loading || !error) return;
     syncVibeAtlasEditionUrl(null, true);
     setSelectedEditionDate(null);
     openArchivePicker();
-  }, [error, loading, openArchivePicker, selectedEditionDate]);
-
-  const toggleArchive = () => {
-    const nextOpen = !archiveOpen;
-    if (nextOpen) trackDailyArchiveOpened();
-    setArchiveOpen(nextOpen);
-    if (nextOpen && !archive.length && !archiveLoading) void loadArchive();
-  };
+  }, [error, loading, openArchivePicker, selectedEditionDate, view]);
 
   const handleItemClick = (itemId: string) => {
     setExpandedId((prev) => (prev === itemId ? null : itemId));
@@ -418,6 +630,35 @@ function VibeAtlasApp({ archiveEntry = false }: { archiveEntry?: boolean }) {
   const handleViewFull = (index: number) => {
     setExpandedId(null);
     setLightboxIndex(index);
+  };
+
+  const sendArchiveSignIn = async (event: React.FormEvent) => {
+    event.preventDefault();
+    if (!selectedEditionDate) return;
+    setArchiveGateBusy('sign-in');
+    trackArchiveAccess('sign_in', selectedEditionDate, 'requested');
+    try {
+      setArchiveGateNotice(await requestMagicLink(
+        archiveGateEmail,
+        `archive:${selectedEditionDate}`,
+      ));
+    } catch (error) {
+      setArchiveGateNotice(error instanceof Error ? error.message : 'Could not send the sign-in link.');
+    } finally {
+      setArchiveGateBusy('');
+    }
+  };
+
+  const startArchiveCheckout = async () => {
+    if (!selectedEditionDate) return;
+    setArchiveGateBusy('checkout');
+    trackArchiveAccess('checkout', selectedEditionDate);
+    try {
+      window.location.assign(await createMembershipCheckout(selectedEditionDate));
+    } catch (error) {
+      setArchiveGateNotice(error instanceof Error ? error.message : 'Checkout could not be opened.');
+      setArchiveGateBusy('');
+    }
   };
 
   /**
@@ -480,16 +721,25 @@ function VibeAtlasApp({ archiveEntry = false }: { archiveEntry?: boolean }) {
         </a>
         <div className="fandom-universe-tools">
           <span className="fandom-universe-current">Current universe</span>
-          <a className="fandom-tool-link fandom-tool-link--active" href="/vibe-atlas">
+          <a className="fandom-tool-link fandom-tool-link--active" href={PUBLIC_ROUTE_PATHS.vibeAtlas}>
             <strong>Vibe Atlas</strong><small>Daily C-drama card drop</small>
           </a>
         </div>
         <div className="fandom-atlas-nav" aria-label="Vibe Atlas workspace">
           <button
             type="button"
+            onClick={() => navigateAtlas('released')}
+            className={view === 'released' ? 'fandom-atlas-nav__active' : ''}
+          >
+            <span>Released packs</span><small>Collector library</small>
+          </button>
+          <button
+            type="button"
             aria-label="今日之星 · Daily"
             onClick={() => navigateAtlas('daily')}
-            className={view === 'daily' && !archivePage ? 'fandom-atlas-nav__active' : ''}
+            className={(view === 'daily' || (view === 'collection' && collectionTab === 'builder' && builderSource === 'daily')) && !archivePage
+              ? 'fandom-atlas-nav__active'
+              : ''}
           >
             <span>Daily card drop</span><small>今日之星</small>
           </button>
@@ -505,7 +755,7 @@ function VibeAtlasApp({ archiveEntry = false }: { archiveEntry?: boolean }) {
             type="button"
             aria-label="Your Collection · Saved Grids and Grid Builder"
             onClick={() => navigateAtlas('collection', 'grids')}
-            className={view === 'collection' ? 'fandom-atlas-nav__active' : ''}
+            className={view === 'collection' && builderSource === 'collection' ? 'fandom-atlas-nav__active' : ''}
           >
             <span>Your Collection</span><small>Saved Grids · Grid Builder</small>
           </button>
@@ -524,6 +774,10 @@ function VibeAtlasApp({ archiveEntry = false }: { archiveEntry?: boolean }) {
           archive={archive}
           archiveLoading={archiveLoading}
           archiveError={archiveError}
+          archiveHasMore={archiveHasMore}
+          archiveTotal={archiveTotal}
+          loadArchive={loadArchive}
+          loadMoreArchive={loadMoreArchive}
         />
       ) : view === 'daily' ? (
         <>
@@ -536,64 +790,32 @@ function VibeAtlasApp({ archiveEntry = false }: { archiveEntry?: boolean }) {
           </div>
           <p className="atlas-hero__thesis">One star. One vibe. Nine pieces of evidence.</p>
         </div>
-         <p className="atlas-hero__hook"><em>Like Pokémon, but thirsty. You wanna catch all these.</em></p>
+         <p className="atlas-hero__hook">
+           <em>Collect the evidence. Confirm your type.</em><br />
+           <span lang="zh-CN">九张证据，一眼心动</span>
+         </p>
          <p className="atlas-hero__intro">Every day, Vibe Atlas pairs one C-drama star with one very specific kind of heartthrob energy. Browse nine collectible pieces of evidence, save the ones that understand your type, and build your own 3×3.</p>
          <div className="atlas-hero__actions" aria-label="Vibe Atlas actions">
            <a href="#daily-evidence">Browse today’s drop</a>
-           <a href="/vibe-atlas?view=builder">Open the Grid Builder</a>
+           <a href={`${PUBLIC_ROUTE_PATHS.vibeAtlas}?view=builder&source=daily`}>Open the Grid Builder</a>
+            {rawData?.actorId && !selectedEditionDate && (
+              <a href="#todays-released-pack">
+                Open today’s free released pack
+             </a>
+           )}
          </div>
-        <section className="daily-archive" aria-label="Vibe Atlas daily edition archive">
-          <button
-            type="button"
-            className="daily-archive__toggle"
-            aria-expanded={archiveOpen}
-            onClick={toggleArchive}
-          >
-            <span>{archiveOpen ? 'Hide past editions' : 'Browse past editions'}</span>
-            <small>{archiveOpen ? '收起往期' : '往期图鉴'}</small>
-            <strong aria-hidden="true">{archiveOpen ? '−' : '+'}</strong>
-          </button>
-          {archiveOpen && (
-            <div className="daily-archive__panel">
-              <div className="daily-archive__intro">
-                <div>
-                  <p className="daily-archive__kicker">The Vibe Atlas archive</p>
-                  <h2>Every star. Every assignment.</h2>
-                </div>
-                <p>Revisit past stars, vibes, and evidence.</p>
-              </div>
-              {archiveLoading ? (
-                <p className="daily-archive__status">Loading available editions…</p>
-              ) : archiveError ? (
-                <p className="daily-archive__status daily-archive__status--error" role="alert">{archiveError}</p>
-              ) : archive.length === 0 ? (
-                <p className="daily-archive__status">No archived editions are available yet.</p>
-              ) : (
-                <div className="daily-archive__list">
-                  {archive.map((edition, index) => (
-                    <ArchiveEditionButton
-                      key={edition.date}
-                      edition={edition}
-                      isSelected={selectedEditionDate === edition.date}
-                      isLatest={index === 0}
-                      onSelect={() => {
-                        trackDailyArchiveEditionSelected(edition.date, index === 0);
-                        selectEdition(edition.date);
-                      }}
-                    />
-                  ))}
-                </div>
-              )}
-              <a className="daily-archive__full-link" href="/vibe-atlas/archive">Open the full archive →</a>
-              {selectedEditionDate && (
-                <button type="button" className="daily-archive__today" onClick={() => selectEdition(null)}>
-                  ← Return to today’s drop
-                </button>
-              )}
-            </div>
-          )}
-        </section>
-        {meta && (
+        {gate && selectedEditionDate ? (
+          <ArchiveLockedEdition
+            gate={gate}
+            email={archiveGateEmail}
+            busy={archiveGateBusy}
+            notice={archiveGateNotice}
+            onEmailChange={setArchiveGateEmail}
+            onSignIn={sendArchiveSignIn}
+            onCheckout={startArchiveCheckout}
+            onIntent={() => trackArchiveAccess('gated_intent', selectedEditionDate, gate.reason)}
+          />
+        ) : meta && (
           <div className="atlas-edition">
             <div className="atlas-edition__meta">
               <div className="atlas-edition__label">
@@ -608,6 +830,19 @@ function VibeAtlasApp({ archiveEntry = false }: { archiveEntry?: boolean }) {
               <div className="atlas-edition__subline">
                 {meta.vibeLabelEn} — {meta.vibeSubtitleEn}
               </div>
+                {rawData?.publicRecord && (
+                  <VisibleArchiveRecordPlacement
+                    as="nav"
+                    className="atlas-edition__records"
+                    ariaLabel="Curated public records"
+                    location="daily"
+                    recordTypes={['actor', 'edition']}
+                    presentationKey={`daily:${rawData.publicRecord.actorPath}:${rawData.publicRecord.editionPath}`}
+                  >
+                    <a href={rawData.publicRecord.actorPath} onClick={() => trackArchiveRecordOpened('actor', 'daily')}>Explore {meta.actorName}’s actor record</a>
+                    <a href={rawData.publicRecord.editionPath} onClick={() => trackArchiveRecordOpened('edition', 'daily')}>Read this edition’s permanent record</a>
+                  </VisibleArchiveRecordPlacement>
+                )}
               {meta.vibeSupportingCopyEn && (
                 <div className="atlas-edition__supporting-copy">{meta.vibeSupportingCopyEn}</div>
               )}
@@ -619,6 +854,12 @@ function VibeAtlasApp({ archiveEntry = false }: { archiveEntry?: boolean }) {
             </div>
             {selectedEditionDate && isValidVibeAtlasEditionDate(selectedEditionDate) && (
               <div className="daily-edition-share">
+                <button
+                  type="button"
+                  onClick={() => openEditionBuilder(selectedEditionDate, 'edition_detail')}
+                >
+                  Rebuild this edition
+                </button>
                 <button type="button" onClick={copyArchivedEditionLink}>
                   Copy archived edition link
                 </button>
@@ -645,25 +886,54 @@ function VibeAtlasApp({ archiveEntry = false }: { archiveEntry?: boolean }) {
         )}
       </header>
 
-       <div className="daily-grid" id="daily-evidence">
-        <div className="daily-grid__header">
-          <h2>Today’s evidence</h2>
-          <p>Nine cards from today’s star × Vibe Pack.</p>
+       {!gate && rawData && !selectedEditionDate && (
+         <section className="daily-released-pack" id="todays-released-pack" aria-labelledby="todays-released-pack-title">
+           <div className="daily-released-pack__intro">
+             <p className="membership__label">Free today · Star of the Day released Vibe Pack</p>
+             <h2 id="todays-released-pack-title">{rawData.vibeEmoji} {rawData.actorShortNameEn || rawData.actorName} · {rawData.vibeLabelEn || rawData.vibeLabel}</h2>
+             <p>{rawData.vibeSubtitleEn || rawData.vibeSubtitle}</p>
+             {(rawData.vibeSupportingCopyEn || rawData.vibeSupportingCopy) && (
+               <p>{rawData.vibeSupportingCopyEn || rawData.vibeSupportingCopy}</p>
+             )}
+           </div>
+           <div className="daily-released-pack__access">
+             <strong>Today’s pack is free on this homepage.</strong>
+             <p>The full released-pack library stays available to Fandom Collectors.</p>
+             <a href={vibeAtlasPath({
+               view: 'released',
+               source: 'daily_star',
+               ...(hasCollectorCapability(membershipStatus) ? {
+                 actorId: rawData.actorId,
+                 vibeIdx: rawData.vibeIdx,
+               } : {}),
+             })}>
+               Open the Collector library
+             </a>
+           </div>
+         </section>
+       )}
+
+       {!gate && (
+         <div className="daily-grid" id="daily-evidence">
+          <div className="daily-grid__header">
+            <h2>Today’s evidence</h2>
+            <p>Nine cards from today’s star × Vibe Pack.</p>
+          </div>
+          {!loading && !error && gridImages.length > 0 && (
+            <button type="button" className="daily-grid__zoom" onClick={() => setDailyGridZoomOpen(true)}>
+              ⛶ View whole grid
+            </button>
+          )}
+          <div className="grid">
+            {loading
+              ? Array.from({ length: 9 }).map((_, i) => <GridItemSkeleton key={i} />)
+              : error
+                ? <div className="col-span-3 text-center py-8 text-gray-500">{error}</div>
+                : renderGridItems()
+            }
+          </div>
         </div>
-        {!loading && !error && gridImages.length > 0 && (
-          <button type="button" className="daily-grid__zoom" onClick={() => setDailyGridZoomOpen(true)}>
-            ⛶ View whole grid
-          </button>
-        )}
-        <div className="grid">
-          {loading
-            ? Array.from({ length: 9 }).map((_, i) => <GridItemSkeleton key={i} />)
-            : error
-              ? <div className="col-span-3 text-center py-8 text-gray-500">{error}</div>
-              : renderGridItems()
-          }
-        </div>
-      </div>
+       )}
 
       {dailyGridZoomOpen && meta && (
         <ArtifactZoomDialog
@@ -697,22 +967,63 @@ function VibeAtlasApp({ archiveEntry = false }: { archiveEntry?: boolean }) {
         />
       )}
         </>
-            ) : view === 'collection' ? (
+      ) : view === 'collection' && builderSource === 'edition' && gate && activeEditionDate ? (
+        <ArchiveLockedEdition
+          gate={gate}
+          email={archiveGateEmail}
+          busy={archiveGateBusy}
+          notice={archiveGateNotice}
+          onEmailChange={setArchiveGateEmail}
+          onSignIn={sendArchiveSignIn}
+          onCheckout={startArchiveCheckout}
+          onIntent={() => trackArchiveAccess('gated_intent', activeEditionDate, gate.reason)}
+        />
+      ) : view === 'collection' ? (
         <Collection
           key={collectionTab}
           initialType={collectionTab}
-          isMember={isMember}
+          hasCollectorAccess={canUsePremiumTools}
+          membershipResolved={membershipResolved}
+          builderSourceKind={builderSource}
+          builderSourcePool={builderSource === 'collection' ? [] : dailyBuilderPool}
+          builderSourceEditionDate={builderSource === 'edition' ? activeEditionDate ?? undefined : undefined}
           onUpgrade={() => {
             trackUpgradeStarted('grid_builder');
             navigateAtlas('membership');
           }}
-          onTypeChange={setCollectionTab}
+          onTypeChange={(type) => {
+            const viewParam = type === 'grids' ? 'collection' : type;
+            window.history.replaceState({}, '', `${PUBLIC_ROUTE_PATHS.vibeAtlas}?view=${viewParam}`);
+            setCollectionTab(type);
+            if (type === 'builder') setBuilderSource('collection');
+          }}
+        />
+      ) : view === 'released' ? (
+        <ReleasedPackLibrary
+          status={membershipStatus}
+          membershipResolved={membershipResolved}
+          currentRelease={rawData?.actorId && Number.isInteger(rawData?.vibeIdx)
+            ? {
+              actorId: rawData.actorId,
+              vibeIdx: rawData.vibeIdx as number,
+            }
+            : null}
+          source={(() => {
+            const value = new URLSearchParams(window.location.search).get('source');
+            return value === 'daily_star' || value === 'public_record'
+              ? value
+              : 'library_navigation';
+          })()}
+          actorId={new URLSearchParams(window.location.search).get('actorId')}
+          vibeIndex={(() => {
+            const value = new URLSearchParams(window.location.search).get('vibeIdx');
+            return value !== null && value !== '' && Number.isInteger(Number(value))
+              ? Number(value)
+              : null;
+          })()}
         />
       ) : view === 'membership' ? (
-        <Membership onStatusChange={status => {
-          setIsMember(status.isMember);
-          setMembershipResolved(true);
-        }} />
+        <Membership status={membershipStatus} />
       ) : adminLoading ? (
         <div className="admin-gate-loading" aria-label="Checking admin session…" />
       ) : !isAdmin ? (
@@ -724,38 +1035,79 @@ function VibeAtlasApp({ archiveEntry = false }: { archiveEntry?: boolean }) {
   );
 }
 
-function ArchiveEditionButton({
-  edition,
-  isSelected,
-  isLatest,
-  onSelect,
-  href,
+function ArchiveLockedEdition({
+  gate,
+  email,
+  busy,
+  notice,
+  onEmailChange,
+  onSignIn,
+  onCheckout,
+  onIntent,
 }: {
-  edition: StarOfDayArchiveEntry;
-  isSelected: boolean;
-  isLatest: boolean;
-  onSelect?: () => void;
-  href?: string;
+  gate: import('./hooks/useStarOfDay').ArchiveGate;
+  email: string;
+  busy: string;
+  notice: string;
+  onEmailChange: (value: string) => void;
+  onSignIn: (event: React.FormEvent) => void;
+  onCheckout: () => void;
+  onIntent: () => void;
 }) {
-  const content = (
-    <>
-      <span className="daily-archive__date">
-        {formatEditionDate(edition.date)}
-        {isLatest && <small>Latest</small>}
-      </span>
-      <strong>{edition.vibeEmoji} {edition.actorName}</strong>
-      <span>{edition.vibeLabel} · {edition.vibeLabelEn}</span>
-      {isSelected && <b>Viewing</b>}
-    </>
-  );
-  const className = `daily-archive__edition${isSelected ? ' daily-archive__edition--selected' : ''}`;
-  if (href) {
-    return <a className={className} href={href} onClick={onSelect}>{content}</a>;
-  }
+  const edition = gate.edition;
+  const billingDelay = gate.reason === 'billing_delay';
   return (
-    <button type="button" className={className} aria-pressed={isSelected} onClick={onSelect}>
-      {content}
-    </button>
+    <section className="archive-gate" aria-labelledby="archive-gate-title" onFocus={onIntent}>
+      <div className="archive-gate__preview" aria-hidden="true">
+        {(edition.previewThumbnails ?? []).map((image, index) => (
+          <img key={`${image}-${index}`} src={archivePreviewUrl(image)} alt="" />
+        ))}
+      </div>
+      <div className="archive-gate__copy">
+        <p className="daily-archive__kicker">Founding Member archive</p>
+        <h2 id="archive-gate-title">{edition.vibeEmoji} {edition.actorName}</h2>
+        <p><strong>{edition.vibeLabel}</strong> · {edition.vibeLabelEn}</p>
+        {edition.publicRecord && (
+          <VisibleArchiveRecordPlacement
+            as="nav"
+            className="atlas-edition__records"
+            ariaLabel="Curated public records"
+            location="locked_preview"
+            recordTypes={['actor', 'edition']}
+            presentationKey={`locked_preview:${edition.date}`}
+          >
+            <a href={edition.publicRecord.actorPath} onClick={() => trackArchiveRecordOpened('actor', 'locked_preview')}>Explore {edition.actorName}’s actor record</a>
+            <a href={edition.publicRecord.editionPath} onClick={() => trackArchiveRecordOpened('edition', 'locked_preview')}>Read this edition’s permanent record</a>
+          </VisibleArchiveRecordPlacement>
+        )}
+        <p>
+          {billingDelay
+            ? 'Your membership status is still being confirmed. Try again shortly or review billing.'
+            : 'This published preview stays open to everyone. Founding Members can unlock the complete nine-card board, save its cards, use it in Grid Builder, and export finished boards.'}
+        </p>
+        {notice && <p className="membership__notice" role="status">{notice}</p>}
+        {gate.reason === 'sign_in' ? (
+          <form className="membership__sign-in" onSubmit={onSignIn}>
+            <label htmlFor="archive-gate-email">Sign in to check your archive access</label>
+            <div>
+              <input
+                id="archive-gate-email"
+                type="email"
+                required
+                value={email}
+                onChange={event => onEmailChange(event.target.value)}
+                placeholder="you@example.com"
+              />
+              <button disabled={Boolean(busy)}>{busy === 'sign-in' ? 'Sending…' : 'Email sign-in link'}</button>
+            </div>
+          </form>
+        ) : (
+          <button type="button" className="archive-gate__checkout" onClick={onCheckout} disabled={Boolean(busy) || billingDelay}>
+            {busy === 'checkout' ? 'Opening checkout…' : 'Become a Founding Member'}
+          </button>
+        )}
+      </div>
+    </section>
   );
 }
 
@@ -781,14 +1133,24 @@ function ArchiveEditionCard({
     isLatest ? 'archive-card--latest' : '',
     edition.legendaryMisprint ? 'archive-card--misprint' : '',
   ].filter(Boolean).join(' ');
+  const href = edition.publicRecord?.editionPath
+    ?? `${PUBLIC_ROUTE_PATHS.vibeAtlas}?date=${encodeURIComponent(edition.date)}`;
 
   return (
-    <a
-      className={className}
-      href={`/vibe-atlas?date=${encodeURIComponent(edition.date)}`}
-      onClick={() => trackDailyArchiveEditionSelected(edition.date, isLatest)}
-      aria-label={`Open Issue ${issueNumber}, ${formatEditionDate(edition.date)}: ${edition.actorName}, ${edition.vibeLabelEn}`}
-    >
+    <article className={className}>
+      <VisibleArchiveRecordPlacement
+        as="a"
+        className="archive-card__main"
+        href={href}
+        location="full_archive"
+        recordTypes={edition.publicRecord ? ['edition'] : []}
+        presentationKey={`full_archive_main:${edition.date}`}
+        onClick={() => {
+          trackDailyArchiveEditionSelected(edition.date, isLatest);
+          if (edition.publicRecord) trackArchiveRecordOpened('edition', 'full_archive');
+        }}
+        ariaLabel={`Open Issue ${issueNumber}, ${formatEditionDate(edition.date)}: ${edition.actorName}, ${edition.vibeLabelEn}`}
+      >
       <span className="archive-card__plate" aria-hidden="true">
         {images.length > 0 ? (
           <span className="archive-card__mosaic">
@@ -821,6 +1183,7 @@ function ArchiveEditionCard({
             <b>{edition.legendaryMisprintTitle ?? 'Preserved retrieval anomaly'}</b>
           </span>
         )}
+        {edition.legendaryMisprintCopy && <q>{edition.legendaryMisprintCopy}</q>}
         <span className="archive-card__meta">
           <time dateTime={edition.date}>{formatEditionDate(edition.date)}</time>
           <span>{isLatest ? 'Latest edition' : 'Published edition'}</span>
@@ -832,9 +1195,34 @@ function ArchiveEditionCard({
           <span>{edition.vibeLabel}<em>{edition.vibeLabelEn}</em></span>
         </span>
         {edition.vibeSubtitleEn && <q>{edition.vibeSubtitleEn}</q>}
-        <span className="archive-card__open">Open the nine-card board <b aria-hidden="true">↗</b></span>
+        <span className="archive-card__open">
+          {edition.publicRecord
+            ? 'Read the permanent edition record'
+            : edition.access === 'member' ? 'Preview Founding Member edition' : 'Open the nine-card board'}
+          <b aria-hidden="true">↗</b>
+        </span>
       </span>
-    </a>
+      </VisibleArchiveRecordPlacement>
+      {edition.publicRecord && (
+        <VisibleArchiveRecordPlacement
+          as="nav"
+          className="archive-card__records"
+          ariaLabel={`Curated records for ${edition.actorName}`}
+          location="full_archive"
+          recordTypes={['actor', 'edition']}
+          presentationKey={`full_archive_records:${edition.date}`}
+        >
+          <a href={edition.publicRecord.actorPath} onClick={() => trackArchiveRecordOpened('actor', 'full_archive')}>Actor record</a>
+          <a href={edition.publicRecord.editionPath} onClick={() => trackArchiveRecordOpened('edition', 'full_archive')}>Edition record</a>
+          <a
+            href={`${PUBLIC_ROUTE_PATHS.vibeAtlas}?view=builder&source=edition&date=${encodeURIComponent(edition.date)}`}
+            onClick={() => trackArchiveRebuildLaunched(edition.date, 'archive_card')}
+          >
+            Rebuild this edition
+          </a>
+        </VisibleArchiveRecordPlacement>
+      )}
+    </article>
   );
 }
 
@@ -842,10 +1230,18 @@ function ArchivePage({
   archive,
   archiveLoading,
   archiveError,
+  archiveHasMore,
+  archiveTotal,
+  loadArchive,
+  loadMoreArchive,
 }: {
   archive: StarOfDayArchiveEntry[];
   archiveLoading: boolean;
   archiveError: string | null;
+  archiveHasMore: boolean;
+  archiveTotal: number | null;
+  loadArchive: () => Promise<void>;
+  loadMoreArchive: () => Promise<void>;
 }) {
   const yearCount = new Set(archive.map(edition => edition.date.slice(0, 4))).size;
 
@@ -872,32 +1268,62 @@ function ArchivePage({
             <p>Published boards only. Each plate opens the exact original nine-card edition.</p>
           </div>
           <dl aria-label="Archive summary">
-            <div><dt>Editions</dt><dd>{archive.length || '—'}</dd></div>
+            <div><dt>Editions</dt><dd>{(archiveTotal ?? archive.length) || '—'}</dd></div>
             <div><dt>Years</dt><dd>{yearCount || '—'}</dd></div>
             <div><dt>Format</dt><dd>3 × 3</dd></div>
           </dl>
         </div>
-        {archiveLoading ? (
+        {archiveLoading && archive.length === 0 ? (
           <p className="daily-archive__status">Loading published editions…</p>
-        ) : archiveError ? (
-          <p className="daily-archive__status daily-archive__status--error" role="alert">{archiveError}</p>
+        ) : archiveError && archive.length === 0 ? (
+          <>
+            <p className="daily-archive__status daily-archive__status--error" role="alert">
+              Couldn’t load the archive. Try again.
+            </p>
+            <button
+              type="button"
+              className="daily-archive__today"
+              onClick={() => void loadArchive()}
+            >
+              Retry loading the archive
+            </button>
+          </>
         ) : archive.length === 0 ? (
           <p className="daily-archive__status">No published editions are available yet.</p>
         ) : (
-          <div className="archive-gallery">
-            {archive.map((edition, index) => (
-              <ArchiveEditionCard
-                key={edition.date}
-                edition={edition}
-                index={index}
-                issueNumber={archive.length - index}
-              />
-            ))}
-          </div>
+          <>
+            <div className="archive-gallery">
+              {archive.map((edition, index) => (
+                <ArchiveEditionCard
+                  key={edition.date}
+                  edition={edition}
+                  index={index}
+                  issueNumber={(archiveTotal ?? archive.length) - index}
+                />
+              ))}
+            </div>
+            {archiveHasMore && (
+              <>
+                {archiveError && (
+                  <p className="daily-archive__status daily-archive__status--error" role="alert">
+                    Couldn’t load more editions. Try again.
+                  </p>
+                )}
+                <button
+                  type="button"
+                  className="daily-archive__today"
+                  disabled={archiveLoading}
+                  onClick={() => void loadMoreArchive()}
+                >
+                  {archiveLoading ? 'Loading editions…' : archiveError ? 'Retry loading editions' : 'Load more editions'}
+                </button>
+              </>
+            )}
+          </>
         )}
         <footer className="archive-footer">
           <span>Fandom Vibes · Permanent edition record</span>
-          <a className="daily-archive__today" href="/vibe-atlas">Return to today’s drop <b aria-hidden="true">→</b></a>
+          <a className="daily-archive__today" href={PUBLIC_ROUTE_PATHS.vibeAtlas}>Return to today’s drop <b aria-hidden="true">→</b></a>
         </footer>
       </section>
     </main>

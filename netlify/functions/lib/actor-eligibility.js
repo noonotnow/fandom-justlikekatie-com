@@ -7,6 +7,7 @@ import {
   vibePromiseFor,
 } from "./actor-identity-profiles.js";
 import { CURATION_VERSION } from "./grid-curation.js";
+import { blindCalibrationEvidence } from "./blind-calibration-evidence.js";
 
 export const ELIGIBILITY_STORE = "actor-audit";
 export const APPROVED_VERDICTS = new Set(["approved", "approved_override"]);
@@ -18,6 +19,9 @@ export const auditVibeKey = (actorId, vibeIdx) => `${actorId}:${vibeIdx}`;
 export const auditHeadKey = (actorId, vibeIdx) => `heads/${actorId}/${vibeIdx}`;
 export const auditRunPrefix = (actorId, vibeIdx) => `runs/${actorId}/${vibeIdx}/`;
 export const auditRunKey = (actorId, vibeIdx, runId) => `${auditRunPrefix(actorId, vibeIdx)}${encodeURIComponent(runId)}`;
+
+export const cacheDiagnosticReceiptKey = (actorId, vibeIdx, scope) =>
+  `cache-diagnostic-receipts/${actorId}/${vibeIdx}/${scope}`;
 export const auditVerdictPrefix = (actorId, vibeIdx, runId) => `verdicts/${actorId}/${vibeIdx}/${encodeURIComponent(runId)}/`;
 export const auditVerdictKey = (actorId, vibeIdx, runId, receiptId = "canonical") => `${auditVerdictPrefix(actorId, vibeIdx, runId)}${encodeURIComponent(receiptId)}`;
 export const auditCalibrationPrefix = (actorId, vibeIdx, runId) => `calibrations/${actorId}/${vibeIdx}/${encodeURIComponent(runId)}/`;
@@ -27,6 +31,8 @@ export const auditCalibrationReasonsKey = (actorId, vibeIdx, runId, receiptId = 
 export const auditVisualJudgmentPrefix = (actorId, vibeIdx, runId) => `visual-judgments/${actorId}/${vibeIdx}/${encodeURIComponent(runId)}/`;
 export const auditVisualJudgmentKey = (actorId, vibeIdx, runId, receiptId) => `${auditVisualJudgmentPrefix(actorId, vibeIdx, runId)}${encodeURIComponent(receiptId)}`;
 export const auditVisualJudgmentIndexKey = (actorId, vibeIdx, runId) => `visual-judgment-index/${actorId}/${vibeIdx}/${encodeURIComponent(runId)}`;
+export const auditVisualJudgmentIndexPrefix = (actorId, vibeIdx) =>
+  `visual-judgment-index/${actorId}/${vibeIdx}/`;
 export const auditFeedbackPrefix = (actorId, vibeIdx, runId) => `feedback/${actorId}/${vibeIdx}/${encodeURIComponent(runId)}/`;
 export const auditFeedbackKey = (actorId, vibeIdx, runId, receiptId) => `${auditFeedbackPrefix(actorId, vibeIdx, runId)}${encodeURIComponent(receiptId)}`;
 export const auditMisprintGlobalPrefix = () => "misprints/global/";
@@ -84,6 +90,17 @@ export const auditRescueCalibrationSignalRetirementKey = (
   signalFamily,
   signalValue || "*",
 ].map(value => encodeURIComponent(value)).join("/")}`;
+export const auditBlindCalibrationExclusionPrefix = (actorId, vibeIdx) =>
+  `blind-calibration-exclusions/${actorId}/${vibeIdx}/`;
+export const auditBlindCalibrationExclusionKey = (
+  actorId,
+  vibeIdx,
+  sourceRunId,
+  judgmentReceiptId,
+) => `${auditBlindCalibrationExclusionPrefix(actorId, vibeIdx)}${[
+  sourceRunId,
+  judgmentReceiptId,
+].map(value => encodeURIComponent(value)).join("/")}`;
 export const auditRescueCalibrationOutcomePrefix = (actorId, vibeIdx) =>
   `rescue-calibration-outcomes/${actorId}/${vibeIdx}/`;
 export const auditRescueCalibrationOutcomeKey = (actorId, vibeIdx, runId) =>
@@ -105,7 +122,11 @@ export const productionReceiptKey = (actorId, vibeIdx, runId, receiptId) =>
 export const productionStateKey = (actorId, vibeIdx, runId) =>
   `production-state/${actorId}/${vibeIdx}/${encodeURIComponent(runId)}`;
 
-export function rescueCalibrationRetirementHash(retirements = [], signalRetirements = []) {
+export function rescueCalibrationRetirementHash(
+  retirements = [],
+  signalRetirements = [],
+  blindExclusions = [],
+) {
   const receiptRetirements = retirements
     .filter(retirement => retirement?.status === "retired"
       && typeof retirement?.sourceRescueReceiptId === "string")
@@ -126,10 +147,21 @@ export function rescueCalibrationRetirementHash(retirements = [], signalRetireme
       signalValue: retirement.signalValue,
       retiredAt: retirement.retiredAt || null,
     }));
+  const exclusionEntries = blindExclusions
+    .filter(exclusion => exclusion?.status === "excluded"
+      && typeof exclusion?.sourceRunId === "string"
+      && typeof exclusion?.judgmentReceiptId === "string")
+    .map(exclusion => ({
+      exclusionId: exclusion.exclusionId || null,
+      sourceRescueReceiptId: exclusion.sourceRunId,
+      judgmentReceiptId: exclusion.judgmentReceiptId,
+      excludedAt: exclusion.excludedAt || null,
+    }));
   return createHash("sha256").update(JSON.stringify(
-    [...receiptRetirements, ...signalEntries]
+    [...receiptRetirements, ...signalEntries, ...exclusionEntries]
       .sort((left, right) =>
         left.sourceRescueReceiptId.localeCompare(right.sourceRescueReceiptId)
+        || String(left.judgmentReceiptId || "").localeCompare(String(right.judgmentReceiptId || ""))
         || String(left.signalFamily || "").localeCompare(String(right.signalFamily || ""))
         || String(left.signalValue || "").localeCompare(String(right.signalValue || ""))
         || String(left.retirementId).localeCompare(String(right.retirementId))),
@@ -168,6 +200,7 @@ export async function getEligibility(store, actor, vibeIdx) {
     actor,
     vibeIdx,
     liveRetirementHash,
+    snapshot.calibrationProfile,
   );
   if (
     (snapshot.rescueCalibrationApprovalId || null) !== (liveCalibrationApproval?.approvalId || null)
@@ -500,11 +533,58 @@ async function readReceipts(store, prefix, timestampField) {
       || left.key.localeCompare(right.key));
 }
 
+export async function resolveRescueCalibrationApprovalAuthority({
+  store,
+  actorId,
+  vibeIdx,
+  listedApprovals = [],
+  listedRevocations = [],
+}) {
+  const authority = await store.get(
+    auditRescueCalibrationAuthorityKey(actorId, vibeIdx),
+    { type: "json", consistency: "strong" },
+  );
+  if (!authority?.approvalId) {
+    return {
+      authority,
+      approvals: [...listedApprovals],
+      revocations: [...listedRevocations],
+      canonicalApproval: null,
+      canonicalRevocation: null,
+    };
+  }
+
+  const [canonicalApproval, canonicalRevocation] = await Promise.all([
+    store.get(
+      auditRescueCalibrationApprovalKey(actorId, vibeIdx, authority.approvalId),
+      { type: "json", consistency: "strong" },
+    ),
+    store.get(
+      auditRescueCalibrationApprovalRevocationKey(actorId, vibeIdx, authority.approvalId),
+      { type: "json", consistency: "strong" },
+    ),
+  ]);
+  return {
+    authority,
+    approvals: [
+      ...listedApprovals.filter(approval => approval.approvalId !== authority.approvalId),
+      ...(canonicalApproval ? [canonicalApproval] : []),
+    ],
+    revocations: [
+      ...listedRevocations.filter(revocation => revocation.approvalId !== authority.approvalId),
+      ...(canonicalRevocation ? [canonicalRevocation] : []),
+    ],
+    canonicalApproval,
+    canonicalRevocation,
+  };
+}
+
 async function currentRescueCalibrationRetirementHash(store, actorId, vibeIdx) {
-  const [calibrations, retirements, signalRetirements] = await Promise.all([
+  const [calibrations, retirements, signalRetirements, blindExclusions] = await Promise.all([
     readReceipts(store, auditRescueCalibrationPrefix(actorId, vibeIdx), "confirmedAt"),
     readReceipts(store, auditRescueCalibrationRetirementPrefix(actorId, vibeIdx), "retiredAt"),
     readReceipts(store, auditRescueCalibrationSignalRetirementPrefix(actorId, vibeIdx), "retiredAt"),
+    readReceipts(store, auditBlindCalibrationExclusionPrefix(actorId, vibeIdx), "excludedAt"),
   ]);
   const currentReceiptIds = new Set(calibrations
     .filter(calibration =>
@@ -525,28 +605,51 @@ async function currentRescueCalibrationRetirementHash(store, actorId, vibeIdx) {
     && currentReceiptIds.has(retirement.sourceRescueReceiptId)
     && typeof retirement.signalFamily === "string"
     && typeof retirement.signalValue === "string");
-  return currentRetirements.length || currentSignalRetirements.length
-    ? rescueCalibrationRetirementHash(currentRetirements, currentSignalRetirements)
+  const currentBlindExclusions = blindExclusions.filter(exclusion =>
+    exclusion.status === "excluded"
+    && exclusion.actorId === actorId
+    && exclusion.vibeKey === auditVibeKey(actorId, vibeIdx));
+  return currentRetirements.length || currentSignalRetirements.length || currentBlindExclusions.length
+    ? rescueCalibrationRetirementHash(
+      currentRetirements,
+      currentSignalRetirements,
+      currentBlindExclusions,
+    )
     : null;
 }
 
-async function currentRescueCalibrationApproval(store, actor, vibeIdx, retirementHash) {
+async function currentRescueCalibrationApproval(
+  store,
+  actor,
+  vibeIdx,
+  retirementHash,
+  compatibilityProfile = null,
+) {
   const actorId = actor.id;
   const vibeKey = auditVibeKey(actorId, vibeIdx);
-  const [calibrations, retirements, approvals, revocations, authority] = await Promise.all([
+  const [calibrations, retirements, blindExclusions, blindEvidenceIds, listedApprovals, listedRevocations] = await Promise.all([
     readReceipts(store, auditRescueCalibrationPrefix(actorId, vibeIdx), "confirmedAt"),
     readReceipts(store, auditRescueCalibrationRetirementPrefix(actorId, vibeIdx), "retiredAt"),
+    readReceipts(store, auditBlindCalibrationExclusionPrefix(actorId, vibeIdx), "excludedAt"),
+    currentBlindCalibrationEvidenceIds(store, actor, vibeIdx, compatibilityProfile),
     readReceipts(store, auditRescueCalibrationApprovalPrefix(actorId, vibeIdx), "approvedAt"),
     readReceipts(
       store,
       auditRescueCalibrationApprovalRevocationPrefix(actorId, vibeIdx),
       "revokedAt",
     ),
-    store.get(
-      auditRescueCalibrationAuthorityKey(actorId, vibeIdx),
-      { type: "json", consistency: "strong" },
-    ),
   ]);
+  const {
+    authority,
+    approvals,
+    revocations,
+  } = await resolveRescueCalibrationApprovalAuthority({
+    store,
+    actorId,
+    vibeIdx,
+    listedApprovals,
+    listedRevocations,
+  });
   const expectedFingerprint = pairingFingerprintFor(actor, vibeIdx);
   const current = calibrations.filter(calibration =>
     calibration.status === "confirmed"
@@ -566,31 +669,24 @@ async function currentRescueCalibrationApproval(store, actor, vibeIdx, retiremen
       && retirement.vibeKey === vibeKey
       && currentIds.has(retirement.sourceRescueReceiptId))
     .map(retirement => retirement.sourceRescueReceiptId));
-  const evidenceReceiptIds = current
+  const excludedBlindJudgments = new Set(blindExclusions
+    .filter(exclusion =>
+      exclusion.status === "excluded"
+      && exclusion.actorId === actorId
+      && exclusion.vibeKey === vibeKey)
+    .map(exclusion => `${exclusion.sourceRunId}:${exclusion.judgmentReceiptId}`));
+  const evidenceReceiptIds = [
+    ...current
     .map(calibration => calibration.sourceRescueReceiptId)
-    .filter(receiptId => !retiredIds.has(receiptId))
-    .sort();
+    .filter(receiptId => !retiredIds.has(receiptId)),
+    ...blindEvidenceIds
+      .filter(evidence => evidence.disagreementKeys.some(key => !excludedBlindJudgments.has(key)))
+      .map(evidence => evidence.sourceRescueReceiptId),
+  ].sort();
   if (!evidenceReceiptIds.length) return null;
   const revokedIds = new Set(revocations
     .filter(revocation => revocation.status === "revoked")
     .map(revocation => revocation.approvalId));
-  if (authority?.approvalId) {
-    const [canonicalApproval, canonicalRevocation] = await Promise.all([
-      store.get(
-        auditRescueCalibrationApprovalKey(actorId, vibeIdx, authority.approvalId),
-        { type: "json", consistency: "strong" },
-      ),
-      store.get(
-        auditRescueCalibrationApprovalRevocationKey(actorId, vibeIdx, authority.approvalId),
-        { type: "json", consistency: "strong" },
-      ),
-    ]);
-    if (canonicalApproval
-      && !approvals.some(approval => approval.approvalId === canonicalApproval.approvalId)) {
-      approvals.push(canonicalApproval);
-    }
-    if (canonicalRevocation?.status === "revoked") revokedIds.add(canonicalRevocation.approvalId);
-  }
   return approvals
     .filter(approval =>
       approval.status === "approved"
@@ -616,6 +712,140 @@ async function currentRescueCalibrationApproval(store, actor, vibeIdx, retiremen
       || String(right.approvalId).localeCompare(String(left.approvalId)))[0] || null;
 }
 
+async function currentBlindCalibrationEvidenceIds(store, actor, vibeIdx, compatibilityProfile) {
+  const actorId = actor.id;
+  const vibeKey = auditVibeKey(actorId, vibeIdx);
+  const [listedRuns, authority] = await Promise.all([
+    readReceipts(store, auditRunPrefix(actorId, vibeIdx), "completedAt"),
+    store.get(
+      auditRescueCalibrationAuthorityKey(actorId, vibeIdx),
+      { type: "json", consistency: "strong" },
+    ),
+  ]);
+  const canonicalApproval = authority?.approvalId
+    ? await store.get(
+      auditRescueCalibrationApprovalKey(actorId, vibeIdx, authority.approvalId),
+      { type: "json", consistency: "strong" },
+    )
+    : null;
+  const approvedSourceRunIds = await approvalSourceRunIds({
+    store,
+    actorId,
+    vibeIdx,
+    authority,
+    approval: canonicalApproval,
+    compatibilityProfile,
+  });
+  const knownRunIds = new Set(listedRuns.map(run => run?.runId).filter(Boolean));
+  const recoveredRuns = (await Promise.all(approvedSourceRunIds
+    .filter(runId => !knownRunIds.has(runId))
+    .map(runId => store.get(
+      auditRunKey(actorId, vibeIdx, runId),
+      { type: "json", consistency: "strong" },
+    )))).filter(Boolean);
+  const runs = [...listedRuns, ...recoveredRuns];
+  return (await Promise.all(runs.map(async run => {
+    const judgments = await readVisualJudgments(store, actorId, vibeIdx, run.runId);
+    const evidence = blindCalibrationEvidence(run, judgments, {
+      profileVersion: IDENTITY_PROFILE_VERSION,
+      identityProfileVersion: IDENTITY_PROFILE_VERSION,
+      aestheticClusterVersion: AESTHETIC_CLUSTER_VERSION,
+      promiseContractVersion: VIBE_PROMISE_CONTRACT_VERSION,
+      curationVersion: CURATION_VERSION,
+      pairingFingerprint: pairingFingerprintFor(actor, vibeIdx),
+    });
+    if (!evidence) return null;
+    return {
+      sourceRescueReceiptId: evidence.sourceRescueReceiptId,
+      disagreementKeys: evidence.receiptIds.map(receiptId =>
+        `${evidence.sourceRunId}:${receiptId}`),
+      vibeKey,
+    };
+  }))).filter(Boolean);
+}
+
+export async function legacyBlindCalibrationRunIds(store, actorId, vibeIdx) {
+  const prefix = auditVisualJudgmentIndexPrefix(actorId, vibeIdx);
+  const listing = await store.list({ prefix, limit: 33 });
+  return [...new Set((listing?.blobs || [])
+    .map(blob => typeof blob?.key === "string" && blob.key.startsWith(prefix)
+      ? decodeURIComponent(blob.key.slice(prefix.length))
+      : null)
+    .filter(runId => typeof runId === "string" && runId.length > 0))]
+    .sort()
+    .slice(0, 32);
+}
+
+export async function approvalSourceRunIds({
+  store,
+  actorId,
+  vibeIdx,
+  authority,
+  approval,
+  compatibilityProfile = null,
+}) {
+  if (
+    authority?.status !== "approved"
+    || typeof authority.approvalId !== "string"
+    || authority.approvalId.length === 0
+    || typeof authority.aggregateEvidenceHash !== "string"
+    || authority.aggregateEvidenceHash.length === 0
+    || approval?.status !== "approved"
+    || approval.approvalId !== authority.approvalId
+    || approval.aggregateEvidenceHash !== authority.aggregateEvidenceHash
+  ) return [];
+
+  if (Array.isArray(approval.sourceRunIds)) {
+    return [...new Set(approval.sourceRunIds
+      .filter(runId => typeof runId === "string" && runId.length > 0))]
+      .sort()
+      .slice(0, 32);
+  }
+
+  const approvedEvidenceIds = new Set(
+    Array.isArray(approval.evidenceReceiptIds) ? approval.evidenceReceiptIds : [],
+  );
+  const profileRunIds = [...new Set([
+    ...(Array.isArray(compatibilityProfile?.sourceRunIds)
+      ? compatibilityProfile.sourceRunIds
+      : []),
+    ...(Array.isArray(compatibilityProfile?.signalInventory)
+      ? compatibilityProfile.signalInventory
+      : [])
+      .filter(item => approvedEvidenceIds.has(item?.sourceRescueReceiptId))
+      .map(item => item?.sourceRunId),
+  ].filter(runId => typeof runId === "string" && runId.length > 0))]
+    .sort()
+    .slice(0, 32);
+
+  return profileRunIds.length
+    ? profileRunIds
+    : legacyBlindCalibrationRunIds(store, actorId, vibeIdx);
+}
+
+async function readVisualJudgments(store, actorId, vibeIdx, runId) {
+  const index = await store.get(
+    auditVisualJudgmentIndexKey(actorId, vibeIdx, runId),
+    { type: "json", consistency: "strong" },
+  );
+  const indexed = await Promise.all((index?.receiptIds || []).map(receiptId =>
+    store.get(
+      auditVisualJudgmentKey(actorId, vibeIdx, runId, receiptId),
+      { type: "json", consistency: "strong" },
+    )));
+  const listed = await readReceipts(
+    store,
+    auditVisualJudgmentPrefix(actorId, vibeIdx, runId),
+    "judgedAt",
+  );
+  return [...new Map([...indexed, ...listed]
+    .filter(Boolean)
+    .map(receipt => [receipt.receiptId, receipt])).values()]
+    .sort((left, right) =>
+      String(left?.judgedAt || "").localeCompare(String(right?.judgedAt || ""))
+      || String(left?.receiptId || "").localeCompare(String(right?.receiptId || "")));
+}
+
 export function isApproved(snapshot) {
   return Boolean(
     snapshot
@@ -630,9 +860,14 @@ export function isReleaseReady(snapshot) {
     snapshot
     && snapshot.eligible === true
     && snapshot.runId
-    && snapshot.verdict === "approved"
-    && snapshot.vibeConfirmed === true
-    && snapshot.publishableConfirmed === true,
+    && (
+      snapshot.verdict === "approved_override"
+      || (
+        snapshot.verdict === "approved"
+        && snapshot.vibeConfirmed === true
+        && snapshot.publishableConfirmed === true
+      )
+    ),
   );
 }
 
@@ -662,7 +897,9 @@ export async function selectEligiblePair(
     if (allowedActorId && actor.id !== allowedActorId) continue;
     const key = `${actor.id}:${pair.vIdx}`;
     if (excluded.has(key)) continue;
-    if (isApproved(await getEligibility(store, actor, pair.vIdx))) {
+    // Ordinary approval needs both confirmations; an explicit approved
+    // override is itself release authority for this pairing.
+    if (isReleaseReady(await getEligibility(store, actor, pair.vIdx))) {
       return {
         ...pair,
         legacy: pair.aIdx === legacy.aIdx && pair.vIdx === legacy.vIdx,

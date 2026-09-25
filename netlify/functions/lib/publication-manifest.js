@@ -7,6 +7,13 @@ import {
   registerMediaBytes,
   requestError,
 } from "./media-asset.js";
+import {
+  ensureArchiveAccessWindow,
+} from "./archive-access.js";
+import {
+  assertPublicArchiveRecord,
+  publicArchiveRecordDiagnostic,
+} from "../../../src/contracts/publicArchiveRecord.js";
 
 export const GRID_MANIFEST_VERSION = "v1";
 export const GRID_MANIFEST_PREFIX = `vibeAtlas:grid-manifest:${GRID_MANIFEST_VERSION}:`;
@@ -19,6 +26,15 @@ export const PUBLICATION_ACTOR_INDEX_KEY =
   `vibeAtlas:grid-manifest-actor-index:${PUBLICATION_ACTOR_INDEX_VERSION}:latest`;
 export const PUBLICATION_MANIFEST_CATALOG_KEY =
   `vibeAtlas:grid-manifest-catalog:${GRID_MANIFEST_VERSION}:dates`;
+export const PUBLICATION_ACTOR_INDEX_REPAIR_KEY =
+  `vibeAtlas:grid-manifest-actor-index-repair:${PUBLICATION_ACTOR_INDEX_VERSION}:latest`;
+
+export const PUBLICATION_ACTOR_INDEX_REPAIR_RECOVERY_PREFIX =
+  `vibeAtlas:grid-manifest-actor-index-repair-recovery:${PUBLICATION_ACTOR_INDEX_VERSION}:`;
+export const PUBLICATION_ACTOR_INDEX_REPAIR_RECOVERY_CATALOG_KEY =
+  `vibeAtlas:grid-manifest-actor-index-repair-recovery-catalog:${PUBLICATION_ACTOR_INDEX_VERSION}:latest`;
+const PUBLICATION_ACTOR_INDEX_REPAIR_WINDOW_MS = 24 * 60 * 60 * 1000;
+const PUBLICATION_ACTOR_INDEX_REPAIR_RECOVERY_HISTORY_LIMIT = 100;
 const REQUIRED_CARD_COUNT = 9;
 const DATE_RE = /^\d{4}-\d{2}-\d{2}$/;
 const PUBLICATION_LOCK_TTL_MS = 10 * 60 * 1000;
@@ -34,7 +50,146 @@ export const gridCorrectionPrefix = date =>
 export const gridCorrectionKey = (date, correctionReceiptId) =>
   `${gridCorrectionPrefix(date)}${encodeURIComponent(correctionReceiptId)}`;
 export const publicationActorIndexKey = () => PUBLICATION_ACTOR_INDEX_KEY;
+export const publicationActorIndexRepairKey = () => PUBLICATION_ACTOR_INDEX_REPAIR_KEY;
+
+export const publicationActorIndexRepairRecoveryKey = receiptId =>
+  `${PUBLICATION_ACTOR_INDEX_REPAIR_RECOVERY_PREFIX}${encodeURIComponent(receiptId)}`;
+export const publicationActorIndexRepairRecoveryCatalogKey = () =>
+  PUBLICATION_ACTOR_INDEX_REPAIR_RECOVERY_CATALOG_KEY;
 export const publicationManifestCatalogKey = () => PUBLICATION_MANIFEST_CATALOG_KEY;
+
+export const PUBLIC_VIBE_ATLAS_ORIGIN = "https://fandom.justlikekatie.com";
+export const PUBLIC_ACTOR_PATH = "/vibe-atlas/actors";
+export const PUBLIC_EDITION_PATH = "/vibe-atlas/editions";
+const MIN_PUBLIC_EDITORIAL_COPY_LENGTH = 40;
+
+export function publicActorSlug(actor) {
+  const source = actor?.nameEn || actor?.name || actor?.id || "";
+  return String(source)
+    .normalize("NFKD")
+    .replace(/[\u0300-\u036f]/g, "")
+    .toLowerCase()
+    .replace(/[^a-z0-9]+/g, "-")
+    .replace(/^-+|-+$/g, "") || "actor";
+}
+
+export function publicActorPath(actor) {
+  return `${PUBLIC_ACTOR_PATH}/${publicActorSlug(actor)}/`;
+}
+
+export function publicEditionPath(manifest) {
+  if (!isPublicationDate(manifest?.publicationDate) || !manifest?.actor) return null;
+  return `${PUBLIC_EDITION_PATH}/${manifest.publicationDate}/${publicActorSlug(manifest.actor)}/`;
+}
+
+function publicCanonical(path) {
+  return `${PUBLIC_VIBE_ATLAS_ORIGIN}${path}`;
+}
+
+/**
+ * A manifest can be immutable without being a useful public editorial record.
+ * Keep this gate stricter than isGridManifest: it is the sole indexability
+ * predicate used by the public directory and edition endpoint.
+ */
+export function isIndexablePublicationManifest(manifest) {
+  if (!isGridManifest(manifest)) return false;
+  const copy = manifest.vibe?.supportingCopyEn || manifest.vibe?.supportingCopy;
+  if (typeof copy !== "string" || copy.trim().length < MIN_PUBLIC_EDITORIAL_COPY_LENGTH) {
+    return false;
+  }
+  if (!manifest.vibe?.labelEn?.trim() || !manifest.vibe?.subtitleEn?.trim()) return false;
+  return Boolean(publicEditionPath(manifest));
+}
+
+export function publicEditionPreview(manifest) {
+  if (!isIndexablePublicationManifest(manifest)) return null;
+  const actorPath = publicActorPath(manifest.actor);
+  const editionPath = publicEditionPath(manifest);
+  const copy = (manifest.vibe.supportingCopyEn || manifest.vibe.supportingCopy).trim();
+  return {
+    kind: "vibe-atlas-public-edition",
+    date: manifest.publicationDate,
+    actor: {
+      id: manifest.actor.id,
+      name: manifest.actor.name,
+      nameEn: manifest.actor.nameEn,
+      accentColor: manifest.actor.accentColor,
+      slug: publicActorSlug(manifest.actor),
+      path: actorPath,
+      canonical: publicCanonical(actorPath),
+    },
+    vibe: {
+      label: manifest.vibe.label,
+      labelEn: manifest.vibe.labelEn,
+      emoji: manifest.vibe.emoji || null,
+      subtitleEn: manifest.vibe.subtitleEn,
+      copy,
+    },
+    canonical: publicCanonical(editionPath),
+    path: editionPath,
+    publishedAt: manifest.publishedAt,
+    heroPosition: manifest.heroPosition,
+    previews: manifest.cards.map(card => ({
+      position: card.position,
+      title: typeof card.title === "string" ? card.title : "",
+      source: typeof card.source === "string" ? card.source : "",
+      link: typeof card.link === "string" && card.link.startsWith("https://")
+        ? card.link
+        : null,
+      thumbnailUrl: card.media.thumbnailUrl,
+      deliveryUrl: card.media.deliveryUrl,
+      mimeType: card.media.mimeType,
+      dimensions: {
+        width: card.media.dimensions.width,
+        height: card.media.dimensions.height,
+      },
+    })),
+  };
+}
+
+export function publicActorDirectory(manifests) {
+  const editions = (Array.isArray(manifests) ? manifests : [])
+    .filter(isIndexablePublicationManifest)
+    .map(publicEditionPreview)
+    .sort((left, right) => right.date.localeCompare(left.date));
+  const actors = new Map();
+  for (const edition of editions) {
+    const current = actors.get(edition.actor.id);
+    if (!current) {
+      actors.set(edition.actor.id, {
+        ...edition.actor,
+        editionCount: 1,
+        latestEdition: edition.date,
+        editions: [{ date: edition.date, path: edition.path, canonical: edition.canonical }],
+        relatedContext: [{
+          label: edition.vibe.label,
+          labelEn: edition.vibe.labelEn,
+          subtitleEn: edition.vibe.subtitleEn,
+        }],
+      });
+      continue;
+    }
+    current.editionCount += 1;
+    current.editions.push({
+      date: edition.date,
+      path: edition.path,
+      canonical: edition.canonical,
+    });
+    if (!current.relatedContext.some(context => context.labelEn === edition.vibe.labelEn)) {
+      current.relatedContext.push({
+        label: edition.vibe.label,
+        labelEn: edition.vibe.labelEn,
+        subtitleEn: edition.vibe.subtitleEn,
+      });
+    }
+  }
+  return [...actors.values()]
+    .sort((left, right) => left.nameEn.localeCompare(right.nameEn))
+    .map(actor => ({
+      ...actor,
+      canonical: publicCanonical(actor.path),
+    }));
+}
 
 export async function readPublicationManifests(store) {
   const catalog = await store.get(publicationManifestCatalogKey(), {
@@ -50,15 +205,119 @@ export async function readPublicationManifests(store) {
     type: "json",
     consistency: "strong",
   })));
+  const validCatalog = isPublicationManifestCatalog(catalog);
+  const validManifests = manifests.filter(isGridManifest);
+  const catalogCoverageComplete = validCatalog && catalog.dates.every(date => {
+    const manifest = manifests[keys.indexOf(gridManifestKey(date))];
+    return isGridManifest(manifest) && manifest.publicationDate === date;
+  });
   return {
-    manifests: manifests.filter(isGridManifest),
+    manifests: validManifests,
     inventory: {
-      catalogValid: isPublicationManifestCatalog(catalog),
+      catalogValid: validCatalog,
       catalogDateCount: catalogKeys.length,
       listedManifestCount: listedKeys.length,
-      manifestCount: manifests.filter(isGridManifest).length,
-      complete: isPublicationManifestCatalog(catalog),
+      manifestCount: validManifests.length,
+      complete: catalogCoverageComplete,
     },
+  };
+}
+
+export async function repairPublicationManifestPublicRecords(
+  store,
+  { cursor = null, limit = 100, now = () => new Date() } = {},
+) {
+  if (!Number.isSafeInteger(limit) || limit < 1 || limit > 100) {
+    throw new Error("The publication reader-link repair limit is invalid.");
+  }
+  const catalog = await store.get(publicationManifestCatalogKey(), {
+    type: "json",
+    consistency: "strong",
+  });
+  const keys = [...new Set([
+    ...(isPublicationManifestCatalog(catalog) ? catalog.dates.map(gridManifestKey) : []),
+    ...await readPublicationManifestKeys(store),
+  ])].sort().reverse();
+  const page = keys.filter(key => !cursor || key < cursor).slice(0, limit);
+  const invalid = [];
+  let repaired = 0;
+  let cataloged = 0;
+  const catalogedDates = new Set(
+    isPublicationManifestCatalog(catalog) ? catalog.dates : [],
+  );
+  for (const key of page) {
+    let completed = false;
+    for (let attempt = 0; attempt < 8; attempt += 1) {
+      const withMetadata = typeof store.getWithMetadata === "function"
+        ? await store.getWithMetadata(key, { type: "json", consistency: "strong" })
+        : null;
+      const manifest = withMetadata?.data ?? await store.get(
+        key,
+        { type: "json", consistency: "strong" },
+      );
+      if (!manifest) {
+        completed = true;
+        break;
+      }
+      const metadata = structuredClone(manifest);
+      delete metadata.publicRecord;
+      if (!isGridManifest(metadata)) {
+        invalid.push({ key, status: "invalid_manifest", repaired: false });
+        completed = true;
+        break;
+      }
+      if (!catalogedDates.has(manifest.publicationDate)) {
+        await ensurePublicationManifestCatalogDate(
+          store,
+          manifest.publicationDate,
+          now,
+        );
+        catalogedDates.add(manifest.publicationDate);
+        cataloged += 1;
+      }
+      const expectedActorSlug = publicActorSlug(manifest.actor);
+      const diagnostic = publicArchiveRecordDiagnostic(manifest.publicRecord, {
+        expectedDate: manifest.publicationDate,
+        expectedActorSlug,
+      });
+      if (diagnostic.status === "valid") {
+        completed = true;
+        break;
+      }
+      const next = {
+        ...manifest,
+        publicRecord: {
+          actorPath: `${PUBLIC_ACTOR_PATH}/${expectedActorSlug}/`,
+          editionPath: `${PUBLIC_EDITION_PATH}/${manifest.publicationDate}/${expectedActorSlug}/`,
+        },
+      };
+      if (manifest && !withMetadata?.etag) {
+        throw new Error("The publication reader links could not be repaired safely because storage did not provide a revision tag.");
+      }
+      const write = await store.setJSON(key, next, { onlyIfMatch: withMetadata.etag });
+      if (write?.modified === false) continue;
+      const authoritative = await store.get(key, { type: "json", consistency: "strong" });
+      if (!isGridManifest(authoritative)
+        || JSON.stringify(authoritative.publicRecord) !== JSON.stringify(next.publicRecord)) {
+        throw new Error("The publication reader-link repair could not be verified.");
+      }
+      invalid.push({ key, status: diagnostic.status, repaired: true });
+      repaired += 1;
+      completed = true;
+      break;
+    }
+    if (!completed) {
+      throw new Error("The publication reader links could not be repaired safely after repeated conflicts.");
+    }
+  }
+  return {
+    scanned: page.length,
+    invalid,
+    repaired,
+    cataloged,
+    nextCursor: keys.filter(key => !cursor || key < cursor).length > page.length
+      ? page.at(-1)
+      : null,
   };
 }
 
@@ -277,21 +536,35 @@ export async function readLatestPublicationDatesByActor(
   store,
   { throughDate = null, actorIds = null } = {},
 ) {
+  const result = await readLatestPublicationDatesByActorWithHealth(store, {
+    throughDate,
+    actorIds,
+  });
+  return result.dates;
+}
+
+export async function readLatestPublicationDatesByActorWithHealth(
+  store,
+  { throughDate = null, actorIds = null, now = () => new Date().toISOString() } = {},
+) {
   const requestedActorIds = actorIds
     ? new Set(actorIds.filter(actorId => typeof actorId === "string"))
     : null;
   let index = null;
+  let repairReason = null;
   try {
     index = await store.get(publicationActorIndexKey(), {
       type: "json",
       consistency: "strong",
     });
   } catch {
+    repairReason = "read_failed";
     // A transient index read failure should not make the private inventory
     // claim that no actor has ever been published.
   }
 
   let stale = !isPublicationActorIndex(index);
+  if (stale && !repairReason) repairReason = index ? "invalid" : "missing";
   if (!stale) {
     try {
       stale = await publicationActorIndexIsStale(
@@ -302,13 +575,24 @@ export async function readLatestPublicationDatesByActor(
       );
     } catch {
       stale = true;
+      repairReason = "verification_failed";
     }
+    if (stale && !repairReason) repairReason = "stale";
   }
   if (stale) {
-    index = await rebuildPublicationActorIndexSafely(store, throughDate);
+    const repair = await rebuildPublicationActorIndexSafely(store, throughDate);
+    index = repair.index;
+    await recordPublicationActorIndexRepair(store, {
+      attemptedAt: asTimestamp(now()),
+      reason: repairReason,
+      outcome: repair.outcome,
+    });
   }
 
-  return publicationDatesFromIndex(index, throughDate, requestedActorIds);
+  return {
+    dates: publicationDatesFromIndex(index, throughDate, requestedActorIds),
+    repairHealth: await readPublicationActorIndexRepairHealth(store, now),
+  };
 }
 
 /**
@@ -366,23 +650,332 @@ export async function rebuildPublicationActorIndex(
 
 async function rebuildPublicationActorIndexSafely(store, throughDate) {
   try {
-    return await rebuildPublicationActorIndex(store, { throughDate });
+    return {
+      index: await rebuildPublicationActorIndex(store, { throughDate }),
+      outcome: "rebuilt",
+    };
   } catch {
     // The inventory can still be correct for this request when the derived
     // write is unavailable. The next request will retry the rebuild.
     try {
       const scan = await readPublicationManifestsForIndex(store, throughDate);
-      return publicationActorIndexFromManifests(
-        scan.manifests,
-        new Date().toISOString(),
-        scan.coverageKeys,
-        throughDate,
-      );
+      return {
+        index: publicationActorIndexFromManifests(
+          scan.manifests,
+          new Date().toISOString(),
+          scan.coverageKeys,
+          throughDate,
+        ),
+        outcome: "fallback_scan",
+      };
     } catch {
       // Missing history is safer than presenting an unverified date.
-      return emptyPublicationActorIndex(new Date().toISOString());
+      return {
+        index: emptyPublicationActorIndex(new Date().toISOString()),
+        outcome: "failed",
+      };
     }
   }
+}
+
+async function recordPublicationActorIndexRepair(store, event) {
+  try {
+    const current = await store.get(publicationActorIndexRepairKey(), {
+      type: "json",
+      consistency: "strong",
+    });
+    const events = [
+      ...(Array.isArray(current?.events) ? current.events : []),
+      event,
+    ].filter(item => (
+      item
+      && Number.isFinite(Date.parse(item.attemptedAt))
+      && ["missing", "invalid", "stale", "read_failed", "verification_failed"].includes(item.reason)
+      && ["rebuilt", "fallback_scan", "failed"].includes(item.outcome)
+    )).slice(-20);
+    await store.setJSON(publicationActorIndexRepairKey(), {
+      schemaVersion: 1,
+      kind: "vibe-atlas-publication-actor-index-repair-health",
+      updatedAt: event.attemptedAt,
+      events,
+    });
+  } catch {
+    // Repair telemetry is private observability and must not block inventory.
+  }
+}
+
+function isPublicationActorIndexRepairEvent(event) {
+  return Boolean(
+    event
+    && typeof event === "object"
+    && typeof event.attemptedAt === "string"
+    && Number.isFinite(Date.parse(event.attemptedAt))
+    && ["missing", "invalid", "stale", "read_failed", "verification_failed"].includes(event.reason)
+    && ["rebuilt", "fallback_scan", "failed"].includes(event.outcome)
+  );
+}
+
+function unavailablePublicationActorIndexRepairHealth() {
+  return {
+    status: "unavailable",
+    warning: true,
+    windowHours: 24,
+    attemptCount: 0,
+    failedAttemptCount: 0,
+    lastAttemptAt: null,
+    lastOutcome: null,
+  };
+}
+
+async function readPublicationActorIndexRepairHealth(store, now) {
+  try {
+    const record = await store.get(publicationActorIndexRepairKey(), {
+      type: "json",
+      consistency: "strong",
+    });
+    const nowAt = Date.parse(asTimestamp(now()));
+    if (!Number.isFinite(nowAt)) {
+      return unavailablePublicationActorIndexRepairHealth();
+    }
+    if (record !== null && record !== undefined && (
+      record?.schemaVersion !== 1
+      || record?.kind !== "vibe-atlas-publication-actor-index-repair-health"
+      || !Array.isArray(record?.events)
+      || !record.events.every(isPublicationActorIndexRepairEvent)
+    )) {
+      return unavailablePublicationActorIndexRepairHealth();
+    }
+    const recentEvents = (record?.events || [])
+      .filter(event => (
+        nowAt - Date.parse(event.attemptedAt) <= PUBLICATION_ACTOR_INDEX_REPAIR_WINDOW_MS
+        && nowAt >= Date.parse(event.attemptedAt)
+      ));
+    const lastEvent = recentEvents.at(-1) || null;
+    const failed = recentEvents.filter(event => event.outcome !== "rebuilt").length;
+    return {
+      status: failed > 0 ? "failed" : recentEvents.length >= 2 ? "repeated" : "healthy",
+      warning: failed > 0 || recentEvents.length >= 2,
+      windowHours: 24,
+      attemptCount: recentEvents.length,
+      failedAttemptCount: failed,
+      lastAttemptAt: lastEvent?.attemptedAt || null,
+      lastOutcome: lastEvent?.outcome || null,
+    };
+  } catch {
+    return unavailablePublicationActorIndexRepairHealth();
+  }
+}
+
+export async function recoverPublicationActorIndexRepairHealth(
+  store,
+  {
+    now = () => new Date().toISOString(),
+    operator,
+    reason = "",
+    createReceiptId = () => randomUUID(),
+  } = {},
+) {
+  const recoveredAt = asTimestamp(now());
+  const recoveredAtMs = Date.parse(recoveredAt);
+  if (!Number.isFinite(recoveredAtMs)) {
+    throw requestError("Repair health could not be recovered with an invalid timestamp.", 503);
+  }
+
+  let current = null;
+  try {
+    current = await store.get(publicationActorIndexRepairKey(), {
+      type: "json",
+      consistency: "strong",
+    });
+  } catch {
+    // An unreadable telemetry record can still be safely reset. This recovery
+    // never reads or writes publication manifests or the actor index.
+  }
+  const events = (Array.isArray(current?.events) ? current.events : [])
+    .filter(isPublicationActorIndexRepairEvent)
+    .filter(event => {
+      const attemptedAt = Date.parse(event.attemptedAt);
+      return attemptedAt <= recoveredAtMs
+        && recoveredAtMs - attemptedAt <= PUBLICATION_ACTOR_INDEX_REPAIR_WINDOW_MS;
+    })
+    .slice(-20);
+  const record = {
+    schemaVersion: 1,
+    kind: "vibe-atlas-publication-actor-index-repair-health",
+    updatedAt: recoveredAt,
+    events,
+  };
+  const receiptId = `repair-health-recovery-${createReceiptId()}`;
+  const receipt = {
+    schemaVersion: 1,
+    kind: "vibe-atlas-publication-actor-index-repair-health-recovery",
+    status: "authorized",
+    receiptId,
+    recoveredAt,
+    recoveredBy: operator,
+    preservedEventCount: events.length,
+    reason: reason || null,
+    targetRepairHealth: {
+      updatedAt: record.updatedAt,
+      eventCount: record.events.length,
+    },
+  };
+
+  try {
+    const receiptWrite = await store.setJSON(
+      publicationActorIndexRepairRecoveryKey(receiptId),
+      receipt,
+      { onlyIfNew: true },
+    );
+    if (receiptWrite?.modified === false) {
+      throw new Error("Repair-health recovery receipt already exists.");
+    }
+    await appendPublicationActorIndexRepairRecoveryCatalog(store, receipt);
+    await store.setJSON(publicationActorIndexRepairKey(), record);
+    const health = await readPublicationActorIndexRepairHealth(store, () => recoveredAt);
+    if (health.status === "unavailable") {
+      throw new Error("Recovered repair health could not be verified.");
+    }
+    return {
+      recovered: true,
+      preservedEventCount: events.length,
+      receiptId,
+      repairHealth: health,
+    };
+  } catch {
+    throw requestError("Repair health could not be recovered. No publication data was changed.", 503);
+  }
+}
+
+function isPublicationActorIndexRepairRecoveryReceipt(receipt) {
+  return receipt?.schemaVersion === 1
+    && receipt.kind === "vibe-atlas-publication-actor-index-repair-health-recovery"
+    && receipt.status === "authorized"
+    && typeof receipt.receiptId === "string"
+    && typeof receipt.recoveredAt === "string"
+    && Number.isFinite(Date.parse(receipt.recoveredAt))
+    && typeof receipt.recoveredBy === "string"
+    && Number.isSafeInteger(receipt.preservedEventCount)
+    && receipt.preservedEventCount >= 0
+    && (receipt.reason === null || typeof receipt.reason === "string");
+}
+
+function repairRecoveryHistoryItem(receipt) {
+  return {
+    receiptId: receipt.receiptId,
+    recoveredAt: receipt.recoveredAt,
+    recoveredBy: receipt.recoveredBy,
+    preservedEventCount: receipt.preservedEventCount,
+    reason: receipt.reason,
+  };
+}
+
+function isPublicationActorIndexRepairRecoveryCatalog(catalog) {
+  return catalog?.schemaVersion === 1
+    && catalog.kind === "vibe-atlas-publication-actor-index-repair-health-recovery-catalog"
+    && Array.isArray(catalog.receipts)
+    && catalog.receipts.length <= PUBLICATION_ACTOR_INDEX_REPAIR_RECOVERY_HISTORY_LIMIT
+    && catalog.receipts.every(isPublicationActorIndexRepairRecoveryReceipt);
+}
+
+async function appendPublicationActorIndexRepairRecoveryCatalog(store, receipt) {
+  const key = publicationActorIndexRepairRecoveryCatalogKey();
+  for (let attempt = 0; attempt < 8; attempt += 1) {
+    const current = typeof store.getWithMetadata === "function"
+      ? await store.getWithMetadata(key, { type: "json", consistency: "strong" })
+      : null;
+    const catalog = current?.data;
+    if (catalog && !isPublicationActorIndexRepairRecoveryCatalog(catalog)) {
+      throw new Error("Repair-health recovery history is invalid.");
+    }
+    const receipts = [
+      receipt,
+      ...(catalog?.receipts || []).filter(item => item.receiptId !== receipt.receiptId),
+    ]
+      .sort((left, right) =>
+        right.recoveredAt.localeCompare(left.recoveredAt)
+        || right.receiptId.localeCompare(left.receiptId))
+      .slice(0, PUBLICATION_ACTOR_INDEX_REPAIR_RECOVERY_HISTORY_LIMIT);
+    const next = {
+      schemaVersion: 1,
+      kind: "vibe-atlas-publication-actor-index-repair-health-recovery-catalog",
+      updatedAt: receipt.recoveredAt,
+      receipts,
+    };
+    const write = await store.setJSON(key, next, current?.etag
+      ? { onlyIfMatch: current.etag }
+      : { onlyIfNew: true });
+    if (write?.modified !== false) return;
+  }
+  throw new Error("Repair-health recovery history changed concurrently.");
+}
+
+async function initializePublicationActorIndexRepairRecoveryCatalog(store) {
+  const listing = await store.list({
+    prefix: PUBLICATION_ACTOR_INDEX_REPAIR_RECOVERY_PREFIX,
+    paginate: false,
+  });
+  const keys = (listing?.blobs || [])
+    .map(blob => blob?.key)
+    .filter(key =>
+      typeof key === "string"
+      && key.startsWith(PUBLICATION_ACTOR_INDEX_REPAIR_RECOVERY_PREFIX));
+  const receipts = (await Promise.all(keys.map(key => store.get(key, {
+    type: "json",
+    consistency: "strong",
+  }))))
+    .filter(isPublicationActorIndexRepairRecoveryReceipt)
+    .sort((left, right) =>
+      right.recoveredAt.localeCompare(left.recoveredAt)
+      || right.receiptId.localeCompare(left.receiptId))
+    .slice(0, PUBLICATION_ACTOR_INDEX_REPAIR_RECOVERY_HISTORY_LIMIT);
+  const catalog = {
+    schemaVersion: 1,
+    kind: "vibe-atlas-publication-actor-index-repair-health-recovery-catalog",
+    updatedAt: receipts[0]?.recoveredAt || new Date(0).toISOString(),
+    receipts,
+  };
+  const write = await store.setJSON(
+    publicationActorIndexRepairRecoveryCatalogKey(),
+    catalog,
+    { onlyIfNew: true },
+  );
+  if (write?.modified !== false) return catalog;
+  const authoritative = await store.get(
+    publicationActorIndexRepairRecoveryCatalogKey(),
+    { type: "json", consistency: "strong" },
+  );
+  if (!isPublicationActorIndexRepairRecoveryCatalog(authoritative)) {
+    throw requestError("Repair-health recovery history is unavailable.", 503);
+  }
+  return authoritative;
+}
+
+export async function listPublicationActorIndexRepairRecoveryReceipts(
+  store,
+  { limit = 25 } = {},
+) {
+  if (!Number.isSafeInteger(limit) || limit < 1 || limit > 100) {
+    throw requestError("The repair-health recovery history limit is invalid.", 400);
+  }
+  let catalog = await store.get(publicationActorIndexRepairRecoveryCatalogKey(), {
+    type: "json",
+    consistency: "strong",
+  });
+  if (!catalog) {
+    catalog = await initializePublicationActorIndexRepairRecoveryCatalog(store);
+  }
+  if (catalog && !isPublicationActorIndexRepairRecoveryCatalog(catalog)) {
+    throw requestError("Repair-health recovery history is unavailable.", 503);
+  }
+  const receipts = (catalog?.receipts || [])
+    .slice(0, limit)
+    .map(repairRecoveryHistoryItem);
+  return {
+    receipts,
+    retainedReceiptCount: catalog?.receipts.length || 0,
+    historyLimit: PUBLICATION_ACTOR_INDEX_REPAIR_RECOVERY_HISTORY_LIMIT,
+  };
 }
 
 async function updatePublicationActorIndex(store, manifest, now) {
@@ -479,7 +1072,7 @@ async function publicationActorIndexIsStale(store, index, throughDate, actorIds)
 function publicationActorIndexEntryMatchesManifest(index, manifest) {
   const actorId = manifest?.actor?.id;
   const entry = typeof actorId === "string" ? index.actors?.[actorId] : null;
-  if (!entry || !isIndexablePublicationManifest(manifest)
+  if (!entry || !isVerifiedPublicationManifest(manifest)
     || entry.latestPublicationDate !== manifest.publicationDate) return false;
   if (entry.manifestId && entry.manifestId !== manifest.manifestId) return false;
   if (entry.boardHash && entry.boardHash !== manifest.boardHash) return false;
@@ -633,7 +1226,7 @@ function isPublicationActorIndexEntry(entry) {
   );
 }
 
-function isIndexablePublicationManifest(manifest) {
+function isVerifiedPublicationManifest(manifest) {
   return isGridManifest(manifest);
 }
 
@@ -661,7 +1254,6 @@ function isPublicationManifestCatalog(value) {
     && Array.isArray(value.dates)
     && value.dates.every(isPublicationDate);
 }
-
 async function ensurePublicationManifestCatalogDate(store, date, now) {
   for (let attempt = 0; attempt < 8; attempt += 1) {
     const currentWithMetadata = typeof store.getWithMetadata === "function"
@@ -678,11 +1270,12 @@ async function ensurePublicationManifestCatalogDate(store, date, now) {
     if (current && !isPublicationManifestCatalog(current)) {
       throw requestError("The publication manifest catalog is invalid.", 503);
     }
+    const dates = [...new Set([...(current?.dates || []), date])].sort();
     const next = {
       schemaVersion: 1,
       catalogVersion: GRID_MANIFEST_VERSION,
       kind: "vibe-atlas-publication-manifest-catalog",
-      dates: [...new Set([...(current?.dates || []), date])].sort(),
+      dates,
       updatedAt: asTimestamp(now()),
     };
     const write = await store.setJSON(
@@ -817,7 +1410,7 @@ async function materializePublicationManifestUnlocked({
   validateBeforeCommit = null,
 }) {
   validatePublicationInput(date, actor, vibe, board);
-  await ensurePublicationManifestCatalogDate(store, date, now);
+  const publicationCatalog = await ensurePublicationManifestCatalogDate(store, date, now);
   const boardHashValue = boardHash(board);
   const manifestKey = gridManifestKey(date);
   const existingManifest = await store.get(manifestKey, {
@@ -828,6 +1421,7 @@ async function materializePublicationManifestUnlocked({
     if (!isGridManifest(existingManifest) || existingManifest.boardHash !== boardHashValue) {
       throw requestError("That publication date already contains a different immutable board.", 409);
     }
+    await ensureArchiveAccessWindow(store, publicationCatalog.dates, now);
     await updatePublicationActorIndexSafely(store, existingManifest, now);
     return { manifest: existingManifest, payload: manifestPayload(existingManifest) };
   }
@@ -841,6 +1435,7 @@ async function materializePublicationManifestUnlocked({
     if (!isGridManifest(racedManifest) || racedManifest.boardHash !== boardHashValue) {
       throw requestError("That publication date already contains a different immutable board.", 409);
     }
+    await ensureArchiveAccessWindow(store, publicationCatalog.dates, now);
     await updatePublicationActorIndexSafely(store, racedManifest, now);
     return { manifest: racedManifest, payload: manifestPayload(racedManifest) };
   }
@@ -946,6 +1541,13 @@ async function materializePublicationManifestUnlocked({
       ...provenance,
       sourceCandidateIds: cards.map(card => card.candidateId),
     },
+    publicRecord: assertPublicArchiveRecord({
+      actorPath: publicActorPath(actor),
+      editionPath: `${PUBLIC_EDITION_PATH}/${date}/${publicActorSlug(actor)}/`,
+    }, {
+      expectedDate: date,
+      expectedActorSlug: publicActorSlug(actor),
+    }),
     cards,
   };
   if (typeof validateBeforeCommit === "function") {
@@ -956,6 +1558,7 @@ async function materializePublicationManifestUnlocked({
   if (!isGridManifest(authoritative) || authoritative.boardHash !== boardHashValue) {
     throw requestError("Another board won this publication date.", 409);
   }
+  await ensureArchiveAccessWindow(store, publicationCatalog.dates, now);
   await updatePublicationActorIndexSafely(store, authoritative, now);
   try {
     await store.delete(pendingKey);
@@ -971,6 +1574,7 @@ async function materializePublicationManifestUnlocked({
 
 export function manifestPayload(manifest, version = "v10") {
   if (!isGridManifest(manifest)) return null;
+  const publicEdition = publicEditionPreview(manifest);
   const displayResults = manifest.cards.map(card => ({
     title: card.title,
     thumbnail: card.media.thumbnailUrl,
@@ -1009,6 +1613,12 @@ export function manifestPayload(manifest, version = "v10") {
     }],
     displayResults,
     generatedAt: manifest.publishedAt,
+    ...(publicEdition ? {
+      publicRecord: {
+        actorPath: publicEdition.actor.path,
+        editionPath: publicEdition.path,
+      },
+    } : {}),
   };
 }
 
@@ -1113,6 +1723,16 @@ export function isGridManifest(value) {
     || value.provenance.sourceCandidateIds.length !== REQUIRED_CARD_COUNT
     || value.provenance.sourceCandidateIds.some((candidateId, position) =>
       candidateId !== value.cards[position]?.candidateId)) return false;
+  if (Object.hasOwn(value, "publicRecord")) {
+    try {
+      assertPublicArchiveRecord(value.publicRecord, {
+        expectedDate: value.publicationDate,
+        expectedActorSlug: publicActorSlug(value.actor),
+      });
+    } catch {
+      return false;
+    }
+  }
   return value.cards.every((card, position) => isValidPublicationAsset(
     card,
     position,
@@ -1173,7 +1793,7 @@ function isValidPublicationAsset(asset, position, associationId) {
   );
 }
 
-async function fetchPublicationImage(sourceUrl, fetchImpl, resolveHost) {
+export async function fetchPublicationImage(sourceUrl, fetchImpl = fetch, resolveHost = lookup) {
   let currentUrl = sourceUrl;
   let response;
   for (let redirectCount = 0; redirectCount <= 3; redirectCount += 1) {

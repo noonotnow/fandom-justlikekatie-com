@@ -38,13 +38,43 @@ export interface BuilderCard {
   resultId: string;
   /** Stable content checksum when the image has been registered in MEDIA. */
   mediaChecksum?: string;
-  origin: 'saved-card' | 'saved-grid';
+  origin: 'saved-card' | 'saved-grid' | 'daily-drop';
   sourceGridId?: string;
   /** Visual family id assigned during pool build (editorial set or batch). */
   familyId: string;
   familyLabel: string;
   familyEvidence?: 'persisted-event' | 'batch' | 'publisher' | 'fallback';
   legendaryMisprint?: LegendaryMisprint;
+}
+
+interface DailyDropBuilderResult {
+  title?: string;
+  thumbnail: string;
+  link?: string;
+  source?: string;
+  familyId?: string;
+  familyLabel?: string;
+  familyEvidence?: 'persisted-event' | 'batch' | 'publisher' | 'fallback';
+}
+
+interface DailyDropBuilderBatch {
+  query: string;
+  results: DailyDropBuilderResult[];
+}
+
+export interface DailyDropBuilderInput {
+  actorId: string;
+  actorName: string;
+  actorShortNameEn: string;
+  actorAccentColor: string;
+  vibeEmoji: string;
+  vibeLabel: string;
+  vibeLabelEn: string;
+  vibeSubtitle: string;
+  vibeSubtitleEn: string;
+  date: string;
+  rankedBatches: DailyDropBuilderBatch[];
+  displayResults?: DailyDropBuilderResult[];
 }
 
 export interface CollectionLens {
@@ -95,6 +125,27 @@ export interface GridProposal {
 
 // ── Pool construction ──────────────────────────────────────────────
 
+const LEGACY_ACTOR_PACK_IDS: Record<string, string> = {
+  '刘宇宁': 'liu-yuning',
+  'Liu Yuning': 'liu-yuning',
+  '刘学义': 'liu-xueyi',
+  'Liu Xueyi': 'liu-xueyi',
+  '宋威龙': 'song-weilong',
+  'Song Weilong': 'song-weilong',
+  '张凌赫': 'zhang-linghe',
+  'Zhang Linghe': 'zhang-linghe',
+  '敖瑞鹏': 'ao-ruipeng',
+  'Ao Ruipeng': 'ao-ruipeng',
+  '丁禹兮': 'ding-yuxi',
+  'Ding Yuxi': 'ding-yuxi',
+  '王鹤棣': 'dylan-wang',
+  'Dylan': 'dylan-wang',
+  'Dylan Wang': 'dylan-wang',
+  '王以纶': 'riley-wang',
+  'Riley': 'riley-wang',
+  'Riley Wang': 'riley-wang',
+};
+
 function savedRecordKey(card: CardRecord, index: number): string {
   return card.localId
     || card.serverId
@@ -108,6 +159,9 @@ function savedRecordKey(card: CardRecord, index: number): string {
 }
 
 function fromSavedCard(card: CardRecord, index: number): BuilderCard {
+  const canonicalActorId = card.actorId?.trim()
+    || LEGACY_ACTOR_PACK_IDS[card.actor]
+    || LEGACY_ACTOR_PACK_IDS[card.actorEn];
   return {
     key: savedRecordKey(card, index),
     imageUrl: card.media?.thumbnailUrl || card.thumbnailUrl || card.imageUrl,
@@ -116,7 +170,7 @@ function fromSavedCard(card: CardRecord, index: number): BuilderCard {
     ...(card.publisher ? { publisher: card.publisher } : {}),
     actor: card.actor,
     actorEn: card.actorEn,
-    actorId: `saved-${slugify(card.actorEn || card.actor)}`,
+    actorId: canonicalActorId || `saved-${slugify(card.actorEn || card.actor)}`,
     actorAccentColor: '#c9a96e',
     vibe: card.vibe,
     vibeEn: card.vibeEn,
@@ -135,8 +189,62 @@ function fromSavedCard(card: CardRecord, index: number): BuilderCard {
   };
 }
 
+export function actorPackIdForLens(pool: BuilderCard[], actor: string | undefined): string {
+  if (!actor) return '';
+  const actorId = pool.find(card => card.actor === actor)?.actorId || '';
+  return actorId.replace(/^saved-/, '');
+}
+
 function slugify(value: string): string {
   return value.toLowerCase().replace(/[^a-z0-9\u4e00-\u9fff]+/g, '-').replace(/^-+|-+$/g, '') || 'x';
+}
+
+/** Normalize the immutable active Daily Drop inventory for the shared builder UI. */
+export function buildDailyDropPool(data: DailyDropBuilderInput): BuilderCard[] {
+  const seen = new Set<string>();
+  const batches = data.displayResults?.length
+    ? [{
+      query: data.rankedBatches[0]?.query || 'daily-grid',
+      results: data.displayResults,
+    }]
+    : data.rankedBatches;
+  const cards: BuilderCard[] = [];
+
+  for (const batch of batches) {
+    for (const result of batch.results) {
+      if (!result.thumbnail || seen.has(result.thumbnail)) continue;
+      seen.add(result.thumbnail);
+      const batchKey = editorialBatchKey(batch.query);
+      const familyId = result.familyId
+        || (batchKey ? `batch-${slugify(batchKey)}` : `vibe-${slugify(data.vibeLabelEn || data.vibeLabel)}`);
+      const familyLabel = result.familyLabel || batchKey || data.vibeLabelEn || data.vibeLabel;
+      cards.push({
+        key: `daily:${data.date}:${result.thumbnail}`,
+        imageUrl: `/.netlify/functions/image-proxy?url=${encodeURIComponent(result.thumbnail)}`,
+        sourceUrl: result.link || result.thumbnail,
+        title: result.title || `${data.actorName} · ${data.vibeLabel}`,
+        ...(result.source ? { publisher: result.source } : {}),
+        actor: data.actorName,
+        actorEn: data.actorShortNameEn,
+        actorId: data.actorId,
+        actorAccentColor: data.actorAccentColor,
+        vibe: data.vibeLabel,
+        vibeEn: data.vibeLabelEn,
+        vibeEmoji: data.vibeEmoji,
+        vibeSubtitle: data.vibeSubtitle,
+        vibeSubtitleEn: data.vibeSubtitleEn,
+        ...(batchKey ? { batchKey } : {}),
+        capturedDate: data.date,
+        resultId: result.thumbnail,
+        origin: 'daily-drop',
+        familyId,
+        familyLabel,
+        familyEvidence: result.familyEvidence || (batchKey ? 'batch' : 'fallback'),
+      });
+    }
+  }
+
+  return cards;
 }
 
 const GENERIC_BATCH_KEYS = new Set([
@@ -251,7 +359,6 @@ export function applyLens(pool: BuilderCard[], lens: CollectionLens): BuilderCar
 
 const MAX_PER_FAMILY = 3;
 const MAX_PER_PUBLISHER = 4;
-export const EVENT_COMPOSITION_MAX = 12;
 export const STANDARD_COMPOSITION_SIZE = 9;
 
 function rankPool(pool: BuilderCard[]): BuilderCard[] {
@@ -285,7 +392,7 @@ function proposeEventGrid(pool: BuilderCard[], lens: CollectionLens): GridPropos
     return recency || (a[0]?.familyId || '').localeCompare(b[0]?.familyId || '');
   });
   const chosenFamily = familyList[0] || [];
-  const compositionSize: CompositionSize = chosenFamily.length >= EVENT_COMPOSITION_MAX ? 12 : 9;
+  const compositionSize: CompositionSize = STANDARD_COMPOSITION_SIZE;
   const slots = chosenFamily.slice(0, compositionSize);
   const selected = new Set(slots.map(card => card.key));
   const alternates = chosenFamily.filter(card => !selected.has(card.key));
@@ -475,7 +582,7 @@ function stableHash(value: string): string {
 }
 
 /**
- * Build a GridRecord from a complete 9- or 12-frame composition. The rationale brief is stored
+ * Build a GridRecord from a complete nine-frame composition. The rationale brief is stored
  * in `generationPrompt` so it survives into packets and the CREATE handoff
  * without touching the rendered card.
  */
@@ -483,9 +590,11 @@ export function gridRecordFromProposal(
   slots: BuilderCard[],
   rationale: GridRationale,
   now = new Date(),
+  presentation?: GridRecord['presentation'],
+  sourceProvenance?: GridRecord['sourceProvenance'],
 ): GridRecord {
-  if (slots.length !== 9 && slots.length !== 12) {
-    throw new Error(`A composition needs exactly 9 or 12 slots (got ${slots.length}).`);
+  if (slots.length !== STANDARD_COMPOSITION_SIZE) {
+    throw new Error(`A composition needs exactly 9 slots (got ${slots.length}).`);
   }
   const date = now.toISOString().slice(0, 10);
   const anchor = slots[0];
@@ -513,6 +622,7 @@ export function gridRecordFromProposal(
     actor: anchor.actor,
     actorEn: anchor.actorEn,
     actorAccentColor: anchor.actorAccentColor,
+    ...(presentation ? { presentation } : {}),
     vibe: vibes.length === 1 ? anchor.vibe : `${anchor.vibe} +`,
     vibeEn: vibes.length === 1 ? anchor.vibeEn : `${anchor.vibeEn} + ${vibes.length - 1} more`,
     vibeEmoji: anchor.vibeEmoji,
@@ -527,6 +637,7 @@ export function gridRecordFromProposal(
       misprint: intentionalMisprint,
       legendary: intentionalMisprint,
     },
+    ...(sourceProvenance ? { sourceProvenance } : {}),
     capturedDate: date,
     generatedAt: now.toISOString(),
     savedAt: now.toISOString(),

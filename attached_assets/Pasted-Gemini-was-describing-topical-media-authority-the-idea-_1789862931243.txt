@@ -1,0 +1,113 @@
+Gemini was describing **topical/media authority**: the idea that a large, well-organized historical collection can make search engines recognize Fandom Vibes as a useful destination for C-drama actor imagery and fandom context.
+
+It was **not—or should not be—“publish every raw image-search result.”**
+
+## The intended authority loop
+
+Every daily grid creates a durable record containing:
+
+- Actor identity in Chinese, English, and Pinyin
+- Assigned vibe and related vocabulary
+- Publication date
+- Curated 3×3 visual composite
+- Original editorial framing
+- Related actor, drama, character, and vibe pages
+- Source attribution where appropriate
+- A stable canonical URL
+
+Over time, that becomes a structured media corpus:
+
+```
+Actor page
+├── Daily edition A
+├── Daily edition B
+├── Vibe page
+├── Related drama/character
+└── Curated visual samples
+```
+
+Search engines then see:
+
+- **Depth:** many useful pages about the same domain
+- **Consistency:** recurring publication rather than one abandoned actor page
+- **Entity clarity:** clear relationships among actors, dramas, characters, and vibes
+- **Freshness:** new editions continue appearing
+- **Internal authority:** pages link to related pages in an understandable hierarchy
+- **Visual relevance:** descriptive images and composites can surface in image search
+- **User signals:** people visit, save, share, and return
+
+That is probably what Gemini meant by becoming a **media authority**.
+
+## Where “engine results” fit
+
+The search engines feeding Vibe Atlas—Baidu, Brave, and others—give you a large pool of candidate media. That pool can improve the product because it lets Vibe Atlas:
+
+- curate stronger historical grids;
+- identify recurring visual themes;
+- classify official stills, event photos, posters, and fan edits;
+- develop richer actor/vibe taxonomies;
+- preserve provenance;
+- generate distinctive editorial collections.
+
+But the raw engine results should normally remain **retrieval infrastructure**, not crawlable pages.
+
+### Public and indexable
+
+- `/actor/liu-xueyi`
+- `/vibe/xianmen-lengyu`
+- `/vibe-atlas/archive/2026-09-19`
+- An original editorial description
+- A standard-resolution curated composite
+- Approved sample images
+- Related editions and actors
+- Appropriate source credits
+
+### Protected or private
+
+- Raw search-result JSON
+- Full candidate-image inventories
+- Search spells and ranking diagnostics
+- High-resolution source URLs
+- Duplicate and rejected results
+- Unpublished actor/vibe combinations
+- Internal confidence scores
+- Complete paid actor-pack payloads
+
+## Why publishing raw results would backfire
+
+A huge set of automatically generated image-result pages could look like:
+
+- thin or duplicate content;
+- scraped search pages;
+- doorway pages created only to catch queries;
+- copyright-sensitive republishing;
+- low-quality URLs that waste crawler attention.
+
+That can weaken the site rather than establish authority.
+
+The authority comes from **Katie’s transformation of the results**:
+
+> retrieval → judgment → classification → editorial context → durable artifact
+> 
+
+Not from owning the largest pile of URLs found by Baidu. That pile is infrastructure. The curated historical grid is the publication.
+
+## How this works with the paywall
+
+A historical edition can simultaneously be:
+
+1. **A crawlable media page**
+    - Actor, vibe, date, description, composite preview, related content
+2. **A Collector product preview**
+    - “This archive contains the complete nine-card edition”
+3. **A protected interactive product**
+    - Full board, individual cards, saves, collection use, premium exports
+
+So Google receives a real, substantive page. A free visitor sees enough to understand and desire the product. A member receives the complete utility.
+
+The rule I’d use is:
+
+> **Index the editorial record; gate the collectible utility.**
+> 
+
+That captures the useful part of Gemini’s “media authority” recommendation without turning Fandom Vibes into a public mirror of image-search results.

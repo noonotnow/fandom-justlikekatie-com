@@ -147,6 +147,7 @@ function validateItem(item) {
       ))
     ) throw new TypeError("Collection grid is invalid.");
     if (item.media !== undefined) validateCollectionMedia(item.media);
+    if (item.presentation !== undefined) validateGridPresentation(item.presentation);
     if (item.releaseCandidateProvenance !== undefined
       && !isReleaseCandidateProvenance(item.releaseCandidateProvenance)) {
       throw new TypeError("Collection release-candidate provenance is invalid.");
@@ -189,6 +190,17 @@ function validateItem(item) {
   if (item.misprint !== undefined) validateMisprint(item.misprint);
   if (item.legendaryMisprint !== undefined) validateLegendaryMisprint(item.legendaryMisprint);
   if (item.memeRework !== undefined) validateMemeRework(item.memeRework);
+}
+
+function validateGridPresentation(presentation) {
+  const allowed = new Set(["moonlit-ink"]);
+  if (
+    !presentation
+    || typeof presentation !== "object"
+    || Object.keys(presentation).some(key => !["paletteId", "atmosphereId"].includes(key))
+    || (presentation.paletteId !== undefined && !allowed.has(presentation.paletteId))
+    || (presentation.atmosphereId !== undefined && !allowed.has(presentation.atmosphereId))
+  ) throw new TypeError("Collection grid presentation is invalid.");
 }
 
 function validateMisprintMetadata(metadata) {

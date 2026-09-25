@@ -4,6 +4,7 @@ import { json, secureEqual } from "./public-auth.js";
 
 export function createCollectionHandlers({
   auth, getStore, env = process.env, now = () => new Date(),
+  requireCapability = async () => {},
 }) {
   return {
     sync: async (req, context) => {
@@ -11,6 +12,7 @@ export function createCollectionHandlers({
         if (req.method !== "POST") return json(405, { error: "Method not allowed." });
         validateSameOrigin(req);
         const session = await auth.authenticate(req, context);
+        await requireCapability(session, context);
         const input = await readJson(req);
         if (input.expectedAccountId !== session.user.accountId) {
           const error = new Error("The active account changed. Refresh before syncing.");

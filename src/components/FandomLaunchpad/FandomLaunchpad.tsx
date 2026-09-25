@@ -1,3 +1,4 @@
+import { PUBLIC_ROUTE_PATHS } from "../../../shared/public-routes.js";
 import styles from "./FandomLaunchpad.module.css";
 
 export function FandomLaunchpad() {
@@ -29,10 +30,10 @@ export function FandomLaunchpad() {
         </a>
       </section>
       <section className={styles.workbenches} aria-label="Fandom workbenches">
-        <a className={`${styles.workbench} ${styles.atlas}`} href="/vibe-atlas">
+        <a className={`${styles.workbench} ${styles.atlas}`} href={PUBLIC_ROUTE_PATHS.vibeAtlas}>
           <span className={styles.index}>01 / daily C-drama card drop <b className={styles.launchStatus}>Now launching</b></span>
           <div className={styles.cardArt}><span>VIBE<br /><b>ATLAS</b></span><small>REDNOTE / C-DRAMA</small></div>
-          <div className={styles.cardCopy}><h2>C-drama Vibe Atlas</h2><p>One star, one vibe, nine pieces of evidence. Like Pokémon, but thirsty. You wanna catch all these. Browse today’s drop, save the cards that hit, and build your own 3×3.</p><span className={styles.enter}>Browse today’s card drop →</span></div>
+          <div className={styles.cardCopy}><h2>C-drama Vibe Atlas</h2><p>Collect the evidence. Confirm your type. <span lang="zh-CN">九张证据，一眼心动</span> Browse today’s drop, save the cards that hit, and build your own 3×3.</p><span className={styles.enter}>Browse today’s card drop →</span></div>
         </a>
         <a className={`${styles.workbench} ${styles.forge}`} href="/memeforge/middle-earth">
           <span className={styles.index}>Also in the studio / middle-earth reactions</span>

@@ -1,4 +1,5 @@
 import { useEffect, useMemo, useRef, useState } from 'react';
+import { PUBLIC_ROUTE_PATHS } from '../../../shared/public-routes.js';
 import {
   createMisprint,
   dbSaveCard,
@@ -11,6 +12,7 @@ import { persistGridImagesToMedia } from '../../utils/collectionMedia';
 import { MISPRINT_REASONS } from '../../utils/misprintReasons';
 import { getPublicSession, schedulePublicCollectionSync, syncPublicGrid } from '../../utils/publicAccount';
 import { assembleQueryRepairDiagnostic } from '../../utils/queryRepairDiagnostic';
+import { isBlindReviewEvidenceCandidate } from '../../../netlify/functions/lib/blind-review-candidate.js';
 import styles from './ActorPreflightLab.module.css';
 
 type AnyRecord = Record<string, any>;
@@ -95,7 +97,7 @@ const CHALLENGE_REASONS: Array<[string,string]> = [
   ['not_collage_duplicate_or_bts','Not actually a collage, duplicate, or BTS image'],
   ['other_editorial_instinct','Other editorial instinct'],
 ];
-const api = async (body?: AnyRecord, query?: AnyRecord) => { const queryString = query ? `?${new URLSearchParams(Object.entries(query).filter(([,value]) => value !== undefined && value !== '') as [string,string][]).toString()}` : ''; const response = await fetch(`/.netlify/functions/actor-audits${queryString}`, { method: body ? 'POST' : 'GET', headers: body ? {'Content-Type':'application/json'} : undefined, body: body ? JSON.stringify(body) : undefined, credentials:'include' }); const result = await response.json().catch(() => null); if (!response.ok) throw new Error(result?.error || 'Actor audit desk unavailable.'); return result; };
+const api = async (body?: AnyRecord, query?: AnyRecord, signal?:AbortSignal) => { const queryString = query ? `?${new URLSearchParams(Object.entries(query).filter(([,value]) => value !== undefined && value !== '') as [string,string][]).toString()}` : ''; const response = await fetch(`/.netlify/functions/actor-audits${queryString}`, { method: body ? 'POST' : 'GET', headers: body ? {'Content-Type':'application/json'} : undefined, body: body ? JSON.stringify(body) : undefined, credentials:'include', signal }); const result = await response.json().catch(() => null); if (!response.ok) throw Object.assign(new Error(result?.error || 'Actor audit desk unavailable.'), {status:response.status,payload:result}); return result; };
 const text = (value: unknown) => Array.isArray(value)
   ? value.map(item => typeof item === 'object' && item ? JSON.stringify(item) : String(item)).join(' · ')
   : typeof value === 'object' && value ? JSON.stringify(value, null, 2) : String(value ?? '—');
@@ -149,7 +151,7 @@ const proxiedImageUrl = (url: string) => url.startsWith('/.netlify/functions/ima
 const visualJudgmentCandidates = (run?: Run|null) => Array.isArray(run?.visualJudgmentQueue)
   ? run.visualJudgmentQueue
   : (run?.calibrationAnalysis?.candidates??EMPTY_RECORDS)
-    .filter((item:AnyRecord)=>(item?.selected===false||item?.dropReason)&&item?.thumbnail&&item?.occurrenceId);
+    .filter(isBlindReviewEvidenceCandidate);
 export const ActorPreflightLab: React.FC = () => {
   const handoff = useMemo(() => {
     const params = new URLSearchParams(window.location.search);
@@ -163,10 +165,12 @@ export const ActorPreflightLab: React.FC = () => {
   const [actors,setActors] = useState<Actor[]>([]); const [actorId,setActorId] = useState(''); const [vibeKey,setVibeKey] = useState('');
   const [run,setRun] = useState<Run|null>(null); const [currentRun,setCurrentRun] = useState<Run|null>(null); const [loading,setLoading] = useState(true); const [busy,setBusy] = useState(''); const [notice,setNotice] = useState(''); const [railOpen,setRailOpen] = useState(true);
   const visualJudgmentsInFlight=useRef(new Set<string>());
+  const auditHistorySelection=useRef(0);
+  const auditHistoryRequest=useRef<AbortController|null>(null);
   const [handoffReadOnly,setHandoffReadOnly] = useState(false);
   const [scope,setScope] = useState('full'); const [verdict,setVerdict] = useState(''); const [notes,setNotes] = useState(''); const [priorRuns,setPriorRuns] = useState<Run[]>([]);
   const [calibrationProfile,setCalibrationProfile] = useState<AnyRecord|null>(null);
-  const [cacheDiagnostic,setCacheDiagnostic] = useState<AnyRecord|null>(null);
+  const [cacheDiagnostics,setCacheDiagnostics] = useState<Record<string,AnyRecord>>({});
   const [queryRepairDiagnostic,setQueryRepairDiagnostic] = useState<AnyRecord|null>(null);
   const [vibeConfirmed,setVibeConfirmed] = useState(false); const [publishableConfirmed,setPublishableConfirmed] = useState(false);
   const [rescuePreferred,setRescuePreferred] = useState(false); const [preferredRescueReceiptId,setPreferredRescueReceiptId] = useState('');
@@ -181,10 +185,11 @@ export const ActorPreflightLab: React.FC = () => {
   }
   useEffect(() => { let live=true; api().then(result => { if(live) { const next = result.actors ?? []; setActors(next); const requestedActor=next.find((item:Actor)=>item.actorId===handoff.actorId); const selectedActor=requestedActor??next[0]; if(selectedActor) { setActorId(selectedActor.actorId); setVibeKey(selectedActor.pairings?.some((item:AnyRecord)=>item.vibeKey===handoff.vibeKey)?handoff.vibeKey:selectedActor.pairings?.[0]?.vibeKey??''); } if(handoff.actorId&&!requestedActor)setNotice(`Actor ${handoff.actorId} from the retirement warning is no longer available.`); } }).catch(e=>live&&setNotice(e.message)).finally(()=>live&&setLoading(false)); return()=>{live=false}; },[handoff.actorId,handoff.vibeKey]);
   const actor = useMemo(()=>actors.find(item=>item.actorId===actorId),[actors,actorId]); const pairing = actor?.pairings?.find(item=>item.vibeKey===vibeKey);
+  const cacheDiagnostic=cacheDiagnostics[scope];
   const visibleCacheDiagnostic=cacheDiagnostic?.actorId===actorId&&cacheDiagnostic?.vibeKey===vibeKey&&cacheDiagnostic?.scope===scope?cacheDiagnostic:null;
   const visibleQueryRepairDiagnostic=queryRepairDiagnostic?.actorId===actorId&&queryRepairDiagnostic?.vibeKey===vibeKey?queryRepairDiagnostic:null;
-  useEffect(()=>{setCacheDiagnostic(null);setQueryRepairDiagnostic(null)},[scope]);
-  useEffect(() => { setRun(null); setCurrentRun(null); setPriorRuns([]); setCalibrationProfile(null); setVerdict(''); setNotes(''); setVibeConfirmed(false); setPublishableConfirmed(false); setRescuePreferred(false); setPreferredRescueReceiptId(''); setBackfillDate(''); setDisagreementReasons([]); setEditorialNote(''); setHandoffReadOnly(false); if(!actorId||!vibeKey)return; let live=true; api(undefined,{actorId,vibeKey}).then(async result=>{const requestedRunId=handoff.runId&&actorId===handoff.actorId&&vibeKey===handoff.vibeKey?handoff.runId:result.currentRun?.runId;const selectedDetail=requestedRunId?await api(undefined,{actorId,vibeKey,runId:requestedRunId,receiptId:requestedRunId===handoff.runId?handoff.receiptId:''}):null;if(live){const preference=result.currentRun?.operatorVerdict?.rescuePreference;const selectedRun=selectedDetail?.run??result.currentRun??null;const current=selectedRun?.runId===result.currentRun?.runId?selectedRun:result.currentRun??null;setRun(selectedRun); setCurrentRun(current); setHandoffReadOnly(Boolean(handoff.runId&&selectedDetail?.run)); setPriorRuns(selectedDetail?.run&&selectedDetail.run.runId!==result.currentRun?.runId?[selectedDetail.run,...(result.priorRuns??[]).filter((item:Run)=>item.runId!==selectedDetail.run.runId)]:result.priorRuns??[]); setCalibrationProfile(result.calibrationProfile ?? null); setVerdict(result.verdict ?? ''); setNotes(result.notes ?? ''); setVibeConfirmed(result.currentRun?.operatorVerdict?.vibeConfirmed === true); setPublishableConfirmed(result.currentRun?.operatorVerdict?.publishableConfirmed === true); setRescuePreferred(preference?.preferred === true); setPreferredRescueReceiptId(preference?.rescueReceiptId ?? ''); setDisagreementReasons(selectedRun?.blindReview?.reasonCodes ?? []); setEditorialNote(selectedRun?.blindReview?.note ?? ''); if(handoff.runId&&selectedDetail?.run)setNotice(`Opened source receipt ${handoff.receiptId} from audit ${handoff.runId}.`);}}).catch(e=>live&&setNotice(e.message)); return()=>{live=false}; },[actorId,vibeKey,handoff.actorId,handoff.vibeKey,handoff.runId,handoff.receiptId]);
+  useEffect(()=>{setQueryRepairDiagnostic(null)},[scope]);
+  useEffect(() => { auditHistorySelection.current+=1; auditHistoryRequest.current?.abort(); auditHistoryRequest.current=null; setRun(null); setCurrentRun(null); setPriorRuns([]); setCalibrationProfile(null); setCacheDiagnostics({}); setVerdict(''); setNotes(''); setVibeConfirmed(false); setPublishableConfirmed(false); setRescuePreferred(false); setPreferredRescueReceiptId(''); setBackfillDate(''); setDisagreementReasons([]); setEditorialNote(''); setHandoffReadOnly(false); if(!actorId||!vibeKey)return; let live=true; api(undefined,{actorId,vibeKey}).then(async result=>{const requestedRunId=handoff.runId&&actorId===handoff.actorId&&vibeKey===handoff.vibeKey?handoff.runId:result.currentRun?.runId;const selectedDetail=requestedRunId?await api(undefined,{actorId,vibeKey,runId:requestedRunId,receiptId:requestedRunId===handoff.runId?handoff.receiptId:''}):null;if(live){const preference=result.currentRun?.operatorVerdict?.rescuePreference;const selectedRun=selectedDetail?.run??result.currentRun??null;const current=selectedRun?.runId===result.currentRun?.runId?selectedRun:result.currentRun??null;setRun(selectedRun); setCurrentRun(current); setHandoffReadOnly(Boolean(handoff.runId&&selectedDetail?.run)); setPriorRuns(selectedDetail?.run&&selectedDetail.run.runId!==result.currentRun?.runId?[selectedDetail.run,...(result.priorRuns??[]).filter((item:Run)=>item.runId!==selectedDetail.run.runId)]:result.priorRuns??[]); setCalibrationProfile(result.calibrationProfile ?? null); setCacheDiagnostics(result.cacheDiagnostics ?? {}); setVerdict(result.verdict ?? ''); setNotes(result.notes ?? ''); setVibeConfirmed(result.currentRun?.operatorVerdict?.vibeConfirmed === true); setPublishableConfirmed(result.currentRun?.operatorVerdict?.publishableConfirmed === true); setRescuePreferred(preference?.preferred === true); setPreferredRescueReceiptId(preference?.rescueReceiptId ?? ''); setDisagreementReasons(selectedRun?.blindReview?.reasonCodes ?? []); setEditorialNote(selectedRun?.blindReview?.note ?? ''); if(handoff.runId&&selectedDetail?.run)setNotice(`Opened source receipt ${handoff.receiptId} from audit ${handoff.runId}.`);}}).catch(e=>live&&setNotice(e.message)); return()=>{live=false}; },[actorId,vibeKey,handoff.actorId,handoff.vibeKey,handoff.runId,handoff.receiptId]);
   function applyRefresh(result:AnyRecord) { if ('calibrationProfile' in result) setCalibrationProfile(result.calibrationProfile ?? null); if (result.actors) setActors(result.actors); else if (result.actor) setActors(current => current.map(item => item.actorId === result.actor.actorId ? result.actor : item)); }
   async function startAudit(nextScope:string) {
     setBusy(nextScope);
@@ -231,7 +236,12 @@ export const ActorPreflightLab: React.FC = () => {
   async function runCacheDiagnostic() {
     setBusy('cache-diagnostic'); setNotice('');
     try {
-      const retained=visibleCacheDiagnostic;
+      const retained=visibleCacheDiagnostic?.queryContract?.status==='current'
+        && visibleCacheDiagnostic?.comparisons?.some((item:AnyRecord)=>item.normalError||item.bypassedError)
+        && visibleCacheDiagnostic?.comparisonId
+        && Date.parse(visibleCacheDiagnostic?.reservationExpiresAt)>Date.now()
+        ? visibleCacheDiagnostic
+        : null;
       const manifest=retained??(await api({action:'cache_diagnostic_manifest',actorId,vibeKey,scope})).diagnostic;
       const frozenQueries=Array.isArray(manifest?.frozenQueries)?manifest.frozenQueries:[];
       const previous=Array.isArray(retained?.comparisons)?retained.comparisons:[];
@@ -239,7 +249,7 @@ export const ActorPreflightLab: React.FC = () => {
         const prior=previous[queryIndex]?.query===query?previous[queryIndex]:{query};
         const fetchSide=async(cacheMode:'default'|'refresh')=>{
           try {
-            const result=await api({action:'cache_diagnostic_fetch',actorId,vibeKey,scope,queryIndex,cacheMode});
+            const result=await api({action:'cache_diagnostic_fetch',actorId,vibeKey,scope,comparisonId:manifest.comparisonId,queryIndex,cacheMode});
             return {search:result.search,error:null};
           } catch(error:any) {
             return {search:null,error:error?.message||'Search request failed.'};
@@ -261,7 +271,8 @@ export const ActorPreflightLab: React.FC = () => {
       }));
       const finalized=finalizeCacheDiagnosticComparisons(comparisons);
       const diagnostic={...manifest,schemaVersion:2,comparedAt:new Date().toISOString(),...finalized};
-      setCacheDiagnostic(diagnostic?.actorId===actorId&&diagnostic?.vibeKey===vibeKey&&diagnostic?.scope===scope?diagnostic:null);
+      const saved=(await api({action:'cache_diagnostic_receipt',actorId,vibeKey,scope,comparisonId:diagnostic.comparisonId,reservationExpiresAt:diagnostic.reservationExpiresAt,frozenQueries:diagnostic.frozenQueries,comparedAt:diagnostic.comparedAt,comparisons:diagnostic.comparisons})).diagnostic;
+      setCacheDiagnostics(current=>({...current,[scope]:saved}));
       const failedSides=comparisons.reduce((count:number,item:AnyRecord)=>count+Number(Boolean(item.normalError))+Number(Boolean(item.bypassedError)),0);
       setNotice(failedSides
         ? `${failedSides} search ${failedSides===1?'request needs':'requests need'} retry. Completed comparisons were retained; no audit or eligibility record was changed.`
@@ -321,7 +332,7 @@ export const ActorPreflightLab: React.FC = () => {
         title:candidate.title,
         publisher:candidate.source,
         searchQuery:candidate.query,
-        sourceRoute:'/vibe-atlas?admin=true',
+        sourceRoute:`${PUBLIC_ROUTE_PATHS.vibeAtlas}?admin=true`,
         collectionScope:'vibe-atlas',
       };
       await dbSaveCard({...card,misprint:createMisprint(card,{reason,label:receipt.label||definition.label,learningScope:receipt.correctionScope||definition.scope,calibrationStatus:result.calibrationStatus||'applied',unexpectedImageIdentity:receipt.actualIdentity||undefined,note:receipt.note||undefined,imageDigest:candidate.imageDigest,sourceRunId:receipt.sourceRunId||currentRun.runId,correctionReceiptId:receipt.receiptId},new Date(receipt.markedAt))});
@@ -341,8 +352,22 @@ export const ActorPreflightLab: React.FC = () => {
       const next=result.currentRun ?? currentRun;
       setRun(next); setCurrentRun(next); setPriorRuns(result.priorRuns ?? priorRuns);
       setNotice('Blind image judgment saved as a separate immutable receipt. Production scoring is unchanged.');
-    } catch {
-      setNotice('The image judgment was not saved. The same image remains ready—retry your choice.');
+    } catch(e:any) {
+      const repair=e?.payload;
+      if(repair?.receiptSaved===true&&repair?.repairAction==='repair_visual_judgment_index'&&repair?.runId===currentRun.runId&&repair?.receiptId) {
+        try {
+          await api({action:'repair_visual_judgment_index',actorId,vibeKey,runId:repair.runId,receiptId:repair.receiptId});
+          const refreshed=await api(undefined,{actorId,vibeKey});
+          applyRefresh(refreshed);
+          const next=refreshed.currentRun ?? currentRun;
+          setRun(next); setCurrentRun(next); setPriorRuns(refreshed.priorRuns ?? priorRuns);
+          setNotice('Blind image judgment saved and its receipt index repaired. Production scoring is unchanged.');
+        } catch(repairError:any) {
+          setNotice(`The image judgment was saved, but its receipt index still needs repair: ${repairError.message}`);
+        }
+      } else {
+        setNotice('The image judgment was not saved. The same image remains ready—retry your choice.');
+      }
     } finally {
       visualJudgmentsInFlight.current.delete(judgmentToken);
       setBusy('');
@@ -433,6 +458,16 @@ export const ActorPreflightLab: React.FC = () => {
       return true;
     } catch(e:any){setNotice(e.message);return false} finally{setBusy('')}
   }
+  async function excludeBlindCalibrationItem(receiptId:string,judgmentReceiptId:string,reason:string) {
+    setBusy(`blind-exclusion:${judgmentReceiptId}`); setNotice('');
+    try {
+      const sourceRunId=(calibrationProfile?.evidenceLedger??[]).find((item:AnyRecord)=>item.sourceRescueReceiptId===receiptId)?.sourceRunId;
+      const result=await api({action:'exclude_blind_calibration_item',actorId,vibeKey,receiptId,runId:sourceRunId,judgmentReceiptId,reason});
+      applyRefresh(result);
+      setNotice('Blind-review example excluded by an immutable receipt. Aggregate support and approval authority were recomputed; the original audit and judgment remain unchanged.');
+      return true;
+    } catch(e:any){setNotice(e.message);return false} finally{setBusy('')}
+  }
   async function saveRescueReceiptToCollection(runId:string,receiptId:string) {
     const result=await api({action:'export_rescue_board',actorId,vibeKey,runId,receiptId});
     const grid=collectionGridFromRescueExport(result.rescueExport);
@@ -475,6 +510,29 @@ export const ActorPreflightLab: React.FC = () => {
         const result = await response.json().catch(() => null);
         throw new Error(result?.error || 'Editorial packet download failed. Check your connection and retry.');
       }
+      const contentType = response.headers.get('content-type')?.toLowerCase() ?? '';
+      if (!contentType.includes('application/json') && !contentType.includes('+json')) {
+        throw new Error('Editorial packet response was not valid JSON. Retry the download.');
+      }
+      let packet:any;
+      try {
+        packet = await response.clone().json();
+      } catch {
+        throw new Error('Editorial packet response was not valid JSON. Retry the download.');
+      }
+      if (
+        !packet
+        || typeof packet !== 'object'
+        || Array.isArray(packet)
+        || packet.schemaVersion !== 1
+        || packet.exportMetadata?.readOnly !== true
+        || packet.exportMetadata?.type !== 'date-bounded-curation-calibration-audit'
+        || typeof packet.exportMetadata?.dateRange?.from !== 'string'
+        || typeof packet.exportMetadata?.dateRange?.to !== 'string'
+        || !Array.isArray(packet.runs)
+      ) {
+        throw new Error('Editorial packet response did not contain the expected review data. Retry the download.');
+      }
       const blob = await response.blob();
       const url = URL.createObjectURL(blob);
       const link = document.createElement('a');
@@ -491,9 +549,15 @@ export const ActorPreflightLab: React.FC = () => {
   }
   async function selectRetainedRun(selected:Run) {
     if(!selected.runId)return;
+    auditHistoryRequest.current?.abort();
+    const controller=new AbortController();
+    auditHistoryRequest.current=controller;
+    const selection=auditHistorySelection.current+1;
+    auditHistorySelection.current=selection;
     setBusy('retained-run'); setNotice('');
     try {
-      const result=await api(undefined,{actorId,vibeKey,runId:selected.runId});
+      const result=await api(undefined,{actorId,vibeKey,runId:selected.runId},controller.signal);
+      if(selection!==auditHistorySelection.current)return;
       const detailed=(result.run??result.currentRun) as Run|undefined;
       if(!detailed?.runId)throw new Error('The selected audit run did not load. Retry the history selection.');
       setRun(detailed);
@@ -506,7 +570,16 @@ export const ActorPreflightLab: React.FC = () => {
       } else {
         setPriorRuns(items=>items.map(item=>item.runId===detailed.runId?detailed:item));
       }
-    } catch(e:any) { setNotice(e.message); } finally { setBusy(''); }
+    } catch(e:any) {
+      if(e?.name!=='AbortError'&&selection===auditHistorySelection.current)setNotice(
+        e?.status
+          ? e.message
+          : 'Audit history lost its connection. The evidence currently on screen is safe and unchanged. Retry the history selection when the connection returns; retrying only reads the selected audit.',
+      );
+    } finally {
+      if(auditHistoryRequest.current===controller)auditHistoryRequest.current=null;
+      if(selection===auditHistorySelection.current)setBusy('');
+    }
   }
   const selectedIsCurrent = Boolean(!handoffReadOnly && run?.runId && currentRun?.runId === run.runId);
   const review = run?.blindReview;
@@ -526,6 +599,15 @@ export const ActorPreflightLab: React.FC = () => {
     ? VERDICTS.filter(value=>value!=='approved_override'&&(value!=='approved'||savedRescueBoards.length>0))
     : VERDICTS;
   const finalizedPreference = run?.operatorVerdict?.rescuePreference;
+  const queryContractChanges = visibleCacheDiagnostic?.queryContract?.changes;
+  const hasStructuredQueryContractChanges = Array.isArray(queryContractChanges?.added)
+    && Array.isArray(queryContractChanges?.removed)
+    && Array.isArray(queryContractChanges?.reordered);
+  const queryChangeSummaryAvailable = visibleCacheDiagnostic?.queryContract?.changeSummaryAvailability === 'available'
+    || (
+      visibleCacheDiagnostic?.queryContract?.changeSummaryAvailability === undefined
+      && hasStructuredQueryContractChanges
+    );
   if(loading) return <div className={styles.empty}>Loading actor evidence desk…</div>;
   return <section className={styles.lab} aria-labelledby="actor-preflight-title">
     <header className={styles.masthead}><div><p className={styles.eyebrow}>Fandom Vibes / private calibration</p><h3 id="actor-preflight-title">Actor preflight lab</h3><p>Calibrate actor × Vibe Pack pairings against bounded evidence before they enter the Daily Drop rotation.</p></div><div className={styles.runbook}><span>Operator boundary</span><strong>One pairing at a time</strong><span>Every decision leaves a receipt.</span></div></header>
@@ -536,13 +618,27 @@ export const ActorPreflightLab: React.FC = () => {
        <main className={styles.detail}>{!actor?<div className={styles.empty}>No actor profiles returned.</div>:<><section className={`${styles.panel} ${styles.detailPanel}`}><div className={styles.detailHead}><div><p className={styles.eyebrow}>Selected profile</p><h4>{actor.canonicalName}</h4><p>{actor.romanizedName} · aliases: {text(actor.aliases)}</p></div><span className={styles.muted}>Profile v{actor.profileVersion ?? '—'}</span></div><div className={styles.pairingStrip}>{(actor.pairings??[]).map(item=><button className={styles.pairing} data-selected={item.vibeKey===vibeKey} key={item.vibeKey} onClick={()=>{clearHandoff();setVibeKey(item.vibeKey)}}><strong>{text(item.labels) || item.vibeKey}</strong><span className={styles.state} data-state={item.auditState}>{item.auditState==='needs_reapproval' ? 'Needs reapproval' : item.auditState==='calibration_reaudit_required' ? 'Calibration reaudit required' : item.verdict ?? item.auditState ?? 'unreviewed'}</span><small>{item.queryCount ?? 0} queries · {date(item.lastRunAt)}</small></button>)}</div><div className={styles.controls}><button className={`${styles.buttonPrimary} ${currentRunIsLegacy?styles.freshAuditButton:''}`} disabled={!vibeKey||!!busy} onClick={()=>void startAudit(scope)}>{busy ? 'Running evidence pass…' : currentRunIsLegacy ? 'Run fresh audit' : 'Run audit'}</button><select className={styles.select} value={scope} onChange={e=>setScope(e.target.value)} aria-label="Audit scope"><option value="representative">Representative scope</option><option value="full">Full scope</option></select><span className={styles.status}>{pairing?.auditState==='blind_review_pending'?'Calibration pending':pairing?.auditState==='calibration_reaudit_required'?'Calibration reaudit required':pairing?.auditState==='needs_reapproval'?'Fresh audit required':pairing?.eligible===false?'Not eligible for scheduling':'Eligible for review'}</span></div></section>
           <section className={styles.panel} aria-label="Search cache diagnostic">
             <div className={styles.detailHead}><div><p className={styles.eyebrow}>Read-only search proof</p><h4>Normal vs bypass cache comparison</h4><p>Runs the selected frozen query set once normally and once with cache bypass requested. It does not save an audit or change ranking, scoring, eligibility, curation, or publication.</p></div></div>
-            <div className={styles.controls}><button type="button" className={styles.buttonSecondary} disabled={!vibeKey||!!busy} onClick={()=>void runCacheDiagnostic()}>{busy==='cache-diagnostic'?'Comparing cache paths…':visibleCacheDiagnostic?.comparisons?.some((item:AnyRecord)=>item.normalError||item.bypassedError)?'Retry failed searches':'Compare normal vs bypass'}</button><span className={styles.muted}>{scope} scope</span></div>
-            {visibleCacheDiagnostic&&<details open><summary>Comparison receipt · {visibleCacheDiagnostic.comparisons?.filter((item:AnyRecord)=>item.normal&&item.bypassed).length ?? 0} of {visibleCacheDiagnostic.comparisons?.length ?? 0} complete</summary>
+             <div className={styles.controls}><button type="button" className={styles.buttonSecondary} disabled={!vibeKey||!!busy} onClick={()=>void runCacheDiagnostic()}>{busy==='cache-diagnostic'?'Comparing cache paths…':visibleCacheDiagnostic?.queryContract?.status==='historical'?'Run new comparison with current queries':visibleCacheDiagnostic?.comparisons?.some((item:AnyRecord)=>item.normalError||item.bypassedError)?'Retry failed searches':'Compare normal vs bypass'}</button><span className={styles.muted}>{scope} scope</span></div>
+             {visibleCacheDiagnostic&&<details open><summary>Comparison receipt · {visibleCacheDiagnostic.queryContract?.status==='historical'?'Historical query set':'Current query set'} · {visibleCacheDiagnostic.comparisons?.filter((item:AnyRecord)=>item.normal&&item.bypassed).length ?? 0} of {visibleCacheDiagnostic.comparisons?.length ?? 0} complete</summary>
+                {visibleCacheDiagnostic.queryContract?.status==='historical'&&<>
+                  <p className={styles.historicalNotice}>This saved proof used an older frozen query set. Its original queries and evidence remain below. Run a new comparison only when current proof is needed.</p>
+                  <div className={styles.queryContractChanges} aria-label="Query contract changes">
+                    <strong>What changed</strong>
+                     {!queryChangeSummaryAvailable
+                       ? <p>Change summary unavailable for this older receipt.</p>
+                       : <>
+                         <p><span>Added</span>{queryContractChanges.added.length?(queryContractChanges.added as AnyRecord[]).map(item=>`${item.currentIndex+1}. ${item.query}`).join(' · '):'None'}</p>
+                         <p><span>Removed</span>{queryContractChanges.removed.length?(queryContractChanges.removed as AnyRecord[]).map(item=>`${item.frozenIndex+1}. ${item.query}`).join(' · '):'None'}</p>
+                         <p><span>Reordered</span>{queryContractChanges.reordered.length?(queryContractChanges.reordered as AnyRecord[]).map(item=>`${item.query} (${item.frozenIndex+1} → ${item.currentIndex+1})`).join(' · '):'None'}</p>
+                       </>}
+                  </div>
+                </>}
               {(visibleCacheDiagnostic.comparisons??[]).map((item:AnyRecord,index:number)=><div key={`${index}:${item.query}`}>
                 <strong>{index+1}. {item.query}</strong>
                 {item.normalError&&<p className={styles.error} role="status">Normal request failed: {item.normalError}</p>}
                 {item.bypassedError&&<p className={styles.error} role="status">Bypass request failed: {item.bypassedError}</p>}
               </div>)}
+              <p className={styles.muted}>Compared {date(visibleCacheDiagnostic.comparedAt)} · saved {date(visibleCacheDiagnostic.savedAt)} · reopening this receipt performs no provider searches</p>
               <pre>{text(visibleCacheDiagnostic)}</pre>
             </details>}
             {actorId==='liu-xueyi'&&vibeKey==='liu-xueyi:0'&&<>
@@ -558,7 +654,7 @@ export const ActorPreflightLab: React.FC = () => {
             </>}
           </section>
           <section className={styles.panel}>
-            {calibrationProfile&&<><CalibrationApproval profile={calibrationProfile} busy={busy} onApprove={approveCalibration} onRevoke={revokeCalibrationApproval}/><CalibrationProfileSummary profile={calibrationProfile} busy={busy} onRetireCalibration={retireRescueCalibration}/><CalibrationTransferSummary profile={calibrationProfile} busy={busy} onRetireSignal={retireRescueSignal}/></>}
+            {calibrationProfile&&<><CalibrationApproval profile={calibrationProfile} busy={busy} onApprove={approveCalibration} onRevoke={revokeCalibrationApproval}/><BlindEvidenceExclusions profile={calibrationProfile} busy={busy} onExclude={excludeBlindCalibrationItem}/><CalibrationProfileSummary profile={calibrationProfile} busy={busy} onRetireCalibration={retireRescueCalibration}/><CalibrationTransferSummary profile={calibrationProfile} busy={busy} onRetireSignal={retireRescueSignal}/></>}
           <div className={styles.grid}>
             <InfoCard title="Identity profile" data={actor} keys={['commonCollisions','representativeWorks','knownContamination','productStockMeanings','trustedSourcePatterns','problematicSourcePatterns']} />
             <RunEvidence
@@ -604,9 +700,21 @@ function CalibrationApproval({profile,busy,onApprove,onRevoke}:{profile:AnyRecor
   const signalFamily=type==='query_ladder'?'queries':family;
   const choices=(profile.reusableSignalDeltas?.[signalFamily]??EMPTY_RECORDS).filter((item:any)=>direction==='positive'?item.delta>=0.15&&item.selectedEvidenceCount>=2:item.delta<=-0.15&&item.omittedEvidenceCount>=2);
   const approval=profile.activeApproval;
-  return <section className={styles.calibrationProfile} aria-label="Production calibration approval"><div><h5>Production calibration approval</h5><p>Evidence receipts are diagnostic until an editor approves one bounded aggregate adjustment. Image load, composite, identity, rights, and anti-anchor gates still run first.</p></div>{approval?<div className={styles.calibrationLedger}><strong>Active approval {String(approval.approvalId).slice(0,8)}</strong><p>{approval.adjustment?.type} · {approval.adjustment?.signalFamily} · {approval.adjustment?.direction} · {text(approval.adjustment?.signalValues)}</p><small>{approval.evidenceCount} evidence receipts from repeated reviewed audits · aggregate {String(approval.aggregateEvidenceHash).slice(0,12)} · approved {date(approval.approvedAt)}</small><label className={styles.label}>Revocation reason<textarea className={`${styles.input} ${styles.textarea}`} value={reason} onChange={event=>setReason(event.target.value)} maxLength={1000}/></label><button type="button" className={styles.buttonDanger} disabled={Boolean(busy)||!reason.trim()} onClick={()=>void onRevoke(approval.approvalId,reason)}>Revoke approved adjustment</button></div>:<div className={styles.controls}><p>{profile.reviewedRunCount??0} of {profile.minimumApprovalEvidenceCount??2} required distinct reviewed audits. Approval is available only for signals repeated across separate audits.</p><select className={styles.select} value={type} onChange={event=>{setType(event.target.value);setValues([])}}><option value="query_ladder">Query-ladder adjustment</option><option value="class">Class adjustment</option></select>{type==='class'&&<select className={styles.select} value={family} onChange={event=>{setFamily(event.target.value);setValues([])}}><option value="sources">Source class</option><option value="clusters">Visual cluster class</option><option value="composition">Composition class</option></select>}<select className={styles.select} value={direction} onChange={event=>{setDirection(event.target.value);setValues([])}}><option value="positive">Promote</option><option value="negative">Demote</option></select><div className={styles.chips}>{choices.map((item:any)=><label className={styles.chip} key={item.value}><input type="checkbox" checked={values.includes(item.value)} onChange={event=>setValues(event.target.checked?[...values,item.value]:values.filter(value=>value!==item.value))}/>{item.value} · {item.delta>0?'+':''}{item.delta}</label>)}</div><button type="button" className={styles.buttonPrimary} disabled={Boolean(busy)||!profile.approvalReady||!values.length} onClick={()=>void onApprove(type,signalFamily,direction,values)}>Approve bounded production calibration</button></div>}</section>;
+  const shownFamily=approval?.adjustment?.signalFamily??signalFamily;
+  const shownDirection=approval?.adjustment?.direction??direction;
+  const shownValues=approval?.adjustment?.signalValues??values;
+  const supportingRuns=[...new Set((profile.signalInventory??EMPTY_RECORDS).filter((item:any)=>shownValues.every((value:string)=>item.directionalSignals?.[shownFamily]?.[shownDirection]?.includes(value))).map((item:any)=>String(item.sourceRunId??'').trim()).filter(Boolean))];
+  return <section className={styles.calibrationProfile} aria-label="Production calibration approval"><div><h5>Production calibration approval</h5><p>Evidence receipts are diagnostic until an editor approves one bounded aggregate adjustment. Image load, composite, identity, rights, and anti-anchor gates still run first.</p></div>{approval?<div className={styles.calibrationLedger}><strong>Active approval {String(approval.approvalId).slice(0,8)}</strong><p>{approval.adjustment?.type} · {approval.adjustment?.signalFamily} · {approval.adjustment?.direction} · {text(approval.adjustment?.signalValues)}</p><small>{supportingRuns.length} jointly supporting reviewed audits: {supportingRuns.join(', ')} · {approval.evidenceCount} total evidence receipts · aggregate {String(approval.aggregateEvidenceHash).slice(0,12)} · approved {date(approval.approvedAt)}</small><label className={styles.label}>Revocation reason<textarea className={`${styles.input} ${styles.textarea}`} value={reason} onChange={event=>setReason(event.target.value)} maxLength={1000}/></label><button type="button" className={styles.buttonDanger} disabled={Boolean(busy)||!reason.trim()} onClick={()=>void onRevoke(approval.approvalId,reason)}>Revoke approved adjustment</button></div>:<div className={styles.controls}><p>{profile.reviewedRunCount??0} of {profile.minimumApprovalEvidenceCount??2} required distinct reviewed audits. Approval is available only for exact signals repeated across separate audits.</p><select className={styles.select} value={type} onChange={event=>{setType(event.target.value);setValues([])}}><option value="query_ladder">Query-ladder adjustment</option><option value="class">Class adjustment</option></select>{type==='class'&&<select className={styles.select} value={family} onChange={event=>{setFamily(event.target.value);setValues([])}}><option value="sources">Source class</option><option value="clusters">Visual cluster class</option><option value="composition">Composition class</option></select>}<select className={styles.select} value={direction} onChange={event=>{setDirection(event.target.value);setValues([])}}><option value="positive">Promote</option><option value="negative">Demote</option></select><div className={styles.chips}>{choices.map((item:any)=><label className={styles.chip} key={item.value}><input type="checkbox" checked={values.includes(item.value)} onChange={event=>setValues(event.target.checked?[...values,item.value]:values.filter(value=>value!==item.value))}/>{item.value} · {item.delta>0?'+':''}{item.delta}</label>)}</div>{values.length>0&&<div className={styles.calibrationLedger}><strong>Bounded signal bundle</strong><p>{direction==='positive'?'Promote':'Demote'} exact {signalFamily}: {text(values)}</p><small>Affected reviewed audits: {supportingRuns.length?supportingRuns.join(', '):'bundle does not recur jointly yet'}</small></div>}<button type="button" className={styles.buttonPrimary} disabled={Boolean(busy)||!profile.approvalReady||!values.length||supportingRuns.length<(profile.minimumApprovalEvidenceCount??2)} onClick={()=>void onApprove(type,signalFamily,direction,values)}>Approve bounded production calibration</button></div>}</section>;
 }
 function InfoCard({title,data,keys}:{title:string;data:AnyRecord;keys:string[]}) { return <article className={`${styles.card} ${styles.cardWide}`}><h5>{title}</h5><div className={styles.grid}>{keys.map(key=><div key={key}><p className={styles.muted}>{key.replace(/[A-Z]/g,m=>` ${m}`).toUpperCase()}</p><div className={styles.chips}>{(Array.isArray(data[key])?data[key]:[data[key]]).filter(Boolean).map((item:any,index:number)=><span className={styles.chip} key={index}>{text(item)}</span>)}</div></div>)}</div></article>; }
+function BlindEvidenceExclusions({profile,busy,onExclude}:{profile:AnyRecord;busy:string;onExclude:(receiptId:string,judgmentReceiptId:string,reason:string)=>Promise<boolean>}) {
+  const items=(profile.evidenceLedger??EMPTY_RECORDS).flatMap((evidence:any)=>(evidence.blindReviewEvidence?.disagreements??EMPTY_RECORDS).map((item:any)=>({...item,sourceRescueReceiptId:evidence.sourceRescueReceiptId,sourceRunId:evidence.sourceRunId})));
+  const excluded=profile.diagnostics?.blindEvidenceExclusions??EMPTY_RECORDS;
+  const [selected,setSelected]=useState('');
+  const [reason,setReason]=useState('');
+  if(!items.length&&!excluded.length)return null;
+  return <section className={styles.calibrationProfile} aria-label="Blind-review evidence exclusions"><div><h5>Blind-review examples</h5><p>Exclude one later-discredited judgment without changing its audit or visual-judgment receipt. Aggregate support, joint recurrence, and approval authority are recomputed.</p></div><div className={styles.calibrationLedger}>{items.map((item:any)=>{const key=`${item.sourceRunId}:${item.judgmentReceiptId}`;const receipt=excluded.find((entry:any)=>entry.sourceRunId===item.sourceRunId&&entry.judgmentReceiptId===item.judgmentReceiptId);return <article key={key} data-retired={Boolean(receipt)}><span>Audit {item.sourceRunId} · {item.transition} · {item.direction}</span>{receipt?<small>{receipt.reason} · excluded {date(receipt.excludedAt)} · immutable receipt {String(receipt.exclusionId).slice(0,8)}</small>:<button type="button" className={styles.buttonDanger} disabled={Boolean(busy)} onClick={()=>{setSelected(key);setReason('')}}>Exclude this example</button>}{selected===key&&!receipt&&<form className={styles.retirementForm} onSubmit={async event=>{event.preventDefault();if(!reason.trim())return;const saved=await onExclude(item.sourceRescueReceiptId,item.judgmentReceiptId,reason);if(saved){setSelected('');setReason('')}}}><label className={styles.label}>Why is this example misleading?<textarea className={`${styles.input} ${styles.textarea}`} value={reason} maxLength={1000} required onChange={event=>setReason(event.target.value)}/></label><div className={styles.rescueActions}><button type="submit" className={styles.buttonDanger} disabled={Boolean(busy)||!reason.trim()}>{busy===`blind-exclusion:${item.judgmentReceiptId}`?'Excluding…':'Create exclusion receipt'}</button><button type="button" className={styles.buttonSecondary} disabled={Boolean(busy)} onClick={()=>{setSelected('');setReason('')}}>Cancel</button></div></form>}</article>})}</div></section>;
+}
  function CalibrationTransferSummary({profile,busy,onRetireSignal}:{profile:AnyRecord;busy:string;onRetireSignal:(receiptId:string,signalFamily:string,signalValue:string,reason:string)=>Promise<boolean>}) {
    const receipts=profile.transferSummary?.byReceipt??EMPTY_RECORDS;
    const [retiringKey,setRetiringKey]=useState('');
@@ -619,7 +727,7 @@ function InfoCard({title,data,keys}:{title:string;data:AnyRecord;keys:string[]})
   const evidence=profile.evidenceLedger??EMPTY_RECORDS;
   const [retiringReceiptId,setRetiringReceiptId]=useState<string|null>(null);
   const [retirementReason,setRetirementReason]=useState('');
-  return <section className={styles.calibrationProfile} aria-label="Calibration evidence profile"><div><h5>Calibration evidence profile</h5><p>{profile.evidenceCount??0} active · {profile.retiredEvidenceCount??0} retired · {profile.totalConfirmedEvidenceCount??profile.evidenceCount??0} confirmed total</p></div><div className={styles.calibrationLedger}><strong>All current-contract evidence</strong>{evidence.map((item:any)=><article key={item.sourceRescueReceiptId} data-retired={item.status==='retired'}><span>Receipt {String(item.sourceRescueReceiptId).slice(0,8)} · source audit {item.sourceRunId||'unknown'}</span><p>Confirmed {date(item.confirmedAt)} by {item.confirmedBy||'operator'} · {item.status==='retired'?'retired and excluded':'active in future aggregate profiles'}</p>{item.retirement?<small>{item.retirement.reason} · retired {date(item.retirement.retiredAt)} · immutable receipt {String(item.retirement.retirementId||'').slice(0,8)}</small>:<button type="button" className={styles.buttonDanger} disabled={Boolean(busy)} onClick={()=>{setRetiringReceiptId(item.sourceRescueReceiptId);setRetirementReason('')}}>Retire calibration evidence</button>}{retiringReceiptId===item.sourceRescueReceiptId&&!item.retirement&&<form className={styles.retirementForm} onSubmit={async event=>{event.preventDefault();if(!retirementReason.trim())return;const saved=await onRetireCalibration(item.sourceRescueReceiptId,retirementReason);if(saved){setRetiringReceiptId(null);setRetirementReason('')}}}><label className={styles.label}>Why should future audits ignore this evidence?<textarea className={`${styles.input} ${styles.textarea}`} value={retirementReason} maxLength={1000} required onChange={event=>setRetirementReason(event.target.value)} placeholder="Describe what made this calibration example misleading." /></label><p>The original calibration, rescue board, audit, verdict, and eligibility history remain unchanged.</p><div className={styles.rescueActions}><button type="submit" className={styles.buttonDanger} disabled={Boolean(busy)||!retirementReason.trim()}>{busy===`retirement:${item.sourceRescueReceiptId}`?'Retiring evidence…':'Create retirement receipt'}</button><button type="button" className={styles.buttonSecondary} disabled={Boolean(busy)} onClick={()=>{setRetiringReceiptId(null);setRetirementReason('')}}>Cancel</button></div></form>}</article>)}</div>{exclusions.length>0&&<div className={styles.calibrationExclusions}><strong>Excluded from future aggregate profiles</strong>{exclusions.map((item:any)=><article key={item.retirementId||item.sourceRescueReceiptId}><span>Receipt {String(item.sourceRescueReceiptId).slice(0,8)} · retired {date(item.retiredAt)} by {item.retiredBy||'operator'}</span><p>{item.reason}</p><small>Immutable retirement receipt {String(item.retirementId||'').slice(0,8)}</small></article>)}</div>}</section>;
+  return <section className={styles.calibrationProfile} aria-label="Calibration evidence profile"><div><h5>Calibration evidence profile</h5><p>{profile.evidenceCount??0} active · {profile.retiredEvidenceCount??0} retired · {profile.totalConfirmedEvidenceCount??profile.evidenceCount??0} confirmed total</p></div><div className={styles.calibrationLedger}><strong>All current-contract evidence</strong>{evidence.map((item:any)=><article key={item.sourceRescueReceiptId} data-retired={item.status==='retired'}><span>{item.evidenceType==='blind_review_disagreement'?'Blind-review evidence':'Rescue receipt'} {String(item.sourceRescueReceiptId).slice(0,8)} · source audit {item.sourceRunId||'unknown'}</span><p>{item.evidenceType==='blind_review_disagreement'?'Derived from complete immutable judgments':'Confirmed'} {date(item.confirmedAt)} {item.evidenceType==='blind_review_disagreement'?'':`by ${item.confirmedBy||'operator'}`} · {item.status==='retired'?'retired and excluded':'active in future aggregate profiles'}</p>{item.blindReviewEvidence&&<details><summary>{item.blindReviewEvidence.disagreements?.length??0} classification disagreements · {item.blindReviewEvidence.reviewedCount??0}/{item.blindReviewEvidence.occurrenceCount??0} reviewed</summary><pre>{text(item.blindReviewEvidence.disagreements)}</pre></details>}{item.retirement?<small>{item.retirement.reason} · retired {date(item.retirement.retiredAt)} · immutable receipt {String(item.retirement.retirementId||'').slice(0,8)}</small>:item.evidenceType!=='blind_review_disagreement'&&<button type="button" className={styles.buttonDanger} disabled={Boolean(busy)} onClick={()=>{setRetiringReceiptId(item.sourceRescueReceiptId);setRetirementReason('')}}>Retire calibration evidence</button>}{retiringReceiptId===item.sourceRescueReceiptId&&!item.retirement&&<form className={styles.retirementForm} onSubmit={async event=>{event.preventDefault();if(!retirementReason.trim())return;const saved=await onRetireCalibration(item.sourceRescueReceiptId,retirementReason);if(saved){setRetiringReceiptId(null);setRetirementReason('')}}}><label className={styles.label}>Why should future audits ignore this evidence?<textarea className={`${styles.input} ${styles.textarea}`} value={retirementReason} maxLength={1000} required onChange={event=>setRetirementReason(event.target.value)} placeholder="Describe what made this calibration example misleading." /></label><p>The original calibration, rescue board, audit, verdict, and eligibility history remain unchanged.</p><div className={styles.rescueActions}><button type="submit" className={styles.buttonDanger} disabled={Boolean(busy)||!retirementReason.trim()}>{busy===`retirement:${item.sourceRescueReceiptId}`?'Retiring evidence…':'Create retirement receipt'}</button><button type="button" className={styles.buttonSecondary} disabled={Boolean(busy)} onClick={()=>{setRetiringReceiptId(null);setRetirementReason('')}}>Cancel</button></div></form>}</article>)}</div>{exclusions.length>0&&<div className={styles.calibrationExclusions}><strong>Excluded from future aggregate profiles</strong>{exclusions.map((item:any)=><article key={item.retirementId||item.sourceRescueReceiptId}><span>Receipt {String(item.sourceRescueReceiptId).slice(0,8)} · retired {date(item.retiredAt)} by {item.retiredBy||'operator'}</span><p>{item.reason}</p><small>Immutable retirement receipt {String(item.retirementId||'').slice(0,8)}</small></article>)}</div>}</section>;
 }
 function RunEvidence({
   run,currentRun,priorRuns,selectedReadOnly,busy,disagreementReasons,editorialNote,onChoice,onReasonChange,onNoteChange,onSaveReasons,onFlag,onMisprint,onVisualJudgment,onSaveRescue,onExportRescue,onMarkCalibration,onRetireCalibration,onSelect,initialReceiptId,
@@ -633,14 +741,15 @@ function RunEvidence({
   const revealed = Boolean(review?.choice);
   const evidenceAvailable = isLegacy || revealed || review?.status === 'unavailable';
   const isCurrent = Boolean(!selectedReadOnly && run?.runId && run.runId === currentRun?.runId);
+  const rawResultsAvailable = Array.isArray(run?.rawResults);
   const rawResults = Array.isArray(run?.rawResults) ? run.rawResults : [];
   const unavailableIds = new Set((run?.rejections ?? []).filter((entry:AnyRecord)=>entry.kind==='image'&&entry.reason==='image_load_failed').map((entry:AnyRecord)=>entry.candidateId));
-  const displayableCount = rawResults.filter((item:AnyRecord)=>item.thumbnail&&!unavailableIds.has(item.candidateId)).length;
+  const displayableCount = rawResultsAvailable ? rawResults.filter((item:AnyRecord)=>item.thumbnail&&!unavailableIds.has(item.candidateId)).length : 'Unavailable';
   const proposedCardCount = completeProposalCardCount(run);
   const visualCandidates=visualJudgmentCandidates(run);
   const judgedOccurrences=new Set((run?.humanVisualJudgments??EMPTY_RECORDS).map((receipt:AnyRecord)=>receipt.judgmentToken??receipt.sourceOccurrenceId));
   const visualJudgmentPending=visualCandidates.some((item:AnyRecord)=>!judgedOccurrences.has(item.judgmentToken??item.occurrenceId));
-  const sections: Array<[string, unknown]>=[['Query ladder',run?.queryRuns],['Bounded raw results',run?.rawResults],['Rejection ledger',run?.rejections],['Identity evidence',run?.identityEvidence],['Detected event families',run?.detectedEvents],['Strongest Event board',run?.strongestEvent],['Strongest Compiled board',run?.strongestCompiled],['Winner',run?.winner],['Alternate',run?.alternate],['Operator-derived curation signals',run?.curationReceipt?.calibrationSignals],['Calibration transfer proof',run?.calibrationProof],['Curation receipt',run?.curationReceipt],['Blind calibration receipt',run?.blindReview],['Scheduling verdict',run?.operatorVerdict]];
+  const sections: Array<[string, string, unknown]>=[['Query ladder','queryRuns',run?.queryRuns],['Bounded raw results','rawResults',run?.rawResults],['Rejection ledger','rejections',run?.rejections],['Identity evidence','identityEvidence',run?.identityEvidence],['Detected event families','detectedEvents',run?.detectedEvents],['Strongest Event board','strongestEvent',run?.strongestEvent],['Strongest Compiled board','strongestCompiled',run?.strongestCompiled],['Winner','winner',run?.winner],['Alternate','alternate',run?.alternate],['Operator-derived curation signals','curationSignals',run?.curationReceipt?.calibrationSignals],['Calibration transfer proof','calibrationProof',run?.calibrationProof],['Curation receipt','curationReceipt',run?.curationReceipt],['Blind calibration receipt','blindReview',run?.blindReview],['Scheduling verdict','operatorVerdict',run?.operatorVerdict]];
   const boards = review?.boards ?? [];
   const disagreed = revealed && review?.agreement !== true;
   const auditRunPicker=currentRun?<AuditRunPicker run={run} currentRun={currentRun} priorRuns={priorRuns} onSelect={onSelect}/>:null;
@@ -653,7 +762,7 @@ function RunEvidence({
   return <article id="actor-audit-evidence" className={`${styles.card} ${styles.cardWide} ${isLegacy?styles.legacyCard:''}`}>
     <h5>{isLegacy?'Legacy audit · retained history':'Audit evidence'} {run?.runId?`· ${run.runId}`:''}</h5>
     {run ? <>
-      {isLegacy&&<section className={styles.legacyAudit} role="status"><div className={styles.legacyAuditHeader}><span className={styles.legacyBadge}>Legacy audit</span><strong>Retained history — invalid under the current profile contract</strong></div><p>This board is preserved as historical evidence only. It cannot establish Daily Drop eligibility. Run a fresh audit to evaluate the current identity, cluster, promise, and curation versions.</p>{run.auditContract?.legacyReasons?.length?<small>Contract changes: {run.auditContract.legacyReasons.map(reason=>reason.replaceAll('_',' ')).join(' · ')}</small>:null}</section>}
+      {isLegacy&&<section className={styles.legacyAudit} role="status"><div className={styles.legacyAuditHeader}><span className={styles.legacyBadge}>Legacy audit</span><strong>Retained history — invalid under the current profile contract</strong></div><p>This board is preserved as historical evidence only. It cannot establish Daily Drop eligibility. Legacy audits are retained history: run-scoped controls are read-only unless the server policy declares an explicit Legacy write exception.</p>{isCurrent?<p><strong>Still available on this current Legacy head:</strong> retained image annotations, including duplicate-classification disputes, and append-only rescue-board handling. Board choices, judgments, reasons, Misprint changes, publication backfills, and calibration confirmation are read-only. Run a fresh audit to use those controls under the current identity, cluster, promise, and curation versions.</p>:<p><strong>Fully read-only retained Legacy run.</strong> Write exceptions apply only while a Legacy run is the current audit head. Open the current audit for annotations or rescue-board handling, or run a fresh audit for all current-contract controls.</p>}{run.auditContract?.legacyReasons?.length?<small>Contract changes: {run.auditContract.legacyReasons.map(reason=>reason.replaceAll('_',' ')).join(' · ')}</small>:null}</section>}
       <p className={styles.muted}>{run.scope} scope · started {date(run.startedAt)} · completed {date(run.completedAt)} · identity v{run.identityProfileVersion ?? '—'} · cluster v{run.aestheticClusterVersion ?? '—'} · promise v{run.promiseContractVersion ?? '—'} · curation v{run.curationVersion ?? run.curationReceipt?.curationVersion ?? run.curationReceipt?.version ?? '—'}</p>
       <PublicationJoinSummary receipt={run.publicationJoinReceipt} />
        {review?.status === 'unavailable' ? <section className={styles.boardUnavailable}><strong>Blind comparison unavailable</strong><p>{[run?.strongestEvent,run?.strongestCompiled].filter((board:any)=>Array.isArray(board?.candidates)&&board.candidates.length>=9).length===1?'This run produced one automatically qualified nine-card board. It can be approved for publication after both human confirmations; a second board is preferred for range, not required.':Object.values(run?.boardDiagnostics??{}).some((diagnostic:any)=>confirmsCompleteProposal(diagnostic))?'This run formed a complete nine-card proposal, but an automated publication gate did not pass. Review any retained proposal below, then replace its hero or reorder retained evidence in the operator board.':'This run did not form a complete nine-card proposal. Use the retained evidence to choose a rejection, query-work verdict, or save an exact nine-card board for publication.'}</p><BoardQualificationSummary run={run} /><PromisingPartialClusters run={run} /><PartialBoards run={run} /><RunnerUpDiagnostics run={run} /></section> : <section className={`${styles.boardReview} ${isLegacy?styles.legacyBoardReview:''}`} aria-label={isLegacy?'Historical visual board comparison':'Visual board comparison'}>
@@ -677,7 +786,7 @@ function RunEvidence({
         </form>}
         {disagreed && isCurrent && run.operatorVerdict && <p className={styles.historicalNotice}>The scheduling receipt is finalized, so its calibration reasons stay frozen. Image-level pins and exclusions below remain editable as separate review receipts.</p>}
       </section>}
-      {evidenceAvailable && <><BlindVisualJudgments run={run} isCurrent={isCurrent&&!isLegacy} busy={busy} onSave={onVisualJudgment}/><div className={styles.evidenceSummary}><strong>{displayableCount}</strong><span>displayable retained images</span><strong>{proposedCardCount}</strong><span>complete proposal cards</span><strong>{run.displayCount ?? 0}</strong><span>automatically publication-ready cards</span><strong>{run.queryCount ?? run.queryRuns?.length ?? 0}</strong><span>queries audited</span><strong>{rawResults.length}</strong><span>retained results</span></div><CandidateFunnelSummary run={run}/><CalibrationLearningSummary run={run}/><RequestedGridReview run={run} isCurrent={isCurrent} busy={busy} onSave={onSaveRescue} onExport={onExportRescue} onMarkCalibration={onMarkCalibration} onRetireCalibration={onRetireCalibration} initialReceiptId={initialReceiptId}/><div className={styles.evidence}>{sections.map(([label,value])=><details key={label}><summary>{label} <span className={styles.muted}>{Array.isArray(value)?`${value.length} records`:''}</span></summary>{label === 'Bounded raw results' && rawResults.length > 0 ? <RawResultGrid run={run} isCurrent={isCurrent} busy={busy} onFlag={onFlag} onMisprint={onMisprint}/> : <pre>{text(value)}</pre>}</details>)}</div></>}
+      {evidenceAvailable && <><BlindVisualJudgments run={run} isCurrent={isCurrent&&!isLegacy} busy={busy} onSave={onVisualJudgment}/><div className={styles.evidenceSummary}><strong>{displayableCount}</strong><span>displayable retained images</span><strong>{proposedCardCount}</strong><span>complete proposal cards</span><strong>{typeof run.displayCount === 'number' ? run.displayCount : 'Unavailable'}</strong><span>automatically publication-ready cards</span><strong>{typeof run.queryCount === 'number' ? run.queryCount : 'Unavailable'}</strong><span>queries audited</span><strong>{rawResultsAvailable ? rawResults.length : 'Unavailable'}</strong><span>retained results</span></div><CandidateFunnelSummary run={run}/><CalibrationLearningSummary run={run}/><RequestedGridReview run={run} isCurrent={isCurrent} busy={busy} onSave={onSaveRescue} onExport={onExportRescue} onMarkCalibration={onMarkCalibration} onRetireCalibration={onRetireCalibration} initialReceiptId={initialReceiptId}/><div className={styles.evidence} key={run.runId}>{sections.map(([label,field,value])=>{const unavailable=value===undefined||value===null;const recordedEmpty=Array.isArray(value)&&value.length===0;const unavailableReason=typeof run.evidenceUnavailableReasons?.[field]==='string'?run.evidenceUnavailableReasons[field].trim():'';return <details key={label}><summary>{label} <span className={styles.muted}>{label === 'Bounded raw results' ? `${isCurrent&&!isLegacy?'Current · writable':isLegacy&&isCurrent?'Legacy · annotations only':isLegacy?'Legacy · frozen read-only':'Retained · frozen read-only'} · ` : ''}{unavailable?'Unavailable':Array.isArray(value)?`${value.length} records`:''}</span></summary>{unavailable?<p className={styles.historicalNotice}>{unavailableReason?`Unavailable — ${unavailableReason}`:'Unavailable — this evidence was not recorded for this audit.'}</p>:recordedEmpty?<p className={styles.historicalNotice}>0 records were recorded for this audit.</p>:label === 'Bounded raw results' && rawResults.length > 0 ? <RawResultGrid run={run} isCurrent={isCurrent} isLegacy={isLegacy} busy={busy} onFlag={onFlag} onMisprint={onMisprint}/> : <pre>{text(value)}</pre>}</details>})}</div></>}
     </> : <p className={styles.empty}>Run an audit to open a blinded Event versus Compiled comparison.</p>}
     {auditRunPicker}
   </article>;
@@ -693,7 +802,7 @@ function PublicationJoinSummary({receipt}:{receipt?:PublicationJoinReceipt}) {
     </div></div>
     {occurrences.length>0&&<div className={styles.publicationOccurrences}>{occurrences.map((occurrence,index)=><article key={`${occurrence.auditOccurrenceId??index}:${occurrence.auditIndex??index}`} data-status={occurrence.status}>
       <span><strong>Result {(occurrence.auditIndex??index)+1}</strong><small>{occurrence.status==='identity_unavailable'?'Identity unavailable':occurrence.status}</small></span>
-      {occurrence.status==='matched'&&occurrence.matches?.[0]?.publicationDate?<a href={`/vibe-atlas?date=${encodeURIComponent(occurrence.matches[0].publicationDate)}`}>{occurrence.matches[0].publicationDate} · card {Number(occurrence.matches[0].position)+1}</a>:occurrence.status==='ambiguous'?<div className={styles.publicationLinks}>{(occurrence.matches??[]).map((match,index)=><a key={`${match.publicationDate}:${match.position}:${index}`} href={`/vibe-atlas?date=${encodeURIComponent(match.publicationDate??'')}`}>{match.publicationDate??'Unknown edition'} · card {Number(match.position)+1}</a>)}</div>:<span className={styles.muted}>{occurrence.status==='missing'?'No immutable edition match':'No stable image identity was retained'}</span>}
+      {occurrence.status==='matched'&&occurrence.matches?.[0]?.publicationDate?<a href={`${PUBLIC_ROUTE_PATHS.vibeAtlas}?date=${encodeURIComponent(occurrence.matches[0].publicationDate)}`}>{occurrence.matches[0].publicationDate} · card {Number(occurrence.matches[0].position)+1}</a>:occurrence.status==='ambiguous'?<div className={styles.publicationLinks}>{(occurrence.matches??[]).map((match,index)=><a key={`${match.publicationDate}:${match.position}:${index}`} href={`${PUBLIC_ROUTE_PATHS.vibeAtlas}?date=${encodeURIComponent(match.publicationDate??'')}`}>{match.publicationDate??'Unknown edition'} · card {Number(match.position)+1}</a>)}</div>:<span className={styles.muted}>{occurrence.status==='missing'?'No immutable edition match':'No stable image identity was retained'}</span>}
     </article>)}</div>}
   </section>;
 }
@@ -711,7 +820,7 @@ const VISUAL_JUDGMENTS: Array<[string,string]> = [
   ['contradictory','Contradictory'],
   ['irrelevant','Irrelevant'],
 ];
-function RawResultGrid({run,isCurrent,busy,onFlag,onMisprint}:{run:Run;isCurrent:boolean;busy:string;onFlag:(candidateId:string,flagged:boolean,intent?:string,reasons?:string[])=>void;onMisprint:(candidate:AnyRecord,reason:MisprintReason,actualIdentity:string,note:string)=>void}) {
+function RawResultGrid({run,isCurrent,isLegacy,busy,onFlag,onMisprint}:{run:Run;isCurrent:boolean;isLegacy:boolean;busy:string;onFlag:(candidateId:string,flagged:boolean,intent?:string,reasons?:string[])=>void;onMisprint:(candidate:AnyRecord,reason:MisprintReason,actualIdentity:string,note:string)=>void}) {
   const rawResults = Array.isArray(run.rawResults) ? run.rawResults : [];
   const [challengeByCandidate,setChallengeByCandidate]=useState<Record<string,string>>({});
   const [misprintByCandidate,setMisprintByCandidate]=useState<Record<string,{reason:MisprintReason;actualIdentity:string;note:string}>>({});
@@ -739,10 +848,11 @@ function RawResultGrid({run,isCurrent,busy,onFlag,onMisprint}:{run:Run;isCurrent
       {rejection?.dropDetail&&<small className={styles.resultReason}>{rejection.dropDetail}</small>}
       {flag&&<small className={flag.disposition==='blocked'?styles.flagBlocked:styles.flagHonored}>{misprint?<><span>Preserved as a Misprint</span><br/>{misprint.label} · collectible evidence retained</>:flag.disposition==='excluded'?'Excluded from rescue board':flag.disposition==='blocked'?`${flag.intent==='challenge'?'Challenge saved':'Preference saved'} · blocked by ${String(flag.blockedReason).replaceAll('_',' ')}; find a usable equivalent`:`${String(flag.intent||'pin').replaceAll('_',' ')} saved · eligible for provisional review`}<br/>{flag.reasons?.length?`${flag.reasons.map((reason:string)=>reason.replaceAll('_',' ')).join(' · ')} · `:''}{date(flag.createdAt)} · {flag.createdBy}</small>}
       {!isCurrent&&<small className={styles.historicalNotice}>This evidence is frozen. Image actions are available only on the current audit.</small>}
-      {isCurrent&&<div className={styles.intentButtons} aria-label="Image-level editorial flags">
+      {isCurrent&&<div className={styles.intentButtons} aria-label={isLegacy?'Retained Legacy image annotations':'Image-level editorial flags'}>
         {([['pin','Pin for board'],['hero','Hero candidate'],['supporting','Good supporting card'],['exclude','Exclude']] as Array<[string,string]>).map(([intent,label])=><button type="button" key={intent} className={!misprint&&flag?.intent===intent?styles.flagButtonActive:styles.flagButton} disabled={!isCurrent||Boolean(misprint)||busy===`flag:${item.candidateId}`||busy===`misprint:${item.candidateId}`||!item.candidateId} onClick={()=>onFlag(item.candidateId,flag?.intent!==intent,intent)}>{label}</button>)}
       </div>}
-      {isCurrent&&!misprint&&<details className={styles.misprintControls}><summary>Mark Misprint</summary><p>Preserve the collectible and correct the curator. Legendary is a separate promotion.</p><label>Reason<select className={styles.challengeSelect} value={draft.reason} onChange={event=>setMisprintByCandidate(current=>({...current,[item.candidateId]:{...draft,reason:event.target.value as MisprintReason}}))}>{MISPRINT_REASONS.map(reason=><option key={reason.value} value={reason.value}>{reason.label}</option>)}</select></label><small>{MISPRINT_REASONS.find(reason=>reason.value===draft.reason)?.description}</small>{draft.reason==='wrong_actor'&&<label>Who showed up? <span>(optional)</span><input className={styles.input} maxLength={160} value={draft.actualIdentity} onChange={event=>setMisprintByCandidate(current=>({...current,[item.candidateId]:{...draft,actualIdentity:event.target.value}}))} placeholder="e.g. Zhang Linghe auditioning as Liu Xueyi" /></label>}<label>Operator note <span>(optional)</span><textarea className={`${styles.input} ${styles.textarea}`} maxLength={400} value={draft.note} onChange={event=>setMisprintByCandidate(current=>({...current,[item.candidateId]:{...draft,note:event.target.value}}))} placeholder="What made this a Misprint?" /></label><button type="button" className={styles.misprintButton} disabled={busy===`misprint:${item.candidateId}`||!item.candidateId} onClick={()=>onMisprint(item,draft.reason,draft.actualIdentity,draft.note)}>{busy===`misprint:${item.candidateId}`?'Preserving…':'Preserve & correct'}</button></details>}
+      {isLegacy&&isCurrent&&<small className={styles.historicalNotice}>Retained annotation exception: image preferences and duplicate-classification disputes remain append-only. Misprint correction is read-only on Legacy audits.</small>}
+      {isCurrent&&!isLegacy&&!misprint&&<details className={styles.misprintControls}><summary>Mark Misprint</summary><p>Preserve the collectible and correct the curator. Legendary is a separate promotion.</p><label>Reason<select className={styles.challengeSelect} value={draft.reason} onChange={event=>setMisprintByCandidate(current=>({...current,[item.candidateId]:{...draft,reason:event.target.value as MisprintReason}}))}>{MISPRINT_REASONS.map(reason=><option key={reason.value} value={reason.value}>{reason.label}</option>)}</select></label><small>{MISPRINT_REASONS.find(reason=>reason.value===draft.reason)?.description}</small>{draft.reason==='wrong_actor'&&<label>Who showed up? <span>(optional)</span><input className={styles.input} maxLength={160} value={draft.actualIdentity} onChange={event=>setMisprintByCandidate(current=>({...current,[item.candidateId]:{...draft,actualIdentity:event.target.value}}))} placeholder="e.g. Zhang Linghe auditioning as Liu Xueyi" /></label>}<label>Operator note <span>(optional)</span><textarea className={`${styles.input} ${styles.textarea}`} maxLength={400} value={draft.note} onChange={event=>setMisprintByCandidate(current=>({...current,[item.candidateId]:{...draft,note:event.target.value}}))} placeholder="What made this a Misprint?" /></label><button type="button" className={styles.misprintButton} disabled={busy===`misprint:${item.candidateId}`||!item.candidateId} onClick={()=>onMisprint(item,draft.reason,draft.actualIdentity,draft.note)}>{busy===`misprint:${item.candidateId}`?'Preserving…':'Preserve & correct'}</button></details>}
       {isCurrent&&rejection&&!legacyDuplicateGuess&&<details className={styles.challengeControls}><summary>Optional: dispute the system’s rejection label</summary><select className={styles.challengeSelect} value={challengeByCandidate[item.candidateId]??flag?.reasons?.[0]??''} onChange={event=>setChallengeByCandidate(current=>({...current,[item.candidateId]:event.target.value}))} aria-label="Why is the rejection classification wrong?"><option value="">What did the rejection get wrong?</option>{CHALLENGE_REASONS.map(([value,label])=><option key={value} value={value}>{label}</option>)}</select><button type="button" className={flag?.intent==='challenge'?styles.flagButtonActive:styles.flagButton} disabled={busy===`flag:${item.candidateId}`||!item.candidateId||!(challengeByCandidate[item.candidateId]??flag?.reasons?.[0])} onClick={()=>{const reason=challengeByCandidate[item.candidateId]??flag?.reasons?.[0];onFlag(item.candidateId,flag?.intent!=='challenge','challenge',reason?[reason]:[])}}>{flag?.intent==='challenge'?'Remove classification dispute':'Save classification dispute'}</button></details>}
     </article>;
   })}</div>;
@@ -809,6 +919,7 @@ function RequestedGridReview({run,isCurrent,busy,onSave,onExport,onMarkCalibrati
   const toggleCandidate=(item:AnyRecord)=>setCandidates(current=>current.some(candidate=>candidate.candidateId===item.candidateId)?current.filter(candidate=>candidate.candidateId!==item.candidateId):current.length<9?[...current,item]:current);
   return <section className={styles.requestedReview}>
     <div className={styles.requestedReviewHeader}><div><h6>Operator rescue board</h6><p>This is your override. Choose any nine retained, displayable images and arrange them yourself. Composite, duplicate, anti-anchor, and Vibe labels remain visible as algorithm evidence, but they do not veto the rescue. Only unavailable images and your exclusions stay out. The original audit and Daily Drop eligibility never change.</p></div><span>{candidates.length}/9 chosen · {candidatePool.length} available · {blockedCount} unavailable · {excludedCount} excluded</span></div>
+    {run.auditContract?.isLegacy&&(isCurrent?<p className={styles.historicalNotice}><strong>Retained rescue-board exception:</strong> you may arrange and save a new append-only rescue receipt from this Legacy evidence. Calibration confirmation and other run-scoped changes remain read-only.</p>:<p className={styles.historicalNotice}><strong>Read-only Legacy rescue history:</strong> this run is no longer current, so its rescue board and annotations cannot be changed. Open the current audit to use any permitted write exception.</p>)}
     {saved&&!savedMatchesCurrentFeedback&&<p className={styles.historicalNotice}>{review?'Your previous saved arrangement is retained as history. This board was rebuilt from the current image choices.':'Your previous saved arrangement is retained as history. Pin an image to start a new editable rescue board.'}</p>}
     {savedReceipts.length>0&&<section className={styles.rescueHistory} aria-label="Saved rescue board history">
       <div><h6>Saved rescue records</h6><p>Each record is immutable and saves to Collection automatically. Calibration remains a separate choice that affects only future audits; the historical audit and receipt never change.</p></div>
@@ -896,8 +1007,23 @@ function CalibrationLearningSummary({run}:{run:Run}) {
     }
   }
   if (!ranking && !signals && !proof) return null;
-  const transferSucceeded = proof?.status === 'reproduced_beyond_saved_nine';
-  const transferFailed = proof?.status === 'reaudit_not_yet_reproduced';
+  const validEffectCount = Number.isFinite(proof?.beyondExactSavedNineCount)
+    && Number.isInteger(proof.beyondExactSavedNineCount)
+    && proof.beyondExactSavedNineCount >= 0;
+  const validScoreDelta = Number.isFinite(proof?.scoreDelta);
+  const validReproducedProof = validEffectCount
+    && proof.beyondExactSavedNineCount > 0
+    && validScoreDelta;
+  const transferSucceeded = proof?.status === 'reproduced_beyond_saved_nine'
+    && validReproducedProof;
+  const transferFailed = proof?.status === 'reaudit_not_yet_reproduced'
+    || (proof?.status === 'reproduced_beyond_saved_nine' && !validReproducedProof);
+  const effectCount = validEffectCount
+    ? `${proof.beyondExactSavedNineCount} effect${proof.beyondExactSavedNineCount === 1 ? '' : 's'} beyond the exact saved nine`
+    : 'Effect count unavailable';
+  const scoreDelta = validScoreDelta
+    ? `score delta ${proof.scoreDelta.toFixed(3)}`
+    : 'score delta unavailable';
   return <section className={styles.calibrationLearning} aria-label="Rescue learning review">
     <div className={styles.calibrationLearningHeader}>
       <div>
@@ -921,7 +1047,7 @@ function CalibrationLearningSummary({run}:{run:Run}) {
     {proof && <div className={`${styles.calibrationProof} ${transferFailed ? styles.calibrationProofFailed : ''}`}>
       <strong>{transferFailed ? 'Failed transfer remains visible' : transferSucceeded ? 'Transfer evidence' : 'Transfer proof'}</strong>
       <span>{proof.summary}</span>
-      <small>{proof.beyondExactSavedNineCount ?? 0} effect{proof.beyondExactSavedNineCount === 1 ? '' : 's'} beyond the exact saved nine · score delta {Number(proof.scoreDelta ?? 0).toFixed(3)}</small>
+      <small>{effectCount} · {scoreDelta}</small>
       {transferFailed && <small>Approval gates remain unchanged: a missing transfer proof does not make this board eligible, and calibration cannot bypass a failed image or anti-anchor gate.</small>}
     </div>}
   </section>;
@@ -932,6 +1058,10 @@ function CandidateFunnelSummary({run}:{run:Run}) {
   const distribution = analysis?.failureDistribution;
   const queryYield = analysis?.queryVisualYield ?? [];
   const retrieval = run.retrievalRepetition;
+  const retrievalRungs = retrieval?.rungs ?? [];
+  const recordedCount = (value:unknown) => typeof value === 'number' ? String(value) : 'Unavailable';
+  const hasCompleteOverlapDetail = retrievalRungs.length > 0
+    && retrievalRungs.every((rung:AnyRecord)=>Array.isArray(rung.overlapsWithEarlierRungs));
   const families = analysis?.sameShootFamilies ?? [];
   if (!analysis || !distribution) return null;
   const viableFamilies = families.filter((family:AnyRecord)=>family.viableFourToEight);
@@ -942,26 +1072,33 @@ function CandidateFunnelSummary({run}:{run:Run}) {
     {retrieval&&<section className={styles.retrievalRepetition} aria-label="Retrieval repetition">
       <div><h6>Retrieval repetition</h6><p>Exact result and image identity repetition is measured before promise, ranking, deduplication, or composition decisions. It does not change queries or selection.</p></div>
       <div className={styles.evidenceSummary}>
-        <strong>{retrieval.occurrenceCount??0}</strong><span>result occurrences</span>
-        <strong>{retrieval.uniqueCandidateIdentityCount??0}</strong><span>unique candidate identities</span>
-        <strong>{retrieval.uniqueImageIdentityCount??0}</strong><span>unique image identities</span>
-        <strong>{retrieval.repeatedImageOccurrenceCount??0}</strong><span>repeated image occurrences</span>
+        <strong>{recordedCount(retrieval.occurrenceCount)}</strong><span>result occurrences</span>
+        <strong>{recordedCount(retrieval.uniqueCandidateIdentityCount)}</strong><span>unique candidate identities</span>
+        <strong>{recordedCount(retrieval.uniqueImageIdentityCount)}</strong><span>unique image identities</span>
+        <strong>{recordedCount(retrieval.repeatedImageOccurrenceCount)}</strong><span>repeated image occurrences</span>
       </div>
-      <div className={styles.retrievalRungs}>{(retrieval.rungs??[]).map((rung:AnyRecord)=><article key={`${rung.ladderRung}:${rung.query}`}>
+      <div className={styles.retrievalRungs}>{retrievalRungs.map((rung:AnyRecord)=><article key={`${rung.ladderRung}:${rung.query}`}>
         <strong>Rung {Number(rung.ladderRung)+1} · {rung.query}</strong>
-        <span>{rung.occurrenceCount??0} occurrences · {rung.uniqueImageIdentityCount??0} unique images · +{rung.incrementalImageIdentityCount??0} new images</span>
-        <small>{(rung.overlapsWithEarlierRungs??[]).length?rung.overlapsWithEarlierRungs.map((overlap:AnyRecord)=>`rung ${Number(overlap.ladderRung)+1}: ${overlap.exactImageIdentityOverlapCount} exact`).join(' · '):'First rung · no earlier overlap'}</small>
+        <span>{recordedCount(rung.occurrenceCount)} occurrences · {recordedCount(rung.uniqueImageIdentityCount)} unique images · {typeof rung.incrementalImageIdentityCount === 'number' ? `+${rung.incrementalImageIdentityCount}` : 'Unavailable'} new images</span>
+        <small>{!Array.isArray(rung.overlapsWithEarlierRungs)
+          ? 'Exact overlap detail unavailable for this rung'
+          : rung.overlapsWithEarlierRungs.length
+            ? rung.overlapsWithEarlierRungs.map((overlap:AnyRecord)=>`rung ${Number(overlap.ladderRung)+1}: ${overlap.exactImageIdentityOverlapCount} exact`).join(' · ')
+            : 'First rung · no earlier overlap'}</small>
       </article>)}</div>
-      <details><summary>Exact overlap receipt</summary><pre>{text(retrieval)}</pre></details>
+      <details><summary>{hasCompleteOverlapDetail?'Exact overlap receipt':'Partial retrieval receipt · exact overlap unavailable'}</summary>
+        {!hasCompleteOverlapDetail&&<p>Exact overlap detail is unavailable in this retained receipt. Recorded occurrence, unique-image, and incremental-yield values remain immutable and visible.</p>}
+        <pre>{text(retrieval)}</pre>
+      </details>
     </section>}
     <div className={styles.evidenceSummary}>
-      <strong>{distribution.queryNotVisibleToCuration ?? 0}</strong><span>hidden below ranked query cutoff</span>
-      <strong>{distribution.filteredBeforeAnalysis ?? 0}</strong><span>failed image or safety gates</span>
-      <strong>{distribution.exactDuplicates ?? 0}</strong><span>exact copies collapsed</span>
-      <strong>{distribution.transformedDuplicates ?? 0}</strong><span>transformed copies measured</span>
-      <strong>{distribution.promiseRejected ?? 0}</strong><span>contradictory or irrelevant</span>
-      <strong>{distribution.selected ?? 0}</strong><span>selected by the winning board</span>
-      <strong>{distribution.published ?? 0}</strong><span>{distribution.publishedStatus?.replaceAll('_',' ') ?? 'publication unknown'}</span>
+      <strong>{recordedCount(distribution.queryNotVisibleToCuration)}</strong><span>hidden below ranked query cutoff</span>
+      <strong>{recordedCount(distribution.filteredBeforeAnalysis)}</strong><span>failed image or safety gates</span>
+      <strong>{recordedCount(distribution.exactDuplicates)}</strong><span>exact copies collapsed</span>
+      <strong>{recordedCount(distribution.transformedDuplicates)}</strong><span>transformed copies measured</span>
+      <strong>{recordedCount(distribution.promiseRejected)}</strong><span>contradictory or irrelevant</span>
+      <strong>{recordedCount(distribution.selected)}</strong><span>selected by the winning board</span>
+      <strong>{recordedCount(distribution.published)}</strong><span>{distribution.publishedStatus?.replaceAll('_',' ') ?? 'publication unknown'}</span>
     </div>
     <details><summary>Query and ladder-rung yield <span className={styles.muted}>{queryYield.length} queries</span></summary><pre>{text(queryYield)}</pre></details>
     <details><summary>Search cache provenance <span className={styles.muted}>{run.queryRuns?.length ?? 0} receipts</span></summary>

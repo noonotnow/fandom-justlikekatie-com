@@ -18,6 +18,7 @@ import {
   auditCalibrationPrefix,
   auditCalibrationReasonsKey,
   auditCalibrationReasonsPrefix,
+  cacheDiagnosticReceiptKey,
   auditVisualJudgmentKey,
   auditVisualJudgmentPrefix,
   auditVisualJudgmentIndexKey,
@@ -43,6 +44,8 @@ import {
   auditRescueCalibrationRetirementPrefix,
   auditRescueCalibrationSignalRetirementKey,
   auditRescueCalibrationSignalRetirementPrefix,
+  auditBlindCalibrationExclusionKey,
+  auditBlindCalibrationExclusionPrefix,
   auditRescueCalibrationOutcomeKey,
   auditRescueCalibrationOutcomePrefix,
   auditRescueCalibrationApprovalKey,
@@ -55,6 +58,8 @@ import {
   auditVibeKey,
   eligibilityKey,
   isReleaseReady,
+  approvalSourceRunIds,
+  resolveRescueCalibrationApprovalAuthority,
   pairingFingerprintFor,
   rescueCalibrationRetirementHash,
   getEligibility,
@@ -82,12 +87,23 @@ import { getShanghaiDateString } from "./date-seed.js";
 import {
   acquireCorrectionPublicationLock,
   publicationJoinReceipt,
+  listPublicationActorIndexRepairRecoveryReceipts,
   readPublicationManifests,
-  readLatestPublicationDatesByActor,
+  readLatestPublicationDatesByActorWithHealth,
+  recoverPublicationActorIndexRepairHealth,
   recordPublicationCorrectionsForMisprint,
   releaseCorrectionPublicationLock,
 } from "./publication-manifest.js";
 import { approvedBoardAuthorityKey } from "./approved-board-provenance.js";
+import {
+  archiveEditionMetadata,
+  updateArchiveCatalog,
+} from "./archive-access.js";
+import {
+  blindCalibrationEvidence,
+  blindReviewCandidateEligibility,
+  isBlindReviewQueueCandidate,
+} from "./blind-calibration-evidence.js";
 
 const MAX_BODY_BYTES = 48 * 1024;
 const MAX_NOTE_LENGTH = 2000;
@@ -102,6 +118,9 @@ const MAX_RAW_RESULTS = 36;
 const MAX_IDENTITY_ITEMS = 36;
 const MAX_FEEDBACK_EVENTS = 72;
 const MAX_FEEDBACK_NOTE_LENGTH = 400;
+const MAX_REPAIR_HEALTH_RECOVERY_REASON_LENGTH = 400;
+
+const CACHE_DIAGNOSTIC_RESERVATION_MS = 10 * 60 * 1000;
 const MISPRINT_RECEIPT_CATALOG_KEY = "vibeAtlas:misprint-receipt-catalog:v1";
 const RESCUE_CALIBRATION_VERSION = 1;
 const MIN_REUSABLE_SIGNAL_DELTA = 0.15;
@@ -218,6 +237,25 @@ const MISPRINT_PUBLICATION_ACTIONS = new Set([
   "verdict",
   "publish_backfill",
 ]);
+const RUN_SCOPED_MUTATION_LEGACY_WRITES = new Map([
+  ["verdict", false],
+  ["blind_choice", false],
+  ["record_visual_judgment", false],
+  ["repair_visual_judgment_index", true],
+  ["blind_reasons", false],
+  ["mark_misprint", false],
+  ["flag_candidate", true],
+  ["save_rescue_board", true],
+  ["publish_backfill", false],
+  ["mark_rescue_calibration", false],
+]);
+
+export function legacyAuditMutationPolicy(action) {
+  return {
+    declared: RUN_SCOPED_MUTATION_LEGACY_WRITES.has(action),
+    legacyWritable: RUN_SCOPED_MUTATION_LEGACY_WRITES.get(action) === true,
+  };
+}
 
 export function createActorAuditHandler({
   auth,
@@ -258,6 +296,24 @@ export function createActorAuditHandler({
       const store = getStore(ELIGIBILITY_STORE, context);
       const url = new URL(req.url);
       const requestedExport = url.searchParams.get("export");
+      const requestedHistory = url.searchParams.get("history");
+      if (requestedHistory === "repair-health-recoveries") {
+        if (req.method !== "GET") {
+          return json(405, {
+            error: "Repair-health recovery history is read-only and GET-only.",
+          }, { Allow: "GET" });
+        }
+        const rawLimit = url.searchParams.get("limit");
+        const limit = rawLimit === null ? 25 : Number(rawLimit);
+        const history = await listPublicationActorIndexRepairRecoveryReceipts(
+          getPublicationStore(context),
+          { limit },
+        );
+        return json(200, {
+          schemaVersion: 1,
+          ...history,
+        });
+      }
       if (requestedExport === "calibration" || requestedExport === "calibration-audit") {
         if (req.method !== "GET") {
           return json(405, { error: "Calibration audit export is read-only and GET-only." }, { Allow: "GET" });
@@ -309,6 +365,19 @@ export function createActorAuditHandler({
         return json(200, payload, {
           "Content-Disposition": `attachment; filename="actor-calibration-${encodeURIComponent(actorId)}-${encodeURIComponent(runId)}.json"`,
         });
+      }
+      if (req.method === "POST" && typeof input?.runId === "string" && input.runId) {
+        const pair = resolvePair(actorPacks, input.actorId, input.vibeKey);
+        if (pair) {
+          const run = await readRun(store, pair, input.runId);
+          if (run
+            && auditContractFor(run, pair).isLegacy
+            && !legacyAuditMutationPolicy(input.action).legacyWritable) {
+            return json(409, {
+              error: "Legacy audits are retained history. This action is read-only unless it declares an explicit Legacy write exception.",
+            });
+          }
+        }
       }
       if (
         req.method === "POST"
@@ -388,14 +457,69 @@ export function createActorAuditHandler({
           .filter(receipt =>
             receipt.originalStatus === "pending_review"
             && receipt.status === "pending_review");
+        const calibrationProfile = approvedCalibrationProfile(
+          await readRescueCalibrationProfile(store, pair),
+        );
+        const cacheDiagnostics = Object.fromEntries((await Promise.all(
+          ["representative", "full"].map(async scope => {
+            const receipt = await store.get(
+              cacheDiagnosticReceiptKey(pair.actor.id, pair.vibeIdx, scope),
+              { type: "json", consistency: "strong" },
+            );
+            if (!receipt) return [scope, null];
+            const currentQueries = searchQueriesFor(
+              pair.actor,
+              pair.vibeIdx,
+              calibrationProfile,
+              { baseLimit: scope === "representative" ? 3 : null },
+            );
+            const changeSummaryAvailable = Array.isArray(receipt.frozenQueries);
+            const queryChanges = changeSummaryAvailable
+              ? compareQueryContracts(receipt.frozenQueries, currentQueries)
+              : null;
+            const isCurrent = changeSummaryAvailable
+              && queryChanges.added.length === 0
+              && queryChanges.removed.length === 0
+              && queryChanges.reordered.length === 0;
+            return [scope, {
+              ...receipt,
+              queryContract: {
+                status: isCurrent ? "current" : "historical",
+                isCurrent,
+                checkedAt: now().toISOString(),
+                currentQueries,
+                changeSummaryAvailability: changeSummaryAvailable ? "available" : "unavailable",
+                changes: queryChanges,
+              },
+            }];
+          }),
+        )).filter(([, receipt]) => receipt));
         return json(200, {
           ...detailResponse(pair, report),
           misprintReviewQueue,
+          cacheDiagnostics,
         });
       }
 
       if (req.method !== "POST") {
         return json(405, { error: "Method not allowed." }, { Allow: "GET, POST" });
+      }
+      if (input.action === "recover_publication_index_repair_health") {
+        const reason = boundedText(input.reason, MAX_REPAIR_HEALTH_RECOVERY_REASON_LENGTH);
+        if (reason === null) {
+          return json(400, {
+            error: `Recovery reason must be at most ${MAX_REPAIR_HEALTH_RECOVERY_REASON_LENGTH} characters.`,
+          });
+        }
+        const recovery = await recoverPublicationActorIndexRepairHealth(
+          getPublicationStore(context),
+          {
+            now: () => now().toISOString(),
+            operator: operator.user.accountId,
+            reason,
+          },
+        );
+        return json(200, recovery);
       }
       const pair = resolvePair(actorPacks, input.actorId, input.vibeKey)
         || (["mark_grid_misprint", "mark_collection_misprint"].includes(input.action)
@@ -524,15 +648,52 @@ export function createActorAuditHandler({
           calibrationProfile,
           { baseLimit: scope === "representative" ? 3 : null },
         );
-        const comparisons = await Promise.all(frozenQueries.map(async query => {
+        const reservation = await reserveCacheDiagnosticComparison(
+          store,
+          pair,
+          scope,
+          frozenQueries,
+          now,
+        );
+        if (!reservation.acquired) {
+          return json(409, {
+            error: "An identical cache comparison is already running. Wait for it to finish before starting another.",
+          });
+        }
+        const comparisons = await Promise.all(frozenQueries.map(async (query, queryIndex) => {
           const settleSearch = async cacheMode => {
+            const claim = await claimCacheDiagnosticSide(
+              store,
+              pair,
+              scope,
+              frozenQueries,
+              reservation.record.comparisonId,
+              queryIndex,
+              cacheMode,
+              now,
+            );
+            if (!claim.claimed) {
+              return { status: "rejected", reason: new Error(claim.error) };
+            }
+            let succeeded = false;
             try {
+              const value = await searchOneQuery(query, { debug: true, cacheMode });
+              succeeded = true;
               return {
                 status: "fulfilled",
-                value: await searchOneQuery(query, { debug: true, cacheMode }),
+                value,
               };
             } catch (reason) {
               return { status: "rejected", reason };
+            } finally {
+              await finishCacheDiagnosticSide(
+                store,
+                claim,
+                queryIndex,
+                cacheMode,
+                succeeded,
+                now,
+              );
             }
           };
           const normalResult = await settleSearch("default");
@@ -585,6 +746,18 @@ export function createActorAuditHandler({
           calibrationProfile,
           { baseLimit: scope === "representative" ? 3 : null },
         );
+        const reservation = await reserveCacheDiagnosticComparison(
+          store,
+          pair,
+          scope,
+          frozenQueries,
+          now,
+        );
+        if (!reservation.acquired) {
+          return json(409, {
+            error: "An identical cache comparison is already running. Wait for it to finish before starting another.",
+          });
+        }
         return json(200, {
           diagnostic: {
             schemaVersion: 2,
@@ -593,6 +766,8 @@ export function createActorAuditHandler({
             vibeKey: pair.vibeKey,
             scope,
             frozenQueries,
+            comparisonId: reservation.record.comparisonId,
+            reservationExpiresAt: reservation.record.expiresAt,
           },
         });
       }
@@ -621,7 +796,38 @@ export function createActorAuditHandler({
         );
         const query = frozenQueries[queryIndex];
         if (!query) return json(400, { error: "Diagnostic query index is out of range." });
-        const search = await searchOneQuery(query, { debug: true, cacheMode });
+        const comparisonId = boundedText(input.comparisonId, 160);
+        if (!comparisonId) {
+          return json(400, { error: "Diagnostic comparison identifier is required." });
+        }
+        const claim = await claimCacheDiagnosticSide(
+          store,
+          pair,
+          scope,
+          frozenQueries,
+          comparisonId,
+          queryIndex,
+          cacheMode,
+          now,
+        );
+        if (!claim.claimed) {
+          return json(claim.status, { error: claim.error });
+        }
+        let search;
+        let succeeded = false;
+        try {
+          search = await searchOneQuery(query, { debug: true, cacheMode });
+          succeeded = true;
+        } finally {
+          await finishCacheDiagnosticSide(
+            store,
+            claim,
+            queryIndex,
+            cacheMode,
+            succeeded,
+            now,
+          );
+        }
         return json(200, {
           diagnosticOnly: true,
           actorId: pair.actor.id,
@@ -632,6 +838,78 @@ export function createActorAuditHandler({
           cacheMode,
           search: searchCacheDiagnosticReceipt(search),
         });
+      }
+
+      if (input.action === "cache_diagnostic_receipt") {
+        const scope = parseScope(input.scope);
+        if (!scope) return json(400, { error: "Diagnostic scope must be representative or full." });
+        const calibrationProfile = approvedCalibrationProfile(
+          await readRescueCalibrationProfile(store, pair),
+        );
+        const frozenQueries = searchQueriesFor(
+          pair.actor,
+          pair.vibeIdx,
+          calibrationProfile,
+          { baseLimit: scope === "representative" ? 3 : null },
+        );
+        if (JSON.stringify(input.frozenQueries) !== JSON.stringify(frozenQueries)) {
+          return json(409, { error: "The diagnostic query set changed before its receipt was saved." });
+        }
+        if (!Array.isArray(input.comparisons)
+          || input.comparisons.length !== frozenQueries.length
+          || input.comparisons.some((item, index) => item?.query !== frozenQueries[index])) {
+          return json(400, { error: "The diagnostic comparisons do not match the frozen query set." });
+        }
+        const sideReceipt = side => side && typeof side === "object" ? {
+          resultFingerprint: boundedText(side.resultFingerprint, 160),
+          providerSelectionOrder: boundedStringArray(side.providerSelectionOrder, 12, 160),
+          providerFetchOrder: boundedStringArray(side.providerFetchOrder, 12, 160),
+          cacheProvenance: boundedCacheProvenance(side.cacheProvenance),
+        } : null;
+        const receipt = {
+          schemaVersion: 1,
+          diagnosticOnly: true,
+          retention: "latest_per_pairing_and_scope",
+          actorId: pair.actor.id,
+          vibeKey: pair.vibeKey,
+          scope,
+          frozenQueries,
+          queryContract: {
+            status: "current",
+            isCurrent: true,
+            checkedAt: now().toISOString(),
+            currentQueries: frozenQueries,
+            changeSummaryAvailability: "available",
+          },
+          comparisonId: boundedText(input.comparisonId, 160),
+          reservationExpiresAt: typeof input.reservationExpiresAt === "string"
+            && Number.isFinite(Date.parse(input.reservationExpiresAt))
+            ? new Date(input.reservationExpiresAt).toISOString()
+            : null,
+          comparedAt: typeof input.comparedAt === "string"
+            && Number.isFinite(Date.parse(input.comparedAt))
+            ? new Date(input.comparedAt).toISOString()
+            : now().toISOString(),
+          savedAt: now().toISOString(),
+          comparisons: input.comparisons.map(item => ({
+            query: item.query,
+            normal: sideReceipt(item.normal),
+            bypassed: sideReceipt(item.bypassed),
+            normalError: boundedText(item.normalError, 500),
+            bypassedError: boundedText(item.bypassedError, 500),
+            sameResultFingerprint: typeof item.sameResultFingerprint === "boolean"
+              ? item.sameResultFingerprint
+              : null,
+            sameProviderFetchOrder: typeof item.sameProviderFetchOrder === "boolean"
+              ? item.sameProviderFetchOrder
+              : null,
+          })),
+        };
+        await store.setJSON(
+          cacheDiagnosticReceiptKey(pair.actor.id, pair.vibeIdx, scope),
+          receipt,
+        );
+        return json(200, { diagnostic: receipt });
       }
 
       if (input.action === "query_repair_manifest") {
@@ -1083,9 +1361,6 @@ export function createActorAuditHandler({
         if (!report?.currentRun || input.runId !== report.currentRun.runId) {
           return json(409, { error: "This review is not for the current audit run. Refresh and try again." });
         }
-        if (!currentRunMatchesCurrentContract(report.currentRun, pair)) {
-          return json(409, { error: "Legacy audits are retained history. Run a fresh audit before recording a board choice." });
-        }
         if (!comparableBoards(report.currentRun)) {
           return json(409, { error: "A blinded comparison requires two complete Event and Compiled boards." });
         }
@@ -1130,9 +1405,6 @@ export function createActorAuditHandler({
         if (!report?.currentRun || input.runId !== report.currentRun.runId) {
           return json(409, { error: "This judgment is not for the current audit run. Refresh and try again." });
         }
-        if (!currentRunMatchesCurrentContract(report.currentRun, pair)) {
-          return json(409, { error: "Legacy audits are retained history. Run a fresh audit before recording visual judgments." });
-        }
         if (!VISUAL_JUDGMENT_CLASSES.has(input.classification)) {
           return json(400, { error: "Choose core, supporting, connective, contradictory, or irrelevant." });
         }
@@ -1141,8 +1413,8 @@ export function createActorAuditHandler({
           ?.find(candidate =>
             candidate?.occurrenceId
             && visualJudgmentToken(report.currentRun.runId, candidate.occurrenceId) === judgmentToken);
-        if (!source || (source.selected !== false && !source.dropReason) || !source.thumbnail) {
-          return json(400, { error: "Choose a rejected thumbnail retained by this audit occurrence." });
+        if (!isBlindReviewQueueCandidate(source)) {
+          return json(400, { error: "Choose a reviewable thumbnail retained by this audit occurrence." });
         }
         const receiptId = `visual-${judgmentToken}`;
         const key = auditVisualJudgmentKey(
@@ -1178,7 +1450,13 @@ export function createActorAuditHandler({
           receipt,
         );
         if (!indexed) {
-          return json(503, { error: "The judgment was saved, but its receipt index is busy. Retry to create a complete receipt." });
+          return json(503, {
+            error: "The judgment was saved, but its receipt index is busy.",
+            receiptSaved: true,
+            repairAction: "repair_visual_judgment_index",
+            runId: report.currentRun.runId,
+            receiptId,
+          });
         }
         const next = await readReport(store, pair);
         return json(200, {
@@ -1188,13 +1466,56 @@ export function createActorAuditHandler({
         });
       }
 
+      if (input.action === "repair_visual_judgment_index") {
+        const runId = boundedText(input.runId, 160);
+        const receiptId = boundedText(input.receiptId, 200);
+        if (!runId || !receiptId || !receiptId.startsWith("visual-")) {
+          return json(400, { error: "A retained audit run and visual judgment receipt are required." });
+        }
+        const run = await readRun(store, pair, runId);
+        if (!run || run.runId !== runId) {
+          return json(404, { error: `Source audit run ${runId} is no longer retained.`, runId });
+        }
+        const receiptKey = auditVisualJudgmentKey(
+          pair.actor.id,
+          pair.vibeIdx,
+          runId,
+          receiptId,
+        );
+        const receipt = await store.get(receiptKey, { type: "json", consistency: "strong" });
+        const source = run.calibrationAnalysis?.candidates?.find(candidate =>
+          candidate?.occurrenceId === receipt?.sourceOccurrenceId);
+        const expectedReceiptId = source?.occurrenceId
+          ? `visual-${visualJudgmentToken(runId, source.occurrenceId)}`
+          : null;
+        if (
+          !receipt
+          || receipt.receiptId !== receiptId
+          || receipt.runId !== runId
+          || expectedReceiptId !== receiptId
+        ) {
+          return json(409, {
+            error: "This receipt identity does not belong to the retained audit run.",
+          });
+        }
+        const indexed = await appendVisualJudgmentIndex(store, pair, runId, receipt);
+        if (!indexed) {
+          return json(503, {
+            error: "The judgment receipt is unchanged, but its receipt index is still busy. Try the repair again.",
+          });
+        }
+        return json(200, {
+          repaired: true,
+          runId,
+          receiptId,
+          receiptUnchanged: true,
+        });
+      }
+
       if (input.action === "blind_reasons") {
         const report = await readReport(store, pair);
         if (!report?.currentRun || input.runId !== report.currentRun.runId) {
           return json(409, { error: "This review is not for the current audit run. Refresh and try again." });
-        }
-        if (!currentRunMatchesCurrentContract(report.currentRun, pair)) {
-          return json(409, { error: "Legacy audits are retained history. Their calibration cannot be changed." });
         }
         if (report.currentRun.operatorVerdict) {
           return json(409, { error: "This audit run is finalized; its calibration receipt is immutable." });
@@ -2011,6 +2332,7 @@ export function createActorAuditHandler({
             if (materializePublication && !samePublicPayload(existing, payload)) {
               await publicationStore.setJSON(key, payload);
             }
+            await updateArchiveCatalogForPayload(publicationStore, payload, now);
             return json(200, {
               backfill: { date: input.date, status: "already_published" },
               payload: publicBackfillSummary(payload),
@@ -2024,6 +2346,7 @@ export function createActorAuditHandler({
           if (!raced || !sameBoardAsPublicPayload(raced, approval.publicationBoard)) {
             return json(409, { error: "Another board won that edition date." });
           }
+          await updateArchiveCatalogForPayload(publicationStore, raced, now);
           return json(200, {
             backfill: { date: input.date, status: "already_published" },
             payload: publicBackfillSummary(raced),
@@ -2033,6 +2356,7 @@ export function createActorAuditHandler({
         if (!written || !samePublicPayload(written, payload)) {
           return json(409, { error: "The backfill could not be verified after writing. Refresh the archive before trying again." });
         }
+        await updateArchiveCatalogForPayload(publicationStore, written, now);
         return json(200, {
           backfill: { date: input.date, status: "published" },
           payload: publicBackfillSummary(written),
@@ -2048,11 +2372,6 @@ export function createActorAuditHandler({
         const run = await readRun(store, pair, input.runId);
         if (!run || run.runId !== input.runId) {
           return json(404, { error: "That audit run was not found." });
-        }
-        if (!currentRunMatchesCurrentContract(run, pair)) {
-          return json(409, {
-            error: "Legacy rescue boards remain historical records and cannot calibrate the current profile. Run a fresh audit and save a current-contract rescue board.",
-          });
         }
         const receipt = await store.get(
           auditRescueBoardKey(pair.actor.id, pair.vibeIdx, run.runId, input.receiptId),
@@ -2075,7 +2394,7 @@ export function createActorAuditHandler({
       }
 
       if (input.action === "approve_rescue_calibration") {
-        const profile = await readRescueCalibrationProfile(store, pair);
+        const profile = (await readReport(store, pair)).calibrationProfile;
         if (!profile || profile.reviewedRunCount < MIN_CALIBRATION_APPROVAL_EVIDENCE) {
           return json(409, {
             error: `Calibration approval requires evidence from at least ${MIN_CALIBRATION_APPROVAL_EVIDENCE} distinct reviewed audits.`,
@@ -2092,8 +2411,10 @@ export function createActorAuditHandler({
         }
         const direction = input.direction === "negative" ? "negative" : input.direction === "positive" ? "positive" : null;
         const signalValues = [...new Set((Array.isArray(input.signalValues) ? input.signalValues : [])
-          .map(normalizeCalibrationSignalValue)
-          .filter(Boolean))].slice(0, 12);
+          .map(value => normalizeCalibrationSignalValue(value, signalFamily))
+          .filter(Boolean))]
+          .sort()
+          .slice(0, 12);
         if (!direction || !signalValues.length) {
           return json(400, { error: "Choose a positive or negative aggregate adjustment and at least one signal." });
         }
@@ -2109,7 +2430,7 @@ export function createActorAuditHandler({
         const jointlySupportingRunCount = new Set((profile.signalInventory || [])
           .filter(item => signalValues.every(value =>
             item.directionalSignals?.[signalFamily]?.[direction]?.includes(value)))
-          .map(item => item.sourceRunId)
+          .map(item => normalizeCalibrationSourceRunId(item.sourceRunId))
           .filter(Boolean)).size;
         if (jointlySupportingRunCount < MIN_CALIBRATION_APPROVAL_EVIDENCE) {
           return json(409, {
@@ -2117,6 +2438,9 @@ export function createActorAuditHandler({
           });
         }
         const evidenceReceiptIds = [...profile.sourceReceiptIds].sort();
+        const sourceRunIds = [...new Set((profile.evidenceLedger || [])
+          .map(item => normalizeCalibrationSourceRunId(item.sourceRunId))
+          .filter(Boolean))].sort();
         const aggregateEvidenceHash = calibrationApprovalEvidenceHash(profile, {
           signalFamily,
           direction,
@@ -2142,6 +2466,7 @@ export function createActorAuditHandler({
             signalValues,
           },
           evidenceReceiptIds,
+          sourceRunIds,
           evidenceCount: evidenceReceiptIds.length,
           aggregateEvidenceHash,
           approvedAt: now().toISOString(),
@@ -2248,7 +2573,7 @@ export function createActorAuditHandler({
           return json(400, { error: "A confirmed calibration receipt is required." });
         }
         const signalFamily = normalizeCalibrationSignalFamily(input.signalFamily);
-        const signalValue = normalizeCalibrationSignalValue(input.signalValue);
+        const signalValue = normalizeCalibrationSignalValue(input.signalValue, signalFamily);
         if (!signalFamily || !signalValue) {
           return json(400, {
             error: "Choose a query, source, cluster, or composition signal to retire.",
@@ -2264,19 +2589,19 @@ export function createActorAuditHandler({
           auditRescueCalibrationKey(pair.actor.id, pair.vibeIdx, input.receiptId),
           { type: "json", consistency: "strong" },
         );
-        if (!calibration
-          || calibration.sourceRescueReceiptId !== input.receiptId
-          || calibration.actor?.id !== pair.actor.id
-          || calibration.vibePack?.key !== pair.vibeKey
-          || calibration.status !== "confirmed"
-          || calibration.calibrationVersion !== RESCUE_CALIBRATION_VERSION) {
+        const report = calibration ? null : await readReport(store, pair);
+        const blindEvidence = report?.calibrationProfile?.evidenceLedger?.find(item =>
+          item.evidenceType === "blind_review_disagreement"
+          && item.status === "active"
+          && item.sourceRescueReceiptId === input.receiptId);
+        const validRescueCalibration = calibration
+          && calibration.sourceRescueReceiptId === input.receiptId
+          && calibration.actor?.id === pair.actor.id
+          && calibration.vibePack?.key === pair.vibeKey
+          && calibration.status === "confirmed"
+          && calibration.calibrationVersion === RESCUE_CALIBRATION_VERSION;
+        if (!validRescueCalibration && !blindEvidence) {
           return json(404, { error: "That confirmed calibration receipt was not found for this pairing." });
-        }
-        const availableSignals = calibrationSignalValues(calibration, signalFamily);
-        if (!availableSignals.includes(signalValue)) {
-          return json(404, {
-            error: "That signal is not present in the selected calibration receipt.",
-          });
         }
         const retirementKey = auditRescueCalibrationSignalRetirementKey(
           pair.actor.id,
@@ -2290,23 +2615,50 @@ export function createActorAuditHandler({
           consistency: "strong",
         });
         if (existing) {
-          if (existing.reason !== reason) {
+          const requestedRetirement = {
+            status: "retired",
+            sourceRescueReceiptId: input.receiptId,
+            sourceRunId: validRescueCalibration
+              ? calibration.sourceRunId || null
+              : blindEvidence.sourceRunId || null,
+            actorId: pair.actor.id,
+            vibeKey: pair.vibeKey,
+            signalFamily: CALIBRATION_SIGNAL_LABELS[signalFamily],
+            signalValue,
+            reason,
+            retiredBy: operator.user.accountId,
+          };
+          requestedRetirement.retirementId = calibrationSignalRetirementId(requestedRetirement);
+          if (recordHash(calibrationSignalRetirementIdentity(existing))
+            !== recordHash(calibrationSignalRetirementIdentity(requestedRetirement))) {
             return json(409, { error: "That signal retirement receipt is immutable." });
           }
-          const next = await readReport(store, pair);
+          const next = await readReport(store, pair, {
+            signalRetirements: [existing],
+          });
           return json(200, {
             actor: await actorSummary(store, actorPacks, pair.actor),
             pairing: pairingSummary(pair, next),
             ...detailResponse(pair, next),
           });
         }
+        const availableSignals = validRescueCalibration
+          ? calibrationSignalValues(calibration, signalFamily)
+          : report.calibrationProfile.signalInventory.find(item =>
+            item.sourceRescueReceiptId === input.receiptId)?.signals?.[signalFamily] || [];
+        if (!availableSignals.includes(signalValue)) {
+          return json(404, {
+            error: "That signal is not present in the selected calibration receipt.",
+          });
+        }
         const retirement = {
           schemaVersion: 1,
           retirementVersion: 1,
-          retirementId: createFeedbackId(),
           status: "retired",
           sourceRescueReceiptId: input.receiptId,
-          sourceRunId: calibration.sourceRunId || null,
+          sourceRunId: validRescueCalibration
+            ? calibration.sourceRunId || null
+            : blindEvidence.sourceRunId || null,
           actorId: pair.actor.id,
           vibeKey: pair.vibeKey,
           signalFamily: CALIBRATION_SIGNAL_LABELS[signalFamily],
@@ -2315,9 +2667,128 @@ export function createActorAuditHandler({
           retiredAt: now().toISOString(),
           retiredBy: operator.user.accountId,
         };
+        retirement.retirementId = calibrationSignalRetirementId(retirement);
         const write = await store.setJSON(retirementKey, retirement, { onlyIfNew: true });
         if (write?.modified === false) {
           return json(409, { error: "Another operator retired this signal first." });
+        }
+        const authoritative = await store.get(retirementKey, {
+          type: "json",
+          consistency: "strong",
+        });
+        if (!authoritative
+          || recordHash(calibrationSignalRetirementIdentity(authoritative))
+            !== recordHash(calibrationSignalRetirementIdentity(retirement))) {
+          return json(409, { error: "The immutable signal retirement receipt could not be verified." });
+        }
+        const next = await readReport(store, pair, {
+          signalRetirements: [authoritative],
+        });
+        return json(200, {
+          actor: await actorSummary(store, actorPacks, pair.actor),
+          pairing: pairingSummary(pair, next),
+          ...detailResponse(pair, next),
+        });
+      }
+
+      if (input.action === "exclude_blind_calibration_item") {
+        if (typeof input.receiptId !== "string"
+          || !/^[A-Za-z0-9_-]{1,128}$/.test(input.receiptId)
+          || typeof input.judgmentReceiptId !== "string"
+          || !/^[A-Za-z0-9_-]{1,128}$/.test(input.judgmentReceiptId)) {
+          return json(400, { error: "Choose one blind-review evidence item to exclude." });
+        }
+        const reason = boundedText(input.reason, MAX_CALIBRATION_RETIREMENT_REASON_LENGTH);
+        if (!reason) {
+          return json(400, { error: "Explain why this blind-review example is misleading." });
+        }
+        const report = await readReport(store, pair);
+        const evidence = report.calibrationProfile?.evidenceLedger?.find(item =>
+          item.evidenceType === "blind_review_disagreement"
+          && item.sourceRescueReceiptId === input.receiptId);
+        const sourceRunId = evidence?.sourceRunId || boundedText(input.runId, 128);
+        const exclusionKey = sourceRunId
+          ? auditBlindCalibrationExclusionKey(
+            pair.actor.id,
+            pair.vibeIdx,
+            sourceRunId,
+            input.judgmentReceiptId,
+          )
+          : null;
+        const existing = exclusionKey
+          ? await store.get(exclusionKey, { type: "json", consistency: "strong" })
+          : null;
+        const disagreement = evidence?.blindReviewEvidence?.disagreements?.find(item =>
+          item.judgmentReceiptId === input.judgmentReceiptId);
+        if (existing) {
+          const judgment = await store.get(
+            auditVisualJudgmentKey(
+              pair.actor.id,
+              pair.vibeIdx,
+              sourceRunId,
+              input.judgmentReceiptId,
+            ),
+            { type: "json", consistency: "strong" },
+          );
+          const requestedExclusion = {
+            status: "excluded",
+            sourceRescueReceiptId: input.receiptId,
+            sourceRunId,
+            judgmentReceiptId: input.judgmentReceiptId,
+            sourceOccurrenceId: judgment?.sourceOccurrenceId,
+            actorId: pair.actor.id,
+            vibeKey: pair.vibeKey,
+            reason,
+            excludedBy: operator.user.accountId,
+          };
+          requestedExclusion.exclusionId = blindCalibrationExclusionId(requestedExclusion);
+          if (!judgment
+            || recordHash(blindCalibrationExclusionIdentity(existing))
+              !== recordHash(blindCalibrationExclusionIdentity(requestedExclusion))) {
+            return json(409, { error: "That blind-review exclusion receipt is immutable." });
+          }
+          const next = await readReport(store, pair);
+          return json(200, {
+            actor: await actorSummary(store, actorPacks, pair.actor),
+            pairing: pairingSummary(pair, next),
+            ...detailResponse(pair, next),
+          });
+        }
+        if (!disagreement || disagreement.status === "excluded" || !sourceRunId || !exclusionKey) {
+          return json(404, { error: "That active blind-review evidence item was not found." });
+        }
+        {
+          const exclusionIdentity = {
+            status: "excluded",
+            sourceRescueReceiptId: input.receiptId,
+            sourceRunId,
+            judgmentReceiptId: input.judgmentReceiptId,
+            sourceOccurrenceId: disagreement.occurrenceId,
+            actorId: pair.actor.id,
+            vibeKey: pair.vibeKey,
+            reason,
+            excludedBy: operator.user.accountId,
+          };
+          const exclusion = {
+            schemaVersion: 1,
+            exclusionVersion: 1,
+            ...exclusionIdentity,
+            exclusionId: blindCalibrationExclusionId(exclusionIdentity),
+            excludedAt: now().toISOString(),
+          };
+          const write = await store.setJSON(exclusionKey, exclusion, { onlyIfNew: true });
+          if (write?.modified === false) {
+            return json(409, { error: "Another operator excluded this example first." });
+          }
+          const authoritative = await store.get(exclusionKey, {
+            type: "json",
+            consistency: "strong",
+          });
+          if (!authoritative
+            || recordHash(blindCalibrationExclusionIdentity(authoritative))
+              !== recordHash(blindCalibrationExclusionIdentity(exclusion))) {
+            return json(409, { error: "The immutable blind-review exclusion receipt could not be verified." });
+          }
         }
         const next = await readReport(store, pair);
         return json(200, {
@@ -2360,7 +2831,18 @@ export function createActorAuditHandler({
           consistency: "strong",
         });
         if (existing) {
-          if (existing.reason !== reason) {
+          const requestedRetirement = {
+            status: "retired",
+            sourceRescueReceiptId: input.receiptId,
+            sourceRunId: calibration.sourceRunId || null,
+            actorId: pair.actor.id,
+            vibeKey: pair.vibeKey,
+            reason,
+            retiredBy: operator.user.accountId,
+          };
+          requestedRetirement.retirementId = calibrationRetirementId(requestedRetirement);
+          if (recordHash(calibrationRetirementIdentity(existing))
+            !== recordHash(calibrationRetirementIdentity(requestedRetirement))) {
             return json(409, { error: "That calibration retirement receipt is immutable." });
           }
           const next = await readReport(store, pair);
@@ -2373,7 +2855,6 @@ export function createActorAuditHandler({
         const retirement = {
           schemaVersion: 1,
           retirementVersion: 1,
-          retirementId: createFeedbackId(),
           status: "retired",
           sourceRescueReceiptId: input.receiptId,
           sourceRunId: calibration.sourceRunId || null,
@@ -2383,9 +2864,19 @@ export function createActorAuditHandler({
           retiredAt: now().toISOString(),
           retiredBy: operator.user.accountId,
         };
+        retirement.retirementId = calibrationRetirementId(retirement);
         const write = await store.setJSON(retirementKey, retirement, { onlyIfNew: true });
         if (write?.modified === false) {
           return json(409, { error: "Another operator retired this calibration evidence first." });
+        }
+        const authoritative = await store.get(retirementKey, {
+          type: "json",
+          consistency: "strong",
+        });
+        if (!authoritative
+          || recordHash(calibrationRetirementIdentity(authoritative))
+            !== recordHash(calibrationRetirementIdentity(retirement))) {
+          return json(409, { error: "The immutable calibration retirement receipt could not be verified." });
         }
         const next = await readReport(store, pair);
         return json(200, {
@@ -2530,6 +3021,13 @@ export function createActorAuditHandler({
   };
 }
 
+async function updateArchiveCatalogForPayload(store, payload, now) {
+  const edition = archiveEditionMetadata(payload);
+  if (!edition) {
+    throw new Error("The published backfill does not contain valid archive metadata.");
+  }
+  await updateArchiveCatalog(store, edition, () => now().toISOString());
+}
 function searchCacheDiagnosticReceipt(response) {
   const identityLimit = 24;
   const captured = [];
@@ -2577,6 +3075,40 @@ function searchCacheDiagnosticReceipt(response) {
       truncated: seen.size > captured.length,
     },
     resultIdentities: captured,
+  };
+}
+
+function compareQueryContracts(frozenQueries, currentQueries) {
+  const frozen = Array.isArray(frozenQueries) ? frozenQueries : [];
+  const current = Array.isArray(currentQueries) ? currentQueries : [];
+  const currentIndexesByQuery = new Map();
+  current.forEach((query, index) => {
+    const indexes = currentIndexesByQuery.get(query) || [];
+    indexes.push(index);
+    currentIndexesByQuery.set(query, indexes);
+  });
+  const matchedCurrentIndexes = new Set();
+  const removed = [];
+  const reordered = [];
+
+  frozen.forEach((query, frozenIndex) => {
+    const currentIndex = (currentIndexesByQuery.get(query) || [])
+      .find(index => !matchedCurrentIndexes.has(index));
+    if (currentIndex === undefined) {
+      removed.push({ query, frozenIndex });
+      return;
+    }
+    matchedCurrentIndexes.add(currentIndex);
+    if (currentIndex !== frozenIndex) {
+      reordered.push({ query, frozenIndex, currentIndex });
+    }
+  });
+
+  return {
+    added: current.flatMap((query, currentIndex) =>
+      matchedCurrentIndexes.has(currentIndex) ? [] : [{ query, currentIndex }]),
+    removed,
+    reordered,
   };
 }
 
@@ -2878,6 +3410,7 @@ export async function runPreflight(
   const run = {
     runId: createRunId(),
     schemaVersion: 1,
+    publicationJoinSupported: true,
     profileVersion: IDENTITY_PROFILE_VERSION,
     ...profileVersions,
     curationVersion: curationReceipt.curationVersion ?? curationReceipt.version ?? null,
@@ -3602,6 +4135,37 @@ function summarizeIdentityEvidence(candidates, profile) {
 }
 
 async function appendRun(store, pair, run) {
+  const calibrationCandidates = run?.calibrationAnalysis?.candidates || [];
+  const missingOccurrenceIdentityIndex = calibrationCandidates.findIndex(candidate =>
+    blindReviewCandidateEligibility(candidate).requiresOccurrenceIdentity
+    && (typeof candidate.occurrenceId !== "string" || !candidate.occurrenceId.trim()));
+  if (missingOccurrenceIdentityIndex !== -1) {
+    const candidate = calibrationCandidates[missingOccurrenceIdentityIndex];
+    const candidateLabel = candidate?.candidateId
+      ? `candidate "${candidate.candidateId}"`
+      : `candidate at calibration index ${missingOccurrenceIdentityIndex}`;
+    const error = new Error(
+      `Audit ${candidateLabel} is a rejected thumbnail candidate with a blank occurrence ID. The retained run was not finalized.`,
+    );
+    error.status = 409;
+    throw error;
+  }
+  const seenOccurrenceIds = new Set();
+  const duplicateOccurrenceId = calibrationCandidates
+    .map(candidate => candidate?.occurrenceId)
+    .find(occurrenceId => {
+      if (typeof occurrenceId !== "string" || !occurrenceId.trim()) return false;
+      if (seenOccurrenceIds.has(occurrenceId)) return true;
+      seenOccurrenceIds.add(occurrenceId);
+      return false;
+    });
+  if (duplicateOccurrenceId) {
+    const error = new Error(
+      `Audit candidates repeat occurrence ID "${duplicateOccurrenceId}". The retained run was not finalized.`,
+    );
+    error.status = 409;
+    throw error;
+  }
   const runWrite = await store.setJSON(
     auditRunKey(pair.actor.id, pair.vibeIdx, run.runId),
     run,
@@ -3932,17 +4496,19 @@ export async function releaseReadyInventory(
   } = {},
 ) {
   const throughDate = getShanghaiDateString(now());
-  const [recentManifests, latestDailyDropByActor] = await Promise.all([
+  const [recentManifests, publicationIndex] = await Promise.all([
     readRecentDailyDropHistory(
       publicationStore,
       throughDate,
       recentWindowDays,
     ),
-    readLatestPublicationDatesByActor(publicationStore, {
+    readLatestPublicationDatesByActorWithHealth(publicationStore, {
       throughDate,
       actorIds: actorPacks.map(actor => actor.id),
+      now: () => now(),
     }),
   ]);
+  const latestDailyDropByActor = publicationIndex.dates;
   const recentByPairing = new Map();
   const recentByActor = new Map();
   for (const manifest of recentManifests) {
@@ -4039,6 +4605,7 @@ export async function releaseReadyInventory(
     schemaVersion: 1,
     timeZone: "Asia/Shanghai",
     cutoff: "12:00",
+    publicationIndexRepairHealth: publicationIndex.repairHealth,
     releaseReadyPairingCount: pairings.length,
     freshCuratorPairingCount: pairings.filter(pair => pair.freshCurator).length,
     rescueBackupPairingCount: pairings.filter(pair => pair.rescueBackupBoardCount > 0).length,
@@ -4274,7 +4841,7 @@ function emptyDiagnostics() {
   };
 }
 
-async function readReport(store, pair) {
+async function readReport(store, pair, authoritativeReceipts = {}) {
   const head = await store.get(auditHeadKey(pair.actor.id, pair.vibeIdx), {
     type: "json",
     consistency: "strong",
@@ -4299,7 +4866,12 @@ async function readReport(store, pair) {
     ? [currentRun, ...listedRuns.filter(run => run.runId !== currentRun.runId)]
     : listedRuns;
   const currentVerdict = currentRun?.operatorVerdict || null;
-  const calibrationProfile = await readRescueCalibrationProfile(store, pair);
+  const calibrationProfile = await readRescueCalibrationProfile(
+    store,
+    pair,
+    runs,
+    authoritativeReceipts,
+  );
   return {
     schemaVersion: 1,
     actorId: pair.actor.id,
@@ -4366,7 +4938,7 @@ async function attachVerdict(store, pair, run) {
 // This is deliberately a projection rather than a serialization of the client
 // run.  Calibration exports are an evidence record: they must not acquire
 // operator-only UI state or accidentally become a second publication format.
-function calibrationAuditExport(run, pair, humanVisualJudgments = []) {
+export function calibrationAuditExport(run, pair, humanVisualJudgments = []) {
   const fields = [
     "scope", "startedAt", "completedAt", "provider", "queryRuns", "rawResults",
     "ranking", "rankedResults", "identityEvidence", "promise", "promiseEvidence",
@@ -4393,6 +4965,23 @@ function calibrationAuditExport(run, pair, humanVisualJudgments = []) {
   const missingFields = fields
     .filter(field => !Object.prototype.hasOwnProperty.call(run, field) || run[field] === null)
     .map(field => `run.${field}`);
+  if (projectedRun.calibrationProof) {
+    projectedRun.calibrationProof = { ...projectedRun.calibrationProof };
+    const effectCount = projectedRun.calibrationProof.beyondExactSavedNineCount;
+    if (effectCount !== undefined && (
+      !Number.isFinite(effectCount)
+      || !Number.isInteger(effectCount)
+      || effectCount < 0
+    )) {
+      delete projectedRun.calibrationProof.beyondExactSavedNineCount;
+      missingFields.push("run.calibrationProof.beyondExactSavedNineCount");
+    }
+    const scoreDelta = projectedRun.calibrationProof.scoreDelta;
+    if (scoreDelta !== undefined && !Number.isFinite(scoreDelta)) {
+      delete projectedRun.calibrationProof.scoreDelta;
+      missingFields.push("run.calibrationProof.scoreDelta");
+    }
+  }
   const exportMetadata = {
     readOnly: true,
     type: "curation-calibration-audit",
@@ -4515,18 +5104,29 @@ async function dateBoundedCalibrationAuditExport(
     }
     const humanVisualJudgments = await readVisualJudgments(store, pair, run.runId);
     const item = calibrationAuditExport(run, pair, humanVisualJudgments);
-    item.publicationJoinReceipt = publicationJoinReceipt(
-      run,
-      pair,
-      publicationInventory.manifests,
-    );
-    const editions = retainedEditionDates(run);
+    const publicationJoinSupported = run.publicationJoinSupported === true;
+    if (publicationJoinSupported) {
+      item.publicationJoinReceipt = publicationJoinReceipt(
+        run,
+        pair,
+        publicationInventory.manifests,
+      );
+    }
+    const editions = [...new Set([
+      ...retainedEditionDates(run),
+      ...(publicationJoinSupported
+        ? item.publicationJoinReceipt.occurrences.flatMap(occurrence =>
+          occurrence.matches.map(match => match.publicationDate))
+        : []),
+    ])].sort();
     item.links = {
       pairing: `${origin}/?adminView=actor-preflight&actorId=${encodeURIComponent(pair.actor.id)}&vibeKey=${encodeURIComponent(pair.vibeKey)}&runId=${encodeURIComponent(run.runId)}`,
-      editions: editions.map(date => ({
-        date,
-        url: `${origin}/vibe-atlas?date=${encodeURIComponent(date)}`,
-      })),
+      ...(editions.length ? {
+        editions: editions.map(date => ({
+          date,
+          url: `${origin}/vibe-atlas?date=${encodeURIComponent(date)}`,
+        })),
+      } : {}),
     };
     if (!editions.length) {
       item.exportMetadata.missingFields.push("links.editions");
@@ -4832,10 +5432,29 @@ function normalizeLegacyRunEvidence(run) {
     sourceEvidenceCandidates: (run.curationReceipt.sourceEvidenceCandidates || []).map(enrich),
     dropped: (run.curationReceipt.dropped || []).map(enrich),
   } : run.curationReceipt;
+  const calibrationProof = run.calibrationProof ? {
+    ...run.calibrationProof,
+  } : run.calibrationProof;
+  if (calibrationProof) {
+    if (!Number.isFinite(calibrationProof.beyondExactSavedNineCount)
+      || !Number.isInteger(calibrationProof.beyondExactSavedNineCount)
+      || calibrationProof.beyondExactSavedNineCount < 0) {
+      delete calibrationProof.beyondExactSavedNineCount;
+    }
+    if (!Number.isFinite(calibrationProof.scoreDelta)) {
+      delete calibrationProof.scoreDelta;
+    }
+    if (calibrationProof.ready === true && !calibrationProofMetricsValid(calibrationProof)) {
+      calibrationProof.ready = false;
+      calibrationProof.status = "reaudit_not_yet_reproduced";
+      calibrationProof.summary = "This retained proof has unavailable calibration metrics and cannot establish a transferable result.";
+    }
+  }
   return {
     ...run,
     rawResults,
     curationReceipt,
+    calibrationProof,
     rejections: (run.rejections || []).map(item => item.kind === "image" ? {
       ...enrich(item),
       reason: legacyDuplicateReason(item.reason),
@@ -5313,8 +5932,10 @@ function normalizeCalibrationSignalFamily(value) {
   return CALIBRATION_SIGNAL_FAMILIES.get(normalized) || null;
 }
 
-function normalizeCalibrationSignalValue(value) {
-  const normalized = signalText(value);
+function normalizeCalibrationSignalValue(value, family) {
+  const normalized = family === "candidateIds"
+    ? String(value || "").trim()
+    : signalText(value);
   return normalized ? normalized.slice(0, 500) : null;
 }
 
@@ -5324,7 +5945,7 @@ function calibrationSignalValues(record, family) {
     ...(record.selectedNine || []),
     ...(record.omittedAlternatives || []),
   ].flatMap(candidate => signalValuesForCandidate(candidate, key))
-    .map(signalText)
+    .map(value => normalizeCalibrationSignalValue(value, key))
     .filter(Boolean))];
 }
 
@@ -5362,6 +5983,7 @@ function reusableSignalPreferences(records, key, isRetired = () => false) {
     values.set(value, current);
   };
   for (const record of records) {
+    const sourceRunId = normalizeCalibrationSourceRunId(record.sourceRunId);
     const selected = record.selectedNine || [];
     const omitted = record.omittedAlternatives || [];
     const selectedCounts = new Map();
@@ -5387,11 +6009,11 @@ function reusableSignalPreferences(records, key, isRetired = () => false) {
       add(value, "omittedRateTotal", omittedCount / Math.max(1, omitted.length));
       if (selectedCount) add(value, "selectedEvidenceCount");
       if (omittedCount) add(value, "omittedEvidenceCount");
-      if (selectedCount && record.sourceRunId) {
-        values.get(value).selectedSourceRunIds.add(record.sourceRunId);
+      if (selectedCount && sourceRunId) {
+        values.get(value).selectedSourceRunIds.add(sourceRunId);
       }
-      if (omittedCount && record.sourceRunId) {
-        values.get(value).omittedSourceRunIds.add(record.sourceRunId);
+      if (omittedCount && sourceRunId) {
+        values.get(value).omittedSourceRunIds.add(sourceRunId);
       }
     }
   }
@@ -5424,6 +6046,9 @@ function reusableSignalPreferences(records, key, isRetired = () => false) {
   };
 }
 
+function normalizeCalibrationSourceRunId(value) {
+  return String(value ?? "").trim();
+}
 function createRescueCalibrationOutcome(pair, run, profile, now) {
   const inventory = profile?.signalInventory || [];
   if (!inventory.length) return null;
@@ -5763,8 +6388,98 @@ function rescueCalibrationMatchesCurrentContract(record, pair) {
     && contract?.pairingFingerprint === pairingFingerprintFor(pair.actor, pair.vibeIdx);
 }
 
-async function readRescueCalibrationProfile(store, pair) {
-  const [confirmedReceipts, retirementReceipts, signalRetirementReceipts, outcomeReceipts, approvalReceipts, approvalRevocations, canonicalAuthority] = await Promise.all([
+function blindReviewCalibrationRecord(run, pair) {
+  const evidence = blindCalibrationEvidence(
+    run,
+    run?.humanVisualJudgments,
+    {
+      profileVersion: IDENTITY_PROFILE_VERSION,
+      identityProfileVersion: IDENTITY_PROFILE_VERSION,
+      aestheticClusterVersion: AESTHETIC_CLUSTER_VERSION,
+      promiseContractVersion: VIBE_PROMISE_CONTRACT_VERSION,
+      curationVersion: CURATION_VERSION,
+      pairingFingerprint: pairingFingerprintFor(pair.actor, pair.vibeIdx),
+    },
+  );
+  if (!evidence) return null;
+  const positive = [];
+  const negative = [];
+  const disagreements = [];
+  for (const disagreement of evidence.disagreements) {
+    const { candidate, judgment, occurrenceId, direction } = disagreement;
+    const snapshot = {
+      ...calibrationCandidateSnapshot(candidate),
+      occurrenceId,
+      judgmentReceiptId: judgment.receiptId,
+    };
+    (direction === "positive" ? positive : negative).push(snapshot);
+    disagreements.push({
+      occurrenceId,
+      judgmentReceiptId: judgment.receiptId,
+      transition: disagreement.transition,
+      direction,
+      candidateId: snapshot.candidateId,
+    });
+  }
+  const reusableFamilies = ["candidateIds", "queries", "sources", "clusters", "composition"];
+  return {
+    schemaVersion: 1,
+    calibrationVersion: RESCUE_CALIBRATION_VERSION,
+    status: "confirmed",
+    evidenceType: "blind_review_disagreement",
+    sourceRescueReceiptId: evidence.sourceRescueReceiptId,
+    sourceRunId: run.runId,
+    selectedNine: positive,
+    omittedAlternatives: negative,
+    sourceEvidenceCandidateIds: [...new Set([...positive, ...negative]
+      .map(candidate => candidate.candidateId).filter(Boolean))],
+    signals: {
+      positive: signalValues(positive),
+      negative: signalValues(negative),
+      reusable: Object.fromEntries(reusableFamilies.map(family => [
+        family,
+        preferredSignals(
+          signalValues(positive)[family],
+          signalValues(negative)[family],
+        ),
+      ])),
+    },
+    contract: {
+      calibrationVersion: RESCUE_CALIBRATION_VERSION,
+      queryCompatibilityVersion: CALIBRATION_QUERY_COMPATIBILITY_VERSION,
+      curationVersion: run.curationReceipt?.curationVersion || run.curationVersion || null,
+      identityProfileVersion: run.identityProfileVersion || run.profileVersion || null,
+      aestheticClusterVersion: run.aestheticClusterVersion || null,
+      promiseContractVersion: run.promiseContractVersion || null,
+      pairingFingerprint: run.pairingFingerprint || null,
+    },
+    confirmedAt: run.completedAt || null,
+    confirmedBy: "blind-review",
+    blindReviewEvidence: {
+      sampleSufficient: true,
+      receiptIds: evidence.receiptIds,
+      disagreements,
+      reviewedCount: evidence.reviewedCount,
+      occurrenceCount: evidence.occurrenceCount,
+    },
+  };
+}
+
+async function readRescueCalibrationProfile(
+  store,
+  pair,
+  reviewedRuns = [],
+  authoritativeReceipts = {},
+) {
+  if (!reviewedRuns.length) {
+    const listing = await store.list({ prefix: auditRunPrefix(pair.actor.id, pair.vibeIdx) });
+    reviewedRuns = (await Promise.all((listing?.blobs || []).map(async blob => {
+      if (typeof blob?.key !== "string") return null;
+      const run = await store.get(blob.key, { type: "json", consistency: "strong" });
+      return run ? attachVerdict(store, pair, run) : null;
+    }))).filter(Boolean);
+  }
+  const [confirmedReceipts, retirementReceipts, listedSignalRetirementReceipts, blindExclusionReceipts, outcomeReceipts, listedApprovalReceipts, listedApprovalRevocations] = await Promise.all([
     readReceipts(
       store,
       auditRescueCalibrationPrefix(pair.actor.id, pair.vibeIdx),
@@ -5782,51 +6497,142 @@ async function readRescueCalibrationProfile(store, pair) {
     ),
     readReceipts(
       store,
+      auditBlindCalibrationExclusionPrefix(pair.actor.id, pair.vibeIdx),
+      "excludedAt",
+    ),
+    readReceipts(
+      store,
       auditRescueCalibrationOutcomePrefix(pair.actor.id, pair.vibeIdx),
       "attemptedAt",
     ),
     readReceipts(store, auditRescueCalibrationApprovalPrefix(pair.actor.id, pair.vibeIdx), "approvedAt"),
     readReceipts(store, auditRescueCalibrationApprovalRevocationPrefix(pair.actor.id, pair.vibeIdx), "revokedAt"),
-    store.get(
-      auditRescueCalibrationAuthorityKey(pair.actor.id, pair.vibeIdx),
-      { type: "json", consistency: "strong" },
-    ),
   ]);
-  if (canonicalAuthority?.approvalId) {
-    const [canonicalApproval, canonicalRevocation] = await Promise.all([
-      store.get(
-        auditRescueCalibrationApprovalKey(
-          pair.actor.id,
-          pair.vibeIdx,
-          canonicalAuthority.approvalId,
-        ),
-        { type: "json", consistency: "strong" },
-      ),
-      store.get(
-        auditRescueCalibrationApprovalRevocationKey(
-          pair.actor.id,
-          pair.vibeIdx,
-          canonicalAuthority.approvalId,
-        ),
-        { type: "json", consistency: "strong" },
-      ),
-    ]);
-    if (canonicalApproval
-      && !approvalReceipts.some(receipt => receipt.approvalId === canonicalApproval.approvalId)) {
-      approvalReceipts.push(canonicalApproval);
-    }
-    if (canonicalRevocation
-      && !approvalRevocations.some(receipt => receipt.approvalId === canonicalRevocation.approvalId)) {
-      approvalRevocations.push(canonicalRevocation);
+  const {
+    authority: canonicalAuthority,
+    approvals: approvalReceipts,
+    revocations: approvalRevocations,
+    canonicalApproval,
+  } = await resolveRescueCalibrationApprovalAuthority({
+    store,
+    actorId: pair.actor.id,
+    vibeIdx: pair.vibeIdx,
+    listedApprovals: listedApprovalReceipts,
+    listedRevocations: listedApprovalRevocations,
+  });
+  const signalRetirementReceipts = [...listedSignalRetirementReceipts];
+  for (const receipt of authoritativeReceipts.signalRetirements || []) {
+    if (!signalRetirementReceipts.some(item =>
+      item.retirementId === receipt.retirementId)) {
+      signalRetirementReceipts.push(receipt);
     }
   }
-  const currentRecords = confirmedReceipts.filter(record =>
+  const approvedSignalFamily = normalizeCalibrationSignalFamily(
+    canonicalApproval?.adjustment?.signalFamily,
+  );
+  const approvedSignalValues = (canonicalApproval?.adjustment?.signalValues || [])
+    .map(value => normalizeCalibrationSignalValue(value, approvedSignalFamily))
+    .filter(Boolean);
+  if (approvedSignalFamily && approvedSignalValues.length) {
+    const authoritativeSignalRetirements = (await Promise.all(
+      (canonicalApproval.evidenceReceiptIds || []).flatMap(receiptId =>
+        approvedSignalValues.map(signalValue => store.get(
+          auditRescueCalibrationSignalRetirementKey(
+            pair.actor.id,
+            pair.vibeIdx,
+            receiptId,
+            CALIBRATION_SIGNAL_LABELS[approvedSignalFamily],
+            signalValue,
+          ),
+          { type: "json", consistency: "strong" },
+        ))),
+    )).filter(Boolean);
+    for (const receipt of authoritativeSignalRetirements) {
+      if (!signalRetirementReceipts.some(item =>
+        item.retirementId === receipt.retirementId)) {
+        signalRetirementReceipts.push(receipt);
+      }
+    }
+  }
+  const recoverableSourceRunIds = await approvalSourceRunIds({
+    store,
+    actorId: pair.actor.id,
+    vibeIdx: pair.vibeIdx,
+    authority: canonicalAuthority,
+    approval: canonicalApproval,
+  });
+  if (recoverableSourceRunIds.length) {
+    const knownRunIds = new Set(reviewedRuns.map(run => run?.runId).filter(Boolean));
+    const recoveredRuns = (await Promise.all(recoverableSourceRunIds
+      .filter(runId => !knownRunIds.has(runId))
+      .map(async runId => {
+        const run = await store.get(
+          auditRunKey(pair.actor.id, pair.vibeIdx, runId),
+          { type: "json", consistency: "strong" },
+        );
+        return run ? attachVerdict(store, pair, run) : null;
+      }))).filter(Boolean);
+    reviewedRuns = [...reviewedRuns, ...recoveredRuns];
+  }
+  const rescueRecords = confirmedReceipts.filter(record =>
     record.status === "confirmed"
     && record.calibrationVersion === RESCUE_CALIBRATION_VERSION
     && record.actor?.id === pair.actor.id
     && record.vibePack?.key === pair.vibeKey
     && rescueCalibrationMatchesCurrentContract(record, pair)
   );
+  const blindExclusions = blindExclusionReceipts.filter(exclusion =>
+    exclusion.status === "excluded"
+    && exclusion.actorId === pair.actor.id
+    && exclusion.vibeKey === pair.vibeKey);
+  const exclusionByJudgment = new Map(blindExclusions.map(exclusion => [
+    `${exclusion.sourceRunId}:${exclusion.judgmentReceiptId}`,
+    exclusion,
+  ]));
+  const blindRecords = reviewedRuns.map(run => blindReviewCalibrationRecord(run, pair))
+    .filter(Boolean)
+    .map(record => {
+      const activeDisagreements = record.blindReviewEvidence.disagreements.filter(item =>
+        !exclusionByJudgment.has(`${record.sourceRunId}:${item.judgmentReceiptId}`));
+      if (!activeDisagreements.length) return null;
+      const activeOccurrenceIds = new Set(activeDisagreements.map(item => item.occurrenceId));
+      const selectedNine = record.selectedNine.filter(item =>
+        activeOccurrenceIds.has(item.occurrenceId));
+      const omittedAlternatives = record.omittedAlternatives.filter(item =>
+        activeOccurrenceIds.has(item.occurrenceId));
+      const reusableFamilies = ["candidateIds", "queries", "sources", "clusters", "composition"];
+      return {
+        ...record,
+        selectedNine,
+        omittedAlternatives,
+        sourceEvidenceCandidateIds: [...new Set(activeDisagreements
+          .map(item => item.candidateId).filter(Boolean))],
+        signals: {
+          positive: signalValues(selectedNine),
+          negative: signalValues(omittedAlternatives),
+          reusable: Object.fromEntries(reusableFamilies.map(family => [
+            family,
+            preferredSignals(
+              signalValues(selectedNine)[family],
+              signalValues(omittedAlternatives)[family],
+            ),
+          ])),
+        },
+        blindReviewEvidence: {
+          ...record.blindReviewEvidence,
+          disagreements: record.blindReviewEvidence.disagreements.map(item => {
+            const exclusion = exclusionByJudgment.get(
+              `${record.sourceRunId}:${item.judgmentReceiptId}`,
+            );
+            return exclusion ? { ...item, status: "excluded", exclusion } : item;
+          }),
+          activeDisagreementCount: activeDisagreements.length,
+          excludedDisagreementCount:
+            record.blindReviewEvidence.disagreements.length - activeDisagreements.length,
+        },
+      };
+    }).filter(Boolean);
+  const currentRecords = [...rescueRecords, ...blindRecords];
   if (!currentRecords.length) return null;
   const currentReceiptIds = new Set(currentRecords.map(record =>
     record.sourceRescueReceiptId));
@@ -5879,15 +6685,15 @@ async function readRescueCalibrationProfile(store, pair) {
           [...new Set(((family === "candidateIds"
             ? record.signals?.[direction]?.candidateIds
             : record.signals?.reusable?.[family]?.[direction]) || [])
-            .map(normalizeCalibrationSignalValue)
+            .map(value => normalizeCalibrationSignalValue(value, family))
             .filter(value => value && !isRetiredSignal(record, family, value)))],
         ])),
       ]),
     ),
   }));
   const retiredReceiptIds = [...retirementByReceipt.keys()].sort();
-  const retirementHash = retirements.length || signalRetirements.length
-    ? rescueCalibrationRetirementHash(retirements, signalRetirements)
+  const retirementHash = retirements.length || signalRetirements.length || blindExclusions.length
+    ? rescueCalibrationRetirementHash(retirements, signalRetirements, blindExclusions)
     : null;
   const positive = key => records.flatMap(record =>
     (record.signals?.positive?.[key] || [])
@@ -5942,7 +6748,9 @@ async function readRescueCalibrationProfile(store, pair) {
     .filter(receipt => receipt?.status === "revoked")
     .map(receipt => receipt.approvalId));
   const evidenceReceiptIds = records.map(record => record.sourceRescueReceiptId).sort();
-  const reviewedRunCount = new Set(records.map(record => record.sourceRunId).filter(Boolean)).size;
+  const reviewedRunCount = new Set(records
+    .map(record => normalizeCalibrationSourceRunId(record.sourceRunId))
+    .filter(Boolean)).size;
   const activeApproval = approvalReceipts
     .filter(receipt =>
       receipt?.status === "approved"
@@ -5973,7 +6781,8 @@ async function readRescueCalibrationProfile(store, pair) {
     totalConfirmedEvidenceCount: currentRecords.length,
     retiredEvidenceCount: retirements.length,
     retiredSignalCount: signalRetirements.length,
-    requiresFreshAudit: retirements.length > 0 || signalRetirements.length > 0,
+    excludedBlindEvidenceCount: blindExclusions.length,
+    requiresFreshAudit: retirements.length > 0 || signalRetirements.length > 0 || blindExclusions.length > 0,
     sourceReceiptIds: records.map(record => record.sourceRescueReceiptId).sort(),
     minimumApprovalEvidenceCount: MIN_CALIBRATION_APPROVAL_EVIDENCE,
     approvalReady: reviewedRunCount >= MIN_CALIBRATION_APPROVAL_EVIDENCE,
@@ -5999,6 +6808,10 @@ async function readRescueCalibrationProfile(store, pair) {
           confirmedAt: record.confirmedAt || null,
           confirmedBy: record.confirmedBy || null,
           retirement,
+          ...(record.evidenceType ? { evidenceType: record.evidenceType } : {}),
+          ...(record.blindReviewEvidence
+            ? { blindReviewEvidence: record.blindReviewEvidence }
+            : {}),
         };
       })
       .sort((left, right) =>
@@ -6026,8 +6839,9 @@ async function readRescueCalibrationProfile(store, pair) {
         retiredAt: retirement.retiredAt,
         retiredBy: retirement.retiredBy,
       })),
-      summary: retirements.length || signalRetirements.length
-        ? `${retirements.length} confirmed calibration receipt${retirements.length === 1 ? " was" : "s were"} and ${signalRetirements.length} signal${signalRetirements.length === 1 ? " was" : "s were"} excluded after operator retirement receipts.`
+      blindEvidenceExclusions: blindExclusions,
+      summary: retirements.length || signalRetirements.length || blindExclusions.length
+        ? `${retirements.length} confirmed calibration receipt${retirements.length === 1 ? " was" : "s were"}, ${signalRetirements.length} signal${signalRetirements.length === 1 ? " was" : "s were"}, and ${blindExclusions.length} blind-review example${blindExclusions.length === 1 ? " was" : "s were"} excluded by immutable receipts.`
         : "No confirmed calibration evidence or signals are retired.",
     },
     positiveCandidateIds: candidateIds.positive,
@@ -6083,7 +6897,7 @@ function calibrationApprovalEvidenceHash(profile, adjustment) {
     retirementHash: profile.retirementHash || null,
     signalFamily: adjustment?.signalFamily || null,
     direction: adjustment?.direction || null,
-    signalValues: [...(adjustment?.signalValues || [])],
+    signalValues: [...(adjustment?.signalValues || [])].sort(),
   });
 }
 function dailyCalibrationProfile(profile) {
@@ -6122,10 +6936,21 @@ function dailyCalibrationProfile(profile) {
 function calibrationProofFromDiagnostics(profile, diagnostics, materialSufficient) {
   if (!profile || (!profile.evidenceCount && !profile.requiresFreshAudit)) return null;
   const comparison = diagnostics?.comparison || null;
-  const beyondExactSavedNineCount = Number(comparison?.beyondExactSavedNineEffectCount) || 0;
-  const scoreDelta = Number(diagnostics?.scoreDelta) || 0;
+  const rawEffectCount = comparison?.beyondExactSavedNineEffectCount;
+  const beyondExactSavedNineCount = rawEffectCount === undefined
+    ? 0
+    : Number.isFinite(rawEffectCount) && Number.isInteger(rawEffectCount) && rawEffectCount >= 0
+      ? rawEffectCount
+      : undefined;
+  const rawScoreDelta = diagnostics?.scoreDelta;
+  const scoreDelta = rawScoreDelta === undefined
+    ? 0
+    : Number.isFinite(rawScoreDelta)
+      ? rawScoreDelta
+      : undefined;
   const activeEvidenceReady = profile.evidenceCount > 0
     && comparison?.improved === true
+    && Number.isInteger(beyondExactSavedNineCount)
     && beyondExactSavedNineCount > 0;
   const retiredOnlyReady = profile.evidenceCount === 0 && profile.requiresFreshAudit;
   const ready = Boolean(materialSufficient && (activeEvidenceReady || retiredOnlyReady));
@@ -6142,8 +6967,8 @@ function calibrationProofFromDiagnostics(profile, diagnostics, materialSufficien
     retirementHash: profile.retirementHash || null,
     evidenceCount: profile.evidenceCount,
     selectedSignalCount: Number(diagnostics?.selectedSignalCount) || 0,
-    beyondExactSavedNineCount,
-    scoreDelta,
+    ...(beyondExactSavedNineCount === undefined ? {} : { beyondExactSavedNineCount }),
+    ...(scoreDelta === undefined ? {} : { scoreDelta }),
     comparison,
     ready,
     status: ready
@@ -6308,6 +7133,7 @@ function calibrationProofCoversProfile(run, profile) {
   const provedRetiredSignals = [...new Set(run?.calibrationProof?.retiredSignalReceiptIds || [])].sort();
   return Boolean(
     run?.calibrationProof?.ready === true
+    && calibrationProofMetricsValid(run.calibrationProof)
     && run.calibrationProof.calibrationVersion === profile.calibrationVersion
     && JSON.stringify(proved) === JSON.stringify(expected)
     && JSON.stringify(provedRetired) === JSON.stringify(expectedRetired)
@@ -6316,6 +7142,17 @@ function calibrationProofCoversProfile(run, profile) {
   );
 }
 
+function calibrationProofMetricsValid(proof) {
+  if (!proof
+    || !Number.isFinite(proof.beyondExactSavedNineCount)
+    || !Number.isInteger(proof.beyondExactSavedNineCount)
+    || proof.beyondExactSavedNineCount < 0
+    || !Number.isFinite(proof.scoreDelta)) {
+    return false;
+  }
+  return proof.status !== "reproduced_beyond_saved_nine"
+    || proof.beyondExactSavedNineCount > 0;
+}
 function candidateGate(run, candidateId) {
   const raw = (run.rawResults || []).find(item =>
     item.candidateId === candidateId
@@ -6879,6 +7716,9 @@ function parseChallengeReasons(value) {
 function clientRun(run, pair) {
   if (!run) return null;
   const auditContract = auditContractFor(run, pair);
+  const evidenceUnavailableReasons = normalizedEvidenceUnavailableReasons(
+    run.evidenceUnavailableReasons,
+  );
   const review = run.blindReview || {
     status: comparableBoards(run) ? "pending" : "unavailable",
     presentationOrder: presentationOrderFor(run.runId),
@@ -6886,7 +7726,11 @@ function clientRun(run, pair) {
   };
   const visualPending = auditContract.isCurrent && !visualJudgmentsComplete(run);
   if (!visualPending && (auditContract.isLegacy || review.choice || review.status === "unavailable")) {
-    return { ...run, auditContract };
+    return {
+      ...run,
+      ...(evidenceUnavailableReasons ? { evidenceUnavailableReasons } : {}),
+      auditContract,
+    };
   }
   return {
     runId: run.runId,
@@ -6912,22 +7756,25 @@ function clientRun(run, pair) {
     blindReview: visualPending ? { status: "visual_judgment_pending" } : review,
     actorId: pair.actor.id,
     vibeKey: pair.vibeKey,
+    ...(evidenceUnavailableReasons ? { evidenceUnavailableReasons } : {}),
     auditContract,
   };
 }
 
-function isVisualJudgmentCandidate(candidate) {
-  return Boolean(
-    candidate
-    && candidate.selected !== true
-    && candidate.thumbnail
-    && candidate.occurrenceId
-  );
+function normalizedEvidenceUnavailableReasons(value) {
+  if (!value || typeof value !== "object" || Array.isArray(value)) return null;
+  const entries = Object.entries(value)
+    .filter(([field, reason]) =>
+      /^[A-Za-z][A-Za-z0-9]{0,79}$/.test(field)
+      && typeof reason === "string"
+      && reason.trim().length > 0)
+    .map(([field, reason]) => [field, reason.trim().slice(0, 500)]);
+  return entries.length ? Object.fromEntries(entries) : null;
 }
 
 function visualJudgmentQueue(run) {
   return (run?.calibrationAnalysis?.candidates || [])
-    .filter(isVisualJudgmentCandidate)
+    .filter(isBlindReviewQueueCandidate)
     .map(candidate => ({
       judgmentToken: visualJudgmentToken(run.runId, candidate.occurrenceId),
       thumbnail: candidate.thumbnail,
@@ -6937,7 +7784,7 @@ function visualJudgmentQueue(run) {
 
 function humanProxyComparison(run, receipts = []) {
   const candidates = (run?.calibrationAnalysis?.candidates || [])
-    .filter(isVisualJudgmentCandidate);
+    .filter(isBlindReviewQueueCandidate);
   const receiptsByOccurrence = new Map();
   for (const receipt of receipts) {
     if (!receipt?.sourceOccurrenceId) continue;
@@ -7144,12 +7991,18 @@ async function readCanonicalReceipt(store, key, prefix, timestampField) {
 
 async function readReceipts(store, prefix, timestampField) {
   const [listing, catalog] = await Promise.all([
-    store.list({ prefix }),
+    store.list({ prefix, paginate: true }),
     store.get(MISPRINT_RECEIPT_CATALOG_KEY, { type: "json", consistency: "strong" }),
   ]);
-  const keys = new Set((listing?.blobs || [])
-    .map(blob => blob?.key)
-    .filter(key => typeof key === "string"));
+  const keys = new Set();
+  const pages = listing?.[Symbol.asyncIterator]
+    ? listing
+    : [listing];
+  for await (const page of pages) {
+    for (const blob of page?.blobs || []) {
+      if (typeof blob?.key === "string") keys.add(blob.key);
+    }
+  }
   if (isMisprintReceiptCatalog(catalog)) {
     for (const key of catalog.keys) {
       if (key.startsWith(prefix)) keys.add(key);
@@ -7220,6 +8073,12 @@ function recordHash(value) {
   return createHash("sha256").update(JSON.stringify(value)).digest("hex");
 }
 
+function boundedStringArray(value, limit, itemLimit) {
+  if (!Array.isArray(value)) return [];
+  return value.slice(0, limit)
+    .map(item => boundedText(item, itemLimit))
+    .filter(item => item !== null);
+}
 async function writeEligibility(store, pair, snapshot) {
   const value = snapshot || {
     schemaVersion: 1,
@@ -7319,6 +8178,16 @@ function parseScope(value) {
   return value === "representative" || value === "full" ? value : null;
 }
 
+function cacheDiagnosticCoordinationKey(pair, scope, frozenQueries) {
+  const identity = JSON.stringify({
+    version: CACHE_DIAGNOSTIC_COORDINATION_VERSION,
+    actorId: pair.actor.id,
+    vibeKey: pair.vibeKey,
+    scope,
+    frozenQueries,
+  });
+  return `diagnostics:cache-comparison:${createHash("sha256").update(identity).digest("hex")}`;
+}
 function boundedText(value, max) {
   if (value === undefined) return "";
   return typeof value === "string" && value.length <= max ? value.trim() : null;
@@ -7355,10 +8224,7 @@ function visualJudgmentsComplete(run) {
     .map(receipt => receipt?.sourceOccurrenceId)
     .filter(Boolean));
   return (run?.calibrationAnalysis?.candidates || [])
-    .filter(candidate =>
-      (candidate?.selected === false || candidate?.dropReason)
-      && candidate?.thumbnail
-      && candidate?.occurrenceId)
+    .filter(isBlindReviewQueueCandidate)
     .every(candidate => judged.has(candidate.occurrenceId));
 }
 
@@ -7380,6 +8246,7 @@ function calibrationApprovalIdentity(receipt) {
     calibrationVersion: receipt?.calibrationVersion,
     adjustment: receipt?.adjustment,
     evidenceReceiptIds: receipt?.evidenceReceiptIds,
+    sourceRunIds: receipt?.sourceRunIds,
     evidenceCount: receipt?.evidenceCount,
     aggregateEvidenceHash: receipt?.aggregateEvidenceHash,
     approvedBy: receipt?.approvedBy,
@@ -7396,6 +8263,88 @@ function calibrationApprovalRevocationIdentity(receipt) {
   };
 }
 
+function calibrationSignalRetirementIdentity(receipt) {
+  return {
+    status: receipt?.status,
+    retirementId: receipt?.retirementId,
+    sourceRescueReceiptId: receipt?.sourceRescueReceiptId,
+    sourceRunId: receipt?.sourceRunId,
+    actorId: receipt?.actorId,
+    vibeKey: receipt?.vibeKey,
+    signalFamily: receipt?.signalFamily,
+    signalValue: receipt?.signalValue,
+    reason: receipt?.reason,
+    retiredBy: receipt?.retiredBy,
+  };
+}
+
+function calibrationSignalRetirementId(receipt) {
+  return `signal-retirement-${recordHash({
+    status: receipt?.status,
+    sourceRescueReceiptId: receipt?.sourceRescueReceiptId,
+    sourceRunId: receipt?.sourceRunId,
+    actorId: receipt?.actorId,
+    vibeKey: receipt?.vibeKey,
+    signalFamily: receipt?.signalFamily,
+    signalValue: receipt?.signalValue,
+    reason: receipt?.reason,
+    retiredBy: receipt?.retiredBy,
+  }).slice(0, 24)}`;
+}
+
+function blindCalibrationExclusionIdentity(receipt) {
+  return {
+    status: receipt?.status,
+    exclusionId: receipt?.exclusionId,
+    sourceRescueReceiptId: receipt?.sourceRescueReceiptId,
+    sourceRunId: receipt?.sourceRunId,
+    judgmentReceiptId: receipt?.judgmentReceiptId,
+    sourceOccurrenceId: receipt?.sourceOccurrenceId,
+    actorId: receipt?.actorId,
+    vibeKey: receipt?.vibeKey,
+    reason: receipt?.reason,
+    excludedBy: receipt?.excludedBy,
+  };
+}
+
+function blindCalibrationExclusionId(receipt) {
+  return `blind-exclusion-${recordHash({
+    status: receipt?.status,
+    sourceRescueReceiptId: receipt?.sourceRescueReceiptId,
+    sourceRunId: receipt?.sourceRunId,
+    judgmentReceiptId: receipt?.judgmentReceiptId,
+    sourceOccurrenceId: receipt?.sourceOccurrenceId,
+    actorId: receipt?.actorId,
+    vibeKey: receipt?.vibeKey,
+    reason: receipt?.reason,
+    excludedBy: receipt?.excludedBy,
+  }).slice(0, 24)}`;
+}
+
+function calibrationRetirementIdentity(receipt) {
+  return {
+    status: receipt?.status,
+    retirementId: receipt?.retirementId,
+    sourceRescueReceiptId: receipt?.sourceRescueReceiptId,
+    sourceRunId: receipt?.sourceRunId,
+    actorId: receipt?.actorId,
+    vibeKey: receipt?.vibeKey,
+    reason: receipt?.reason,
+    retiredBy: receipt?.retiredBy,
+  };
+}
+
+function calibrationRetirementId(receipt) {
+  return `calibration-retirement-${recordHash({
+    status: receipt?.status,
+    sourceRescueReceiptId: receipt?.sourceRescueReceiptId,
+    sourceRunId: receipt?.sourceRunId,
+    actorId: receipt?.actorId,
+    vibeKey: receipt?.vibeKey,
+    reason: receipt?.reason,
+    retiredBy: receipt?.retiredBy,
+  }).slice(0, 24)}`;
+}
 export async function writeCalibrationAuthority(store, pair, next) {
   const key = auditRescueCalibrationAuthorityKey(pair.actor.id, pair.vibeIdx);
   const current = await store.getWithMetadata(key, {
@@ -7452,6 +8401,143 @@ function approvedCalibrationProfile(profile) {
     signalRetirements: profile.signalRetirements || [],
     retirementHash: profile.retirementHash || null,
     backupBoards: [],
-    [field]: signalValues,
+    [field]: [...signalValues].sort(),
   };
 }
+
+async function cacheDiagnosticCoordinationEntry(store, key) {
+  if (typeof store.getWithMetadata === "function") {
+    return store.getWithMetadata(key, { type: "json", consistency: "strong" });
+  }
+  const data = await store.get(key, { type: "json", consistency: "strong" });
+  return data ? { data, etag: null } : null;
+}
+
+function boundedCacheProvenance(value) {
+  if (!value || typeof value !== "object" || Array.isArray(value)) return null;
+  return Object.fromEntries(Object.entries(value).slice(0, 24).flatMap(([key, item]) => {
+    if (!/^[A-Za-z0-9_-]{1,80}$/.test(key)) return [];
+    if (typeof item === "string") return [[key, item.slice(0, 500)]];
+    if (typeof item === "number" && Number.isFinite(item)) return [[key, item]];
+    if (typeof item === "boolean" || item === null) return [[key, item]];
+    return [];
+  }));
+}
+
+async function claimCacheDiagnosticSide(
+  store,
+  pair,
+  scope,
+  frozenQueries,
+  comparisonId,
+  queryIndex,
+  cacheMode,
+  now,
+) {
+  const key = cacheDiagnosticCoordinationKey(pair, scope, frozenQueries);
+  const sideKey = `${queryIndex}:${cacheMode}`;
+  for (let attempt = 0; attempt < 4; attempt += 1) {
+    const entry = await cacheDiagnosticCoordinationEntry(store, key);
+    const timestamp = now();
+    if (
+      !entry?.data
+      || entry.data.comparisonId !== comparisonId
+      || Date.parse(entry.data.expiresAt) <= timestamp.getTime()
+    ) {
+      return {
+        claimed: false,
+        status: 409,
+        error: "This cache comparison reservation is no longer active. Start a new comparison.",
+      };
+    }
+    const existingStatus = entry.data.sides?.[sideKey]?.status;
+    if (existingStatus === "running" || existingStatus === "complete") {
+      return {
+        claimed: false,
+        status: 409,
+        error: "This cache comparison request is already running or complete.",
+      };
+    }
+    const record = {
+      ...entry.data,
+      sides: {
+        ...entry.data.sides,
+        [sideKey]: { status: "running", startedAt: timestamp.toISOString() },
+      },
+    };
+    const write = await store.setJSON(
+      key,
+      record,
+      entry.etag ? { onlyIfMatch: entry.etag } : {},
+    );
+    if (write?.modified !== false) return { claimed: true, key, comparisonId };
+  }
+  return {
+    claimed: false,
+    status: 409,
+    error: "This cache comparison request was claimed concurrently. Wait before retrying.",
+  };
+}
+
+async function finishCacheDiagnosticSide(store, claim, queryIndex, cacheMode, succeeded, now) {
+  const sideKey = `${queryIndex}:${cacheMode}`;
+  for (let attempt = 0; attempt < 4; attempt += 1) {
+    const entry = await cacheDiagnosticCoordinationEntry(store, claim.key);
+    if (!entry?.data || entry.data.comparisonId !== claim.comparisonId) return;
+    const timestamp = now();
+    const sides = {
+      ...entry.data.sides,
+      [sideKey]: {
+        status: succeeded ? "complete" : "failed",
+        finishedAt: timestamp.toISOString(),
+      },
+    };
+    const completedSideCount = Object.values(sides)
+      .filter(side => side?.status === "complete").length;
+    const record = {
+      ...entry.data,
+      sides,
+      expiresAt: completedSideCount >= entry.data.expectedSideCount
+        ? timestamp.toISOString()
+        : entry.data.expiresAt,
+    };
+    const write = await store.setJSON(
+      claim.key,
+      record,
+      entry.etag ? { onlyIfMatch: entry.etag } : {},
+    );
+    if (write?.modified !== false) return;
+  }
+}
+
+async function reserveCacheDiagnosticComparison(store, pair, scope, frozenQueries, now) {
+  const key = cacheDiagnosticCoordinationKey(pair, scope, frozenQueries);
+  for (let attempt = 0; attempt < 4; attempt += 1) {
+    const entry = await cacheDiagnosticCoordinationEntry(store, key);
+    const timestamp = now();
+    if (entry?.data && Date.parse(entry.data.expiresAt) > timestamp.getTime()) {
+      return { acquired: false, record: entry.data };
+    }
+    const record = {
+      schemaVersion: CACHE_DIAGNOSTIC_COORDINATION_VERSION,
+      comparisonId: randomUUID(),
+      actorId: pair.actor.id,
+      vibeKey: pair.vibeKey,
+      scope,
+      frozenQueriesHash: createHash("sha256").update(JSON.stringify(frozenQueries)).digest("hex"),
+      expectedSideCount: frozenQueries.length * 2,
+      sides: {},
+      createdAt: timestamp.toISOString(),
+      expiresAt: new Date(timestamp.getTime() + CACHE_DIAGNOSTIC_RESERVATION_MS).toISOString(),
+    };
+    const write = await store.setJSON(
+      key,
+      record,
+      entry?.etag ? { onlyIfMatch: entry.etag } : { onlyIfNew: true },
+    );
+    if (write?.modified !== false) return { acquired: true, key, record };
+  }
+  return { acquired: false, record: null };
+}
+
+const CACHE_DIAGNOSTIC_COORDINATION_VERSION = 1;

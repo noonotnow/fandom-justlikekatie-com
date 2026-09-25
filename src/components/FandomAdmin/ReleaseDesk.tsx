@@ -1,4 +1,4 @@
-import { useEffect, useMemo, useState } from 'react';
+import React, { useEffect, useMemo, useState } from 'react';
 import { CreatorPostAction } from '../CreatorPostAction/CreatorPostAction';
 import { dbGetVisibleGrids, type GridRecord } from '../../utils/collectionDB';
 import { makeCreatorPostFromGrid } from '../../utils/creatorDraft';
@@ -8,6 +8,10 @@ import {
   classifyGridProvenance,
   type ClassifiedBoardProvenance,
 } from '../../utils/approvedBoardProvenance';
+import {
+  AudienceEvidenceReceiptIndex,
+  loadAudienceEvidence,
+} from './AudienceEvidenceReceiptIndex';
 import styles from './ReleaseDesk.module.css';
 
 type AnyRecord = Record<string, any>;
@@ -31,6 +35,18 @@ const api = async () => {
   });
   const result = await response.json().catch(() => null);
   if (!response.ok) throw new Error(result?.error || 'Release Desk unavailable.');
+  return result;
+};
+
+const recoverPublicationRepairHealth = async () => {
+  const response = await fetch('/.netlify/functions/actor-audits', {
+    method: 'POST',
+    credentials: 'include',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({ action: 'recover_publication_index_repair_health' }),
+  });
+  const result = await response.json().catch(() => null);
+  if (!response.ok) throw new Error(result?.error || 'Repair health could not be recovered.');
   return result;
 };
 
@@ -70,6 +86,14 @@ export const ReleaseDesk: React.FC = () => {
   const [editions, setEditions] = useState<AnyRecord[]>([]);
   const [loading, setLoading] = useState(true);
   const [notice, setNotice] = useState('');
+
+  const recoverRepairHealth = async () => {
+    const recovery = await recoverPublicationRepairHealth();
+    const refreshed = await api();
+    setInventory(refreshed.releaseInventory ?? null);
+    setProduction(refreshed.productionReadiness ?? null);
+    return recovery;
+  };
 
   useEffect(() => {
     let live = true;
@@ -133,7 +157,7 @@ export const ReleaseDesk: React.FC = () => {
                   )));
                 }}
               />
-              <ReleaseInventory inventory={inventory} />
+              <ReleaseInventory inventory={inventory} onRecoverRepairHealth={recoverRepairHealth} />
             </>
             : <div className={styles.empty}>No release inventory was returned.</div>}
         </>}
@@ -143,17 +167,21 @@ export const ReleaseDesk: React.FC = () => {
 
 function EngagementEvidence() {
   const [summary, setSummary] = useState<AnyRecord | null>(null);
+  const [archiveHealth, setArchiveHealth] = useState<AnyRecord | null>(null);
+  const [billingOperations, setBillingOperations] = useState<AnyRecord | null>(null);
   const [loading, setLoading] = useState(true);
   const [downloading, setDownloading] = useState(false);
   const [notice, setNotice] = useState('');
 
   useEffect(() => {
     let live = true;
-    void fetch('/.netlify/functions/engagement-export?records=0', { credentials: 'include' })
-      .then(async response => {
-        const result = await response.json().catch(() => null);
-        if (!response.ok) throw new Error(result?.error || 'Audience evidence unavailable.');
-        if (live) setSummary(result.summary ?? null);
+    void loadAudienceEvidence()
+      .then(result => {
+        if (live) {
+          setSummary(result.summary);
+          setArchiveHealth(result.archiveHealth);
+          setBillingOperations(result.billingOperations);
+        }
       })
       .catch(error => {
         if (live) setNotice(error instanceof Error ? error.message : 'Audience evidence could not be loaded.');
@@ -217,6 +245,22 @@ function EngagementEvidence() {
       <p className={styles.measurementBoundary}>
         Event ratios, not unique-user conversion. These records intentionally contain no anonymous visitor or session identifier.
       </p>
+      {archiveHealth && <ArchiveAccessHealth health={archiveHealth} />}
+      {billingOperations && (
+        <>
+          <AudienceEvidenceReceiptIndex
+            billingOperations={billingOperations}
+            classes={{
+              container: styles.identityConflict,
+              header: styles.identityConflictHeader,
+            }}
+          />
+          <BillingIdentityConflict
+            conflict={billingOperations.identityConflict}
+            onUpdated={identityConflict => setBillingOperations({ ...billingOperations, identityConflict })}
+          />
+        </>
+      )}
 
       <div className={styles.evidenceMetrics}>
         <div><strong>{summary.recordCount ?? 0}</strong><span>Recorded events</span></div>
@@ -252,6 +296,162 @@ function EngagementEvidence() {
       {notice && <p className={styles.productionError} role="alert">{notice}</p>}
     </section>
   );
+}
+
+function BillingIdentityConflict({
+  conflict,
+  onUpdated,
+}: {
+  conflict: AnyRecord | null;
+  onUpdated: (conflict: AnyRecord | null) => void;
+}) {
+  const [busy, setBusy] = useState('');
+  const [notice, setNotice] = useState('');
+  const handlingHistory = Array.isArray(conflict?.handlingHistory)
+    ? conflict.handlingHistory as AnyRecord[]
+    : [];
+
+  async function updateStatus(status: 'acknowledged' | 'resolved') {
+    if (!conflict || busy) return;
+    setBusy(status);
+    setNotice('');
+    try {
+      const response = await fetch('/.netlify/functions/billing-operations', {
+        method: 'POST',
+        credentials: 'include',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          action: 'resolve_identity_conflict',
+          status,
+          expectedCount: conflict.count,
+          expectedLastOccurredAt: conflict.lastOccurredAt,
+        }),
+      });
+      const result = await response.json().catch(() => null);
+      if (result?.identityConflict) onUpdated(result.identityConflict);
+      if (!response.ok) throw new Error(result?.error || 'Identity conflict status could not be updated.');
+      setNotice(`Conflict aggregate marked ${status}.`);
+    } catch (error) {
+      setNotice(error instanceof Error ? error.message : 'Identity conflict status could not be updated.');
+    } finally {
+      setBusy('');
+    }
+  }
+
+  return (
+    <section className={styles.identityConflict} aria-labelledby="billing-identity-conflict-title">
+      <div className={styles.identityConflictHeader}>
+        <h5 id="billing-identity-conflict-title">Stripe identity conflicts</h5>
+        {conflict && <strong data-status={conflict.status || 'active'}>{conflict.status || 'active'}</strong>}
+      </div>
+      {conflict
+        ? <>
+          <dl className={styles.qualityInventory}>
+          <div><dt>Reason</dt><dd>{conflict.reason}</dd></div>
+          <div><dt>Category</dt><dd>{conflict.category}</dd></div>
+          <div><dt>Count</dt><dd>{conflict.count}</dd></div>
+          <div><dt>First occurrence</dt><dd>{formatDeliveryTime(conflict.firstOccurredAt)}</dd></div>
+          <div><dt>Last occurrence</dt><dd>{formatDeliveryTime(conflict.lastOccurredAt)}</dd></div>
+          {conflict.resolutionTimestamp && (
+            <div><dt>Resolution timestamp</dt><dd>{formatDeliveryTime(conflict.resolutionTimestamp)}</dd></div>
+          )}
+        </dl>
+          {handlingHistory.length > 0 && (
+            <section className={styles.identityConflictHistory} aria-labelledby="billing-identity-conflict-history-title">
+              <h6 id="billing-identity-conflict-history-title">Handling history</h6>
+              <ol>
+                {handlingHistory.map((receipt, index) => (
+                  <li key={`${String(receipt.timestamp)}-${index}`}>
+                    <strong>{String(receipt.status)}</strong>
+                    <span>{formatDeliveryTime(receipt.timestamp)}</span>
+                    <span>{Number(receipt.coveredOccurrenceCount) || 0} occurrences covered</span>
+                  </li>
+                ))}
+              </ol>
+            </section>
+          )}
+          {conflict.status === 'active' && (
+            <div className={styles.identityConflictActions}>
+              <button type="button" disabled={Boolean(busy)} onClick={() => void updateStatus('acknowledged')}>
+                {busy === 'acknowledged' ? 'Saving…' : 'Acknowledge'}
+              </button>
+              <button type="button" disabled={Boolean(busy)} onClick={() => void updateStatus('resolved')}>
+                {busy === 'resolved' ? 'Saving…' : 'Mark resolved'}
+              </button>
+            </div>
+          )}
+          {notice && <p className={styles.productionError} role="status">{notice}</p>}
+        </>
+        : <p>No Stripe identity conflicts have been recorded.</p>}
+    </section>
+  );
+}
+
+function ArchiveAccessHealth({ health }: { health: AnyRecord }) {
+  const recent = health.recentHour ?? {};
+  const status = health.status ?? {};
+  const compatibility = health.storageCompatibility ?? {};
+  const notifications = (health.notifications ?? []) as AnyRecord[];
+  const delivery = health.notificationDelivery ?? {};
+  const percentage = (value: unknown) => `${Math.round((Number(value) || 0) * 100)}%`;
+  return (
+    <section aria-labelledby="archive-access-health-title">
+      <h5 id="archive-access-health-title">Archive access health</h5>
+      <p>
+        Authenticated server checks only. Normal anonymous preview and sign-in gates are excluded from incident thresholds.
+      </p>
+      <div className={styles.evidenceMetrics}>
+        <div data-warning={status.billing !== 'normal'}>
+          <strong>{recent.billing_delay ?? 0}</strong><span>Billing delays · {status.billing ?? 'normal'}</span>
+        </div>
+        <div data-warning={status.deniedAccess !== 'normal'}>
+          <strong>{recent.upgrade ?? 0}</strong><span>Denied access · {status.deniedAccess ?? 'normal'}</span>
+        </div>
+        <div data-warning={status.storageCompatibility !== 'normal'}>
+          <strong>{compatibility.consecutiveFailures ?? 0}</strong>
+          <span>Safe-update failures · {status.storageCompatibility ?? 'normal'}</span>
+        </div>
+        <div><strong>{recent.authenticated_checks ?? 0}</strong><span>Authenticated checks</span></div>
+        <div><strong>{percentage(recent.billingDelayRate)}</strong><span>Billing-delay rate</span></div>
+      </div>
+      <p className={styles.measurementBoundary}>
+        Billing: {health.thresholds?.billingWarning}. Denials: {health.thresholds?.deniedWarning}. Storage: {health.thresholds?.storageCompatibilityWarning}.
+      </p>
+      {compatibility.affectedResource && (
+        <p
+          className={styles.measurementBoundary}
+          role={status.storageCompatibility === 'normal' ? 'status' : 'alert'}
+        >
+          Archive storage {status.storageCompatibility === 'normal' ? 'recovered' : 'affected'}: {compatibility.affectedResource}
+          {status.storageCompatibility === 'normal' && compatibility.recoveredAt
+            ? ` · recovered ${formatDeliveryTime(compatibility.recoveredAt)}`
+            : ''}.
+        </p>
+      )}
+      {notifications.length > 0 && (
+        <p className={styles.measurementBoundary} role="status">
+          Operator notification sent for {notifications.map(item => `${item.signalCategory} ${item.status}`).join(', ')}.
+        </p>
+      )}
+      <p
+        className={styles.measurementBoundary}
+        role={delivery.status === 'failure' ? 'alert' : 'status'}
+      >
+        Notification delivery: {delivery.status === 'success'
+          ? `last succeeded ${formatDeliveryTime(delivery.attemptedAt)}`
+          : delivery.status === 'failure'
+            ? `last failed ${formatDeliveryTime(delivery.attemptedAt)} · ${delivery.consecutiveFailures ?? 1} consecutive failure${delivery.consecutiveFailures === 1 ? '' : 's'}`
+            : delivery.status === 'unavailable'
+              ? 'health unavailable'
+              : 'no delivery attempted yet'}.
+      </p>
+    </section>
+  );
+}
+
+function formatDeliveryTime(value: unknown) {
+  const timestamp = typeof value === 'string' ? Date.parse(value) : Number.NaN;
+  return Number.isFinite(timestamp) ? new Date(timestamp).toLocaleString() : 'at an unknown time';
 }
 
 function ProductionReadiness({
@@ -532,6 +732,7 @@ function PublicationReceipts({
             <div>
               <strong>{formatEditionDate(edition.publicationDate)}</strong>
               <span>{edition.actor?.name} · {edition.vibe?.label}</span>
+              <ReaderLinkDiagnostic diagnostic={edition.readerLinks} />
             </div>
             <div className={styles.receiptChannels}>
               {['rednote', 'weibo', 'instagram'].map(receiptChannel => {
@@ -584,6 +785,17 @@ function PublicationReceipts({
     </section>
   );
 }
+
+function ReaderLinkDiagnostic({ diagnostic }: { diagnostic?: AnyRecord }) {
+  const messages: Record<string, string> = {
+    missing_metadata: 'Reader links missing: this archive record has no public-record metadata.',
+    malformed_actor_path: 'Reader links rejected: the actor path is malformed.',
+    malformed_edition_path: 'Reader links rejected: the edition path is malformed or does not match the actor.',
+  };
+  const message = diagnostic?.status ? messages[diagnostic.status] : '';
+  if (!message) return null;
+  return <span className={styles.readerLinkWarning} role="status">{message}</span>;
+}
 function nextShanghaiNoonLabel(now = new Date()) {
   const parts = Object.fromEntries(new Intl.DateTimeFormat('en-CA', {
     timeZone: 'Asia/Shanghai',
@@ -604,18 +816,48 @@ function nextShanghaiNoonLabel(now = new Date()) {
   return `${dateLabel} · 12:00 PM Asia/Shanghai`;
 }
 
-function ReleaseInventory({ inventory }: { inventory: AnyRecord }) {
+function ReleaseInventory({
+  inventory,
+  onRecoverRepairHealth,
+}: {
+  inventory: AnyRecord;
+  onRecoverRepairHealth: () => Promise<AnyRecord>;
+}) {
+  const [recoveringRepairHealth, setRecoveringRepairHealth] = useState(false);
+  const [repairRecoveryNotice, setRepairRecoveryNotice] = useState('');
+  const [repairRecoveryError, setRepairRecoveryError] = useState('');
   const cutoffLabel = useMemo(() => nextShanghaiNoonLabel(), []);
   const actorPacks = (inventory.actorPacks ?? EMPTY_RECORDS) as AnyRecord[];
   const readyCount = Number(inventory.releaseReadyPairingCount ?? 0);
   const recentWindowDays = Number(inventory.recentDailyDropWindowDays ?? 30);
   const unusedCount = Number(inventory.unusedWithinRecentWindowPairingCount ?? 0);
   const unavailableCount = Number(inventory.unavailablePairingCount ?? 0);
+  const repairHealth = inventory.publicationIndexRepairHealth;
+  const repairWarningDetail = repairHealth ? formatRepairWarningDetail(repairHealth) : '';
   const depthLabel = readyCount === 0
     ? 'No current release-ready pairing'
     : readyCount === 1
       ? 'One current pairing — concentrated inventory'
       : 'Multiple current pairing options';
+
+  const recoverRepairHealth = async () => {
+    setRecoveringRepairHealth(true);
+    setRepairRecoveryNotice('');
+    setRepairRecoveryError('');
+    try {
+      const recovery = await onRecoverRepairHealth();
+      const preserved = Number(recovery.preservedEventCount ?? 0);
+      setRepairRecoveryNotice(
+        `Repair health recovered. ${preserved} valid recent repair event${preserved === 1 ? '' : 's'} preserved.`,
+      );
+    } catch (error) {
+      setRepairRecoveryError(
+        error instanceof Error ? error.message : 'Repair health could not be recovered.',
+      );
+    } finally {
+      setRecoveringRepairHealth(false);
+    }
+  };
 
   return (
     <section className={styles.inventory} aria-labelledby="release-inventory-title">
@@ -632,6 +874,27 @@ function ReleaseInventory({ inventory }: { inventory: AnyRecord }) {
           <small>Public scheduling behavior is unchanged.</small>
         </div>
       </div>
+
+      {repairHealth?.warning && (
+        <div className={styles.inventoryRepairWarning} role="status">
+          <strong>Release inventory repair needs attention</strong>
+          <span>
+            {repairWarningDetail}
+            . Inventory remains fail-closed; check Blob listing and historical manifest health.
+          </span>
+          {repairHealth.status === 'unavailable' && (
+            <button
+              type="button"
+              disabled={recoveringRepairHealth}
+              onClick={() => void recoverRepairHealth()}
+            >
+              {recoveringRepairHealth ? 'Recovering repair health…' : 'Recover repair health'}
+            </button>
+          )}
+          {repairRecoveryError && <span className={styles.repairRecoveryError}>{repairRecoveryError}</span>}
+        </div>
+      )}
+      {repairRecoveryNotice && <p className={styles.repairRecoveryNotice} role="status">{repairRecoveryNotice}</p>}
 
       <div className={styles.inventoryMetrics}>
         <div><strong>{readyCount}</strong><span>release-ready actor × Vibe pairings</span></div>
@@ -704,6 +967,26 @@ function ReleaseInventory({ inventory }: { inventory: AnyRecord }) {
       </div>
     </section>
   );
+}
+
+function formatRepairWarningDetail(repairHealth: AnyRecord) {
+  const isCount = (value: unknown) => (
+    typeof value === 'number'
+    && Number.isFinite(value)
+    && value >= 0
+  );
+  const failedAttemptCount = repairHealth.failedAttemptCount;
+  if (isCount(failedAttemptCount) && failedAttemptCount > 0) {
+    return `${failedAttemptCount} repair attempt${failedAttemptCount === 1 ? '' : 's'} did not complete normally`;
+  }
+  if (
+    isCount(failedAttemptCount)
+    && isCount(repairHealth.attemptCount)
+    && isCount(repairHealth.windowHours)
+  ) {
+    return `${repairHealth.attemptCount} rebuilds were needed in the last ${repairHealth.windowHours} hours`;
+  }
+  return 'Repair health details are incomplete, so recent repair counts are unavailable';
 }
 
 function formatEditionDate(value: unknown) {
