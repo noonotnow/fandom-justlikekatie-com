@@ -140,3 +140,134 @@ test('switching saved runs with shared source links never leaves more than nine 
     await closeBrowserAndServer(browser, server);
   }
 });
+
+test('daily-star directory previews are restricted to other three-card releases for that actor', {
+  timeout: 30_000,
+}, async () => {
+  const [{ server, origin }, browser] = await launchBrowserWithServer(startViteTestServer());
+  try {
+    const page = await browser.newPage();
+    page.setDefaultTimeout(5_000);
+    await page.route('**/api/membership/status', route => route.fulfill({
+      contentType: 'application/json',
+      body: JSON.stringify({ state: 'signed_out', capabilities: [] }),
+    }));
+    let protectedRequests = 0;
+    await page.route('**/.netlify/functions/actor-pack-depth*', route => {
+      protectedRequests += 1;
+      return route.fulfill({ status: 500, body: 'Protected route must not be requested.' });
+    });
+    let directoryRequestUrl = '';
+    await page.route('**/.netlify/functions/public-preflight-preview-directory*', route => {
+      directoryRequestUrl = route.request().url();
+      return route.fulfill({
+        contentType: 'application/json',
+        body: JSON.stringify({
+          kind: 'vibe-atlas-preflight-preview-directory',
+          previews: [
+            {
+              kind: 'vibe-atlas-preflight-three-card-preview',
+              actor: { id: 'liu-xueyi', name: '刘学义', nameEn: 'Liu Xueyi' },
+              vibe: { labelEn: 'Current Daily Pair', copy: 'The current pairing is not teased in the actor directory.' },
+              vibeIdx: 2,
+              cards: [{ thumbnailUrl: 'https://media.example/current.jpg', title: 'Current' }, { thumbnailUrl: 'https://media.example/current-2.jpg', title: 'Current 2' }, { thumbnailUrl: 'https://media.example/current-3.jpg', title: 'Current 3' }],
+            },
+            {
+              kind: 'vibe-atlas-preflight-three-card-preview',
+              actor: { id: 'liu-xueyi', name: '刘学义', nameEn: 'Liu Xueyi' },
+              vibe: { labelEn: 'Other Release', copy: 'A released actor pack with an editorially approved context.' },
+              vibeIdx: 3,
+              cards: [{ thumbnailUrl: 'https://media.example/other.jpg', title: 'Other 1' }, { thumbnailUrl: 'https://media.example/other-2.jpg', title: 'Other 2' }, { thumbnailUrl: 'https://media.example/other-3.jpg', title: 'Other 3' }],
+            },
+            {
+              kind: 'vibe-atlas-preflight-three-card-preview',
+              actor: { id: 'other-actor', name: 'Other', nameEn: 'Other Actor' },
+              vibe: { labelEn: 'Other Actor Vibe', copy: 'This belongs to another actor.' },
+              vibeIdx: 0,
+              cards: [{ thumbnailUrl: 'https://media.example/unrelated.jpg', title: 'Unrelated 1' }, { thumbnailUrl: 'https://media.example/unrelated-2.jpg', title: 'Unrelated 2' }, { thumbnailUrl: 'https://media.example/unrelated-3.jpg', title: 'Unrelated 3' }],
+            },
+          ],
+        }),
+      });
+    });
+
+    await page.goto(`${origin}/vibe-atlas?view=released&source=daily_star&actorId=liu-xueyi&vibeIdx=2`, {
+      waitUntil: 'domcontentloaded',
+      timeout: 15_000,
+    });
+    await page.getByRole('heading', { name: /other Vibe Packs/ }).waitFor();
+    await page.getByText('Other Release').waitFor();
+    await page.getByText('A released actor pack with an editorially approved context.').waitFor();
+    assert.equal(new URL(directoryRequestUrl).searchParams.get('actorId'), 'liu-xueyi');
+    assert.equal(await page.getByText('Current Daily Pair').count(), 0);
+    assert.equal(await page.getByText('Other Actor Vibe').count(), 0);
+    assert.equal(await page.locator('.released-library__teaser .released-image-grid__item').count(), 3);
+    assert.equal(protectedRequests, 0);
+  } finally {
+    await closeBrowserAndServer(browser, server);
+  }
+});
+
+test('article teaser requests only its exact approved Liu Xueyi pair and fails closed on 404', {
+  timeout: 30_000,
+}, async () => {
+  const [{ server, origin }, browser] = await launchBrowserWithServer(startViteTestServer());
+  try {
+    const page = await browser.newPage();
+    page.setDefaultTimeout(5_000);
+    await page.route('**/api/membership/status', route => route.fulfill({
+      contentType: 'application/json',
+      body: JSON.stringify({ state: 'signed_out', capabilities: [] }),
+    }));
+    let requestedPair = '';
+    let directoryRequests = 0;
+    await page.route('**/.netlify/functions/public-preflight-preview-directory*', route => {
+      directoryRequests += 1;
+      return route.fulfill({ status: 500, body: 'Article must not use directory.' });
+    });
+    await page.route('**/.netlify/functions/public-preflight-preview*', route => {
+      requestedPair = new URL(route.request().url()).search;
+      return route.fulfill({ status: 404, contentType: 'application/json', body: JSON.stringify({ error: 'Not released.' }) });
+    });
+
+    await page.goto(`${origin}/vibe-atlas?view=released&source=article&actorId=liu-xueyi&vibeIdx=2`, {
+      waitUntil: 'domcontentloaded',
+      timeout: 15_000,
+    });
+    await page.getByRole('alert').filter({ hasText: 'does not have an approved public preview' }).waitFor();
+    assert.equal(requestedPair, '?actorId=liu-xueyi&vibeIdx=2');
+    assert.equal(directoryRequests, 0);
+    assert.equal(await page.locator('.released-library__teaser .released-image-grid__item').count(), 0);
+    assert.equal(await page.locator('.released-image-grid[aria-label="Nine image generated grid"]').count(), 0);
+  } finally {
+    await closeBrowserAndServer(browser, server);
+  }
+});
+
+test('article previews reject an unapproved actor without making a public-preview request', {
+  timeout: 30_000,
+}, async () => {
+  const [{ server, origin }, browser] = await launchBrowserWithServer(startViteTestServer());
+  try {
+    const page = await browser.newPage();
+    page.setDefaultTimeout(5_000);
+    await page.route('**/api/membership/status', route => route.fulfill({
+      contentType: 'application/json',
+      body: JSON.stringify({ state: 'signed_out', capabilities: [] }),
+    }));
+    let previewRequests = 0;
+    await page.route('**/.netlify/functions/public-preflight-preview*', route => {
+      previewRequests += 1;
+      return route.fulfill({ status: 200, contentType: 'application/json', body: JSON.stringify({}) });
+    });
+
+    await page.goto(`${origin}/vibe-atlas?view=released&source=article&actorId=other-actor&vibeIdx=2`, {
+      waitUntil: 'domcontentloaded',
+      timeout: 15_000,
+    });
+    await page.getByRole('alert').filter({ hasText: 'only to its two approved Liu Xueyi pack previews' }).waitFor();
+    assert.equal(previewRequests, 0);
+  } finally {
+    await closeBrowserAndServer(browser, server);
+  }
+});
