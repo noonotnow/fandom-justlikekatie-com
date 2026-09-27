@@ -27,7 +27,10 @@ const VALID_EVENTS = [
   "daily_drop_view", "daily_drop_engaged", "daily_drop_card_save",
   "daily_drop_share", "daily_drop_collection_open",
   "archive_page_view", "archive_gated_preview_view", "archive_record_opened",
+  "companion_path_view", "companion_interest_click", "companion_collection_click",
 ];
+const COMPANION_EVENTS = new Set(["companion_path_view", "companion_interest_click", "companion_collection_click"]);
+const COMPANION_PATHS = new Set(["discover", "context", "collect"]);
 const PUBLIC_GAME_EVENTS = new Set([
   "fandom_game_start", "fandom_game_reveal", "fandom_game_share",
   "fandom_share_open",
@@ -91,7 +94,7 @@ export default async (req, context) => {
   const {
     event, batchKey, imageUrl, actor, vibe, editionTier, resultPositions, grid,
     contentId, outcomeId, source, editionDate, position, saved, engagementReason,
-    shareMethod, capturedDate, pagePath, recordType, location,
+    shareMethod, capturedDate, pagePath, recordType, location, pilotPath,
   } = body;
 
   if (!event || !VALID_EVENTS.includes(event)) {
@@ -99,6 +102,15 @@ export default async (req, context) => {
       JSON.stringify({ error: `Invalid event type. Must be one of: ${VALID_EVENTS.join(", ")}` }),
       { status: 400, headers: { "Content-Type": "application/json" } },
     );
+  }
+
+  if ((COMPANION_EVENTS.has(event) || (pilotPath !== undefined && [
+    "membership_view", "upgrade_click", "checkout_started", "membership_activated",
+  ].includes(event))) && (!COMPANION_PATHS.has(pilotPath)
+    || (COMPANION_EVENTS.has(event) && batchKey !== "c-drama-companion-pilot"))) {
+    return new Response(JSON.stringify({ error: "Invalid companion path." }), {
+      status: 400, headers: { "Content-Type": "application/json" },
+    });
   }
 
   if (event === "grid_export") {
@@ -186,6 +198,9 @@ export default async (req, context) => {
       timestamp: new Date().toISOString(),
     };
 
+    if (COMPANION_EVENTS.has(event) || (pilotPath && COMPANION_PATHS.has(pilotPath))) {
+      entry.pilotPath = pilotPath;
+    }
     if (event === "grid_export") {
       // Structured grid-artifact export event (validated above).
       entry.grid = grid;
@@ -195,6 +210,8 @@ export default async (req, context) => {
       if (vibe !== undefined) entry.vibe = vibe;
       if (editionTier !== undefined) entry.editionTier = editionTier;
       if (Array.isArray(resultPositions)) entry.resultPositions = resultPositions;
+    } else if (COMPANION_EVENTS.has(event)) {
+      // Path alone is allowed; never retain arbitrary browser-provided text.
     } else if (PUBLIC_GAME_EVENTS.has(event)) {
       entry.contentId = contentId;
       if (outcomeId !== undefined) entry.outcomeId = outcomeId;

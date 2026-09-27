@@ -100,7 +100,7 @@ export function Membership({ status }: Props) {
         <article>
           <p className="membership__label">Free</p>
           <h2>Catch today’s vibe</h2>
-          <ul><li>Today’s complete card drop</li><li>Recent free editions</li><li>Individual card saves and a basic Canvas</li><li>Standard share export</li><li>Full Collection sync after sign-in</li></ul>
+          <ul><li>Today’s complete card drop</li><li>Recent free editions</li><li>Individual card saves on this device and a basic Canvas</li><li>Standard share export</li></ul>
         </article>
         <article className="membership__featured">
           <p className="membership__label">Vibe Atlas Collector</p>

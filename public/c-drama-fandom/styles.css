@@ -30,6 +30,25 @@ body {
 a { color: inherit; }
 img { display: block; max-width: 100%; }
 button { font: inherit; }
+.companion-paths, .companion-pilot {
+  border: 1px solid var(--line);
+  border-radius: 18px;
+  background: var(--night-soft);
+  padding: clamp(20px, 4vw, 38px);
+  margin: 32px 0;
+}
+.companion-paths li { margin: 12px 0; }
+.companion-pilot--intro { max-width: var(--max); margin: 36px auto 0; }
+.companion-pilot__form { display: grid; gap: 16px; max-width: 520px; margin-top: 24px; }
+.companion-pilot__form label { display: grid; gap: 7px; }
+.companion-pilot__form input[type="email"], .companion-pilot__form input[name="email"] {
+  width: 100%; padding: 12px; border-radius: 6px; border: 1px solid var(--mist);
+  color: var(--paper); background: var(--night);
+}
+.companion-pilot__form .companion-pilot__consent { display: flex; align-items: flex-start; }
+.companion-pilot__consent input { margin-top: 8px; }
+.companion-pilot__form button { justify-self: start; cursor: pointer; }
+.companion-pilot__fine { font-size: .86rem; color: var(--mist); }
 .skip-link {
   position: fixed;
   left: 16px;
