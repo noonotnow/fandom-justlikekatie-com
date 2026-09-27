@@ -110,6 +110,9 @@ test("only signed first paid Collector invoices produce deduplicated outcome rec
   ]) {
     assert.deepEqual(await applyBlobBillingEvent({ repository, event: makeEvent(id, override), env }), { ignored: true });
   }
+  assert.deepEqual(await applyBlobBillingEvent({
+    repository, event: makeEvent("evt_unconfigured", { lines: { data: [{}] } }), env: {},
+  }), { ignored: true });
   assert.deepEqual(await store.get("2026-09-30/evt_paid"), {
     event: "first_paid_collector_invoice", timestamp: "2026-09-30T00:00:00.000Z",
   });
