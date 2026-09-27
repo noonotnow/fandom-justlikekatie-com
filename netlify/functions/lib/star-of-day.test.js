@@ -2,6 +2,7 @@ import test from "node:test";
 import assert from "node:assert/strict";
 import { createHash } from "node:crypto";
 import starOfDay, {
+  createStarOfDayHandler,
   buildPayloadForDate,
   cachedPairIsEligible,
   hasReleaseReadyCohort,
@@ -1180,6 +1181,36 @@ test("historical reads reject missing and future dates without touching cache lo
   assert.equal(missing.status, 404);
   assert.equal(future.status, 400);
   assert.deepEqual(store.stats(), { listCalls: 0, setCalls: 0 });
+});
+
+test("Archive publication audit requires an admin and returns only bounded statuses", async () => {
+  const date = "2026-08-28";
+  const store = makeStore(archiveCatalogEntries([{
+    date,
+    actorName: "Actor A",
+    vibeLabel: "Vibe",
+  }]));
+  const url = "https://example.test/star-of-day?archivePublicationAudit=1";
+  const deniedHandler = createStarOfDayHandler({
+    getStore: () => store,
+    today: () => "2026-09-20",
+    auth: { authenticateAdmin: async () => {
+      throw Object.assign(new Error("Unauthorized"), { status: 401 });
+    } },
+  });
+  const denied = await deniedHandler({ method: "GET", url }, {});
+  assert.equal(denied.status, 401);
+  assert.equal(denied.headers.get("cache-control"), "private, no-store");
+  const adminHandler = createStarOfDayHandler({
+    getStore: () => store,
+    today: () => "2026-09-20",
+    auth: { authenticateAdmin: async () => ({ user: { accountId: "operator" } }) },
+  });
+  const result = await adminHandler({ method: "GET", url }, {});
+  assert.equal(result.status, 200);
+  assert.deepEqual((await result.json()).records, [{ date, status: "missing_manifest" }]);
+  assert.equal(result.headers.get("cache-control"), "private, no-store");
+  assert.equal(result.headers.get("vary"), "Cookie");
 });
 
 test("the builder skips a failed approved pairing and preserves the public 3x3 payload contract", async () => {

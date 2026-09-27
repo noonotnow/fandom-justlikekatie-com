@@ -223,6 +223,29 @@ export async function readPublicationManifests(store) {
   };
 }
 
+/**
+ * Historical Archive payloads are not publication evidence. Diagnose the
+ * immutable manifests directly without exposing source URLs or stored blobs.
+ */
+export async function diagnoseArchivedPublications(store, dates) {
+  const uniqueDates = [...new Set(dates)].filter(isPublicationDate);
+  if (uniqueDates.length > 100) throw new Error("Too many archive dates to diagnose.");
+  return Promise.all(uniqueDates.map(async date => {
+    const manifest = await store.get(gridManifestKey(date), {
+      type: "json",
+      consistency: "strong",
+    });
+    return {
+      date,
+      status: !manifest ? "missing_manifest"
+        : !isGridManifest(manifest) || manifest.publicationDate !== date
+          ? "malformed_manifest"
+          : !isIndexablePublicationManifest(manifest) ? "not_indexable"
+            : "indexable",
+    };
+  }));
+}
+
 export async function repairPublicationManifestPublicRecords(
   store,
   { cursor = null, limit = 100, now = () => new Date() } = {},

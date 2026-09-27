@@ -20,6 +20,7 @@ import {
 import {
   GRID_MANIFEST_PREFIX,
   boardHash as publicationBoardHash,
+  diagnoseArchivedPublications,
   gridManifestKey,
   manifestPayload,
   materializePublicationManifest,
@@ -984,6 +985,33 @@ export function createStarOfDayHandler({
         "Cache-Control": "private, no-store",
         Vary: "Cookie",
       });
+    }
+
+    if (url.searchParams.get("archivePublicationAudit") === "1") {
+      try {
+        await auth.authenticateAdmin(req, context);
+      } catch (error) {
+        return jsonResponse(error?.status === 403 ? 403 : 401, {
+          error: error?.message || "Admin access is required.",
+        }, { "Cache-Control": "private, no-store" });
+      }
+      const cursor = url.searchParams.get("cursor");
+      if (cursor && !isUsableDate(cursor)) {
+        return jsonResponse(400, { error: "Invalid archive cursor." }, {
+          "Cache-Control": "private, no-store",
+        });
+      }
+      const page = await listArchiveCatalogPage(store, {
+        limit: ARCHIVE_MAX_PAGE_SIZE,
+        throughDate: todayStr,
+        ...(cursor ? { cursor } : {}),
+      });
+      return jsonResponse(200, {
+        records: await diagnoseArchivedPublications(
+          store, page.editions.map(edition => edition.date),
+        ),
+        nextCursor: page.hasMore ? page.editions.at(-1)?.date : null,
+      }, { "Cache-Control": "private, no-store", Vary: "Cookie" });
     }
 
     if (url.searchParams.get("archiveRepair") === "1"
