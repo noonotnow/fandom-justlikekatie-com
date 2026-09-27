@@ -31,6 +31,8 @@ test("deployed sitemap uses the V2 Blobs context and serves the registered stati
   assert.equal(response.status, 200);
   const xml = await response.text();
   assert.equal(xml.split("<loc>https://fandom.justlikekatie.com/c-drama-fandom/vibing-now/against-the-current-episode-21/</loc>").length - 1, 1);
+  assert.equal(xml.split("<loc>https://fandom.justlikekatie.com/c-drama-fandom/vibing-now/against-the-current-episode-25/</loc>").length - 1, 1);
+  assert.equal(xml.split("<loc>https://fandom.justlikekatie.com/c-drama-fandom/vibing-now/against-the-current-episode-30/</loc>").length - 1, 1);
   assert.match(xml, /<loc>https:\/\/fandom\.justlikekatie\.com\/vibe-atlas\/actors\/liu-xueyi\/<\/loc>/);
 });
 
@@ -46,6 +48,8 @@ test("dynamic sitemap falls back to static routes while the catalog is incomplet
   assert.equal(result.headers["Cache-Control"], "no-store");
   assert.match(result.body, /c-drama-fandom\/glossary/);
   assert.match(result.body, /against-the-current-episode-21/);
+  assert.match(result.body, /against-the-current-episode-25/);
+  assert.match(result.body, /against-the-current-episode-30/);
   assert.doesNotMatch(result.body, /vibe-atlas\/actors\/liu-xueyi/);
 });
 
@@ -60,6 +64,8 @@ test("dynamic sitemap falls back to static routes when dynamic inventory throws"
   assert.equal(result.statusCode, 200);
   assert.match(result.body, /c-drama-fandom\/glossary/);
   assert.match(result.body, /against-the-current-episode-21/);
+  assert.match(result.body, /against-the-current-episode-25/);
+  assert.match(result.body, /against-the-current-episode-30/);
 });
 
 test("dynamic sitemap includes approved actor and edition once and excludes thin records", async () => {

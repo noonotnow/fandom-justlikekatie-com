@@ -140,6 +140,8 @@ test("robots and sitemap expose only intended public surfaces", () => {
     "https://fandom.justlikekatie.com/c-drama-fandom/fandom-games/",
     "https://fandom.justlikekatie.com/c-drama-fandom/vibing-now/",
     "https://fandom.justlikekatie.com/c-drama-fandom/vibing-now/against-the-current-episode-21/",
+    "https://fandom.justlikekatie.com/c-drama-fandom/vibing-now/against-the-current-episode-25/",
+    "https://fandom.justlikekatie.com/c-drama-fandom/vibing-now/against-the-current-episode-30/",
   ];
   const journalUrls = WATCH_JOURNAL_PUBLIC_PAGES.map((path) => (
     `https://fandom.justlikekatie.com/${path
@@ -424,6 +426,58 @@ test("Against the Current stays within Episode 21 and uses registered static edi
   );
 });
 
+test("Against the Current Episodes 22–25 stays within its spoiler boundary and registered route", () => {
+  const path = "/c-drama-fandom/vibing-now/against-the-current-episode-25/";
+  const html = read(`public${path}index.html`);
+  const route = PUBLIC_STATIC_ROUTES.find((entry) => entry.path === path);
+  assert.ok(route);
+  assert.equal(route.changefreq, "weekly");
+  assertCanonicalMatchesRoute(html, route);
+  assert.match(html, /<body data-source-page="drama-against-the-current-episode-25" data-content-mode="drama-authority">/);
+  assert.deepEqual(
+    [...html.matchAll(/data-section-id="([^"]+)"/g)].map(([, id]) => id),
+    ["vibing-now-intro", "survival-cost", "domestic-statecraft", "ethical-competence",
+      "damage-control", "romance-imbalance", "defining-current", "emerging-vibe", "pack-verdict"],
+  );
+  assert.match(html, /<p class="eyebrow">Vibing Now · Against the Current · Episodes 22–25<\/p>/);
+  assert.match(html, /Spoiler boundary: Episodes 22–25 · No preview, later-episode, novel, or endgame material included/);
+  assert.match(html, /What does freedom mean when reputation, commerce, and imperial favor can still rewrite a woman’s future\?/);
+  assert.match(html, /view=released&amp;source=article&amp;actorId=liu-xueyi&amp;vibeIdx=2/);
+  assert.match(html, /view=released&amp;source=article&amp;actorId=liu-xueyi&amp;vibeIdx=1/);
+  assert.doesNotMatch(html, /Episode 2[6-9]\b|Episode 30\b|Episode 31\b|former Shen home|playwriting/i);
+  assert.match(read("netlify.toml"), /from = "\/c-drama-fandom\/vibing-now\/against-the-current-episode-25"\s+to = "\/c-drama-fandom\/vibing-now\/against-the-current-episode-25\/index\.html"/);
+  assert.match(
+    read("vite.config.ts"),
+    /'\/c-drama-fandom\/vibing-now\/against-the-current-episode-25', '\/c-drama-fandom\/vibing-now\/against-the-current-episode-25\/index\.html'/,
+  );
+});
+
+test("Against the Current Episodes 26–30 stays within its spoiler boundary and avoids Episode 31+ leaks", () => {
+  const path = "/c-drama-fandom/vibing-now/against-the-current-episode-30/";
+  const html = read(`public${path}index.html`);
+  const route = PUBLIC_STATIC_ROUTES.find((entry) => entry.path === path);
+  assert.ok(route);
+  assert.equal(route.changefreq, "weekly");
+  assertCanonicalMatchesRoute(html, route);
+  assert.match(html, /<body data-source-page="drama-against-the-current-episode-30" data-content-mode="drama-authority">/);
+  assert.deepEqual(
+    [...html.matchAll(/data-section-id="([^"]+)"/g)].map(([, id]) => id),
+    ["vibing-now-intro", "survival-cost", "domestic-statecraft", "ethical-competence",
+      "damage-control", "romance-imbalance", "defining-current", "emerging-vibe", "pack-verdict"],
+  );
+  assert.match(html, /<p class="eyebrow">Vibing Now · Against the Current · Episodes 26–30<\/p>/);
+  assert.match(html, /Spoiler boundary: Episodes 26–30 · No preview, later-episode, novel, or endgame material included/);
+  assert.match(html, /Has Jinqi begun respecting Lanxiang’s choices—or has he only become more charming when overriding them\?/);
+  assert.match(html, /view=released&amp;source=article&amp;actorId=liu-xueyi&amp;vibeIdx=2/);
+  assert.match(html, /view=released&amp;source=article&amp;actorId=liu-xueyi&amp;vibeIdx=1/);
+  assert.doesNotMatch(html, /Episode 31\b|former Shen home|playwriting/i);
+  assert.match(read("netlify.toml"), /from = "\/c-drama-fandom\/vibing-now\/against-the-current-episode-30"\s+to = "\/c-drama-fandom\/vibing-now\/against-the-current-episode-30\/index\.html"/);
+  assert.match(
+    read("vite.config.ts"),
+    /'\/c-drama-fandom\/vibing-now\/against-the-current-episode-30', '\/c-drama-fandom\/vibing-now\/against-the-current-episode-30\/index\.html'/,
+  );
+});
+
 test("Vibing Now landing page is crawlable and advertises the live spoiler boundary", () => {
   const path = "/c-drama-fandom/vibing-now/";
   const html = read(`public${path}index.html`);
@@ -433,6 +487,8 @@ test("Vibing Now landing page is crawlable and advertises the live spoiler bound
   assertCanonicalMatchesRoute(html, route);
   assert.match(html, /<body data-source-page="vibing-now-index" data-content-mode="drama-authority">/);
   assert.match(html, /Against the Current, through Episode 21/);
+  assert.match(html, /Against the Current, Episodes 22–25/);
+  assert.match(html, /Against the Current, Episodes 26–30/);
   assert.match(html, /No preview material, later episodes, novel material, or endgame commentary/);
   assert.match(read("public/c-drama-fandom/editorial.js"), /"vibing-now-index"/);
 });
