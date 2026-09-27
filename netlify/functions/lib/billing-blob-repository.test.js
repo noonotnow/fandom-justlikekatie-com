@@ -91,6 +91,31 @@ test("blob billing links a customer and records an entitled subscription", async
   });
 });
 
+test("only signed first paid Collector invoices produce deduplicated outcome receipts", async () => {
+  const { store, repository } = createRepository();
+  const makeEvent = (id, overrides = {}) => ({
+    id, type: "invoice.paid", created: 1790726400,
+    data: { object: {
+      amount_paid: 1200, billing_reason: "subscription_create",
+      lines: { data: [{ price: { id: "price_collector" } }] }, ...overrides,
+    } },
+  });
+  const env = { FANDOM_STRIPE_MEMBERSHIP_PRICE_ID: "price_collector" };
+  assert.deepEqual(await applyBlobBillingEvent({ repository, event: makeEvent("evt_paid"), env }), { applied: true });
+  assert.deepEqual(await applyBlobBillingEvent({ repository, event: makeEvent("evt_paid"), env }), { duplicate: true });
+  for (const [id, override] of [
+    ["evt_free", { amount_paid: 0 }],
+    ["evt_renewal", { billing_reason: "subscription_cycle" }],
+    ["evt_other", { lines: { data: [{ price: { id: "price_other" } }] } }],
+  ]) {
+    assert.deepEqual(await applyBlobBillingEvent({ repository, event: makeEvent(id, override), env }), { ignored: true });
+  }
+  assert.deepEqual(await store.get("2026-09-30/evt_paid"), {
+    event: "first_paid_collector_invoice", timestamp: "2026-09-30T00:00:00.000Z",
+  });
+  assert.equal(await store.get("2026-09-30/evt_free"), null);
+});
+
 test("subscription webhook persists one canonical product capability", async () => {
   const { repository } = createRepository();
   await repository.linkCustomer("account_one", "cus_test");

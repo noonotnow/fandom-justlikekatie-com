@@ -29,13 +29,24 @@ export function createCompanionInterest({ getStore, env = process.env, now = () 
     try {
       const store = getStore("companion-interest", context);
       if (data.action === "unsubscribe") {
+        const existing = await store.get(`subscribers/${key}`, { type: "json", consistency: "strong" });
         await store.delete(`subscribers/${key}`);
+        if (existing?.consent === true) {
+          await store.setJSON(`changes/${now().toISOString().slice(0, 10)}/${crypto.randomUUID()}`, {
+            action: "removed", path: existing.path, timestamp: now().toISOString(),
+          }, { onlyIfNew: true });
+        }
       } else {
+        const existing = await store.get(`subscribers/${key}`, { type: "json", consistency: "strong" });
         await store.setJSON(`subscribers/${key}`, {
           schemaVersion: 1, email, path: data.path, consent: true,
           consentText: "Email me about this C-drama companion pilot. I can unsubscribe at any time.",
           consentedAt: now().toISOString(), source: "public-guide",
         });
+        await store.setJSON(`changes/${now().toISOString().slice(0, 10)}/${crypto.randomUUID()}`, {
+          action: existing?.consent === true ? "updated" : "added",
+          path: data.path, timestamp: now().toISOString(),
+        }, { onlyIfNew: true });
         // This is a consented research-interest list, not an account or sign-in request.
         // No marketing mail is sent by this endpoint.
       }

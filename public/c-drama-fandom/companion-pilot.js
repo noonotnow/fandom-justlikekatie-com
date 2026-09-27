@@ -13,6 +13,20 @@
     } catch { /* Analytics cannot block reading. */ }
   };
   record('companion_path_view');
+  // One visible ten-second visit per tab session and path; no visitor identifier
+  // leaves the browser. The server excludes known crawlers and signed-in staff.
+  const qualifiedKey = `companion-qualified:${path}`;
+  if (!sessionStorage.getItem(qualifiedKey)) {
+    let visibleMs = 0;
+    const timer = setInterval(() => {
+      if (document.visibilityState !== 'visible') return;
+      visibleMs += 1000;
+      if (visibleMs < 10000) return;
+      clearInterval(timer);
+      sessionStorage.setItem(qualifiedKey, '1');
+      record('companion_qualified_view');
+    }, 1000);
+  }
   section.querySelectorAll('a[data-companion-next]').forEach(link => link.addEventListener('click', () => {
     sessionStorage.setItem('companion-pilot-path', path);
     sessionStorage.setItem('companion-pilot-time', String(Date.now()));

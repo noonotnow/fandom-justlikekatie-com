@@ -1,5 +1,6 @@
 import { getBlobStore } from "./lib/blob-store.js";
 import { validateGridPayload } from "./lib/grid-export-validation.js";
+import { createPublicAuth } from "./lib/public-auth.js";
 
 /**
  * Log engagement events to Netlify Blobs.
@@ -27,9 +28,9 @@ const VALID_EVENTS = [
   "daily_drop_view", "daily_drop_engaged", "daily_drop_card_save",
   "daily_drop_share", "daily_drop_collection_open",
   "archive_page_view", "archive_gated_preview_view", "archive_record_opened",
-  "companion_path_view", "companion_interest_click", "companion_collection_click",
+  "companion_path_view", "companion_qualified_view", "companion_interest_click", "companion_collection_click",
 ];
-const COMPANION_EVENTS = new Set(["companion_path_view", "companion_interest_click", "companion_collection_click"]);
+const COMPANION_EVENTS = new Set(["companion_path_view", "companion_qualified_view", "companion_interest_click", "companion_collection_click"]);
 const COMPANION_PATHS = new Set(["discover", "context", "collect"]);
 const PUBLIC_GAME_EVENTS = new Set([
   "fandom_game_start", "fandom_game_reveal", "fandom_game_share",
@@ -57,6 +58,7 @@ const LG01_OUTCOMES = new Set([
 ]);
 const STORE_NAME = "engagement";
 const MAX_CONTEXT_TEXT = 500;
+const publicAuth = createPublicAuth({ getStore: getBlobStore });
 
 function optionalContextText(value) {
   return typeof value === "string" && value.length > 0 && value.length <= MAX_CONTEXT_TEXT
@@ -164,6 +166,18 @@ export default async (req, context) => {
         JSON.stringify({ error: "Invalid archive review event payload" }),
         { status: 400, headers: { "Content-Type": "application/json" } },
       );
+    }
+  }
+
+  if (event === "companion_qualified_view") {
+    if (/(bot|crawler|spider|headless|lighthouse|playwright)/i.test(req.headers.get("user-agent") || "")) {
+      return new Response(JSON.stringify({ ok: true, excluded: true }), { status: 200 });
+    }
+    try {
+      await publicAuth.authenticateAdmin(req, context);
+      return new Response(JSON.stringify({ ok: true, excluded: true }), { status: 200 });
+    } catch (error) {
+      if (error?.status !== 401 && error?.status !== 403) throw error;
     }
   }
 

@@ -23,6 +23,23 @@ export async function applyBlobBillingEvent({ event, repository, env = process.e
       return { applied: true };
     }
 
+    // A signed Stripe invoice is evidence of money collected; a checkout redirect
+    // or a browser-side activation is not. Count only first paid Collector invoices.
+    if (event.type === "invoice.paid") {
+      const paid = object.amount_paid > 0
+        && object.billing_reason === "subscription_create"
+        && object.lines?.data?.some(line =>
+          line.price?.id === env.FANDOM_STRIPE_MEMBERSHIP_PRICE_ID
+          || line.pricing?.price_details?.price === env.FANDOM_STRIPE_MEMBERSHIP_PRICE_ID);
+      if (paid) {
+        await repository.recordCompanionPaidOutcome({
+          eventId: event.id, timestamp: new Date(event.created * 1000).toISOString(),
+        });
+      }
+      await repository.recordProcessedEvent?.(event);
+      return paid ? { applied: true } : { ignored: true };
+    }
+
     if (!event.type.startsWith("customer.subscription.")) {
       await repository.recordProcessedEvent?.(event);
       return { ignored: true };

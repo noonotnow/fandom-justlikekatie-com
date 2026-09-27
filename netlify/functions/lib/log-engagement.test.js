@@ -39,6 +39,13 @@ test("companion pilot events accept only bounded paths and do not store visitor 
     event: "checkout_started", batchKey: "vibe-atlas-membership", pilotPath: "discover",
   }), context)).status, 200);
   assert.equal(store._values("vibe-atlas-membership:checkout_started:")[0].pilotPath, "discover");
+  assert.equal((await handler(req({ ...event, event: "companion_qualified_view" }), context)).status, 200);
+  assert.equal(store._values("c-drama-companion-pilot:companion_qualified_view:").length, 1);
+  assert.equal((await handler(new Request("https://example.com/.netlify/functions/log-engagement", {
+    method: "POST", headers: { "user-agent": "Googlebot", "Content-Type": "application/json" },
+    body: JSON.stringify({ ...event, event: "companion_qualified_view" }),
+  }), context)).status, 200);
+  assert.equal(store._values("c-drama-companion-pilot:companion_qualified_view:").length, 1);
 });
 
 // ---------------------------------------------------------------------------
@@ -87,7 +94,10 @@ function makeStoreContext() {
 
 /** Minimal POST request stub. */
 function req(body) {
-  return { method: "POST", async json() { return body; } };
+  return new Request("https://example.com/.netlify/functions/log-engagement", {
+    method: "POST", headers: { "Content-Type": "application/json" },
+    body: JSON.stringify(body),
+  });
 }
 
 // ---------------------------------------------------------------------------
