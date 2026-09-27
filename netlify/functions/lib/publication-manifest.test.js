@@ -3,6 +3,7 @@ import { createHash } from "node:crypto";
 import test from "node:test";
 import {
   boardHash,
+  diagnoseArchivedPublications,
   gridCorrectionPrefix,
   gridManifestKey,
   gridPendingKey,
@@ -27,6 +28,32 @@ import {
   rebuildPublicationActorIndex,
   repairPublicationManifestPublicRecords,
 } from "./publication-manifest.js";
+
+test("private Archive diagnosis distinguishes missing, malformed and non-indexable manifests", async () => {
+  const good = storedPublicationManifest("2026-09-03", "actor-a");
+  good.vibe.subtitleEn = "A verified editorial subtitle";
+  good.vibe.supportingCopyEn = "An approved nine-frame editorial record with substantive context for readers.";
+  const shallow = storedPublicationManifest("2026-09-02", "actor-a");
+  const wrongDate = storedPublicationManifest("2026-08-31", "actor-a");
+  const values = new Map([
+    [gridManifestKey(good.publicationDate), good],
+    [gridManifestKey(shallow.publicationDate), shallow],
+    [gridManifestKey("2026-09-01"), { cards: Array(9).fill({}) }],
+    [gridManifestKey("2026-08-30"), wrongDate],
+  ]);
+  const reads = [];
+  const records = await diagnoseArchivedPublications({
+    async get(key, options) {
+      reads.push(options);
+      return values.get(key) ?? null;
+    },
+  }, ["2026-09-04", "2026-09-03", "2026-09-02", "2026-09-01", "2026-08-30"]);
+  assert.deepEqual(records.map(record => record.status), [
+    "missing_manifest", "indexable", "not_indexable", "malformed_manifest", "malformed_manifest",
+  ]);
+  assert.ok(reads.every(options => options.consistency === "strong"));
+  assert.deepEqual(Object.keys(records[1]), ["date", "status"]);
+});
 
 test("public projections are explicit allowlists with stable canonical paths", () => {
   const manifest = storedPublicationManifest("2026-09-03", "liu-xueyi");
