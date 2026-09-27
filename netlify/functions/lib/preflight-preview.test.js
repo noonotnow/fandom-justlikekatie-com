@@ -189,6 +189,30 @@ test("publishing requires substantive built-in copy or an explicit safe editoria
   assert.equal(result.cards.length, 3);
 });
 
+test("existing pack subtitle is reused for approved previews when supporting copy is absent", async () => {
+  const state = setup();
+  const subtitle = "One look from him and the whole court goes silent";
+  const subtitleActor = { ...actor, vibes: [{ label_en: "Court Menace", subtitle_en: subtitle }] };
+  const result = await publishPreflightPreview({
+    ...state,
+    actor: subtitleActor,
+    vibeIdx: 0,
+    eligibilityReader: async () => approval,
+    imageFetcher: async () => ({ bytes: new Uint8Array([1]), contentType: "image/jpeg" }),
+    mediaRegistrar: async input => media(Number(input.association.itemId.slice(-1)), input.association),
+  });
+  assert.equal(result.copy, subtitle);
+  assert.equal(result.cards.length, 3);
+  const preview = await resolvePublicPreflightPreview({
+    ...state,
+    actor: subtitleActor,
+    vibeIdx: 0,
+    eligibilityReader: async () => approval,
+  });
+  assert.equal(preview.vibe.copy, subtitle);
+  assert.equal(preview.cards.length, 3);
+});
+
 test("directory includes only currently approved pairings with validated receipts", async () => {
   const state = setup();
   await publishPreflightPreview({

@@ -27,7 +27,7 @@ function associationId(actorId, vibeIdx, runId) {
 }
 
 function safeEditorialCopy(vibe, explicitCopy = "") {
-  const candidates = [explicitCopy, vibe?.supportingCopy_en, vibe?.supportingCopy];
+  const candidates = [explicitCopy, vibe?.supportingCopy_en, vibe?.supportingCopy, vibe?.subtitle_en, vibe?.subtitle];
   return candidates.map(value => typeof value === "string" ? value.trim() : "")
     .find(value => value.length >= 40
       && value.length <= 1000
