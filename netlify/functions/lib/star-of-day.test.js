@@ -1208,7 +1208,10 @@ test("Archive publication audit requires an admin and returns only bounded statu
   });
   const result = await adminHandler({ method: "GET", url }, {});
   assert.equal(result.status, 200);
-  assert.deepEqual((await result.json()).records, [{ date, status: "missing_manifest" }]);
+  const body = await result.json();
+  assert.deepEqual(body.records, [{ date, status: "missing_manifest" }]);
+  assert.equal(body.publicationCatalog.catalogStatus, "missing");
+  assert.equal(body.publicationCatalog.inventory.complete, false);
   assert.equal(result.headers.get("cache-control"), "private, no-store");
   assert.equal(result.headers.get("vary"), "Cookie");
 });
