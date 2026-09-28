@@ -16,6 +16,7 @@
     "archetypes-white-moonlight-cinnabar-mole",
     "vibing-now-index",
     "drama-against-the-current-episode-21",
+    "drama-against-the-current-episode-25",
     "drama-lbfad",
     "drama-lbfad-relationships",
     "drama-lbfad-themes",

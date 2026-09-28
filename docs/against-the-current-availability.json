@@ -40,7 +40,7 @@
       "evidence": "Official Viki episode data from a US connection show geo=false, paywall=true, upcoming=false and English subtitles 100% for Episodes 7–33. The page also displays 35 episode tiles while the API lists 33 released episodes; do not count future tiles as playable."
     },
     {
-      "name": "WeTV · English-language listing",
+      "name": "Tencent Video / WeTV · original platform (Express)",
       "url": "https://wetv.vip/en/play/94jt6sxiwsjw5n6",
       "sourceUrl": "https://wetv.vip/en/play/94jt6sxiwsjw5n6",
       "checkedAt": "2026-09-28T12:16:32Z",
@@ -48,12 +48,12 @@
       "accessTier": "unknown",
       "episodes": null,
       "subtitles": { "language": "English", "status": "unknown" },
-      "cadence": null,
+      "cadence": "1 episode daily; break on September 30, 2026",
       "standardFinaleAt": null,
       "advanceFinaleAt": null,
       "state": "unknown",
       "conflict": "WeTV's 'All 47 EPs' label is catalog length, not proof that 47 subtitled episodes can be played in the US or another country. Search labels say English subtitles, but player/region access was not established.",
-      "evidence": "Official WeTV English series listing only. No country-specific episode or subtitle guarantee."
+      "evidence": "Official WeTV English series listing only. A user-provided release note reports one episode daily with a break on September 30, 2026; the time zone, region-specific playback, and English subtitle coverage are not verified."
     }
   ],
   "schedule": {
@@ -70,6 +70,13 @@
       "note": "Initial listing review: Viki showed 33 released episodes versus 35 episode tiles; WeTV said All 47 EPs. Country-specific access not checked.",
       "sources": [
         "https://www.viki.com/tv/41705c-against-the-current?locale=en",
+        "https://wetv.vip/en/play/94jt6sxiwsjw5n6"
+      ]
+    },
+    {
+      "checkedAt": "2026-09-28T23:51:14Z",
+      "note": "A user-provided release note reports a WeTV cadence of one episode daily with a break on September 30, 2026. Kept as unverified cadence only; time zone, region, access and subtitle coverage remain unknown.",
+      "sources": [
         "https://wetv.vip/en/play/94jt6sxiwsjw5n6"
       ]
     }
