@@ -40,6 +40,8 @@ export const PUBLIC_STATIC_ROUTES = Object.freeze([
   editorial("/c-drama-fandom/", "1.0"),
   editorial("/c-drama-fandom/getting-started/"),
   editorial("/c-drama-fandom/glossary/"),
+  editorial("/c-drama-fandom/untamed-name-board/"),
+  editorial("/c-drama-fandom/place-names/"),
   editorial("/c-drama-fandom/glossary/cp/"),
   editorial("/c-drama-fandom/glossary/cultivation/"),
   editorial("/c-drama-fandom/glossary/xianxia/"),
