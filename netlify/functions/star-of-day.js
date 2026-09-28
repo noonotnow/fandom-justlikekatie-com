@@ -26,6 +26,7 @@ import {
   manifestPayload,
   materializePublicationManifest,
   publicEditionPreview,
+  repairMissingPublicationCatalogDate,
   repairPublicationManifestPublicRecords,
 } from "./lib/publication-manifest.js";
 import { createPublicAuth } from "./lib/public-auth.js";
@@ -1014,6 +1015,27 @@ export function createStarOfDayHandler({
         nextCursor: page.hasMore ? page.editions.at(-1)?.date : null,
         publicationCatalog: await diagnosePublicationManifestCatalog(store),
       }, { "Cache-Control": "private, no-store", Vary: "Cookie" });
+    }
+
+    if (url.searchParams.get("publicationCatalogRepair") === "1") {
+      try {
+        await auth.authenticateAdmin(req, context);
+      } catch (error) {
+        return jsonResponse(error?.status === 403 ? 403 : 401, {
+          error: error?.message || "Admin access is required.",
+        }, { "Cache-Control": "private, no-store" });
+      }
+      const date = url.searchParams.get("date");
+      if (!date || !isUsableDate(date)) {
+        return jsonResponse(400, { error: "Invalid publication date." }, {
+          "Cache-Control": "private, no-store",
+        });
+      }
+      const result = await repairMissingPublicationCatalogDate(store, date);
+      return jsonResponse(200, { publicationCatalogRepair: result }, {
+        "Cache-Control": "private, no-store",
+        Vary: "Cookie",
+      });
     }
 
     if (url.searchParams.get("archiveRepair") === "1"

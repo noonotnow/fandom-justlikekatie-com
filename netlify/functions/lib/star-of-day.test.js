@@ -1216,6 +1216,30 @@ test("Archive publication audit requires an admin and returns only bounded statu
   assert.equal(result.headers.get("vary"), "Cookie");
 });
 
+test("publication catalogue repair requires admin access and an explicit date", async () => {
+  const store = makeStore();
+  const url = "https://example.test/star-of-day?publicationCatalogRepair=1&date=2026-09-28";
+  const denied = createStarOfDayHandler({
+    getStore: () => store,
+    today: () => "2026-09-28",
+    auth: { authenticateAdmin: async () => {
+      throw Object.assign(new Error("Sign in is required."), { status: 401 });
+    } },
+  });
+  assert.equal((await denied({ method: "GET", url }, {})).status, 401);
+  const allowed = createStarOfDayHandler({
+    getStore: () => store,
+    today: () => "2026-09-28",
+    auth: { authenticateAdmin: async () => ({ user: { accountId: "operator" } }) },
+  });
+  const invalid = await allowed({
+    method: "GET", url: "https://example.test/star-of-day?publicationCatalogRepair=1",
+  }, {});
+  assert.equal(invalid.status, 400);
+  assert.equal(invalid.headers.get("cache-control"), "private, no-store");
+  assert.equal(store.stats().setCalls, 0);
+});
+
 test("the builder skips a failed approved pairing and preserves the public 3x3 payload contract", async () => {
   const packs = [
     {

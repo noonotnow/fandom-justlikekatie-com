@@ -27,6 +27,7 @@ import {
   readLatestPublicationDatesByActor,
   readLatestPublicationDatesByActorWithHealth,
   rebuildPublicationActorIndex,
+  repairMissingPublicationCatalogDate,
   repairPublicationManifestPublicRecords,
 } from "./publication-manifest.js";
 
@@ -77,6 +78,66 @@ test("private catalogue diagnosis identifies missing and wrong-date manifest ref
   ]);
   assert.equal(diagnosis.catalogFailuresTruncated, false);
   assert.doesNotMatch(JSON.stringify(diagnosis), /media\.example|candidate-/);
+});
+
+test("a shared-lock repair removes only a confirmed missing catalogue date", async () => {
+  const store = memoryStore();
+  const key = publicationManifestCatalogKey();
+  const dates = ["2026-09-03", "2026-09-04"];
+  await store.setJSON(key, {
+    schemaVersion: 1,
+    catalogVersion: "v1",
+    kind: "vibe-atlas-publication-manifest-catalog",
+    dates,
+  });
+  await store.setJSON(gridManifestKey(dates[0]),
+    storedPublicationManifest(dates[0], "actor-a"));
+  let revision = 0;
+  const etags = new Map([[key, "revision-0"]]);
+  const set = store.setJSON;
+  store.getWithMetadata = async blobKey => ({
+    data: await store.get(blobKey),
+    etag: etags.get(blobKey),
+  });
+  store.setJSON = async (blobKey, value, options = {}) => {
+    if (options.onlyIfMatch && options.onlyIfMatch !== etags.get(blobKey)) {
+      return { modified: false };
+    }
+    const result = await set(blobKey, value, options);
+    etags.set(blobKey, `revision-${++revision}`);
+    return result;
+  };
+  assert.deepEqual(await repairMissingPublicationCatalogDate(store, dates[1]), {
+    date: dates[1], status: "removed_missing_manifest",
+  });
+  assert.deepEqual(store.records.get(key).dates, [dates[0]]);
+  assert.equal(store.records.has(gridManifestKey(dates[1])), false);
+  assert.equal((await readPublicationManifests(store)).inventory.complete, true);
+  assert.deepEqual(await repairMissingPublicationCatalogDate(store, dates[1]), {
+    date: dates[1], status: "already_absent",
+  });
+});
+
+test("catalogue repair keeps pending and present publications untouched", async () => {
+  const store = memoryStore();
+  const date = "2026-09-28";
+  const key = publicationManifestCatalogKey();
+  await store.setJSON(key, {
+    schemaVersion: 1,
+    catalogVersion: "v1",
+    kind: "vibe-atlas-publication-manifest-catalog",
+    dates: [date],
+  });
+  store.getWithMetadata = async blobKey => ({
+    data: await store.get(blobKey),
+    etag: "revision",
+  });
+  await store.setJSON(gridPendingKey(date), { state: "pending" });
+  assert.equal((await repairMissingPublicationCatalogDate(store, date)).status, "publication_pending");
+  await store.delete(gridPendingKey(date));
+  await store.setJSON(gridManifestKey(date), storedPublicationManifest(date, "actor-a"));
+  assert.equal((await repairMissingPublicationCatalogDate(store, date)).status, "manifest_present");
+  assert.deepEqual(store.records.get(key).dates, [date]);
 });
 
 test("public projections are explicit allowlists with stable canonical paths", () => {
@@ -599,6 +660,7 @@ test("publication revalidates eligibility inside the shared correction lock", as
     error => error?.status === 409 && /invalidated/i.test(error.message),
   );
   assert.equal(store.records.has(gridManifestKey("2026-09-03")), false);
+  assert.equal(store.records.has(publicationManifestCatalogKey()), false);
   assert.deepEqual(media.stats(), { sourceCalls: 0, mediaCalls: 0 });
 });
 
@@ -1035,6 +1097,7 @@ test("partial MEDIA failure publishes no manifest and retries only unfinished ca
     /could not be reached/i,
   );
   assert.equal(store.records.has(gridManifestKey(input.date)), false);
+  assert.equal(store.records.has(publicationManifestCatalogKey()), false);
   assert.equal(store.records.get(gridPendingKey(input.date)).assets.length, 8);
   assert.equal(store.records.get(gridPendingKey(input.date)).failedPosition, 3);
 
@@ -1046,6 +1109,7 @@ test("partial MEDIA failure publishes no manifest and retries only unfinished ca
     fetchImpl: media.fetchImpl,
   });
   assert.equal(isGridManifest(recovered.manifest), true);
+  assert.deepEqual(store.records.get(publicationManifestCatalogKey()).dates, [input.date]);
   assert.deepEqual(media.stats(), { sourceCalls: 10, mediaCalls: 9 });
 });
 
