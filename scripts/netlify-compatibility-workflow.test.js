@@ -1,5 +1,8 @@
 import assert from "node:assert/strict";
-import { readFile } from "node:fs/promises";
+import { spawnSync } from "node:child_process";
+import { mkdtemp, readFile, rm } from "node:fs/promises";
+import { tmpdir } from "node:os";
+import { join } from "node:path";
 import test from "node:test";
 
 const workflowPath = new URL("../.github/workflows/test.yml", import.meta.url);
@@ -83,6 +86,12 @@ test("Netlify compatibility workflow preserves the reviewed proposal contract", 
     job,
     "Create or refresh Netlify CLI upgrade proposal",
   );
+  assert.match(job, /^          ref: \$\{\{ github\.event_name == 'schedule' && 'main' \|\| github\.ref \}\}$/m);
+  const filesStep = workflowStep(job, "Select proposal files");
+  assert.match(filesStep, /^        id: proposal_files$/m);
+  assert.match(filesStep, /^          VERIFICATION_ONLY: \$\{\{ inputs\.verification_only \}\}$/m);
+  assert.match(proposalStep, /^          add-paths: \$\{\{ steps\.proposal_files\.outputs\.paths \}\}$/m);
+  assert.match(proposalStep, /^          branch: \$\{\{ inputs\.verification_only && 'automation\/netlify-cli-pin-verification' \|\| 'automation\/netlify-cli-pin' \}\}$/m);
   assert.match(
     proposalStep,
     /^        if: steps\.netlify_cli\.outputs\.upgrade == 'true' \|\| inputs\.verification_only$/m,
@@ -118,6 +127,31 @@ test("Netlify compatibility workflow preserves the reviewed proposal contract", 
   );
   assert.match(proposalStep, /It does not merge automatically/);
   assert.doesNotMatch(job, /\b(?:auto-merge|merge-pull-request)\b/i);
+});
+
+test("Netlify proposals stage only files present in each run mode", async () => {
+  const workflow = await readFile(workflowPath, "utf8");
+  const job = indentedBlock(workflow, /^  netlify-package-compatibility:$/m, /^  [a-zA-Z0-9_-]+:$/m);
+  const step = workflowStep(job, "Select proposal files");
+  const script = step.split("        run: |\n")[1].split("\n").map((line) => line.slice(10)).join("\n");
+  assert.ok(script);
+  for (const [verificationOnly, expected] of [
+    ["false", ["package.json"]],
+    ["true", ["package.json", ".github/netlify-cli-proposal-verification.md"]],
+  ]) {
+    const directory = await mkdtemp(join(tmpdir(), "netlify-proposal-paths-"));
+    const output = join(directory, "output");
+    try {
+      const result = spawnSync("bash", ["-e", "-c", script], {
+        env: { ...process.env, VERIFICATION_ONLY: verificationOnly, GITHUB_OUTPUT: output },
+        encoding: "utf8",
+      });
+      assert.equal(result.status, 0, result.stderr);
+      assert.deepEqual((await readFile(output, "utf8")).trim().split("\n"), ["paths<<EOF", ...expected, "EOF"]);
+    } finally {
+      await rm(directory, { recursive: true, force: true });
+    }
+  }
 });
 
 test("sender verification runs only on main with a restricted environment", async () => {
