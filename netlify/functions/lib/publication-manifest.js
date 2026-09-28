@@ -246,6 +246,40 @@ export async function diagnoseArchivedPublications(store, dates) {
   }));
 }
 
+/** Private, bounded catalogue health: never expose raw manifests or media URLs. */
+export async function diagnosePublicationManifestCatalog(store) {
+  const { inventory } = await readPublicationManifests(store);
+  const catalog = await store.get(publicationManifestCatalogKey(), {
+    type: "json",
+    consistency: "strong",
+  });
+  if (!isPublicationManifestCatalog(catalog)) {
+    return {
+      inventory,
+      catalogStatus: catalog ? "malformed" : "missing",
+      catalogFailures: [],
+    };
+  }
+  const dates = catalog.dates.slice(0, 100);
+  const checks = await Promise.all(dates.map(async date => {
+    const manifest = await store.get(gridManifestKey(date), {
+      type: "json",
+      consistency: "strong",
+    });
+    if (!manifest) return { date, status: "missing_manifest" };
+    if (!isGridManifest(manifest) || manifest.publicationDate !== date) {
+      return { date, status: "malformed_manifest" };
+    }
+    return null;
+  }));
+  return {
+    inventory,
+    catalogStatus: "valid",
+    catalogFailures: checks.filter(Boolean),
+    catalogFailuresTruncated: catalog.dates.length > dates.length,
+  };
+}
+
 export async function repairPublicationManifestPublicRecords(
   store,
   { cursor = null, limit = 100, now = () => new Date() } = {},

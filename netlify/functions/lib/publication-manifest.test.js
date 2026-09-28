@@ -4,6 +4,7 @@ import test from "node:test";
 import {
   boardHash,
   diagnoseArchivedPublications,
+  diagnosePublicationManifestCatalog,
   gridCorrectionPrefix,
   gridManifestKey,
   gridPendingKey,
@@ -53,6 +54,29 @@ test("private Archive diagnosis distinguishes missing, malformed and non-indexab
   ]);
   assert.ok(reads.every(options => options.consistency === "strong"));
   assert.deepEqual(Object.keys(records[1]), ["date", "status"]);
+});
+
+test("private catalogue diagnosis identifies missing and wrong-date manifest references", async () => {
+  const store = memoryStore();
+  await store.setJSON(publicationManifestCatalogKey(), {
+    schemaVersion: 1,
+    catalogVersion: "v1",
+    kind: "vibe-atlas-publication-manifest-catalog",
+    dates: ["2026-09-01", "2026-09-02", "2026-09-03"],
+  });
+  await store.setJSON(gridManifestKey("2026-09-02"),
+    storedPublicationManifest("2026-09-01", "actor-a"));
+  await store.setJSON(gridManifestKey("2026-09-03"),
+    storedPublicationManifest("2026-09-03", "actor-a"));
+  const diagnosis = await diagnosePublicationManifestCatalog(store);
+  assert.equal(diagnosis.catalogStatus, "valid");
+  assert.equal(diagnosis.inventory.complete, false);
+  assert.deepEqual(diagnosis.catalogFailures, [
+    { date: "2026-09-01", status: "missing_manifest" },
+    { date: "2026-09-02", status: "malformed_manifest" },
+  ]);
+  assert.equal(diagnosis.catalogFailuresTruncated, false);
+  assert.doesNotMatch(JSON.stringify(diagnosis), /media\.example|candidate-/);
 });
 
 test("public projections are explicit allowlists with stable canonical paths", () => {

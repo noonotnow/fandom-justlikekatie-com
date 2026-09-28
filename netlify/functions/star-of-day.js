@@ -21,6 +21,7 @@ import {
   GRID_MANIFEST_PREFIX,
   boardHash as publicationBoardHash,
   diagnoseArchivedPublications,
+  diagnosePublicationManifestCatalog,
   gridManifestKey,
   manifestPayload,
   materializePublicationManifest,
@@ -1011,6 +1012,7 @@ export function createStarOfDayHandler({
           store, page.editions.map(edition => edition.date),
         ),
         nextCursor: page.hasMore ? page.editions.at(-1)?.date : null,
+        publicationCatalog: await diagnosePublicationManifestCatalog(store),
       }, { "Cache-Control": "private, no-store", Vary: "Cookie" });
     }
 
