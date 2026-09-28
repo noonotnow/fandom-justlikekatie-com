@@ -180,6 +180,16 @@ to = "/c-drama-fandom/glossary/index.html"
 status = 200
 
 [[redirects]]
+from = "/c-drama-fandom/untamed-name-board"
+to = "/c-drama-fandom/untamed-name-board/index.html"
+status = 200
+
+[[redirects]]
+from = "/c-drama-fandom/place-names"
+to = "/c-drama-fandom/place-names/index.html"
+status = 200
+
+[[redirects]]
 from = "/c-drama-fandom/glossary/cp"
 to = "/c-drama-fandom/glossary/cp/index.html"
 status = 200

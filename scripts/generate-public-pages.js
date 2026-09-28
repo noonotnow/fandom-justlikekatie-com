@@ -201,6 +201,7 @@ function journalPageHtml({ start = null, end = null } = {}) {
       </article>
       <aside class="side-rail" aria-label="Field journal navigation">
         <section class="side-card"><p class="section-kicker">Why this exists</p><h2>Not a recap</h2><p>The point is the changing state of knowledge: what was written then, what was predicted, and what was learned later.</p></section>
+        <section class="side-card"><p class="section-kicker">Before an episode</p><h3>Keep the names apart</h3><p>The pre-watch board and cultural note use names and geography only; they do not reveal journal entries.</p><a href="/c-drama-fandom/untamed-name-board/">Read the name board →</a><a href="/c-drama-fandom/place-names/">Read the place-name note →</a></section>
         <section class="side-card"><p class="section-kicker">Episode windows</p><h3>Choose a safe page</h3><div class="journal-range-links">${journalRanges.map((range) => `<a href="${range.url}">Episodes ${range.start}–${range.end}</a>`).join("")}</div></section>
       </aside>
     </div>
