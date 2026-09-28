@@ -119,7 +119,7 @@ jobs:
     steps:
       - uses: actions/checkout@v4
         with:
-          ref: main
+          ref: ${{ github.event_name == 'schedule' && 'main' || github.ref }}
 
       - name: Set up Node.js
         uses: actions/setup-node@v4
@@ -161,16 +161,29 @@ jobs:
           This verification-only proposal exercised the review pull-request path with tested candidate \`netlify-cli@${{ steps.netlify_cli.outputs.candidate }}\`.
           EOF
 
+      - name: Select proposal files
+        if: steps.netlify_cli.outputs.upgrade == 'true' || inputs.verification_only
+        id: proposal_files
+        env:
+          VERIFICATION_ONLY: ${{ inputs.verification_only }}
+        run: |
+          {
+            echo 'paths<<EOF'
+            echo 'package.json'
+            if [ "$VERIFICATION_ONLY" = "true" ]; then
+              echo '.github/netlify-cli-proposal-verification.md'
+            fi
+            echo 'EOF'
+          } >> "$GITHUB_OUTPUT"
+
       - name: Create or refresh Netlify CLI upgrade proposal
         if: steps.netlify_cli.outputs.upgrade == 'true' || inputs.verification_only
         uses: peter-evans/create-pull-request@v7
         with:
           token: ${{ secrets.REPO_ADMIN_PAT }}
-          add-paths: |
-            package.json
-            .github/netlify-cli-proposal-verification.md
+          add-paths: ${{ steps.proposal_files.outputs.paths }}
           base: main
-          branch: automation/netlify-cli-pin
+          branch: ${{ inputs.verification_only && 'automation/netlify-cli-pin-verification' || 'automation/netlify-cli-pin' }}
           commit-message: "${{ inputs.verification_only && 'test: verify Netlify CLI proposal for' || 'chore: update Netlify CLI release pin to' }} ${{ steps.netlify_cli.outputs.candidate }}"
           title: "${{ inputs.verification_only && '[Verification only] ' || '' }}[Netlify CLI] Upgrade release pin to ${{ steps.netlify_cli.outputs.candidate }}"
           body: |
