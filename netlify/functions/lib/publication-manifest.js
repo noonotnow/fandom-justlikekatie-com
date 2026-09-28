@@ -280,6 +280,60 @@ export async function diagnosePublicationManifestCatalog(store) {
   };
 }
 
+/**
+ * An operator can remove one dangling derived catalogue date after confirming
+ * that no immutable manifest or in-progress receipt owns it. Publication and
+ * repair share the correction/publication lease, so a new board cannot race it.
+ */
+export async function repairMissingPublicationCatalogDate(store, date) {
+  if (!isPublicationDate(date)) throw requestError("Invalid publication date.", 400);
+  const lock = await acquireCorrectionPublicationLock(store);
+  try {
+    const key = publicationManifestCatalogKey();
+    const entry = await store.getWithMetadata?.(key, {
+      type: "json",
+      consistency: "strong",
+    });
+    const catalog = entry?.data ?? await store.get(key, {
+      type: "json",
+      consistency: "strong",
+    });
+    if (!isPublicationManifestCatalog(catalog)) {
+      throw requestError("The publication catalog is invalid.", 503);
+    }
+    if (!catalog.dates.includes(date)) return { date, status: "already_absent" };
+    if (await store.get(gridManifestKey(date), { type: "json", consistency: "strong" })) {
+      return { date, status: "manifest_present" };
+    }
+    if (await store.get(gridPendingKey(date), { type: "json", consistency: "strong" })) {
+      return { date, status: "publication_pending" };
+    }
+    if (!entry?.etag) {
+      throw requestError("The publication catalog has no revision tag; repair was not attempted.", 503);
+    }
+    const updated = {
+      ...catalog,
+      dates: catalog.dates.filter(item => item !== date),
+      updatedAt: new Date().toISOString(),
+    };
+    const write = await store.setJSON(key, updated, { onlyIfMatch: entry.etag });
+    if (write?.modified === false) {
+      throw requestError("The publication catalog changed during repair; retry after checking the audit.", 409);
+    }
+    const authoritative = await store.get(key, { type: "json", consistency: "strong" });
+    if (!isPublicationManifestCatalog(authoritative) || authoritative.dates.includes(date)) {
+      throw requestError("The publication catalog repair could not be verified.", 503);
+    }
+    if (await store.get(gridManifestKey(date), { type: "json", consistency: "strong" })) {
+      await ensurePublicationManifestCatalogDate(store, date, () => new Date());
+      throw requestError("A publication appeared during repair; the catalog was restored.", 409);
+    }
+    return { date, status: "removed_missing_manifest" };
+  } finally {
+    await releaseCorrectionPublicationLock(store, lock);
+  }
+}
+
 export async function repairPublicationManifestPublicRecords(
   store,
   { cursor = null, limit = 100, now = () => new Date() } = {},
@@ -1467,7 +1521,6 @@ async function materializePublicationManifestUnlocked({
   validateBeforeCommit = null,
 }) {
   validatePublicationInput(date, actor, vibe, board);
-  const publicationCatalog = await ensurePublicationManifestCatalogDate(store, date, now);
   const boardHashValue = boardHash(board);
   const manifestKey = gridManifestKey(date);
   const existingManifest = await store.get(manifestKey, {
@@ -1478,6 +1531,7 @@ async function materializePublicationManifestUnlocked({
     if (!isGridManifest(existingManifest) || existingManifest.boardHash !== boardHashValue) {
       throw requestError("That publication date already contains a different immutable board.", 409);
     }
+    const publicationCatalog = await ensurePublicationManifestCatalogDate(store, date, now);
     await ensureArchiveAccessWindow(store, publicationCatalog.dates, now);
     await updatePublicationActorIndexSafely(store, existingManifest, now);
     return { manifest: existingManifest, payload: manifestPayload(existingManifest) };
@@ -1492,6 +1546,7 @@ async function materializePublicationManifestUnlocked({
     if (!isGridManifest(racedManifest) || racedManifest.boardHash !== boardHashValue) {
       throw requestError("That publication date already contains a different immutable board.", 409);
     }
+    const publicationCatalog = await ensurePublicationManifestCatalogDate(store, date, now);
     await ensureArchiveAccessWindow(store, publicationCatalog.dates, now);
     await updatePublicationActorIndexSafely(store, racedManifest, now);
     return { manifest: racedManifest, payload: manifestPayload(racedManifest) };
@@ -1615,6 +1670,7 @@ async function materializePublicationManifestUnlocked({
   if (!isGridManifest(authoritative) || authoritative.boardHash !== boardHashValue) {
     throw requestError("Another board won this publication date.", 409);
   }
+  const publicationCatalog = await ensurePublicationManifestCatalogDate(store, date, now);
   await ensureArchiveAccessWindow(store, publicationCatalog.dates, now);
   await updatePublicationActorIndexSafely(store, authoritative, now);
   try {
