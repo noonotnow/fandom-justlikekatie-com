@@ -120,3 +120,30 @@ test("admin publish action calls authenticateAdmin and forwards explicit editori
   assert.match(publishInput.editorialCopy, /^An explicit editorial note/);
   assert.equal(JSON.parse(response.body).preview.cards.length, 3);
 });
+
+test("admin publication reports a bounded failure stage without exposing upstream errors", async () => {
+  const handler = createPublishPreflightPreviewHandler({
+    actorPacks,
+    getStore: name => ({ name }),
+    auth: { authenticateAdmin: async () => {} },
+    publishPreview: async () => {
+      throw Object.assign(new Error("private source URL and credentials"), {
+        status: 503,
+        reasonCode: "source_image_unavailable",
+        cardPosition: 2,
+      });
+    },
+  });
+  const response = await handler({
+    method: "POST",
+    url: "https://example.test/.netlify/functions/publish-preflight-preview",
+    headers: new Headers({ origin: "https://example.test" }),
+    json: async () => ({ actorId: "actor-one", vibeIdx: 0 }),
+  }, {});
+  assert.equal(response.statusCode, 503);
+  assert.deepEqual(JSON.parse(response.body), {
+    error: "Preview publication is unavailable.",
+    reasonCode: "source_image_unavailable",
+    cardPosition: 2,
+  });
+});

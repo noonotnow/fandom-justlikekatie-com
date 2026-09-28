@@ -26,6 +26,14 @@ function associationId(actorId, vibeIdx, runId) {
   return `vibe-atlas:preflight-preview:${actorId}:${vibeIdx}:${runId}`;
 }
 
+function materializationError(reasonCode, position, cause) {
+  const error = new Error("The approved preview card could not be materialized.", { cause });
+  error.status = 503;
+  error.reasonCode = reasonCode;
+  error.cardPosition = position + 1;
+  return error;
+}
+
 function safeEditorialCopy(vibe, explicitCopy = "") {
   const candidates = [explicitCopy, vibe?.supportingCopy_en, vibe?.supportingCopy, vibe?.subtitle_en, vibe?.subtitle];
   return candidates.map(value => typeof value === "string" ? value.trim() : "")
@@ -156,40 +164,52 @@ export async function publishPreflightPreview({
   if (!copy) return null;
 
   const id = associationId(actor.id, vibeIdx, approval.runId);
-  const cards = [];
-  for (let position = 0; position < 3; position += 1) {
+  // Each card has a distinct MEDIA association and idempotency key. Copying
+  // the three independent cards concurrently keeps an operator request within
+  // the synchronous function's response window; commit only after all finish.
+  const cards = await Promise.all(Array.from({ length: 3 }, async (_, position) => {
     const candidate = candidates[position];
-    const image = await imageFetcher(candidate.thumbnail, fetchImpl, resolveHost);
-    const media = await mediaRegistrar({
-      bytes: image.bytes,
-      contentType: image.contentType,
-      association: { type: "publication", id, itemId: `card-${position}` },
-      filename: `vibe-atlas-preview-${actor.id}-${vibeIdx}-${position + 1}`,
-      idempotencyKey: `fandom-vibe-atlas-preview:${actor.id}:${vibeIdx}:${approval.runId}:${boardHash}:card-${position}`,
-      metadata: {
-        sourceType: "fandom-vibe-atlas-preflight-preview",
-        seriesTags: ["Fandom", "Vibe Atlas", "Preflight Preview", `actor:${actor.id}`, `vibe:${vibeIdx}`],
-        linkedPostIdentifiers: [`fandom/vibe-atlas/preflight-preview/${actor.id}/${vibeIdx}/${position}`],
-        provenance: {
-          actorId: actor.id,
-          vibeIdx,
-          runId: approval.runId,
-          boardHash,
-          candidateId: candidate.candidateId,
-          sourceUrl: candidate.thumbnail,
+    let image;
+    try {
+      image = await imageFetcher(candidate.thumbnail, fetchImpl, resolveHost);
+    } catch (error) {
+      throw materializationError("source_image_unavailable", position, error);
+    }
+    let media;
+    try {
+      media = await mediaRegistrar({
+        bytes: image.bytes,
+        contentType: image.contentType,
+        association: { type: "publication", id, itemId: `card-${position}` },
+        filename: `vibe-atlas-preview-${actor.id}-${vibeIdx}-${position + 1}`,
+        idempotencyKey: `fandom-vibe-atlas-preview:${actor.id}:${vibeIdx}:${approval.runId}:${boardHash}:card-${position}`,
+        metadata: {
+          sourceType: "fandom-vibe-atlas-preflight-preview",
+          seriesTags: ["Fandom", "Vibe Atlas", "Preflight Preview", `actor:${actor.id}`, `vibe:${vibeIdx}`],
+          linkedPostIdentifiers: [`fandom/vibe-atlas/preflight-preview/${actor.id}/${vibeIdx}/${position}`],
+          provenance: {
+            actorId: actor.id,
+            vibeIdx,
+            runId: approval.runId,
+            boardHash,
+            candidateId: candidate.candidateId,
+            sourceUrl: candidate.thumbnail,
+          },
         },
-      },
-      env,
-      fetchImpl,
-    });
-    cards.push({
+        env,
+        fetchImpl,
+      });
+    } catch (error) {
+      throw materializationError("media_registration_unavailable", position, error);
+    }
+    return {
       position,
       title: typeof candidate.title === "string" && !hasUnsafeTitleUrl(candidate.title)
         ? candidate.title.slice(0, 500)
         : "",
       media,
-    });
-  }
+    };
+  }));
 
   // Re-read the complete approval chain before committing the public receipt.
   const confirmed = await approvedBoard({ eligibilityStore, actor, vibeIdx, eligibilityReader });
