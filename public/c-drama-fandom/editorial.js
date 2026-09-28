@@ -100,7 +100,7 @@
 
   const nav = document.querySelector(".site-nav");
   const dramaGuidePath = "/c-dramas/love-between-fairy-and-devil/";
-  if (nav && !nav.querySelector(`a[href^=\"${dramaGuidePath}\"]`)) {
+  if (nav && !nav.querySelector(`a[href^="${dramaGuidePath}"]`)) {
     const dramaGuideLink = document.createElement("a");
     dramaGuideLink.href = dramaGuidePath;
     dramaGuideLink.append("LBFAD guide");
