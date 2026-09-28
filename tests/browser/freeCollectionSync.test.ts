@@ -42,6 +42,7 @@ test('free account can merge a saved card without gaining Collector access', { t
       });
       const tx = db.transaction('cards', 'readwrite');
       tx.objectStore('cards').put({
+        localId: crypto.randomUUID(),
         imageUrl: 'https://images.example/free-save.jpg',
         thumbnailUrl: 'https://images.example/free-save.jpg',
         actor: 'Free save actor', actorEn: 'Free save actor',

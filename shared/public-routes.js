@@ -86,7 +86,7 @@ export const PUBLIC_STATIC_PATHS = Object.freeze(PUBLIC_STATIC_ROUTES.map(({ pat
 
 export function publicStaticPreviewRoutes(routes = PUBLIC_STATIC_ROUTES) {
   return routes
-    .filter(({ group, page }) => group === "editorial" && page)
+    .filter(({ group, page }) => (group === "editorial" || group === "journal") && page)
     .map(({ path, page }) => [
       path.replace(/\/+$/, "") || "/",
       `/${page.replace(/^public\//, "")}`,

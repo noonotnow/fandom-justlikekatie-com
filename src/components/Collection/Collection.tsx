@@ -455,7 +455,7 @@ export const Collection: React.FC<Props> = ({
   }
 
   async function moveCardToScope(card: CardRecord, targetScope: 'vibe-atlas' | 'middle-earth') {
-    if (collectionScopeForCard(card) === targetScope || busyKey || pendingRemoval) return;
+    if (card.misprint || card.legendaryMisprint || collectionScopeForCard(card) === targetScope || busyKey || pendingRemoval) return;
     setBusyKey(`move:${cardRecordKey(card)}`);
     try {
       const movedCard: CardRecord = targetScope === 'middle-earth'
@@ -1243,13 +1243,15 @@ export const Collection: React.FC<Props> = ({
                 )}
                 {card.contentKind === 'middle-earth-meme' && card.sourceUrl && <a href={card.sourceUrl} target="_blank" rel="noreferrer">{card.publisher ? `Source: ${card.publisher}` : 'Open original source'}</a>}
                 <small>{card.capturedDate}</small>
-                <button
-                  type="button"
-                  disabled={Boolean(busyKey) || Boolean(pendingRemoval)}
-                  onClick={() => void moveCardToScope(card, isMiddleEarth ? 'vibe-atlas' : 'middle-earth')}
-                >
-                  {busyKey === `move:${recordKey}` ? 'Moving…' : isMiddleEarth ? 'Move to Vibe Atlas' : 'Move to Middle-earth'}
-                </button>
+                 {!card.misprint && !card.legendaryMisprint && (
+                   <button
+                     type="button"
+                     disabled={Boolean(busyKey) || Boolean(pendingRemoval)}
+                     onClick={() => void moveCardToScope(card, isMiddleEarth ? 'vibe-atlas' : 'middle-earth')}
+                   >
+                     {busyKey === `move:${recordKey}` ? 'Moving…' : isMiddleEarth ? 'Move to Vibe Atlas' : 'Move to Middle-earth'}
+                   </button>
+                 )}
                 {deletionChoice('card', card.localId)}
                 {(!card.thumbnailUrl || failedCardImages[card.imageUrl] || card.mediaRecovery?.status === 'unrecoverable') && (
                   <div className={styles.mediaRecovery} role="status">
