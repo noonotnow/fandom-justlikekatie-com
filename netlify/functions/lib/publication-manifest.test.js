@@ -133,7 +133,9 @@ test("catalogue repair keeps pending and present publications untouched", async 
     etag: "revision",
   });
   await store.setJSON(gridPendingKey(date), { state: "pending" });
-  assert.equal((await repairMissingPublicationCatalogDate(store, date)).status, "publication_pending");
+  assert.deepEqual(await repairMissingPublicationCatalogDate(store, date), {
+    date, status: "publication_pending", reason: "unverifiable_receipt",
+  });
   await store.delete(gridPendingKey(date));
   await store.setJSON(gridManifestKey(date), storedPublicationManifest(date, "actor-a"));
   assert.equal((await repairMissingPublicationCatalogDate(store, date)).status, "manifest_present");
@@ -179,9 +181,19 @@ test("catalogue repair retains stale pending MEDIA receipt for an eventual retry
   await store.setJSON(activeLock, {
     startedAt: "2026-09-28T11:00:00.000Z", state: "active",
   });
-  assert.equal((await repairMissingPublicationCatalogDate(store, date, { now })).status,
-    "publication_pending");
+  assert.deepEqual(await repairMissingPublicationCatalogDate(store, date, { now }), {
+    date, status: "publication_pending", reason: "recent_date_lock",
+    retryAfter: "2026-09-28T12:00:00.000Z",
+  });
   await store.delete(activeLock);
+  await store.setJSON(pendingKey, {
+    ...pending, updatedAt: "2026-09-28T11:00:00.000Z",
+  });
+  assert.deepEqual(await repairMissingPublicationCatalogDate(store, date, { now }), {
+    date, status: "publication_pending", reason: "recent_receipt",
+    retryAfter: "2026-09-28T12:00:00.000Z",
+  });
+  await store.setJSON(pendingKey, pending);
   assert.deepEqual(await repairMissingPublicationCatalogDate(store, date, { now }), {
     date, status: "removed_stale_pending_catalog_reference",
   });

@@ -319,12 +319,25 @@ export async function repairMissingPublicationCatalogDate(
       });
       const lockStart = Date.parse(dateLock?.startedAt);
       if (pending.state !== "pending" || pending.date !== date
-        || !Number.isFinite(lastUpdate)
-        || currentTime - lastUpdate < STALE_PENDING_CATALOG_REPAIR_MS
-        || (dateLock && dateLock.state !== "released"
-          && (!Number.isFinite(lockStart)
-            || currentTime - lockStart < STALE_PENDING_CATALOG_REPAIR_MS))) {
-        return { date, status: "publication_pending" };
+        || !Number.isFinite(lastUpdate) || lastUpdate > currentTime) {
+        return { date, status: "publication_pending", reason: "unverifiable_receipt" };
+      }
+      if (currentTime - lastUpdate < STALE_PENDING_CATALOG_REPAIR_MS) {
+        return {
+          date, status: "publication_pending", reason: "recent_receipt",
+          retryAfter: new Date(lastUpdate + STALE_PENDING_CATALOG_REPAIR_MS).toISOString(),
+        };
+      }
+      if (dateLock && dateLock.state !== "released") {
+        if (!Number.isFinite(lockStart) || lockStart > currentTime) {
+          return { date, status: "publication_pending", reason: "unverifiable_lock" };
+        }
+        if (currentTime - lockStart < STALE_PENDING_CATALOG_REPAIR_MS) {
+          return {
+            date, status: "publication_pending", reason: "recent_date_lock",
+            retryAfter: new Date(lockStart + STALE_PENDING_CATALOG_REPAIR_MS).toISOString(),
+          };
+        }
       }
     }
     if (!entry?.etag) {
