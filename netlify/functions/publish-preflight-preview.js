@@ -71,7 +71,14 @@ export function createPublishPreflightPreviewHandler({
     } catch (error) {
       const status = Number.isInteger(error?.status) ? error.status : 503;
       if (status >= 500) console.error("[publish-preflight-preview] publication failed", error);
-      return json(status, { error: status < 500 ? error.message : "Preview publication is unavailable." });
+      return json(status, {
+        error: status < 500 ? error.message : "Preview publication is unavailable.",
+        ...(status >= 500
+          && ["source_image_unavailable", "media_registration_unavailable"].includes(error?.reasonCode)
+          && Number.isInteger(error.cardPosition)
+          ? { reasonCode: error.reasonCode, cardPosition: error.cardPosition }
+          : {}),
+      });
     }
   };
 }

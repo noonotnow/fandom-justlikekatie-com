@@ -213,6 +213,50 @@ test("existing pack subtitle is reused for approved previews when supporting cop
   assert.equal(preview.cards.length, 3);
 });
 
+test("three independent source copies run concurrently but keep approved card order", async () => {
+  const state = setup();
+  const started = [];
+  const waiting = new Map();
+  const publishing = publishPreflightPreview({
+    ...state,
+    actor,
+    vibeIdx: 0,
+    eligibilityReader: async () => approval,
+    imageFetcher: url => new Promise(resolve => {
+      const position = Number(url.match(/approved-(\d)/)[1]);
+      started.push(position);
+      waiting.set(position, () => resolve({ bytes: new Uint8Array([1]), contentType: "image/jpeg" }));
+    }),
+    mediaRegistrar: async input => media(Number(input.association.itemId.slice(-1)), input.association),
+  });
+  await new Promise(resolve => setImmediate(resolve));
+  assert.deepEqual(started, [0, 1, 2]);
+  waiting.get(2)();
+  waiting.get(1)();
+  waiting.get(0)();
+  const receipt = await publishing;
+  assert.deepEqual(receipt.cards.map(card => card.position), [0, 1, 2]);
+  assert.equal(state.writeOptions.length, 1);
+});
+
+test("a failed source or MEDIA copy never commits a public receipt and names only the failed stage", async () => {
+  for (const [stage, imageFetcher, mediaRegistrar] of [
+    ["source_image_unavailable", async () => { throw new Error("private source URL"); }, async () => {}],
+    ["media_registration_unavailable", async () => ({ bytes: new Uint8Array([1]), contentType: "image/jpeg" }),
+      async () => { throw new Error("private media response"); }],
+  ]) {
+    const state = setup();
+    await assert.rejects(
+      publishPreflightPreview({
+        ...state, actor, vibeIdx: 0, eligibilityReader: async () => approval,
+        imageFetcher, mediaRegistrar,
+      }),
+      error => error.reasonCode === stage && error.cardPosition >= 1 && error.cardPosition <= 3,
+    );
+    assert.equal(state.writeOptions.length, 0);
+  }
+});
+
 test("directory includes only currently approved pairings with validated receipts", async () => {
   const state = setup();
   await publishPreflightPreview({

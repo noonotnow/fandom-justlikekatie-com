@@ -330,9 +330,16 @@ export const ActorPreflightLab: React.FC = () => {
       });
       const result = await response.json().catch(() => null);
       if (!response.ok) {
-        throw new Error(result?.error || (result?.status === 'not-approved'
+        const failedCard = Number.isInteger(result?.cardPosition) && result.cardPosition >= 1 && result.cardPosition <= 3
+          ? `card ${result.cardPosition}` : 'a preview card';
+        const safeFailure = result?.reasonCode === 'source_image_unavailable'
+          ? `The approved source image for ${failedCard} could not be copied safely. Review the current board before retrying.`
+          : result?.reasonCode === 'media_registration_unavailable'
+            ? `The public media service could not store ${failedCard}. The preview was not published.`
+            : null;
+        throw new Error(safeFailure || result?.error || (result?.status === 'not-approved'
           ? 'This pairing no longer has a current preflight approval.'
-          : 'The public preflight preview could not be published.'));
+          : `The public preflight preview could not be published (HTTP ${response.status}).`));
       }
       if (result?.status !== 'published'
         || result.preview?.kind !== 'vibe-atlas-preflight-three-card-preview'
