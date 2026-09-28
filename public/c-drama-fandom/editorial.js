@@ -16,6 +16,7 @@
     "archetypes-white-moonlight-cinnabar-mole",
     "vibing-now-index",
     "drama-against-the-current-episode-21",
+    "drama-against-the-current-episode-25",
     "drama-lbfad",
     "drama-lbfad-relationships",
     "drama-lbfad-themes",
@@ -99,7 +100,7 @@
 
   const nav = document.querySelector(".site-nav");
   const dramaGuidePath = "/c-dramas/love-between-fairy-and-devil/";
-  if (nav && !nav.querySelector(`a[href^="${dramaGuidePath}"]`)) {
+  if (nav && !nav.querySelector(`a[href^=\"${dramaGuidePath}\"]`)) {
     const dramaGuideLink = document.createElement("a");
     dramaGuideLink.href = dramaGuidePath;
     dramaGuideLink.append("LBFAD guide");
