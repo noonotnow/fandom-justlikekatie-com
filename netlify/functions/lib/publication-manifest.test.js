@@ -140,6 +140,55 @@ test("catalogue repair keeps pending and present publications untouched", async 
   assert.deepEqual(store.records.get(key).dates, [date]);
 });
 
+test("catalogue repair retains stale pending MEDIA receipt for an eventual retry", async () => {
+  const store = memoryStore();
+  const date = "2026-09-28";
+  const key = publicationManifestCatalogKey();
+  const pendingKey = gridPendingKey(date);
+  await store.setJSON(key, {
+    schemaVersion: 1,
+    catalogVersion: "v1",
+    kind: "vibe-atlas-publication-manifest-catalog",
+    dates: [date],
+  });
+  const pending = {
+    state: "pending",
+    date,
+    boardHash: "a".repeat(64),
+    assets: [{ position: 0, media: { assetId: "preserve-me" } }],
+    updatedAt: "2026-09-28T10:00:00.000Z",
+  };
+  await store.setJSON(pendingKey, pending);
+  let revision = 0;
+  const etags = new Map([[key, "revision-0"]]);
+  const set = store.setJSON;
+  store.getWithMetadata = async blobKey => ({
+    data: await store.get(blobKey),
+    etag: etags.get(blobKey),
+  });
+  store.setJSON = async (blobKey, value, options = {}) => {
+    if (options.onlyIfMatch && options.onlyIfMatch !== etags.get(blobKey)) {
+      return { modified: false };
+    }
+    const result = await set(blobKey, value, options);
+    etags.set(blobKey, `revision-${++revision}`);
+    return result;
+  };
+  const now = () => new Date("2026-09-28T11:30:00.000Z");
+  const activeLock = "vibeAtlas:grid-lock:v1:2026-09-28";
+  await store.setJSON(activeLock, {
+    startedAt: "2026-09-28T11:00:00.000Z", state: "active",
+  });
+  assert.equal((await repairMissingPublicationCatalogDate(store, date, { now })).status,
+    "publication_pending");
+  await store.delete(activeLock);
+  assert.deepEqual(await repairMissingPublicationCatalogDate(store, date, { now }), {
+    date, status: "removed_stale_pending_catalog_reference",
+  });
+  assert.deepEqual(store.records.get(pendingKey), pending);
+  assert.deepEqual(store.records.get(key).dates, []);
+});
+
 test("public projections are explicit allowlists with stable canonical paths", () => {
   const manifest = storedPublicationManifest("2026-09-03", "liu-xueyi");
   manifest.vibe.subtitleEn = "A beautiful ache held in perfect stillness.";

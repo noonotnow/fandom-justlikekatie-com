@@ -42,6 +42,7 @@ const PUBLICATION_LOCK_PREFIX = `vibeAtlas:grid-lock:${GRID_MANIFEST_VERSION}:`;
 const CORRECTION_PUBLICATION_LOCK_KEY = "locks/misprint-publication";
 const CORRECTION_PUBLICATION_LOCK_TTL_MS = 10 * 60 * 1000;
 const CORRECTION_PUBLICATION_LOCK_WAIT_MS = 30 * 1000;
+const STALE_PENDING_CATALOG_REPAIR_MS = 60 * 60 * 1000;
 
 export const gridManifestKey = date => `${GRID_MANIFEST_PREFIX}${date}`;
 export const gridPendingKey = date => `${GRID_PENDING_PREFIX}${date}`;
@@ -281,13 +282,15 @@ export async function diagnosePublicationManifestCatalog(store) {
 }
 
 /**
- * An operator can remove one dangling derived catalogue date after confirming
- * that no immutable manifest or in-progress receipt owns it. Publication and
- * repair share the correction/publication lease, so a new board cannot race it.
+ * Remove only a dangling derived date. A sufficiently old pending receipt can
+ * remain for a future retry: retries now register the date after the immutable
+ * manifest is committed. Never delete the receipt or its MEDIA references.
  */
-export async function repairMissingPublicationCatalogDate(store, date) {
+export async function repairMissingPublicationCatalogDate(
+  store, date, { now = () => new Date() } = {},
+) {
   if (!isPublicationDate(date)) throw requestError("Invalid publication date.", 400);
-  const lock = await acquireCorrectionPublicationLock(store);
+  const lock = await acquireCorrectionPublicationLock(store, now);
   try {
     const key = publicationManifestCatalogKey();
     const entry = await store.getWithMetadata?.(key, {
@@ -305,8 +308,24 @@ export async function repairMissingPublicationCatalogDate(store, date) {
     if (await store.get(gridManifestKey(date), { type: "json", consistency: "strong" })) {
       return { date, status: "manifest_present" };
     }
-    if (await store.get(gridPendingKey(date), { type: "json", consistency: "strong" })) {
-      return { date, status: "publication_pending" };
+    const pending = await store.get(gridPendingKey(date), {
+      type: "json", consistency: "strong",
+    });
+    if (pending) {
+      const currentTime = Date.parse(asTimestamp(now()));
+      const lastUpdate = Date.parse(pending.updatedAt);
+      const dateLock = await store.get(`${PUBLICATION_LOCK_PREFIX}${date}`, {
+        type: "json", consistency: "strong",
+      });
+      const lockStart = Date.parse(dateLock?.startedAt);
+      if (pending.state !== "pending" || pending.date !== date
+        || !Number.isFinite(lastUpdate)
+        || currentTime - lastUpdate < STALE_PENDING_CATALOG_REPAIR_MS
+        || (dateLock && dateLock.state !== "released"
+          && (!Number.isFinite(lockStart)
+            || currentTime - lockStart < STALE_PENDING_CATALOG_REPAIR_MS))) {
+        return { date, status: "publication_pending" };
+      }
     }
     if (!entry?.etag) {
       throw requestError("The publication catalog has no revision tag; repair was not attempted.", 503);
@@ -328,7 +347,10 @@ export async function repairMissingPublicationCatalogDate(store, date) {
       await ensurePublicationManifestCatalogDate(store, date, () => new Date());
       throw requestError("A publication appeared during repair; the catalog was restored.", 409);
     }
-    return { date, status: "removed_missing_manifest" };
+    return {
+      date,
+      status: pending ? "removed_stale_pending_catalog_reference" : "removed_missing_manifest",
+    };
   } finally {
     await releaseCorrectionPublicationLock(store, lock);
   }
