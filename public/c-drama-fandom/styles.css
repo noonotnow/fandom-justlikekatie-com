@@ -211,6 +211,28 @@ button { font: inherit; }
 .article a:not(.button) { color: #edd29a; text-underline-offset: 3px; }
 .article ul, .article ol { padding-left: 1.25em; }
 .article li + li { margin-top: 10px; }
+.watch-options { display: grid; gap: 16px; margin-top: 30px; }
+.watch-option {
+  min-width: 0;
+  border: 1px solid var(--line);
+  background: rgba(16, 37, 55, .7);
+  padding: clamp(18px, 4vw, 28px);
+  overflow-wrap: anywhere;
+}
+.watch-option h3 { margin-top: 0; }
+.watch-option .button { margin-top: 8px; }
+.vibing-discussion { background: rgba(16, 37, 55, .5); padding: 30px !important; }
+.vibing-discussion__boundary { border-left: 3px solid var(--gold); padding-left: 16px; }
+.vibing-discussion__responses { list-style: none; padding: 0 !important; }
+.vibing-discussion__responses li { border-top: 1px solid var(--line); padding: 12px 0; overflow-wrap: anywhere; }
+.vibing-discussion__responses button { background: none; border: 0; color: var(--gold); cursor: pointer; text-decoration: underline; }
+.vibing-discussion form { display: grid; gap: 12px; margin-top: 30px; }
+.vibing-discussion textarea { width: 100%; resize: vertical; background: var(--night); color: var(--paper); border: 1px solid var(--mist); padding: 12px; font: inherit; }
+.vibing-discussion form .button { justify-self: start; }
+.vibing-discussion__check { display: flex; gap: 10px; align-items: start; }
+.vibing-discussion__check input { margin-top: 9px; }
+.vibing-discussion__trap { position: absolute; left: -10000px; width: 1px; overflow: hidden; }
+.vibing-discussion :focus-visible { outline: 3px solid var(--gold); outline-offset: 3px; }
 .article-intro {
   color: #d8e0e5 !important;
   font: 500 clamp(21px, 2.5vw, 29px)/1.5 Georgia, "Times New Roman", serif;

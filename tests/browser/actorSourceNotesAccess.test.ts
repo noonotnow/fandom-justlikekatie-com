@@ -3,6 +3,7 @@ import { test } from 'node:test';
 import { type Page } from '@playwright/test';
 import { createServer, type ViteDevServer } from 'vite';
 import {
+  gotoTestPage,
   closeBrowserAndServer,
   launchBrowserForServer,
 } from './browserEngines.ts';
@@ -64,9 +65,9 @@ async function seedActorCard(page: Page): Promise<void> {
 }
 
 async function openBuilder(page: Page, origin: string): Promise<void> {
-  await page.goto(origin);
+  await gotoTestPage(page, origin);
   await seedActorCard(page);
-  await page.goto(`${origin}/vibe-atlas?view=collection`);
+  await gotoTestPage(page, `${origin}/vibe-atlas?view=collection`);
   await page.getByRole('button', { name: 'Grid Builder', exact: true }).click();
   await page.getByRole('button', { name: new RegExp(`${ACTOR_NAME} 1`) }).click();
   await page.getByRole('region', { name: `Source notes for ${ACTOR_NAME}` }).waitFor();

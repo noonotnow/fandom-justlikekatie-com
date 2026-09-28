@@ -106,7 +106,6 @@ test("a signed-in free account cannot read or generate Collector grid runs", asy
   assert.equal((await handler(request("POST", { actorId: "actor-1", vibeIdx: 0 }), {})).status, 403);
   assert.equal(storage.names.includes("collector-grid-runs"), false);
 });
-
 test("Collector grid fails closed for an ineligible pairing", async () => {
   const { handler } = handlerFor({
     getPairEligibility: async () => ({ eligible: false }),
@@ -140,25 +139,27 @@ test("Collector grid uses selected pair and writes only private run storage", as
   assert.equal((await listed.json()).runs.length, 1);
 });
 
-test("refresh searches again but never saves an unchanged nine-image board", async () => {
-  let builds = 0;
+test("refresh checks new search results but never saves the same nine image bytes twice", async () => {
+  let buildNumber = 0;
   let copies = 0;
   const { handler, storage } = handlerFor({
     build: async (_date, _store, options) => {
-      builds += 1;
-      assert.equal(options.refreshCollectorSearch, builds > 1);
-      if (builds > 1) assert.equal(options.excludedCollectorThumbnails.length, 9);
+      buildNumber += 1;
+      assert.equal(options.refreshCollectorSearch, buildNumber > 1);
+      if (buildNumber > 1) assert.equal(options.excludedCollectorThumbnails.length, 9);
       return {
+        generatedAt: `2026-01-01T00:00:0${buildNumber}.000Z`,
         displayResults: Array.from({ length: 9 }, (_, index) => ({
-          thumbnail: `https://img.test/${builds === 3 && index === 0 ? "new" : index}`,
-          link: "https://source.test/shared",
+          thumbnail: `https://img.test/${buildNumber === 3 && index === 0 ? "new" : index}`,
+          link: `https://source.test/${index}`,
         })),
       };
     },
     fetchImage: async url => ({ bytes: new TextEncoder().encode(url), contentType: "image/jpeg" }),
-    registerMedia: async ({ association }) => ({
-      thumbnailUrl: `https://media.test/${++copies}/${association.itemId}`,
-    }),
+    registerMedia: async ({ association }) => {
+      copies += 1;
+      return { thumbnailUrl: `https://media.test/${copies}/${association.itemId}` };
+    },
   });
   const post = () => handler(request("POST", { actorId: "actor-1", vibeIdx: 0 }), {});
   const first = await post();

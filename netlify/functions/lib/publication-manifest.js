@@ -10,6 +10,7 @@ import {
 import {
   ensureArchiveAccessWindow,
 } from "./archive-access.js";
+import { getWithResolvedEtag } from "./blob-store.js";
 import {
   assertPublicArchiveRecord,
   publicArchiveRecordDiagnostic,
@@ -208,12 +209,18 @@ export async function readPublicationManifests(store) {
   })));
   const validCatalog = isPublicationManifestCatalog(catalog);
   const validManifests = manifests.filter(isGridManifest);
+  const invalidCatalogManifests = validCatalog
+    ? catalogKeys
+      .map(key => manifests[keys.indexOf(key)])
+      .filter(manifest => manifest && !isGridManifest(manifest))
+    : [];
   const catalogCoverageComplete = validCatalog && catalog.dates.every(date => {
     const manifest = manifests[keys.indexOf(gridManifestKey(date))];
     return isGridManifest(manifest) && manifest.publicationDate === date;
   });
   return {
     manifests: validManifests,
+    invalidCatalogManifests,
     inventory: {
       catalogValid: validCatalog,
       catalogDateCount: catalogKeys.length,
@@ -227,6 +234,8 @@ export async function readPublicationManifests(store) {
 /**
  * Historical Archive payloads are not publication evidence. Diagnose the
  * immutable manifests directly without exposing source URLs or stored blobs.
+ * Reports only bounded statuses; legacy Archive metadata cannot establish that
+ * nine immutable MEDIA assets exist.
  */
 export async function diagnoseArchivedPublications(store, dates) {
   const uniqueDates = [...new Set(dates)].filter(isPublicationDate);
@@ -382,7 +391,7 @@ export async function repairPublicationManifestPublicRecords(
     let completed = false;
     for (let attempt = 0; attempt < 8; attempt += 1) {
       const withMetadata = typeof store.getWithMetadata === "function"
-        ? await store.getWithMetadata(key, { type: "json", consistency: "strong" })
+        ? await getWithResolvedEtag(store, key, { type: "json" })
         : null;
       const manifest = withMetadata?.data ?? await store.get(
         key,
@@ -738,7 +747,7 @@ export async function rebuildPublicationActorIndex(
 ) {
   for (let attempt = 0; attempt < 4; attempt += 1) {
     const existingWithMetadata = typeof store.getWithMetadata === "function"
-      ? await store.getWithMetadata(publicationActorIndexKey(), {
+      ? await getWithResolvedEtag(store, publicationActorIndexKey(), {
         type: "json",
         consistency: "strong",
       })
@@ -762,6 +771,14 @@ export async function rebuildPublicationActorIndex(
       ],
       throughDate,
     );
+    if (typeof store.getWithMetadata === "function"
+      && existing
+      && !existingWithMetadata?.etag) {
+      throw requestError(
+        "The publication actor index could not be rebuilt safely because storage did not provide a revision tag.",
+        503,
+      );
+    }
     const write = await store.setJSON(
       publicationActorIndexKey(),
       index,
@@ -1015,11 +1032,14 @@ async function appendPublicationActorIndexRepairRecoveryCatalog(store, receipt) 
   const key = publicationActorIndexRepairRecoveryCatalogKey();
   for (let attempt = 0; attempt < 8; attempt += 1) {
     const current = typeof store.getWithMetadata === "function"
-      ? await store.getWithMetadata(key, { type: "json", consistency: "strong" })
+      ? await getWithResolvedEtag(store, key, { type: "json" })
       : null;
     const catalog = current?.data;
     if (catalog && !isPublicationActorIndexRepairRecoveryCatalog(catalog)) {
       throw new Error("Repair-health recovery history is invalid.");
+    }
+    if (catalog && !current.etag) {
+      throw new Error("Repair-health recovery history cannot be updated without a revision tag.");
     }
     const receipts = [
       receipt,
@@ -1114,7 +1134,7 @@ export async function listPublicationActorIndexRepairRecoveryReceipts(
 async function updatePublicationActorIndex(store, manifest, now) {
   for (let attempt = 0; attempt < 4; attempt += 1) {
     const existingWithMetadata = typeof store.getWithMetadata === "function"
-      ? await store.getWithMetadata(publicationActorIndexKey(), {
+      ? await getWithResolvedEtag(store, publicationActorIndexKey(), {
         type: "json",
         consistency: "strong",
       })
@@ -1149,6 +1169,14 @@ async function updatePublicationActorIndex(store, manifest, now) {
       );
     }
     if (JSON.stringify(next) === JSON.stringify(existing)) return existing;
+    if (typeof store.getWithMetadata === "function"
+      && existing
+      && !existingWithMetadata?.etag) {
+      throw requestError(
+        "The publication actor index could not be updated safely because storage did not provide a revision tag.",
+        503,
+      );
+    }
     const write = await store.setJSON(
       publicationActorIndexKey(),
       next,
@@ -1390,9 +1418,8 @@ function isPublicationManifestCatalog(value) {
 async function ensurePublicationManifestCatalogDate(store, date, now) {
   for (let attempt = 0; attempt < 8; attempt += 1) {
     const currentWithMetadata = typeof store.getWithMetadata === "function"
-      ? await store.getWithMetadata(publicationManifestCatalogKey(), {
+      ? await getWithResolvedEtag(store, publicationManifestCatalogKey(), {
         type: "json",
-        consistency: "strong",
       })
       : null;
     const current = currentWithMetadata?.data || await store.get(
@@ -1402,6 +1429,12 @@ async function ensurePublicationManifestCatalogDate(store, date, now) {
     if (isPublicationManifestCatalog(current) && current.dates.includes(date)) return current;
     if (current && !isPublicationManifestCatalog(current)) {
       throw requestError("The publication manifest catalog is invalid.", 503);
+    }
+    if (current && !currentWithMetadata?.etag) {
+      throw requestError(
+        "The publication manifest catalog requires reconciliation before it can be updated.",
+        503,
+      );
     }
     const dates = [...new Set([...(current?.dates || []), date])].sort();
     const next = {
@@ -1437,9 +1470,8 @@ export async function acquireCorrectionPublicationLock(store, now = () => new Da
     const startedAt = Date.parse(stamp);
     const token = randomUUID();
     const currentWithMetadata = typeof store.getWithMetadata === "function"
-      ? await store.getWithMetadata(CORRECTION_PUBLICATION_LOCK_KEY, {
+      ? await getWithResolvedEtag(store, CORRECTION_PUBLICATION_LOCK_KEY, {
         type: "json",
-        consistency: "strong",
       })
       : null;
     const current = currentWithMetadata?.data || await store.get(
@@ -2077,7 +2109,7 @@ async function acquirePublicationLock(store, date, boardHashValue, now) {
   const startedAt = Date.parse(stamp);
   const token = randomUUID();
   const existingWithMetadata = typeof store.getWithMetadata === "function"
-    ? await store.getWithMetadata(key, { type: "json", consistency: "strong" })
+    ? await getWithResolvedEtag(store, key, { type: "json" })
     : null;
   const existing = existingWithMetadata?.data || await store.get(key, {
     type: "json",

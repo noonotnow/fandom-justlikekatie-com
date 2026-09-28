@@ -58,6 +58,45 @@ button:focus-visible, input:focus-visible, select:focus-visible, textarea:focus-
 .courtBuiltIn { opacity: .6; }
 .courtBuiltIn span { font-style: italic; }
 
+.repairHistory { padding: 24px 0; }
+.repairHistoryHeader {
+  display: flex;
+  justify-content: space-between;
+  align-items: end;
+  gap: 16px;
+  padding-bottom: 16px;
+  border-bottom: 1px solid var(--admin-border);
+  margin-bottom: 20px;
+}
+.repairHistoryHeader h3 { margin: 2px 0 4px; }
+.repairHistoryHeader p { max-width: 680px; margin: 0; color: var(--admin-muted); font-size: 13px; line-height: 1.5; }
+.repairReceiptList { display: grid; gap: 12px; margin: 0; padding: 0; list-style: none; }
+.repairReceipt {
+  padding: 16px;
+  border: 1px solid var(--admin-border);
+  border-left: 4px solid #6b7280;
+  border-radius: 10px;
+  background: var(--admin-panel);
+}
+.repairReceipt[data-outcome="repaired"] { border-left-color: #2f9e68; }
+.repairReceipt[data-outcome="no_op"] { border-left-color: #c9a96e; }
+.repairReceipt[data-outcome="failed"] { border-left-color: #c05252; }
+.repairReceiptSummary { display: flex; align-items: center; justify-content: space-between; gap: 16px; }
+.repairReceiptSummary strong { font-size: 14px; }
+.repairReceiptSummary time { color: var(--admin-muted); font-size: 12px; }
+.repairReceipt[data-outcome="repaired"] .repairReceiptSummary strong { color: #2f9e68; }
+.repairReceipt[data-outcome="no_op"] .repairReceiptSummary strong { color: #a7823f; }
+.repairReceipt[data-outcome="failed"] .repairReceiptSummary strong { color: #c05252; }
+.repairReceiptDetails {
+  display: grid;
+  grid-template-columns: minmax(150px, .7fr) minmax(100px, .4fr) minmax(220px, 1.5fr);
+  gap: 12px;
+  margin: 14px 0 0;
+}
+.repairReceiptDetails div { min-width: 0; }
+.repairReceiptDetails dt { margin-bottom: 3px; color: var(--admin-muted); font-size: 10px; font-weight: 700; letter-spacing: .06em; text-transform: uppercase; }
+.repairReceiptDetails dd { margin: 0; overflow-wrap: anywhere; font-size: 12px; line-height: 1.45; }
+
 .journal {
   display: grid;
   gap: 28px;
@@ -260,6 +299,8 @@ button:focus-visible, input:focus-visible, select:focus-visible, textarea:focus-
   .tabs { width: 100%; overflow-x: auto; }
   .tabs button { flex: 1; }
   .courtHeader { align-items: start; flex-direction: column; }
+  .repairHistoryHeader { align-items: start; flex-direction: column; }
+  .repairReceiptDetails { grid-template-columns: 1fr; }
   .journalHeader { grid-template-columns: 1fr; align-items: start; padding: 18px; }
   .journalBoundary { min-width: 0; }
   .journalForm, .journalSection { padding: 16px; }

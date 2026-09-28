@@ -5,6 +5,8 @@ import {
   assertBrowserEnginesInstalled,
   assertBrowserEnginesLaunchable,
   BROWSER_ENGINES,
+  createNativeDownloadFixture,
+  gotoTestPage,
   launchBrowserForServer,
   launchBrowserWithServer,
   replitNixLibraryPath,
@@ -182,4 +184,218 @@ test('Vite listen failure closes the created browser test server', async () => {
     listenError,
   );
   assert.equal(serverClosed, true);
+});
+
+test('Vite startup tolerates transient warm-up failures before returning its origin', async () => {
+  let probeCount = 0;
+  const server = {
+    listen: async () => undefined,
+    close: async () => undefined,
+    httpServer: { address: () => ({ address: '127.0.0.1', family: 'IPv4', port: 4173 }) },
+  } as unknown as ViteDevServer;
+
+  const result = await startViteTestServer(
+    {},
+    async () => server,
+    async () => {
+      probeCount += 1;
+      if (probeCount < 3) throw new Error('stylesheet transform in progress');
+      return new Response('ready');
+    },
+  );
+
+  assert.equal(result.origin, 'http://127.0.0.1:4173');
+  assert.equal(probeCount, 3);
+});
+
+test('Vite warm-up failure reports every probe and closes the server', async () => {
+  let serverClosed = false;
+  const server = {
+    listen: async () => undefined,
+    close: async () => { serverClosed = true; },
+    httpServer: { address: () => ({ address: '127.0.0.1', family: 'IPv4', port: 4173 }) },
+  } as unknown as ViteDevServer;
+
+  await assert.rejects(
+    startViteTestServer(
+      {},
+      async () => server,
+      async () => { throw new Error('transform unavailable'); },
+    ),
+    error => {
+      assert.match(String(error), /did not become ready at http:\/\/127\.0\.0\.1:4173 after 3 attempts/);
+      assert.match(String(error), /attempt 1: Error: transform unavailable/);
+      assert.match(String(error), /attempt 3: Error: transform unavailable/);
+      return true;
+    },
+  );
+  assert.equal(serverClosed, true);
+});
+
+test('initial navigation failure includes an independent server diagnostic', async () => {
+  const navigationError = new Error('page.goto timed out');
+
+  await assert.rejects(
+    gotoTestPage(
+      { goto: async () => { throw navigationError; } },
+      'http://127.0.0.1:4173/vibe-atlas',
+      undefined,
+      async origin => {
+        assert.equal(origin, 'http://127.0.0.1:4173');
+        return new Response('busy', { status: 503, statusText: 'Service Unavailable' });
+      },
+    ),
+    error => {
+      assert.ok(error instanceof AggregateError);
+      assert.equal(error.errors[0], navigationError);
+      assert.match(error.message, /browser navigation failed/);
+      assert.match(error.message, /server probe returned HTTP 503 Service Unavailable/);
+      return true;
+    },
+  );
+});
+
+test('native download fixture serves exact headers and bytes while recording identifiers', async () => {
+  const body = Buffer.from('native attachment bytes');
+  const fixture = createNativeDownloadFixture({
+    name: 'native-download-test',
+    path: '/download',
+    headers: {
+      'content-type': 'application/octet-stream',
+      'content-disposition': 'attachment; filename="fixture.bin"',
+      'x-download-fixture': 'exact',
+    },
+    body,
+    identifierNames: ['recordId', 'version'],
+    matches: url => url.searchParams.has('recordId'),
+  });
+  const { server, origin } = await startViteTestServer({
+    configFile: false,
+    server: { host: '127.0.0.1', port: 5000, strictPort: false },
+    plugins: [fixture.plugin],
+  });
+
+  try {
+    const requestPromise = fixture.waitForRequest();
+    const response = await fetch(`${origin}/download?recordId=record-7&version=3`);
+    const request = await requestPromise;
+
+    assert.equal(response.status, 200);
+    assert.equal(response.headers.get('content-type'), 'application/octet-stream');
+    assert.equal(
+      response.headers.get('content-disposition'),
+      'attachment; filename="fixture.bin"',
+    );
+    assert.equal(response.headers.get('x-download-fixture'), 'exact');
+    assert.deepEqual(Buffer.from(await response.arrayBuffer()), body);
+    assert.deepEqual(request.identifiers, { recordId: 'record-7', version: '3' });
+    assert.equal(request.url.pathname, '/download');
+    assert.deepEqual(fixture.requests, [request]);
+  } finally {
+    await server.close();
+  }
+});
+
+test('native download fixture timeout identifies the expected path and request identifiers', async () => {
+  const fixture = createNativeDownloadFixture({
+    name: 'missing-native-download-test',
+    path: '/expected-download',
+    headers: {},
+    body: new Uint8Array(),
+    identifierNames: ['recordId', 'version'],
+  });
+
+  await assert.rejects(
+    fixture.waitForRequest(10),
+    error => {
+      assert.equal(
+        String(error),
+        'Error: Timed out after 10ms waiting for native download request '
+        + 'to "/expected-download" with identifiers: recordId, version.',
+      );
+      return true;
+    },
+  );
+});
+
+test('expired native download wait does not consume the next matching request', async () => {
+  const fixture = createNativeDownloadFixture({
+    name: 'expired-native-download-wait-test',
+    path: '/download',
+    headers: {},
+    body: new Uint8Array(),
+    identifierNames: ['recordId', 'version'],
+  });
+  const { server, origin } = await startViteTestServer({
+    configFile: false,
+    server: { host: '127.0.0.1', port: 5000, strictPort: false },
+    plugins: [fixture.plugin],
+  });
+
+  try {
+    await assert.rejects(fixture.waitForRequest(10), /Timed out after 10ms/);
+
+    const nextRequestPromise = fixture.waitForRequest();
+    await fetch(`${origin}/download?recordId=record-8&version=4`);
+    const nextRequest = await nextRequestPromise;
+
+    await fetch(`${origin}/download?recordId=record-9&version=5`);
+    const laterRequest = await fixture.waitForRequest();
+
+    assert.deepEqual(nextRequest.identifiers, { recordId: 'record-8', version: '4' });
+    assert.deepEqual(laterRequest.identifiers, { recordId: 'record-9', version: '5' });
+    assert.deepEqual(
+      fixture.requests.map(request => request.identifiers),
+      [
+        { recordId: 'record-8', version: '4' },
+        { recordId: 'record-9', version: '5' },
+      ],
+    );
+  } finally {
+    await server.close();
+  }
+});
+
+test('interleaved expired native download waits preserve live request order', async () => {
+  const fixture = createNativeDownloadFixture({
+    name: 'interleaved-native-download-waits-test',
+    path: '/download',
+    headers: {},
+    body: new Uint8Array(),
+    identifierNames: ['recordId', 'version'],
+  });
+  const { server, origin } = await startViteTestServer({
+    configFile: false,
+    server: { host: '127.0.0.1', port: 5000, strictPort: false },
+    plugins: [fixture.plugin],
+  });
+
+  try {
+    const firstExpired = assert.rejects(fixture.waitForRequest(10), /Timed out after 10ms/);
+    const firstLive = fixture.waitForRequest();
+    const secondExpired = assert.rejects(fixture.waitForRequest(20), /Timed out after 20ms/);
+    const secondLive = fixture.waitForRequest();
+    const thirdExpired = assert.rejects(fixture.waitForRequest(30), /Timed out after 30ms/);
+
+    await Promise.all([firstExpired, secondExpired, thirdExpired]);
+
+    await fetch(`${origin}/download?recordId=record-10&version=6`);
+    const firstRequest = await firstLive;
+    await fetch(`${origin}/download?recordId=record-11&version=7`);
+    const secondRequest = await secondLive;
+    await fetch(`${origin}/download?recordId=record-12&version=8`);
+    const laterRequest = await fixture.waitForRequest();
+
+    assert.deepEqual(
+      [firstRequest, secondRequest, laterRequest].map(request => request.identifiers),
+      [
+        { recordId: 'record-10', version: '6' },
+        { recordId: 'record-11', version: '7' },
+        { recordId: 'record-12', version: '8' },
+      ],
+    );
+    assert.deepEqual(fixture.requests, [firstRequest, secondRequest, laterRequest]);
+  } finally {
+    await server.close();
+  }
 });

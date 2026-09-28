@@ -633,8 +633,13 @@ test('Middle-earth saves have a separate collection scope from Vibe Atlas', asyn
   );
   assert.match(
     collectionSource,
-    /isMiddleEarth[\s\S]*?'Move to Vibe Atlas'[\s\S]*?'Move to Middle-earth'/,
+    /moveCardToScope/,
     'ambiguous legacy cards must be movable between logical collections without deletion',
+  );
+  assert.match(
+    collectionSource,
+    /collectionScope: 'middle-earth'[\s\S]*?contentKind: 'middle-earth-meme'/,
+    'moving a card into Middle-earth must persist the separate scope and meme identity',
   );
   assert.match(
     collectionSource,
@@ -653,8 +658,8 @@ test('Middle-earth saves have a separate collection scope from Vibe Atlas', asyn
   );
   assert.match(
     appSource,
-    /if \(showCollection\) return <Collection scope="middle-earth" hasCollectorAccess=\{isAdmin\} \/>/,
-    'MemeForge must route admins to its own cloud-enabled collection instead of the Vibe Atlas collection view',
+    /if \(showCollection\) \{\s*return <Collection scope="middle-earth" hasCollectorAccess=\{hasAdminAccess\} \/>/,
+    'MemeForge must route to its own scoped collection with cloud access controlled by the existing admin session',
   );
 });
 

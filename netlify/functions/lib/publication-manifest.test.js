@@ -1,7 +1,13 @@
 import assert from "node:assert/strict";
 import { createHash } from "node:crypto";
+import { mkdtemp, rm } from "node:fs/promises";
+import { tmpdir } from "node:os";
+import { join } from "node:path";
 import test from "node:test";
+import { getStore } from "@netlify/blobs";
+import { BlobsServer } from "@netlify/blobs/server";
 import {
+  acquireCorrectionPublicationLock,
   boardHash,
   diagnoseArchivedPublications,
   diagnosePublicationManifestCatalog,
@@ -13,6 +19,7 @@ import {
   materializePublicationManifest,
   publicationActorIndexKey,
   publicationActorIndexRepairKey,
+  publicationActorIndexRepairRecoveryCatalogKey,
   publicationManifestCatalogKey,
   publicationJoinReceipt,
   readPublicationManifests,
@@ -27,8 +34,11 @@ import {
   readLatestPublicationDatesByActor,
   readLatestPublicationDatesByActorWithHealth,
   rebuildPublicationActorIndex,
+  recoverPublicationActorIndexRepairHealth,
+  listPublicationActorIndexRepairRecoveryReceipts,
   repairMissingPublicationCatalogDate,
   repairPublicationManifestPublicRecords,
+  releaseCorrectionPublicationLock,
 } from "./publication-manifest.js";
 
 test("private Archive diagnosis distinguishes missing, malformed and non-indexable manifests", async () => {
@@ -241,6 +251,27 @@ test("public indexability fails closed for incomplete editorial or MEDIA records
   assert.equal(manifestPayload(manifest), null);
 });
 
+test("archive publication diagnosis separates missing, malformed, thin, and verified records", async () => {
+  const store = memoryStore();
+  const malformed = storedPublicationManifest("2026-09-02", "actor-a");
+  malformed.cards[0].media.thumbnailUrl = "";
+  const thin = storedPublicationManifest("2026-09-03", "actor-a");
+  const approved = storedPublicationManifest("2026-09-04", "actor-a");
+  approved.vibe.subtitleEn = "An approved editorial subtitle";
+  approved.vibe.supportingCopyEn = "A substantial original editorial account of this approved nine-card edition.";
+  for (const manifest of [malformed, thin, approved]) {
+    await store.setJSON(gridManifestKey(manifest.publicationDate), manifest);
+  }
+  assert.deepEqual(await diagnoseArchivedPublications(store, [
+    "2026-09-01", "2026-09-02", "2026-09-03", "2026-09-04",
+  ]), [
+    { date: "2026-09-01", status: "missing_manifest" },
+    { date: "2026-09-02", status: "malformed_manifest" },
+    { date: "2026-09-03", status: "not_indexable" },
+    { date: "2026-09-04", status: "indexable" },
+  ]);
+});
+
 test("publication inventory requires every catalog date to resolve to its exact valid manifest", async () => {
   const missingStore = memoryStore();
   await missingStore.setJSON(publicationManifestCatalogKey(), {
@@ -408,6 +439,33 @@ function memoryStore() {
     async delete(key) {
       records.delete(key);
     },
+  };
+}
+
+async function blobsTestStore(t, name) {
+  const directory = await mkdtemp(join(tmpdir(), `${name}-`));
+  const server = new BlobsServer({ directory });
+  const { address } = await server.start();
+  t.after(async () => {
+    await server.stop();
+    await rm(directory, { recursive: true, force: true });
+  });
+  return getStore({
+    edgeURL: address,
+    uncachedEdgeURL: address,
+    name,
+    siteID: "test-site",
+    token: "test-token",
+  });
+}
+
+function omitStrongReadEtags(store) {
+  const originalRead = store.getWithMetadata.bind(store);
+  store.getWithMetadata = async (key, options) => {
+    const entry = await originalRead(key, options);
+    if (!entry) return entry;
+    const { etag: _etag, ...withoutEtag } = entry;
+    return withoutEtag;
   };
 }
 
@@ -689,6 +747,81 @@ test("publication reader-link repair fails after repeated conflicts without repo
     /after repeated conflicts/,
   );
   assert.equal(conflicts, 8);
+});
+
+test("Netlify Blobs reader-link repair recovers an exact-key ETag before rereading changed manifest data", async t => {
+  const store = await blobsTestStore(t, "publication-reader-link-recovery-contract");
+  const manifest = storedPublicationManifest("2026-09-03", "liu-xueyi");
+  manifest.publicRecord = {
+    actorPath: "/admin/actors/liu-xueyi/",
+    editionPath: "/vibe-atlas/editions/2026-09-03/liu-xueyi/",
+  };
+  const key = gridManifestKey(manifest.publicationDate);
+  await store.setJSON(key, manifest);
+  omitStrongReadEtags(store);
+
+  const originalMetadata = store.getMetadata.bind(store);
+  let injected = false;
+  store.getMetadata = async (readKey, options) => {
+    if (readKey === key && !injected) {
+      injected = true;
+      await store.setJSON(key, {
+        ...manifest,
+        vibe: { ...manifest.vibe, subtitleEn: "Concurrent editorial revision" },
+      });
+    }
+    return originalMetadata(readKey, options);
+  };
+
+  const result = await repairPublicationManifestPublicRecords(store);
+  const authoritative = await store.get(key, { type: "json", consistency: "strong" });
+  assert.equal(injected, true);
+  assert.equal(result.repaired, 1);
+  assert.equal(authoritative.vibe.subtitleEn, "Concurrent editorial revision");
+  assert.deepEqual(authoritative.publicRecord, {
+    actorPath: "/vibe-atlas/actors/liu-xueyi/",
+    editionPath: "/vibe-atlas/editions/2026-09-03/liu-xueyi/",
+  });
+  assert.equal((await repairPublicationManifestPublicRecords(store)).repaired, 0);
+});
+
+test("Netlify Blobs reader-link repair retries a conditional-write conflict with fresh manifest data", async t => {
+  const store = await blobsTestStore(t, "publication-reader-link-conflict-contract");
+  const manifest = storedPublicationManifest("2026-09-03", "liu-xueyi");
+  manifest.publicRecord = {
+    actorPath: "/admin/actors/liu-xueyi/",
+    editionPath: "/vibe-atlas/editions/2026-09-03/liu-xueyi/",
+  };
+  const key = gridManifestKey(manifest.publicationDate);
+  await store.setJSON(key, manifest);
+  omitStrongReadEtags(store);
+
+  const originalSet = store.setJSON.bind(store);
+  let injected = false;
+  let conflicts = 0;
+  store.setJSON = async (writeKey, value, options = {}) => {
+    if (writeKey === key && options.onlyIfMatch && !injected) {
+      injected = true;
+      await originalSet(key, {
+        ...manifest,
+        vibe: { ...manifest.vibe, subtitleEn: "Intervening editorial revision" },
+      });
+    }
+    const result = await originalSet(writeKey, value, options);
+    if (writeKey === key && result?.modified === false) conflicts += 1;
+    return result;
+  };
+
+  const result = await repairPublicationManifestPublicRecords(store);
+  const authoritative = await store.get(key, { type: "json", consistency: "strong" });
+  assert.equal(injected, true);
+  assert.equal(conflicts, 1);
+  assert.equal(result.repaired, 1);
+  assert.equal(authoritative.vibe.subtitleEn, "Intervening editorial revision");
+  assert.deepEqual(authoritative.publicRecord, {
+    actorPath: "/vibe-atlas/actors/liu-xueyi/",
+    editionPath: "/vibe-atlas/editions/2026-09-03/liu-xueyi/",
+  });
 });
 
 test("publication revalidates eligibility inside the shared correction lock", async () => {
@@ -1280,4 +1413,310 @@ test("the publication lock serializes concurrent boards and source redirects can
     /host is not public/i,
   );
   assert.equal(fetchCalls, 9);
+});
+
+test("Netlify Blobs exact-key ETags keep existing publication locks and catalog updates conditional", async t => {
+  const store = await blobsTestStore(t, "publication-etag-recovery-contract");
+  const input = publicationInput({ date: "2026-09-04" });
+  const correctionLockKey = "locks/misprint-publication";
+  const publicationLockKey = `vibeAtlas:grid-lock:v1:${input.date}`;
+  await store.setJSON(correctionLockKey, {
+    schemaVersion: 1,
+    token: "released-correction",
+    startedAt: "2026-09-03T00:00:00.000Z",
+    state: "released",
+  });
+  await store.setJSON(publicationLockKey, {
+    schemaVersion: 1,
+    token: "released-publication",
+    date: input.date,
+    boardHash: "0".repeat(64),
+    startedAt: "2026-09-03T00:00:00.000Z",
+    state: "released",
+  });
+  await store.setJSON(publicationManifestCatalogKey(), {
+    schemaVersion: 1,
+    catalogVersion: "v1",
+    kind: "vibe-atlas-publication-manifest-catalog",
+    dates: ["2026-09-02"],
+    updatedAt: "2026-09-02T04:00:00.000Z",
+  });
+
+  const originalSet = store.setJSON.bind(store);
+  let injectedCatalogConflict = false;
+  store.setJSON = async (key, value, options = {}) => {
+    if (key === publicationManifestCatalogKey()
+      && options.onlyIfMatch
+      && !injectedCatalogConflict) {
+      injectedCatalogConflict = true;
+      await originalSet(key, {
+        schemaVersion: 1,
+        catalogVersion: "v1",
+        kind: "vibe-atlas-publication-manifest-catalog",
+        dates: ["2026-09-02", "2026-09-03"],
+        updatedAt: "2026-09-03T04:00:00.000Z",
+      });
+    }
+    return originalSet(key, value, options);
+  };
+  omitStrongReadEtags(store);
+
+  const media = mediaHarness();
+  const published = await materializePublicationManifest({
+    store,
+    ...input,
+    env: ENV,
+    fetchImpl: media.fetchImpl,
+    now: () => "2026-09-04T04:00:00.000Z",
+  });
+
+  assert.equal(published.manifest.publicationDate, input.date);
+  assert.equal(injectedCatalogConflict, true);
+  assert.deepEqual(
+    (await store.get(publicationManifestCatalogKey(), {
+      type: "json",
+      consistency: "strong",
+    })).dates,
+    ["2026-09-02", "2026-09-03", "2026-09-04"],
+  );
+});
+
+test("Netlify Blobs correction locks recover exact-key ETags instead of replacing existing leases", async t => {
+  const store = await blobsTestStore(t, "correction-lock-etag-recovery-contract");
+  await store.setJSON("locks/misprint-publication", {
+    schemaVersion: 1,
+    token: "released-owner",
+    startedAt: "2026-09-03T00:00:00.000Z",
+    state: "released",
+  });
+  omitStrongReadEtags(store);
+
+  const first = await acquireCorrectionPublicationLock(
+    store,
+    () => new Date("2026-09-04T04:00:00.000Z"),
+  );
+  const authoritative = await store.get("locks/misprint-publication", {
+    type: "json",
+    consistency: "strong",
+  });
+  assert.equal(authoritative.token, first.token);
+  assert.notEqual(authoritative.token, "released-owner");
+
+  await releaseCorrectionPublicationLock(store, first);
+});
+
+test("publication lock recovery never pairs a released lease with a concurrently active ETag", async t => {
+  const store = await blobsTestStore(t, "publication-lock-coherent-etag-contract");
+  const input = publicationInput({ date: "2026-09-05" });
+  const lockKey = `vibeAtlas:grid-lock:v1:${input.date}`;
+  await store.setJSON(lockKey, {
+    schemaVersion: 1,
+    token: "released-owner",
+    date: input.date,
+    boardHash: "0".repeat(64),
+    startedAt: "2026-09-04T00:00:00.000Z",
+    state: "released",
+  });
+  omitStrongReadEtags(store);
+  const originalMetadata = store.getMetadata.bind(store);
+  let injected = false;
+  store.getMetadata = async (key, options) => {
+    if (key === lockKey && !injected) {
+      injected = true;
+      await store.setJSON(lockKey, {
+        schemaVersion: 1,
+        token: "active-owner",
+        date: input.date,
+        boardHash: "1".repeat(64),
+        startedAt: "2026-09-05T03:59:00.000Z",
+      });
+    }
+    return originalMetadata(key, options);
+  };
+
+  await assert.rejects(
+    materializePublicationManifest({
+      store,
+      ...input,
+      publicationCorrectionLock: { token: "shared-owner" },
+      env: ENV,
+      fetchImpl: mediaHarness().fetchImpl,
+      now: () => "2026-09-05T04:00:00.000Z",
+    }),
+    /already being materialized/i,
+  );
+  assert.equal(injected, true);
+  assert.equal(
+    (await store.get(lockKey, { type: "json", consistency: "strong" })).token,
+    "active-owner",
+  );
+});
+
+test("catalog recovery rereads data after a concurrent update changes the recovered ETag", async t => {
+  const store = await blobsTestStore(t, "publication-catalog-coherent-etag-contract");
+  const input = publicationInput({ date: "2026-09-05" });
+  await store.setJSON(publicationManifestCatalogKey(), {
+    schemaVersion: 1,
+    catalogVersion: "v1",
+    kind: "vibe-atlas-publication-manifest-catalog",
+    dates: ["2026-09-02"],
+    updatedAt: "2026-09-02T04:00:00.000Z",
+  });
+  omitStrongReadEtags(store);
+  const originalMetadata = store.getMetadata.bind(store);
+  let injected = false;
+  store.getMetadata = async (key, options) => {
+    if (key === publicationManifestCatalogKey() && !injected) {
+      injected = true;
+      await store.setJSON(key, {
+        schemaVersion: 1,
+        catalogVersion: "v1",
+        kind: "vibe-atlas-publication-manifest-catalog",
+        dates: ["2026-09-02", "2026-09-03"],
+        updatedAt: "2026-09-03T04:00:00.000Z",
+      });
+    }
+    return originalMetadata(key, options);
+  };
+
+  await materializePublicationManifest({
+    store,
+    ...input,
+    env: ENV,
+    fetchImpl: mediaHarness().fetchImpl,
+    now: () => "2026-09-05T04:00:00.000Z",
+  });
+
+  assert.equal(injected, true);
+  assert.deepEqual(
+    (await store.get(publicationManifestCatalogKey(), {
+      type: "json",
+      consistency: "strong",
+    })).dates,
+    ["2026-09-02", "2026-09-03", "2026-09-05"],
+  );
+});
+
+test("repair recovery catalog retains intervening receipts when Blob metadata omits ETags", async t => {
+  const store = await blobsTestStore(t, "repair-recovery-catalog-etag-contract");
+  const catalogKey = publicationActorIndexRepairRecoveryCatalogKey();
+  const recover = (id, timestamp) => recoverPublicationActorIndexRepairHealth(store, {
+    operator: "operator",
+    createReceiptId: () => id,
+    now: () => timestamp,
+  });
+  const first = await recover("first", "2026-09-01T04:00:00.000Z");
+
+  omitStrongReadEtags(store);
+  const originalMetadata = store.getMetadata.bind(store);
+  store.getMetadata = async (key, options) => {
+    const metadata = await originalMetadata(key, options);
+    if (key !== catalogKey || !metadata) return metadata;
+    const { etag: _etag, ...withoutEtag } = metadata;
+    return withoutEtag;
+  };
+
+  const originalSet = store.setJSON.bind(store);
+  let injected = false;
+  let conditionalAttempts = 0;
+  store.setJSON = async (key, value, options = {}) => {
+    if (key === catalogKey && options.onlyIfMatch) {
+      conditionalAttempts += 1;
+      if (!injected) {
+        injected = true;
+        await recover("intervening", "2026-09-03T04:00:00.000Z");
+      }
+    }
+    return originalSet(key, value, options);
+  };
+
+  const second = await recover("second", "2026-09-02T04:00:00.000Z");
+  const history = await listPublicationActorIndexRepairRecoveryReceipts(store);
+
+  assert.equal(injected, true);
+  assert.equal(conditionalAttempts >= 3, true);
+  assert.deepEqual(history.receipts.map(item => item.receiptId), [
+    "repair-health-recovery-intervening",
+    second.receiptId,
+    first.receiptId,
+  ]);
+  assert.deepEqual(
+    (await store.get(catalogKey, { type: "json", consistency: "strong" }))
+      .receipts.map(item => item.receiptId),
+    history.receipts.map(item => item.receiptId),
+  );
+});
+
+test("actor index rebuild recovers an exact-key ETag and retains an intervening actor update", async t => {
+  const store = await blobsTestStore(t, "actor-index-rebuild-etag-recovery-contract");
+  const first = storedPublicationManifest("2026-09-01", "actor-a");
+  const concurrent = storedPublicationManifest("2026-09-02", "actor-b");
+  await store.setJSON(gridManifestKey(first.publicationDate), first);
+  const initial = await rebuildPublicationActorIndex(store);
+  await store.setJSON(gridManifestKey(concurrent.publicationDate), concurrent);
+  const intervening = await rebuildPublicationActorIndex(store);
+  await store.setJSON(publicationActorIndexKey(), initial);
+
+  omitStrongReadEtags(store);
+  const originalMetadata = store.getMetadata.bind(store);
+  let injected = false;
+  store.getMetadata = async (key, options) => {
+    if (key === publicationActorIndexKey() && !injected) {
+      injected = true;
+      await store.setJSON(key, intervening);
+    }
+    return originalMetadata(key, options);
+  };
+  const originalList = store.list.bind(store);
+  store.list = async options => options?.prefix === gridManifestKey("")
+    ? { blobs: [{ key: gridManifestKey(first.publicationDate) }] }
+    : originalList(options);
+
+  const rebuilt = await rebuildPublicationActorIndex(store);
+
+  assert.equal(injected, true);
+  assert.equal(rebuilt.actors["actor-a"].latestPublicationDate, first.publicationDate);
+  assert.equal(rebuilt.actors["actor-b"].latestPublicationDate, concurrent.publicationDate);
+});
+
+test("actor index updates retry recovered ETags instead of overwriting an intervening actor", async t => {
+  const store = await blobsTestStore(t, "actor-index-update-etag-recovery-contract");
+  const first = storedPublicationManifest("2026-09-01", "actor-a");
+  const concurrent = storedPublicationManifest("2026-09-02", "actor-b");
+  await store.setJSON(gridManifestKey(first.publicationDate), first);
+  const initial = await rebuildPublicationActorIndex(store);
+  await store.setJSON(gridManifestKey(concurrent.publicationDate), concurrent);
+  const intervening = await rebuildPublicationActorIndex(store);
+  await store.setJSON(publicationActorIndexKey(), initial);
+
+  omitStrongReadEtags(store);
+  const originalMetadata = store.getMetadata.bind(store);
+  let injected = false;
+  store.getMetadata = async (key, options) => {
+    if (key === publicationActorIndexKey() && !injected) {
+      injected = true;
+      await store.setJSON(key, intervening);
+    }
+    return originalMetadata(key, options);
+  };
+  const originalList = store.list.bind(store);
+  store.list = async options => options?.prefix === gridManifestKey("")
+    ? { blobs: [{ key: gridManifestKey(first.publicationDate) }] }
+    : originalList(options);
+
+  await materializePublicationManifest({
+    store,
+    ...publicationInput({ date: "2026-09-03" }),
+    env: ENV,
+    fetchImpl: mediaHarness().fetchImpl,
+    now: () => "2026-09-03T04:00:00.000Z",
+  });
+
+  const authoritative = await store.get(publicationActorIndexKey(), {
+    type: "json",
+    consistency: "strong",
+  });
+  assert.equal(injected, true);
+  assert.equal(authoritative.actors["actor-b"].latestPublicationDate, concurrent.publicationDate);
+  assert.equal(authoritative.actors["liu-xueyi"].latestPublicationDate, "2026-09-03");
 });

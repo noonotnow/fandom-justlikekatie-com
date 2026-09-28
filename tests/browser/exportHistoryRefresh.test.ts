@@ -1,14 +1,20 @@
 import assert from 'node:assert/strict';
+import { readFile } from 'node:fs/promises';
 import { test } from 'node:test';
 import type { Route } from '@playwright/test';
 import {
+  gotoTestPage,
+  BROWSER_ENGINES,
   closeBrowserAndServer,
+  createNativeDownloadFixture,
   launchPageForServer,
   startViteTestServer,
 } from './browserEngines.ts';
 
 const GRID_ID = 'vibe-atlas-2026-09-20-history-fixture';
 const MEDIA_ORIGIN = 'https://media.example.test';
+const SAVED_EXPORT_FILENAME = 'saved-export.png';
+const SAVED_EXPORT_PAYLOAD = Buffer.from('persisted png');
 
 function svg(index: number): string {
   const colors = ['d1495b', 'edae49', '00798c', '30638e', '003d5b', '7a5195', 'ef5675', 'ffa600', '2f4b7c'];
@@ -59,9 +65,25 @@ async function seedGrid(page: import('@playwright/test').Page): Promise<void> {
   }, { gridId: GRID_ID, mediaOrigin: MEDIA_ORIGIN });
 }
 
-test('persisted exports refresh open history without optimistic or stale entries', { timeout: 60_000 }, async () => {
-  const { server, origin } = await startViteTestServer();
-  const { browser, page } = await launchPageForServer(server);
+for (const engine of BROWSER_ENGINES) {
+  test(`persisted exports refresh open history without optimistic or stale entries in ${engine.name}`, { timeout: 60_000 }, async () => {
+  const reDownloadFixture = createNativeDownloadFixture({
+    name: 'saved-export-download-fixture',
+    path: '/.netlify/functions/grid-exports',
+    headers: {
+      'content-type': 'image/png',
+      'content-disposition': `attachment; filename="${SAVED_EXPORT_FILENAME}"`,
+    },
+    body: SAVED_EXPORT_PAYLOAD,
+    identifierNames: ['gridId', 'exportId'],
+    matches: url => url.searchParams.has('exportId'),
+  });
+  const { server, origin } = await startViteTestServer({
+    configFile: 'vite.config.ts',
+    server: { host: '127.0.0.1', port: 5000, strictPort: false },
+    plugins: [reDownloadFixture.plugin],
+  });
+  const { browser, page } = await launchPageForServer(server, engine.type);
   const entries: Array<Record<string, unknown>> = [];
   let delayedHistoryRoute: Route | undefined;
   let failNextUpload = false;
@@ -97,7 +119,7 @@ test('persisted exports refresh open history without optimistic or stale entries
         body: svg(index),
       });
     });
-    await page.route(
+    await page.context().route(
       url => new URL(url).pathname === '/.netlify/functions/grid-exports',
       async route => {
         const request = route.request();
@@ -120,11 +142,7 @@ test('persisted exports refresh open history without optimistic or stale entries
           return;
         }
         if (url.searchParams.has('exportId')) {
-          await route.fulfill({
-            contentType: 'image/png',
-            headers: { 'content-disposition': 'attachment; filename="saved-export.png"' },
-            body: Buffer.from('persisted png'),
-          });
+          await route.continue();
           return;
         }
         if (!delayedHistoryRoute) {
@@ -138,9 +156,9 @@ test('persisted exports refresh open history without optimistic or stale entries
       },
     );
 
-    await page.goto(origin);
+    await gotoTestPage(page, origin);
     await seedGrid(page);
-    await page.goto(`${origin}/vibe-atlas?view=collection`);
+    await gotoTestPage(page, `${origin}/vibe-atlas?view=collection`);
 
     await page.getByText('Past exports').click();
     await page.getByText('Loading export history…').waitFor();
@@ -178,9 +196,36 @@ test('persisted exports refresh open history without optimistic or stale entries
       're-download must keep using the persisted grid-export endpoint and export id',
     );
     const downloadPromise = page.waitForEvent('download');
+    const reDownloadRequestPromise = reDownloadFixture.waitForRequest();
     await reDownloadLink.click();
-    await downloadPromise;
+    const [reDownloadRequest, download] = await Promise.all([
+      reDownloadRequestPromise,
+      downloadPromise,
+    ]);
+    assert.equal(
+      reDownloadRequest.identifiers.gridId,
+      GRID_ID,
+      're-download request must use the saved grid identifier',
+    );
+    assert.equal(
+      reDownloadRequest.identifiers.exportId,
+      standardId,
+      're-download request must use the saved export identifier',
+    );
+    assert.equal(
+      download.suggestedFilename(),
+      SAVED_EXPORT_FILENAME,
+      'saved export filename must come from the persisted response',
+    );
+    const downloadPath = await download.path();
+    assert.ok(downloadPath, 'the browser should retain the saved export download');
+    assert.deepEqual(
+      await readFile(downloadPath),
+      SAVED_EXPORT_PAYLOAD,
+      'saved export bytes must match the persisted response',
+    );
   } finally {
     await closeBrowserAndServer(browser, server);
   }
-});
+  });
+}

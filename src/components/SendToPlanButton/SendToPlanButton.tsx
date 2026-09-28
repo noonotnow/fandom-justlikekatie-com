@@ -11,7 +11,7 @@ import {
   sendPlanHandoff,
 } from '../../utils/planHandoff';
 import { SERIES_OPTIONS } from '../../utils/series';
-import { useIsAdmin } from '../../hooks/useIsAdmin';
+import { useSession } from '../../hooks/useSession';
 
 // ── Types ─────────────────────────────────────────────────────────────────────
 
@@ -40,7 +40,7 @@ const PLATFORM_OPTIONS = ["Weibo", "Rednote", "WeChat", "Douyin"];
 
 export function SendToPlanButton(props: Props) {
   const { rawData } = props;
-  const { isAdmin } = useIsAdmin();
+  const { hasAdminAccess } = useSession();
 
   const [open,    setOpen]    = useState(false);
   const [loading, setLoading] = useState(false);
@@ -152,7 +152,7 @@ export function SendToPlanButton(props: Props) {
   }
 
   // Only render for admin
-  if (!isAdmin) return null;
+  if (!hasAdminAccess) return null;
 
   return (
     <>

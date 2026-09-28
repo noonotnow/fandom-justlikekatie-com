@@ -1,17 +1,26 @@
 import { defineConfig } from 'vite'
 import react from '@vitejs/plugin-react'
-import { PUBLIC_ORIGIN, PUBLIC_ROUTE_PATHS, publicRouteUrl } from './shared/public-routes.js'
+import {
+  PUBLIC_ORIGIN,
+  PUBLIC_ROUTE_PATHS,
+  publicRouteUrl,
+  publicStaticPreviewRoutes,
+} from './shared/public-routes.js'
 
 const launchpadCanonicalPlaceholder = '%PUBLIC_LAUNCHPAD_CANONICAL%'
 const launchpadOgUrlPlaceholder = '%PUBLIC_LAUNCHPAD_OG_URL%'
 const launchpadOgImagePlaceholder = '%PUBLIC_LAUNCHPAD_OG_IMAGE%'
-const launchpadOgImagePath = '/assets/c-drama-fandom/lg01-master-og.jpg'
 
+const launchpadTwitterImagePlaceholder = '%PUBLIC_LAUNCHPAD_TWITTER_IMAGE%'
+export const launchpadOgImagePath = '/assets/c-drama-fandom/lg01-master-og.jpg'
+
+const vibeAtlasSocialImage = `${PUBLIC_ORIGIN}/assets/c-drama-fandom/legendary-grid-liu-xueyi-2026-08-29.webp`
 export function injectLaunchpadCanonical(html: string) {
   const replacements = new Map([
     [launchpadCanonicalPlaceholder, publicRouteUrl(PUBLIC_ROUTE_PATHS.launchpad)],
     [launchpadOgUrlPlaceholder, publicRouteUrl(PUBLIC_ROUTE_PATHS.launchpad)],
     [launchpadOgImagePlaceholder, `${PUBLIC_ORIGIN}${launchpadOgImagePath}`],
+    [launchpadTwitterImagePlaceholder, `${PUBLIC_ORIGIN}${launchpadOgImagePath}`],
   ])
 
   let transformedHtml = html
@@ -27,44 +36,51 @@ export function injectLaunchpadCanonical(html: string) {
   return transformedHtml
 }
 
-const editorialRouteFiles = new Map([
-  ['/c-drama-fandom', '/c-drama-fandom/index.html'],
-  ['/c-drama-fandom/getting-started', '/c-drama-fandom/getting-started/index.html'],
-  ['/c-drama-fandom/glossary', '/c-drama-fandom/glossary/index.html'],
-  ['/c-drama-fandom/glossary/cp', '/c-drama-fandom/glossary/cp/index.html'],
-  ['/c-drama-fandom/glossary/cultivation', '/c-drama-fandom/glossary/cultivation/index.html'],
-  ['/c-drama-fandom/glossary/xianxia', '/c-drama-fandom/glossary/xianxia/index.html'],
-  ['/c-drama-fandom/glossary/jianghu', '/c-drama-fandom/glossary/jianghu/index.html'],
-  ['/c-drama-fandom/glossary/wuxia', '/c-drama-fandom/glossary/wuxia/index.html'],
-  ['/c-drama-fandom/glossary/wuxia-vs-xianxia-vs-xuanhuan', '/c-drama-fandom/glossary/wuxia-vs-xianxia-vs-xuanhuan/index.html'],
-  ['/c-drama-fandom/glossary/historical-vs-costume-drama', '/c-drama-fandom/glossary/historical-vs-costume-drama/index.html'],
-  ['/c-drama-fandom/glossary/duanju-microdrama-vertical-drama', '/c-drama-fandom/glossary/duanju-microdrama-vertical-drama/index.html'],
-  ['/c-drama-fandom/archetypes', '/c-drama-fandom/archetypes/index.html'],
-  ['/c-drama-fandom/archetypes/cold-male-lead-vs-tsundere', '/c-drama-fandom/archetypes/cold-male-lead-vs-tsundere/index.html'],
-  ['/c-drama-fandom/archetypes/black-bellied-vs-white-cut-black', '/c-drama-fandom/archetypes/black-bellied-vs-white-cut-black/index.html'],
-  ['/c-drama-fandom/archetypes/white-moonlight-vs-cinnabar-mole', '/c-drama-fandom/archetypes/white-moonlight-vs-cinnabar-mole/index.html'],
-  ['/c-drama-fandom/trope-decoder', '/c-drama-fandom/trope-decoder/index.html'],
-  ['/c-drama-fandom/fandom-games', '/c-drama-fandom/fandom-games/index.html'],
-  ['/c-drama-fandom/vibing-now', '/c-drama-fandom/vibing-now/index.html'],
-  ['/c-drama-fandom/vibing-now/against-the-current-episode-21', '/c-drama-fandom/vibing-now/against-the-current-episode-21/index.html'],
-  ['/c-drama-fandom/watch-journal', '/c-drama-fandom/watch-journal/index.html'],
-  ...[
-    [1, 4], [5, 8], [9, 12], [13, 16], [17, 20], [21, 24], [25, 28],
-    [29, 32], [33, 36], [37, 40], [41, 44], [45, 48], [49, 50],
-  ].map(([start, end]): [string, string] => [
-    `/c-drama-fandom/watch-journal/episodes-${start}-${end}`,
-    `/c-drama-fandom/watch-journal/episodes-${start}-${end}/index.html`,
-  ]),
-])
+export function injectAppRouteMetadata(html: string, requestPath: string) {
+  const normalizedPath = new URL(requestPath, 'http://fandom.local').pathname.replace(/\/+$/, '') || '/'
+  const routeMetadata = normalizedPath === PUBLIC_ROUTE_PATHS.vibeAtlas
+    ? {
+        title: 'Vibe Atlas | Daily C-Drama Collectible Cards | Fandom Vibes',
+        description: 'Browse today’s Vibe Atlas C-drama collectible: one star, one vibe, and nine pieces of evidence.',
+        path: PUBLIC_ROUTE_PATHS.vibeAtlas,
+      }
+    : normalizedPath === PUBLIC_ROUTE_PATHS.vibeAtlasArchive
+      ? {
+          title: 'Vibe Atlas Archive | Fandom Vibes',
+          description: 'Browse past Vibe Atlas C-drama collectible card drops, with one star, one vibe, and nine pieces of evidence in every edition.',
+          path: PUBLIC_ROUTE_PATHS.vibeAtlasArchive,
+        }
+      : null
+  if (!routeMetadata) return html
+
+  const url = publicRouteUrl(routeMetadata.path)
+  return html
+    .replace(/<title>[^<]*<\/title>/, `<title>${routeMetadata.title}</title>`)
+    .replace(/<meta name="description" content="[^"]*" \/>/, `<meta name="description" content="${routeMetadata.description}" />`)
+    .replace(/<link rel="canonical" href="[^"]*" \/>/, `<link rel="canonical" href="${url}" />`)
+    .replace(/<meta property="og:title" content="[^"]*" \/>/, `<meta property="og:title" content="${routeMetadata.title}" />`)
+    .replace(/<meta property="og:description" content="[^"]*" \/>/, `<meta property="og:description" content="${routeMetadata.description}" />`)
+    .replace(/<meta property="og:url" content="[^"]*" \/>/, `<meta property="og:url" content="${url}" />`)
+    .replace(/<meta property="og:image" content="[^"]*" \/>/, `<meta property="og:image" content="${vibeAtlasSocialImage}" />`)
+    .replace(/<meta name="twitter:title" content="[^"]*" \/>/, `<meta name="twitter:title" content="${routeMetadata.title}" />`)
+    .replace(/<meta name="twitter:description" content="[^"]*" \/>/, `<meta name="twitter:description" content="${routeMetadata.description}" />`)
+    .replace(/<meta name="twitter:image" content="[^"]*" \/>/, `<meta name="twitter:image" content="${vibeAtlasSocialImage}" />`)
+}
+const editorialRouteFiles = new Map(publicStaticPreviewRoutes())
 
 // https://vite.dev/config/
 export default defineConfig({
   plugins: [
     {
-      name: 'fandom-launchpad-canonical',
+      name: 'fandom-app-route-metadata',
       transformIndexHtml: {
         order: 'pre',
-        handler: injectLaunchpadCanonical,
+        handler(html, context) {
+          return injectAppRouteMetadata(
+            injectLaunchpadCanonical(html),
+            context.originalUrl ?? '/',
+          )
+        },
       },
     },
     {

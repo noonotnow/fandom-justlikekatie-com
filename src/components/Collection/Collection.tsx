@@ -4,6 +4,7 @@ import {
   dbGetSyncState,
   dbGetVisibleCards,
   dbGetVisibleCardsByScope,
+  collectionScopeForCard,
   dbReplaceCardImage,
   normalizeCardForCollection,
   createMisprint,
@@ -64,6 +65,7 @@ import {
   hasMergeDecision,
   logoutPublicAccount,
   requestMagicLink,
+  resolvePublicCollectionDeletion,
   schedulePublicCollectionSync,
   setDeviceMerge,
   shouldSyncCollection,
@@ -144,13 +146,14 @@ export const Collection: React.FC<Props> = ({
   builderSourcePool = [],
 }) => {
   const isMiddleEarth = scope === 'middle-earth';
-  // Vibe Atlas account sync is a sign-in benefit, not a paid capability.
-  // Middle-earth sync remains limited to its separate admin workspace.
+  // Owned Collection sync is free. Preserve the existing operator gate on
+  // non-C-drama meme records so they cannot reappear in C-drama sync.
   const canSyncCloud = !isMiddleEarth || hasCollectorAccess;
   const canSyncCloudRef = useRef(canSyncCloud);
   canSyncCloudRef.current = canSyncCloud;
   const [cards, setCards] = useState<CardRecord[]>([]);
   const [grids, setGrids] = useState<GridRecord[]>([]);
+  const [deletionConflicts, setDeletionConflicts] = useState<Record<string, 'card' | 'grid'>>({});
   const [loading, setLoading] = useState(true);
   const [activeType, setActiveType] = useState<'grids' | 'results' | 'builder'>(
     isMiddleEarth ? 'results' : initialType,
@@ -178,10 +181,12 @@ export const Collection: React.FC<Props> = ({
   const pendingRemovalRef = useRef<PendingRemoval | null>(null);
 
   async function loadCollection(accountId = accountIdRef.current) {
-    const [visibleCards, visibleGrids] = await Promise.all([
+    const [visibleCards, visibleGrids, syncState] = await Promise.all([
       dbGetVisibleCardsByScope(accountId, scope),
       dbGetVisibleGrids(accountId),
+      dbGetSyncState(),
     ]);
+    setDeletionConflicts(accountId ? syncState.remoteDeletionConflictsByAccount?.[accountId] || {} : {});
     const normalizedCards = visibleCards.map(card => normalizeCardForCollection(card));
     if (isMiddleEarth) {
       await Promise.all(normalizedCards
@@ -362,6 +367,51 @@ export const Collection: React.FC<Props> = ({
     }
   }
 
+  async function resolveDeletion(kind: 'card' | 'grid', localId: string, decision: 'restore' | 'discard') {
+    if (!user) return;
+    setBusyKey(`deletion:${localId}`);
+    let resolvedLocally = false;
+    try {
+      await resolvePublicCollectionDeletion(user, kind, localId, decision);
+      resolvedLocally = true;
+      await loadCollection(user.accountId);
+      if (decision === 'restore' && canSyncCloud && await shouldSyncCollection(user.accountId)) {
+        await syncPublicCollection(user);
+        await loadCollection(user.accountId);
+      }
+      setAccountNotice(decision === 'restore'
+        ? canSyncCloud && await shouldSyncCollection(user.accountId)
+          ? 'This saved copy was restored to your account.'
+          : 'This copy is kept on this device. Turn on Collection sync to restore it to your account.'
+        : 'The older device copy was discarded. Nothing was restored to your account.');
+    } catch (error) {
+      await loadCollection(user.accountId);
+      setAccountNotice(resolvedLocally
+        ? `This copy was kept on this device, but account sync failed: ${messageFrom(error, 'try again after reconnecting')}`
+        : messageFrom(error, 'The deletion choice could not be completed. Please retry.'));
+    } finally {
+      setBusyKey('');
+    }
+  }
+
+  function deletionChoice(kind: 'card' | 'grid', localId?: string) {
+    if (!user || !localId || deletionConflicts[localId] !== kind) return null;
+    return (
+      <div className={styles.deletionConflict} role="status">
+        <strong>Deleted on another device</strong>
+        <p>This older copy is still saved on this device. It has not been restored to your account. Choose whether to restore it or discard it.</p>
+        <div>
+          <button type="button" disabled={Boolean(busyKey) || Boolean(pendingRemoval)}
+            onClick={() => void resolveDeletion(kind, localId, 'restore')}>
+            {busyKey === `deletion:${localId}` ? 'Working…' : 'Keep & restore'}
+          </button>
+          <button type="button" disabled={Boolean(busyKey) || Boolean(pendingRemoval)}
+            onClick={() => void resolveDeletion(kind, localId, 'discard')}>Discard this copy</button>
+        </div>
+      </div>
+    );
+  }
+
   async function handleMagicLink(event: React.FormEvent) {
     event.preventDefault();
     try {
@@ -404,6 +454,46 @@ export const Collection: React.FC<Props> = ({
     }
   }
 
+  async function moveCardToScope(card: CardRecord, targetScope: 'vibe-atlas' | 'middle-earth') {
+    if (collectionScopeForCard(card) === targetScope || busyKey || pendingRemoval) return;
+    setBusyKey(`move:${cardRecordKey(card)}`);
+    try {
+      const movedCard: CardRecord = targetScope === 'middle-earth'
+        ? {
+          ...card,
+          collectionScope: 'middle-earth',
+          actor: 'Middle-earth',
+          actorEn: 'Middle-earth',
+          vibe: card.title || card.vibe,
+          vibeEn: 'saved as-is',
+          vibeEmoji: '🧙',
+          title: card.title || card.vibe,
+          sourceRoute: '/memeforge/middle-earth?view=collection',
+          contentKind: 'middle-earth-meme',
+          searchQuery: undefined,
+          gridContext: undefined,
+        }
+        : {
+          ...card,
+          collectionScope: 'vibe-atlas',
+          contentKind: undefined,
+          sourceRoute: card.sourceRoute?.startsWith('/memeforge/middle-earth')
+            ? undefined
+            : card.sourceRoute,
+        };
+      await dbSaveCard(movedCard);
+      await loadCollection(user?.accountId);
+      if (canSyncCloud) schedulePublicCollectionSync();
+      setAccountNotice(targetScope === 'middle-earth'
+        ? 'Saved result moved to the Middle-earth collection.'
+        : 'Saved result moved to the Vibe Atlas collection.');
+    } catch (error) {
+      setAccountNotice(messageFrom(error, 'The saved result could not be moved.'));
+    } finally {
+      setBusyKey('');
+    }
+  }
+
   async function downloadDiagnosticData() {
     setBusyKey('diagnostic-export');
     try {
@@ -436,30 +526,6 @@ export const Collection: React.FC<Props> = ({
       );
     } catch (error) {
       setAccountNotice(messageFrom(error, 'Collection diagnostic data could not be downloaded.'));
-    } finally {
-      setBusyKey('');
-    }
-  }
-
-  async function moveCardToScope(card: CardRecord) {
-    const targetScope = isMiddleEarth ? 'vibe-atlas' : 'middle-earth';
-    const moveKey = `move:${cardRecordKey(card)}`;
-    setBusyKey(moveKey);
-    try {
-      await dbSaveCard({
-        ...card,
-        collectionScope: targetScope,
-        contentKind: targetScope === 'middle-earth' ? 'middle-earth-meme' : undefined,
-      });
-      await loadCollection(user?.accountId);
-      if (canSyncCloud) schedulePublicCollectionSync();
-      setAccountNotice(
-        targetScope === 'middle-earth'
-          ? 'Saved result moved to the Middle-earth Collection.'
-          : 'Saved result moved to the Vibe Atlas Collection.',
-      );
-    } catch (error) {
-      setAccountNotice(messageFrom(error, 'The saved result could not be moved.'));
     } finally {
       setBusyKey('');
     }
@@ -1032,6 +1098,7 @@ export const Collection: React.FC<Props> = ({
                           ? ' · Misprint'
                           : ''}
                   </p>
+                  {deletionChoice('grid', grid.localId)}
                   {grid.legacyCompositeUrl
                     && (failedGridImages[grid.id] || grid.mediaRecovery?.status === 'unrecoverable') && (
                     <div className={styles.mediaRecovery} role="status">
@@ -1176,6 +1243,14 @@ export const Collection: React.FC<Props> = ({
                 )}
                 {card.contentKind === 'middle-earth-meme' && card.sourceUrl && <a href={card.sourceUrl} target="_blank" rel="noreferrer">{card.publisher ? `Source: ${card.publisher}` : 'Open original source'}</a>}
                 <small>{card.capturedDate}</small>
+                <button
+                  type="button"
+                  disabled={Boolean(busyKey) || Boolean(pendingRemoval)}
+                  onClick={() => void moveCardToScope(card, isMiddleEarth ? 'vibe-atlas' : 'middle-earth')}
+                >
+                  {busyKey === `move:${recordKey}` ? 'Moving…' : isMiddleEarth ? 'Move to Vibe Atlas' : 'Move to Middle-earth'}
+                </button>
+                {deletionChoice('card', card.localId)}
                 {(!card.thumbnailUrl || failedCardImages[card.imageUrl] || card.mediaRecovery?.status === 'unrecoverable') && (
                   <div className={styles.mediaRecovery} role="status">
                     <strong>
@@ -1290,17 +1365,6 @@ export const Collection: React.FC<Props> = ({
                   )}
                 </>
               )}
-              <button
-                type="button"
-                disabled={Boolean(busyKey) || Boolean(pendingRemoval)}
-                onClick={() => void moveCardToScope(card)}
-              >
-                {busyKey === `move:${recordKey}`
-                  ? 'Moving…'
-                  : isMiddleEarth
-                    ? 'Move to Vibe Atlas'
-                    : 'Move to Middle-earth'}
-              </button>
               <button
                 type="button"
                 disabled={Boolean(pendingRemoval)}

@@ -199,7 +199,25 @@ function drawCoverImageRounded(
 
 function wrapCanvasText(ctx: CanvasRenderingContext2D, text: string, maxWidth: number): string[] {
   if (!text) return [];
-  const tokens = text.match(/[\u3000-\u9fff\uff00-\uffef]|[^\u3000-\u9fff\uff00-\uffef\s]+|\s+/g) || [text];
+  const tokens: string[] = [];
+  let grouped = '';
+  let groupType = '';
+  for (const { segment } of new Intl.Segmenter(undefined, { granularity: 'grapheme' }).segment(text)) {
+    const type = /^[\u3000-\u9fff\uff00-\uffef]/u.test(segment)
+      ? 'cjk'
+      : /^\s+$/u.test(segment) ? 'space' : 'word';
+    if (type === 'cjk' || (grouped && type !== groupType)) {
+      if (grouped) tokens.push(grouped);
+      grouped = '';
+    }
+    if (type === 'cjk') {
+      tokens.push(segment);
+    } else {
+      grouped += segment;
+    }
+    groupType = type;
+  }
+  if (grouped) tokens.push(grouped);
   const lines: string[] = [];
   let current = '';
   tokens.forEach((tok) => {
@@ -215,24 +233,25 @@ function wrapCanvasText(ctx: CanvasRenderingContext2D, text: string, maxWidth: n
   return lines;
 }
 
-function truncateCanvasText(
+export function truncateCanvasText(
   ctx: CanvasRenderingContext2D,
   text: string,
   maxWidth: number,
 ): string {
   if (ctx.measureText(text).width <= maxWidth) return text;
   const ellipsis = '…';
+  const graphemes = Array.from(new Intl.Segmenter(undefined, { granularity: 'grapheme' }).segment(text), segment => segment.segment);
   let low = 0;
-  let high = text.length;
+  let high = graphemes.length;
   while (low < high) {
     const mid = Math.ceil((low + high) / 2);
-    if (ctx.measureText(text.slice(0, mid).trimEnd() + ellipsis).width <= maxWidth) {
+    if (ctx.measureText(graphemes.slice(0, mid).join('').trimEnd() + ellipsis).width <= maxWidth) {
       low = mid;
     } else {
       high = mid - 1;
     }
   }
-  return text.slice(0, low).trimEnd() + ellipsis;
+  return graphemes.slice(0, low).join('').trimEnd() + ellipsis;
 }
 
 function boundedCreditLines(
@@ -345,7 +364,7 @@ function drawLegacyFooter(
 
   if (sourceNames.length) {
     ctx.font = layout.sourceFont;
-    ctx.fillStyle = colors.textDarker;
+    ctx.fillStyle = colors.textMuted;
     const sourceLines = legacySourceCreditLines(ctx, sourceNames, contentWidth);
     drawSourceCreditLines(
       ctx, sourceLines, centerX, footerTop + layout.sourceTop, layout.sourceLineHeight,

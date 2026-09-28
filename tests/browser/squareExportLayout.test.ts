@@ -1,6 +1,7 @@
 import assert from 'node:assert/strict';
 import { test } from 'node:test';
 import {
+  gotoTestPage,
   closeBrowserAndServer,
   launchPageForServer,
   startViteTestServer,
@@ -49,7 +50,7 @@ test('square PNG exports preserve layout, attribution, MEDIA provenance, and Moo
         body: solidSvg(FIXTURE_COLORS[index]),
       });
     });
-    await page.goto(origin);
+    await gotoTestPage(page, origin);
 
     const result = await page.evaluate(async ({ mediaOrigin, fixtureColors, fixturePublishers }) => {
       const modulePath = '/src/utils/exportCanvas.ts';
@@ -232,6 +233,14 @@ test('Collection re-export preserves a saved Moonlit Ink palette, dimensions, an
     }
     assert.equal(completedExportVariants.length, count, `expected ${count} completed export uploads`);
   };
+  const waitForExportHistory = (expectedCount: number) => page.waitForFunction(
+    async ({ gridId: id, expectedCount: count }) => {
+      const response = await fetch(`/.netlify/functions/grid-exports?gridId=${encodeURIComponent(id)}`);
+      const body = await response.json();
+      return body.exports?.length === count;
+    },
+    { gridId, expectedCount },
+  );
 
   try {
     await page.addInitScript({ content: `
@@ -306,7 +315,7 @@ test('Collection re-export preserves a saved Moonlit Ink palette, dimensions, an
         body: solidSvg(FIXTURE_COLORS[index]),
       });
     });
-    await page.goto(origin);
+    await gotoTestPage(page, origin);
 
     await page.evaluate(async ({ mediaOrigin, fixtureColors }) => {
       const historyModulePath = '/src/utils/collectionHistoryModel.ts';
@@ -359,7 +368,7 @@ test('Collection re-export preserves a saved Moonlit Ink palette, dimensions, an
       await collection.dbSaveGrid(savedGrid);
     }, { mediaOrigin: FIXTURE_MEDIA_ORIGIN, fixtureColors: FIXTURE_COLORS });
 
-    await page.goto(`${origin}/vibe-atlas?view=collection`);
+    await gotoTestPage(page, `${origin}/vibe-atlas?view=collection`);
     const standardButton = page.getByRole('button', { name: 'Export standard PNG' });
     const masterButton = page.getByRole('button', { name: 'Export Master PNG' });
     await standardButton.waitFor();
@@ -374,6 +383,7 @@ test('Collection re-export preserves a saved Moonlit Ink palette, dimensions, an
       __collectionExportDimensions: number[][];
     }).__collectionExportDimensions.length === 1);
     await waitForCompletedExportCount(1);
+    await waitForExportHistory(1);
 
     membershipCapabilities = ['fandom_collector'];
     await page.reload();
@@ -383,6 +393,7 @@ test('Collection re-export preserves a saved Moonlit Ink palette, dimensions, an
       __collectionExportDimensions: number[][];
     }).__collectionExportDimensions.length === 2);
     await waitForCompletedExportCount(2);
+    await waitForExportHistory(2);
 
     membershipCapabilities = ['ecosystem_bundle'];
     await page.reload();
@@ -392,6 +403,7 @@ test('Collection re-export preserves a saved Moonlit Ink palette, dimensions, an
       __collectionExportDimensions: number[][];
     }).__collectionExportDimensions.length === 3);
     await waitForCompletedExportCount(3);
+    await waitForExportHistory(3);
 
     const rendered = await page.evaluate(() => ({
       dimensions: (globalThis as typeof globalThis & {
@@ -415,6 +427,15 @@ test('Collection re-export preserves a saved Moonlit Ink palette, dimensions, an
     const attribution = rendered.textCalls.find(call => call.text.startsWith('Sources: Fixture Actor · Publisher 1'));
     assert.ok(attribution, 'the restored export must retain saved source attribution');
     assert.equal(attribution.color, '#c9a96e', 'the restored attribution must retain the Moonlit Ink gold');
+    const serverExportHistory = await page.evaluate(async (requestedGridId) => {
+      const response = await fetch(`/.netlify/functions/grid-exports?gridId=${encodeURIComponent(requestedGridId)}`);
+      return (await response.json()).exports;
+    }, gridId);
+    assert.deepEqual(
+      serverExportHistory.map((entry: { variant: string }) => entry.variant).sort(),
+      ['master', 'master', 'standard'],
+      'the export API must persist all three completed variants',
+    );
     assert.deepEqual(
       completedExportVariants.sort(),
       ['master', 'master', 'standard'],

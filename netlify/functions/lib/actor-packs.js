@@ -52,6 +52,7 @@ export const ACTOR_PACKS = [
         "label_en": "Boyfriend Lighting",
         "subtitle": "黄昏里温柔到不像话的他",
         "subtitle_en": "So tender in the golden hour it's almost unfair",
+        "supportingCopy_en": "Boyfriend Lighting looks for Liu Yuning in a softer register: warm light, candid styling, and the quiet pauses that make a portrait feel closer than a performance.",
         "queries": [
           "刘宇宁 温柔",
           "刘宇宁 生活照",

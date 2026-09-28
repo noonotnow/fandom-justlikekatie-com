@@ -66,6 +66,9 @@
 .mergeChoice { display: flex; align-items: center; flex-wrap: wrap; gap: 8px; margin-top: 12px; }
 .mergeChoice p { width: 100%; margin: 0 0 4px; }
 .notice { margin: 12px 0 0; color: #9b762e; font-size: .86rem; }
+.deletionConflict { margin: 12px 0; padding: 12px; border: 1px solid #b88539; border-radius: 8px; background: color-mix(in srgb, #b88539 12%, transparent); font-size: .88rem; }
+.deletionConflict p { margin: 6px 0 10px; }
+.deletionConflict > div { display: flex; flex-wrap: wrap; gap: 8px; }
 :global(.dark) .notice { color: #e0c171; }
 
 .typeTabs { display: flex; gap: 28px; border-bottom: 1px solid color-mix(in srgb, currentColor 16%, transparent); }

@@ -6,14 +6,18 @@ import { dirname, resolve } from "node:path";
 import { fileURLToPath } from "node:url";
 import { XMLParser, XMLValidator } from "fast-xml-parser";
 import sharp from "sharp";
+import { createServer as createViteServer } from "vite";
 import {
   LG01_OUTCOMES,
+  assertPublicStaticNetlifyRedirects,
   preparePublicPages,
+  publicStaticNetlifyRedirects,
   REQUIRED_PUBLIC_PAGES,
   TROPE_DECODER_SHARE_EVENT,
   WATCH_JOURNAL_PUBLIC_PAGES,
 } from "./generate-public-pages.js";
 import { PUBLIC_ORIGIN, PUBLIC_STATIC_ROUTES } from "../netlify/functions/lib/public-routes.js";
+import { PUBLIC_ROUTE_PATHS, publicStaticPreviewRoutes } from "../shared/public-routes.js";
 import { createPublicSitemapHandler } from "../netlify/functions/public-sitemap.js";
 import { manifestStore, publicManifest } from "../netlify/functions/public-test-fixture.js";
 
@@ -43,6 +47,95 @@ function assertCanonicalMatchesRoute(html, route) {
   );
 }
 
+function sameOriginAssetPaths(html, routeUrl, origin) {
+  const assetReferences = [];
+  const elements = html.match(/<(?:img|script|link|source|video)\b[^>]*>/gi) ?? [];
+
+  for (const element of elements) {
+    for (const attribute of ["src", "href", "poster"]) {
+      const value = element.match(new RegExp(`\\b${attribute}=["']([^"']+)["']`, "i"))?.[1];
+      if (value) assetReferences.push(value);
+    }
+
+    const srcset = element.match(/\bsrcset=["']([^"']+)["']/i)?.[1];
+    if (srcset) {
+      assetReferences.push(...srcset.split(",").map((candidate) => candidate.trim().split(/\s+/)[0]));
+    }
+  }
+
+  return [...new Set(assetReferences.flatMap((reference) => {
+    try {
+      const url = new URL(reference, routeUrl);
+      return url.origin === origin ? [`${url.pathname}${url.search}`] : [];
+    } catch {
+      return [];
+    }
+  }))];
+}
+
+async function assertSameOriginAssetsLoad(html, routePath, origin) {
+  const assetPaths = sameOriginAssetPaths(html, `${origin}${routePath}`, origin);
+  for (const assetPath of assetPaths) {
+    const assetResponse = await fetch(`${origin}${assetPath}`, {
+      headers: { Accept: "application/octet-stream" },
+    });
+    assert.ok(
+      assetResponse.ok && !assetResponse.headers.get("content-type")?.includes("text/html"),
+      `${routePath} references missing local asset ${assetPath} (HTTP ${assetResponse.status})`,
+    );
+  }
+}
+
+function localCssUrl(reference, baseUrl, origin) {
+  if (!reference || reference.startsWith("#")) return null;
+  try {
+    const url = new URL(reference, baseUrl);
+    return url.origin === origin ? url : null;
+  } catch {
+    return null;
+  }
+}
+
+async function assertCssReferencesLoad(css, stylesheetUrl, routePath, origin, visited) {
+  // Ignore commented-out declarations, but keep quoted and unquoted url() values.
+  const withoutComments = css.replace(/\/\*[\s\S]*?\*\//g, "");
+  const references = /@import\s+(?:url\(\s*(?:"([^"]+)"|'([^']+)'|([^)\s]+))\s*\)|"([^"]+)"|'([^']+)')|url\(\s*(?:"([^"]+)"|'([^']+)'|([^)]*?))\s*\)/gi;
+  for (const match of withoutComments.matchAll(references)) {
+    const imported = /^@import/i.test(match[0]);
+    const reference = match.slice(1).find(Boolean)?.trim();
+    const url = localCssUrl(reference, stylesheetUrl, origin);
+    if (!url) continue;
+    const assetPath = `${url.pathname}${url.search}`;
+    const response = await fetch(url, { headers: { Accept: imported ? "text/css" : "application/octet-stream" } });
+    assert.ok(
+      response.ok && !response.headers.get("content-type")?.includes("text/html"),
+      `${routePath} stylesheet ${stylesheetUrl.pathname} references missing local asset ${assetPath} (HTTP ${response.status})`,
+    );
+    if (imported && !visited.has(url.href)) {
+      visited.add(url.href);
+      await assertCssReferencesLoad(await response.text(), url, routePath, origin, visited);
+    }
+  }
+}
+
+async function assertStylesheetAssetsLoad(html, routePath, origin) {
+  const visited = new Set();
+  for (const [tag] of html.matchAll(/<link\b[^>]*>/gi)) {
+    const rel = tag.match(/\brel=["']([^"']+)["']/i)?.[1];
+    if (!rel?.split(/\s+/).some((value) => value.toLowerCase() === "stylesheet")) continue;
+    const href = tag.match(/\bhref=["']([^"']+)["']/i)?.[1];
+    const url = localCssUrl(href, `${origin}${routePath}`, origin);
+    if (!url || visited.has(url.href)) continue;
+    visited.add(url.href);
+    const response = await fetch(url, { headers: { Accept: "text/css" } });
+    assert.ok(
+      response.ok && !response.headers.get("content-type")?.includes("text/html"),
+      `${routePath} stylesheet ${url.pathname} is missing (HTTP ${response.status})`,
+    );
+    await assertCssReferencesLoad(await response.text(), url, routePath, origin, visited);
+  }
+}
+
 test("static public pages canonically match their registered production routes", () => {
   const fileBackedRoutes = PUBLIC_STATIC_ROUTES.filter(({ page }) => page);
   assert.ok(fileBackedRoutes.length > 0, "the registry must include static HTML pages");
@@ -50,6 +143,183 @@ test("static public pages canonically match their registered production routes",
   for (const route of fileBackedRoutes) {
     assertCanonicalMatchesRoute(read(route.page), route);
   }
+});
+
+test("the Episode 21 article has an editorial discussion with an explicit safe boundary and working route", () => {
+  const html = read("public/c-drama-fandom/vibing-now/against-the-current-episode-21/index.html");
+  const script = read("public/c-drama-fandom/vibing-discussion.js");
+  const redirects = read("netlify.toml");
+  assert.match(html, /Editorial question · Vibing Now discussion/);
+  assert.match(html, /Through Episode 21 only/);
+  assert.match(html, /No account or purchase needed/);
+  assert.match(html, /id="discussion-responses"/);
+  assert.match(script, /There are no approved reader responses yet/);
+  assert.match(script, /text\.textContent = item\.text/);
+  assert.match(script, /Report this response/);
+  assert.match(redirects, /from = "\/api\/vibing-discussion"\s+to = "\/\.netlify\/functions\/vibing-discussion"/);
+});
+
+test("Netlify serves every registered C-drama static page before the SPA fallback", () => {
+  const netlify = read("netlify.toml");
+  const expectedRedirects = publicStaticNetlifyRedirects();
+
+  assert.ok(expectedRedirects.length > 0);
+  assert.doesNotThrow(() => assertPublicStaticNetlifyRedirects(netlify));
+
+  const renamedRoutes = PUBLIC_STATIC_ROUTES.map((route) => (
+    route.path === "/c-drama-fandom/getting-started/"
+      ? {
+        ...route,
+        path: "/c-drama-fandom/start-here/",
+        page: "public/c-drama-fandom/start-here/index.html",
+      }
+      : route
+  ));
+  assert.throws(
+    () => assertPublicStaticNetlifyRedirects(netlify, renamedRoutes),
+    /must serve \/c-drama-fandom\/start-here from \/c-drama-fandom\/start-here\/index\.html/,
+  );
+
+  const gettingStartedBlock = `[[redirects]]
+from = "/c-drama-fandom/getting-started"
+to = "/c-drama-fandom/getting-started/index.html"
+status = 200`;
+  const belowSpaFallback = netlify
+    .replace(`${gettingStartedBlock}\n\n`, "")
+    .concat(`\n\n${gettingStartedBlock}\n`);
+  assert.throws(
+    () => assertPublicStaticNetlifyRedirects(belowSpaFallback),
+    /route \/c-drama-fandom\/getting-started is unreachable behind earlier redirect \/\*/,
+  );
+});
+
+test("local preview routes follow registered C-drama static page renames", () => {
+  const renamedRoutes = PUBLIC_STATIC_ROUTES.map((route) => (
+    route.path === "/c-drama-fandom/getting-started/"
+      ? {
+        ...route,
+        path: "/c-drama-fandom/start-here/",
+        page: "public/c-drama-fandom/start-here/index.html",
+      }
+      : route
+  ));
+  const previewRoutes = new Map(publicStaticPreviewRoutes(renamedRoutes));
+
+  assert.equal(
+    previewRoutes.get("/c-drama-fandom/start-here"),
+    "/c-drama-fandom/start-here/index.html",
+  );
+  assert.equal(previewRoutes.has("/c-drama-fandom/getting-started"), false);
+  assert.equal(previewRoutes.has("/vibe-atlas"), false, "SPA routes must remain on the SPA fallback");
+
+  const viteConfig = read("vite.config.ts");
+  assert.match(viteConfig, /new Map\(publicStaticPreviewRoutes\(\)\)/);
+  assert.match(viteConfig, /request\.url = `\$\{publicFile\}\$\{url\.search\}`/);
+});
+
+test("local Vite serves registered C-drama documents before the SPA fallback", async (t) => {
+  const server = await createViteServer({
+    configFile: resolve(root, "vite.config.ts"),
+    server: {
+      host: "127.0.0.1",
+      port: 0,
+      strictPort: false,
+    },
+  });
+  t.after(() => server.close());
+  await server.listen();
+
+  const address = server.httpServer?.address();
+  assert.ok(address && typeof address !== "string", "Vite must listen on an isolated TCP port");
+  const origin = `http://127.0.0.1:${address.port}`;
+  const fileBackedRoutes = PUBLIC_STATIC_ROUTES.filter(
+    ({ group, page }) => group === "editorial" && page,
+  );
+  assert.ok(fileBackedRoutes.length > 0, "the registry must include C-drama static HTML pages");
+
+  for (const route of fileBackedRoutes) {
+    const expectedHtml = read(route.page);
+    const expectedTitle = expectedHtml.match(/<title>([^<]+)<\/title>/i)?.[1];
+    assert.ok(expectedTitle, `${route.page} must have a title`);
+
+    const cleanResponse = await fetch(`${origin}${route.path}`);
+    assert.equal(cleanResponse.status, 200, `${route.path} must be served by local Vite`);
+    const cleanHtml = await cleanResponse.text();
+    assert.match(cleanHtml, new RegExp(`<title>${expectedTitle.replace(/[.*+?^${}()|[\]\\]/g, "\\$&")}</title>`, "i"));
+    assertCanonicalMatchesRoute(cleanHtml, route);
+    assert.doesNotMatch(cleanHtml, /<div id="root"><\/div>/i, `${route.path} must not receive the SPA shell`);
+
+    await assertSameOriginAssetsLoad(cleanHtml, route.path, origin);
+    await assertStylesheetAssetsLoad(cleanHtml, route.path, origin);
+
+    const queryResponse = await fetch(`${origin}${route.path}?preview=registered-route`);
+    assert.equal(queryResponse.status, 200, `${route.path} must accept query strings`);
+    assert.equal(
+      await queryResponse.text(),
+      cleanHtml,
+      `${route.path} query strings must not change the selected static document`,
+    );
+  }
+
+  const spaResponse = await fetch(`${origin}${PUBLIC_ROUTE_PATHS.vibeAtlas}?view=collection`);
+  assert.equal(spaResponse.status, 200);
+  const spaHtml = await spaResponse.text();
+  assert.match(spaHtml, /<div id="root">/i, "non-file-backed routes must receive the SPA shell");
+  assert.match(spaHtml, /<title>Vibe Atlas \| Daily C-Drama Collectible Cards \| Fandom Vibes<\/title>/i);
+
+  await assert.rejects(
+    assertSameOriginAssetsLoad(
+      '<script src="/c-drama-fandom/missing-guide-script.js"></script>',
+      "/c-drama-fandom/example/",
+      origin,
+    ),
+    /\/c-drama-fandom\/example\/ references missing local asset \/c-drama-fandom\/missing-guide-script\.js \(HTTP 404\)/,
+  );
+  await assert.rejects(
+    assertStylesheetAssetsLoad(
+      '<link href="/c-drama-fandom/missing-guide-styles.css" rel="preload stylesheet">',
+      "/c-drama-fandom/example/",
+      origin,
+    ),
+    /\/c-drama-fandom\/example\/ stylesheet \/c-drama-fandom\/missing-guide-styles\.css is missing \(HTTP 404\)/,
+  );
+
+  const stylesheetUrl = new URL("/c-drama-fandom/styles.css", origin);
+  for (const css of [
+    'figure { background-image: url("missing-guide-image.webp"); }',
+    '@import "missing-guide-theme.css";',
+    '@import url("missing-guide-theme.css") screen;',
+  ]) {
+    await assert.rejects(
+      assertCssReferencesLoad(css, stylesheetUrl, "/c-drama-fandom/example/", origin, new Set()),
+      /\/c-drama-fandom\/example\/ stylesheet \/c-drama-fandom\/styles\.css references missing local asset \/c-drama-fandom\/missing-guide-(?:image\.webp|theme\.css) \(HTTP 404\)/,
+    );
+  }
+  await assert.doesNotReject(
+    assertCssReferencesLoad(
+      '/* url("missing-guide-image.webp") */ .icon { background: url(data:image/svg+xml;base64,PHN2Zy8+); } @import "https://example.com/theme.css";',
+      stylesheetUrl,
+      "/c-drama-fandom/example/",
+      origin,
+      new Set(),
+    ),
+  );
+});
+
+test("static redirect validation leaves fandom-game query previews independent", () => {
+  const netlify = read("netlify.toml");
+  const previewRedirects = [...netlify.matchAll(
+    /\[\[redirects\]\]\s+from = "\/c-drama-fandom\/fandom-games\/"\s+to = "([^"]+)"\s+status = 200\s+force = true\s+query = \{ fate = "([^"]+)" \}/g,
+  )];
+
+  assert.equal(previewRedirects.length, LG01_OUTCOMES.length);
+  assert.deepEqual(
+    previewRedirects.map(([, to, fate]) => ({ to, fate })),
+    LG01_OUTCOMES.map(({ id }) => ({
+      to: `/c-drama-fandom/fandom-games/previews/${id}/index.html`,
+      fate: id,
+    })),
+  );
 });
 
 test("canonical route validation rejects conflicting indexing signals", async (t) => {
@@ -143,6 +413,8 @@ test("robots and sitemap expose only intended public surfaces", () => {
     "https://fandom.justlikekatie.com/c-drama-fandom/fandom-games/",
     "https://fandom.justlikekatie.com/c-drama-fandom/vibing-now/",
     "https://fandom.justlikekatie.com/c-drama-fandom/vibing-now/against-the-current-episode-21/",
+    "https://fandom.justlikekatie.com/c-drama-fandom/where-to-watch/against-the-current/",
+    "https://fandom.justlikekatie.com/c-drama-fandom/soundtrack/against-the-current/",
   ];
   const journalUrls = WATCH_JOURNAL_PUBLIC_PAGES.map((path) => (
     `https://fandom.justlikekatie.com/${path
@@ -179,7 +451,7 @@ test("robots and sitemap expose only intended public surfaces", () => {
   assert.ok(sitemapUrls.includes("https://fandom.justlikekatie.com/vibe-atlas"));
   assert.doesNotMatch(sitemap, /view=(?:collection|builder|plan|membership)/);
   assert.doesNotMatch(sitemap, /\/api\/|\/auth\/|create-handoff|idea-packet/);
-  assert.match(viteConfig, /['"]\/c-drama-fandom\/trope-decoder['"]\s*,\s*['"]\/c-drama-fandom\/trope-decoder\/index\.html['"]/);
+  assert.match(viteConfig, /new Map\(publicStaticPreviewRoutes\(\)\)/);
   assert.match(netlify, /from = "\/c-drama-fandom\/trope-decoder"[\s\S]*?to = "\/c-drama-fandom\/trope-decoder\/index\.html"/);
   for (const slug of [
     "cp",
@@ -192,10 +464,6 @@ test("robots and sitemap expose only intended public surfaces", () => {
     "duanju-microdrama-vertical-drama",
   ]) {
     assert.match(
-      viteConfig,
-      new RegExp(`['"]/c-drama-fandom/glossary/${slug}['"]\\s*,\\s*['"]/c-drama-fandom/glossary/${slug}/index\\.html['"]`),
-    );
-    assert.match(
       netlify,
       new RegExp(`from = "/c-drama-fandom/glossary/${slug}"[\\s\\S]*?to = "/c-drama-fandom/glossary/${slug}/index\\.html"`),
     );
@@ -206,10 +474,6 @@ test("robots and sitemap expose only intended public surfaces", () => {
     "archetypes/black-bellied-vs-white-cut-black",
     "archetypes/white-moonlight-vs-cinnabar-mole",
   ]) {
-    assert.match(
-      viteConfig,
-      new RegExp(`['"]/c-drama-fandom/${slug}['"]\\s*,\\s*['"]/c-drama-fandom/${slug}/index\\.html['"]`),
-    );
     assert.match(
       netlify,
       new RegExp(`from = "/c-drama-fandom/${slug}"[\\s\\S]*?to = "/c-drama-fandom/${slug}/index\\.html"`),
@@ -412,19 +676,33 @@ test("Against the Current stays within Episode 21 and uses registered static edi
   assert.match(html, /Explore the two Vibe Packs linked above/);
   assert.match(html, /Silk-Robed Damage Control<\/strong> <em>\(Pack candidate · unreleased\)<\/em>/);
   assert.match(html, /Spoiler boundary: Episode 21 · No preview, later-episode, novel, or endgame material included/);
+  assert.match(html, /href="\/c-drama-fandom\/soundtrack\/against-the-current\/"/);
   assert.doesNotMatch(html, /Research boundary|Rendition map|Episode 2[2-9]\b|HK01|CPOP HOME/i);
+  assert.match(read("netlify.toml"), /from = "\/c-drama-fandom\/vibing-now\/against-the-current-episode-21"\s+to = "\/c-drama-fandom\/vibing-now\/against-the-current-episode-21\/index\.html"/);
+  assert.equal(new Map(publicStaticPreviewRoutes()).get(path.slice(0, -1)), `${path}index.html`);
   assert.match(read("netlify.toml"), /from = "\/c-drama-fandom\/vibing-now"\s+to = "\/c-drama-fandom\/vibing-now\/index\.html"/);
   assert.match(read("public/c-drama-fandom/index.html"), /Currently Vibing/);
   assert.match(read("public/c-drama-fandom/index.html"), /href="\/c-drama-fandom\/vibing-now\/"/);
-  assert.match(read("netlify.toml"), /from = "\/c-drama-fandom\/vibing-now\/against-the-current-episode-21"\s+to = "\/c-drama-fandom\/vibing-now\/against-the-current-episode-21\/index\.html"/);
-  assert.match(
-    read("vite.config.ts"),
-    /'\/c-drama-fandom\/vibing-now', '\/c-drama-fandom\/vibing-now\/index\.html'/,
-  );
-  assert.match(
-    read("vite.config.ts"),
-    /'\/c-drama-fandom\/vibing-now\/against-the-current-episode-21', '\/c-drama-fandom\/vibing-now\/against-the-current-episode-21\/index\.html'/,
-  );
+});
+
+test("the soundtrack pilot links only to verified licensed listings and stays separate from viewing data", () => {
+  const path = "/c-drama-fandom/soundtrack/against-the-current/";
+  const html = read(`public${path}index.html`);
+  const route = PUBLIC_STATIC_ROUTES.find((entry) => entry.path === path);
+  assert.ok(route);
+  assertCanonicalMatchesRoute(html, route);
+  for (const country of ["us", "gb", "tw"]) {
+    assert.match(html, new RegExp(`https://music\\.apple\\.com/${country}/album/6815627808`));
+  }
+  for (const track of ["6815627811", "6815627814", "6815627816", "6815627821", "6815628003"]) {
+    assert.match(html, new RegExp(`https://music\\.apple\\.com/us/song/${track}`));
+  }
+  assert.match(html, /not a promise that you can play/);
+  assert.match(html, /track names may hint at story developments/);
+  assert.doesNotMatch(html, /<audio\b|<iframe\b|<blockquote\b|lyrics\s*:/i);
+  assert.doesNotMatch(read("scripts/where-to-watch.js"), /soundtrack\/against-the-current/);
+  assert.doesNotMatch(read("docs/against-the-current-availability.json"), /6815627808/);
+  assert.equal(new Map(publicStaticPreviewRoutes()).get(path.slice(0, -1)), `${path}index.html`);
 });
 
 test("Vibing Now landing page is crawlable and advertises the live spoiler boundary", () => {
@@ -469,10 +747,7 @@ test("the public field journal has crawlable direct routes with spoiler-safe met
     netlify,
     /from = "\/c-drama-fandom\/watch-journal\/episodes-1-4"[\s\S]*?to = "\/c-drama-fandom\/watch-journal\/episodes-1-4\/index\.html"/,
   );
-  assert.match(
-    viteConfig,
-    /`\/c-drama-fandom\/watch-journal\/episodes-\$\{start\}-\$\{end\}`/,
-  );
+  assert.match(viteConfig, /new Map\(publicStaticPreviewRoutes\(\)\)/);
 });
 
 test("the C-drama guide makes the Watch Journal discoverable", () => {

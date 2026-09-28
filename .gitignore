@@ -8,6 +8,7 @@ pnpm-debug.log*
 lerna-debug.log*
 
 node_modules
+.cache/
 .netlify
 dist
 dist-ssr
@@ -27,3 +28,6 @@ attached_assets/image_1786887897680.png
 
 # Local Netlify folder
 .netlify
+
+# Separate local worktree; never include it in this site's source.
+.archive-hotfix/

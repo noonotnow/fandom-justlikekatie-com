@@ -18,9 +18,11 @@ import {
   auditRunKey,
   auditRescueCalibrationKey,
   auditVerdictKey,
+  auditVerdictPrefix,
   auditVisualJudgmentIndexKey,
   auditVisualJudgmentKey,
   eligibilityKey,
+  getEligibility,
   pairingFingerprintFor,
   selectEligiblePair,
 } from "./actor-eligibility.js";
@@ -153,6 +155,43 @@ function approved(actor, vibeIdx) {
     [auditCalibrationKey(actorId, vibeIdx, runId)]: calibration,
   };
 }
+
+test("scheduling ignores damaged verdict times and orders valid fallback receipts across pages", async () => {
+  const actor = packs[0];
+  const entries = approved(actor, 0);
+  const runId = `${actor.id}-0-run`;
+  const canonicalKey = auditVerdictKey(actor.id, 0, runId);
+  const prefix = auditVerdictPrefix(actor.id, 0, runId);
+  const canonical = entries[canonicalKey];
+  entries[canonicalKey] = { ...canonical, decidedAt: "not-a-timestamp" };
+  const receipts = [
+    { key: `${prefix}missing`, value: { ...canonical, decidedAt: undefined } },
+    { key: `${prefix}malformed`, value: { ...canonical, decidedAt: "2026-00-01T12:00:00.000Z" } },
+    { key: `${prefix}parseable`, value: { ...canonical, decidedAt: "1" } },
+    { key: `${prefix}normalized`, value: { ...canonical, decidedAt: "2026-02-30T12:00:00.000Z" } },
+    { key: `${prefix}later`, value: { ...canonical, verdict: "rejected", decidedAt: "2026-09-03T12:00:00.000Z" } },
+    { key: `${prefix}tie-b`, value: { ...canonical, verdict: "rejected" } },
+    { key: `${prefix}tie-a`, value: canonical },
+  ];
+  const store = storeWith(entries);
+  for (const { key, value } of receipts.slice(0, 4)) entries[key] = value;
+  assert.equal(await getEligibility(store, actor, 0), null, "invalid timestamps cannot authorize scheduling");
+  for (const { key, value } of receipts.slice(4)) entries[key] = value;
+  assert.equal((await getEligibility(store, actor, 0))?.eligible, true);
+
+  const listed = store.list.bind(store);
+  store.list = options => {
+    if (options?.prefix !== prefix) return listed(options);
+    return (async function* pages() {
+      yield { blobs: receipts.filter((_, index) => index % 2 === 0).map(({ key }) => ({ key })) };
+      yield { blobs: receipts.filter((_, index) => index % 2 === 1).map(({ key }) => ({ key })) };
+    }());
+  };
+  assert.equal((await getEligibility(store, actor, 0))?.eligible, true);
+  entries[canonicalKey] = canonical;
+  entries[`${prefix}tie-a`] = { ...canonical, verdict: "rejected" };
+  assert.equal((await getEligibility(store, actor, 0))?.eligible, true, "valid canonical receipt wins");
+});
 
 function rescueContract(actor, vibeIdx) {
   return {

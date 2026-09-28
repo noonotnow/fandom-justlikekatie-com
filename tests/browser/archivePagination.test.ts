@@ -2,9 +2,12 @@ import assert from 'node:assert/strict';
 import { test } from 'node:test';
 import type { Route } from '@playwright/test';
 import {
+  BROWSER_ENGINES,
   closeBrowserAndServer,
+  gotoTestPage,
   launchBrowserWithServer,
   startViteTestServer,
+  type BrowserEngine,
 } from './browserEngines.ts';
 
 function edition(date: string, actorName: string) {
@@ -20,11 +23,14 @@ function edition(date: string, actorName: string) {
   };
 }
 
-test('archive retries its first page after an empty-state failure', { timeout: 30_000 }, async () => {
-  const [{ server, origin }, browser] = await launchBrowserWithServer(startViteTestServer());
+async function assertFirstPageRetry(engine: BrowserEngine): Promise<void> {
+  const [{ server, origin }, browser] = await launchBrowserWithServer(
+    startViteTestServer(),
+    engine.type,
+  );
   try {
     const page = await browser.newPage();
-    page.setDefaultTimeout(5_000);
+    page.setDefaultTimeout(15_000);
     page.setDefaultNavigationTimeout(20_000);
 
     await page.route('https://www.googletagmanager.com/**', route => route.abort());
@@ -68,7 +74,7 @@ test('archive retries its first page after an empty-state failure', { timeout: 3
       });
     });
 
-    await page.goto(`${origin}/vibe-atlas/archive`, { waitUntil: 'domcontentloaded' });
+    await gotoTestPage(page, `${origin}/vibe-atlas/archive`, { waitUntil: 'domcontentloaded' });
 
     await page.getByRole('alert').getByText('Couldn’t load the archive. Try again.').waitFor();
     assert.equal(
@@ -96,10 +102,21 @@ test('archive retries its first page after an empty-state failure', { timeout: 3
   } finally {
     await closeBrowserAndServer(browser, server);
   }
-});
+}
 
-test('archive pagination appends unique editions and preserves the global count', { timeout: 30_000 }, async () => {
-  const [{ server, origin }, browser] = await launchBrowserWithServer(startViteTestServer());
+for (const engine of BROWSER_ENGINES) {
+  test(
+    `archive retries its first page after an empty-state failure in ${engine.name}`,
+    { timeout: 60_000 },
+    () => assertFirstPageRetry(engine),
+  );
+}
+
+async function assertArchivePagination(engine: BrowserEngine): Promise<void> {
+  const [{ server, origin }, browser] = await launchBrowserWithServer(
+    startViteTestServer(),
+    engine.type,
+  );
   try {
     const page = await browser.newPage();
     page.setDefaultTimeout(5_000);
@@ -142,7 +159,7 @@ test('archive pagination appends unique editions and preserves the global count'
       }
     });
 
-    await page.goto(`${origin}/vibe-atlas/archive`, { waitUntil: 'domcontentloaded' });
+    await gotoTestPage(page, `${origin}/vibe-atlas/archive`, { waitUntil: 'domcontentloaded' });
     await page.getByText('Loading published editions…', { exact: true }).waitFor();
     await assert.doesNotReject(async () => {
       await page.waitForFunction(() => Boolean(document.querySelector('.atlas-archive-page')));
@@ -178,11 +195,18 @@ test('archive pagination appends unique editions and preserves the global count'
     );
     assert.equal(secondPageAttempts, 1, 'loading more should request the next cursor once');
 
-    await page.getByRole('button', { name: 'Retry loading editions' }).click();
+    await page.getByRole('button', { name: 'Retry loading editions' }).evaluate(button => {
+      (button as HTMLButtonElement).click();
+      (button as HTMLButtonElement).click();
+    });
     const loadingButton = page.getByRole('button', { name: 'Loading editions…' });
     await loadingButton.waitFor();
     assert.equal(await loadingButton.isDisabled(), true, 'load more should be disabled while the retry loads');
-    assert.equal(secondPageAttempts, 2, 'retry should request the same cursor again');
+    assert.equal(
+      secondPageAttempts,
+      2,
+      'concurrent retries for the same cursor should share one network request',
+    );
     assert.ok(retryRoute, 'retrying should expose the next page response');
 
     await retryRoute.fulfill({
@@ -223,4 +247,116 @@ test('archive pagination appends unique editions and preserves the global count'
   } finally {
     await closeBrowserAndServer(browser, server);
   }
-});
+}
+
+async function assertOverlappingArchiveLoads(engine: BrowserEngine): Promise<void> {
+  const [{ server, origin }, browser] = await launchBrowserWithServer(
+    startViteTestServer(),
+    engine.type,
+  );
+  try {
+    const page = await browser.newPage();
+    page.setDefaultTimeout(5_000);
+    page.setDefaultNavigationTimeout(10_000);
+
+    let firstPageAttempts = 0;
+    let secondPageRoute: Route | undefined;
+    await page.route('**/.netlify/functions/star-of-day?*', route => {
+      const url = new URL(route.request().url());
+      if (url.searchParams.get('archive') !== '1') {
+        void route.abort();
+        return;
+      }
+      if (url.searchParams.get('cursor') === 'page-2') {
+        secondPageRoute = route;
+        return;
+      }
+
+      firstPageAttempts += 1;
+      if (firstPageAttempts === 1) {
+        void route.fulfill({
+          contentType: 'application/json',
+          body: JSON.stringify({
+            editions: [edition('2026-09-20', 'First Actor')],
+            page: { nextCursor: 'page-2', hasMore: true, total: 2 },
+          }),
+        });
+        return;
+      }
+      void route.fulfill({
+        status: 503,
+        contentType: 'application/json',
+        body: JSON.stringify({ error: 'Temporarily unavailable' }),
+      });
+    });
+
+    await gotoTestPage(page, origin, { waitUntil: 'domcontentloaded' });
+    await page.addScriptTag({
+      type: 'module',
+      content: `
+        import React from '/node_modules/.vite/deps/react.js';
+        import ReactDomClient from '/node_modules/.vite/deps/react-dom_client.js';
+        import { useStarOfDay } from '/src/hooks/useStarOfDay.ts';
+
+        const rootElement = document.createElement('div');
+        rootElement.id = 'archive-hook-harness';
+        document.body.replaceChildren(rootElement);
+
+        const Harness = () => {
+          const archive = useStarOfDay(undefined);
+          return React.createElement(
+            React.Fragment,
+            null,
+            React.createElement('output', { id: 'archive-loading' }, String(archive.archiveLoading)),
+            React.createElement('output', { id: 'archive-error' }, archive.archiveError ?? ''),
+            React.createElement('button', { id: 'load-first', onClick: archive.loadArchive }, 'Load first'),
+            React.createElement('button', { id: 'load-more', onClick: archive.loadMoreArchive }, 'Load more'),
+          );
+        };
+
+        ReactDomClient.createRoot(rootElement).render(React.createElement(Harness));
+      `,
+    });
+
+    await page.locator('#load-first').click();
+    await page.locator('#load-more').click();
+    await page.waitForFunction(() => Boolean(
+      document.querySelector('#archive-loading')?.textContent === 'true',
+    ));
+    assert.ok(secondPageRoute, 'loading more should leave the next cursor request pending');
+
+    await page.locator('#load-first').click();
+    await page.waitForFunction(() => Boolean(
+      document.querySelector('#archive-error')?.textContent?.includes('503'),
+    ));
+    assert.equal(
+      await page.locator('#archive-loading').textContent(),
+      'true',
+      'a failed first-page request must not clear loading for a pending cursor request',
+    );
+
+    await secondPageRoute.fulfill({
+      contentType: 'application/json',
+      body: JSON.stringify({
+        editions: [edition('2026-09-19', 'Second Actor')],
+        page: { nextCursor: null, hasMore: false, total: 2 },
+      }),
+    });
+    await page.waitForFunction(() => document.querySelector('#archive-loading')?.textContent === 'false');
+  } finally {
+    await closeBrowserAndServer(browser, server);
+  }
+}
+
+for (const engine of BROWSER_ENGINES) {
+  test(
+    `archive pagination appends unique editions and preserves the global count in ${engine.name}`,
+    { timeout: 45_000 },
+    () => assertArchivePagination(engine),
+  );
+  test(
+    `archive loading remains active while a different cursor request is still pending in ${engine.name}`,
+    { timeout: 45_000 },
+    () => assertOverlappingArchiveLoads(engine),
+  );
+}

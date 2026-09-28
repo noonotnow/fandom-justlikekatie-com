@@ -14,13 +14,13 @@ import {
 test('membership client exposes only a safe active entitlement', async () => {
   const originalFetch = globalThis.fetch;
   globalThis.fetch = (async (url: string, init?: RequestInit) => {
-    assert.equal(url, '/api/membership/checkout');
+    assert.equal(url, '/api/membership/portal');
     assert.equal(init?.method, 'POST');
     assert.equal(init?.credentials, 'same-origin');
-    return new Response(JSON.stringify({ url: 'https://checkout.stripe.com/c/pay_test' }));
+    return new Response(JSON.stringify({ url: 'https://billing.stripe.com/p/session_test' }));
   }) as typeof fetch;
   try {
-    assert.equal(await createMembershipCheckout(), 'https://checkout.stripe.com/c/pay_test');
+    assert.equal(await createMembershipPortal(), 'https://billing.stripe.com/p/session_test');
   } finally {
     globalThis.fetch = originalFetch;
   }
@@ -93,7 +93,7 @@ test('free sign-in permits Collection sync while Collector gates premium creatio
   assert.match(collectionSource, /activeType === 'builder' \?/);
   assert.doesNotMatch(collectionSource, /Upgrade to use Grid Builder/);
   assert.doesNotMatch(collectionSource, /Cloud sync is available with Founding Member/);
-  assert.match(membershipSource, /Full Collection sync after sign-in/);
+  assert.match(membershipSource, /Full Collection sync after sign-in|Collection sync after sign-in and device merge/);
   assert.doesNotMatch(membershipSource, /Collection sync with Collector access/);
   assert.match(collectionSource, /if \(canSyncCloud\) schedulePublicCollectionSync/);
   assert.match(

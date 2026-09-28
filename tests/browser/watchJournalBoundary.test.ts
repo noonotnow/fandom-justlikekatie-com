@@ -1,6 +1,7 @@
 import assert from 'node:assert/strict';
 import { test } from 'node:test';
 import {
+  gotoTestPage,
   closeBrowserAndServer,
   launchBrowserWithServer,
   startViteTestServer,
@@ -14,7 +15,7 @@ test('an episode-range share page caps a previously saved later boundary', { tim
   const [{ server, origin }, browser] = await launchBrowserWithServer(startApp());
   try {
     const page = await browser.newPage();
-    await page.goto(origin);
+    await gotoTestPage(page, origin);
     await page.evaluate(() => {
       localStorage.setItem('fandom-watch-journal-safe-through:the-untamed', '999');
     });
@@ -40,7 +41,7 @@ test('an episode-range share page caps a previously saved later boundary', { tim
       });
     });
 
-    await page.goto(`${origin}/c-drama-fandom/watch-journal/episodes-1-4/`);
+    await gotoTestPage(page, `${origin}/c-drama-fandom/watch-journal/episodes-1-4/`);
     await page.getByText('Showing only approved records safe through Episode 4.').waitFor();
     assert.deepEqual(requestedBoundaries, ['4']);
     assert.equal(await page.locator('#safe-through').inputValue(), '4');

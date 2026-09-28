@@ -1,5 +1,6 @@
 import test from "node:test";
 import assert from "node:assert/strict";
+import { createHmac } from "node:crypto";
 import { mkdtemp, readFile, rm } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
@@ -11,20 +12,25 @@ import {
 } from "../archive-access-retention.js";
 import {
   ARCHIVE_ACCESS_RETENTION_DAYS,
+  ARCHIVE_REPAIR_HISTORY_LIMIT,
   archiveAccessHealth,
   archiveAccessNotificationDeliveryHealth,
   createArchiveAccessOperationsHandler,
   createArchiveAccessRetentionHandler,
+  listArchiveRepairHistory,
   notifyArchiveAccessTransitions,
   pruneExpiredArchiveAccessChecks,
   recordArchiveAccessCheck,
+  recordArchiveAccessEmailDeliveryEvent,
   recordArchiveRepairAttempt,
+  runArchiveCompatibilityAlertDrill,
   sendArchiveAccessNotification,
 } from "./archive-access-operations.js";
 import {
   config as archiveAccessHealthSchedule,
   createArchiveAccessHealthScheduledHandler,
 } from "../archive-access-health-scheduled.js";
+import { createArchiveAccessEmailWebhookHandler } from "../archive-access-email-webhook.js";
 
 function store() {
   const values = new Map();
@@ -114,6 +120,181 @@ test("archive health endpoint is admin-only", async () => {
     getStore: () => data,
   });
   assert.equal((await denied(new Request("https://example.test/report"), {})).status, 403);
+});
+
+test("compatibility alert drill is synthetic, deduplicated, and fully cleaned up", async () => {
+  const data = store();
+  const sent = [];
+  const result = await runArchiveCompatibilityAlertDrill({
+    store: data,
+    notify: async payload => sent.push(payload),
+    now: new Date("2026-09-20T12:30:00.000Z"),
+  });
+  assert.equal(result.resource, "synthetic:archive-compatibility-alert-drill");
+  assert.deepEqual(sent.map(item => item.status), ["warning", "resolved"]);
+  assert.equal(result.warning.status, "passed");
+  assert.equal(result.duplicateSuppression.status, "passed");
+  assert.equal(result.duplicateSuppression.notificationCount, 0);
+  assert.equal(result.recovery.status, "passed");
+  assert.deepEqual(result.cleanup, { status: "passed", deleted: 5, remaining: 0 });
+  assert.equal(data.values.size, 0);
+});
+
+test("compatibility alert drill cleans up synthetic state when delivery fails", async () => {
+  const data = store();
+  await assert.rejects(runArchiveCompatibilityAlertDrill({
+    store: data,
+    notify: async payload => {
+      if (payload.status === "warning") throw new Error("delivery rejected");
+    },
+    now: new Date("2026-09-20T12:30:00.000Z"),
+  }), /delivery rejected/);
+  assert.equal(data.values.size, 0);
+});
+
+for (const failFirstDelivery of [false, true]) {
+  test(`simultaneous compatibility drills stay isolated when one delivery ${failFirstDelivery ? "fails" : "waits"}`, async () => {
+    const data = store();
+    const now = new Date("2026-09-20T12:30:00.000Z");
+    const sharedState = { untouched: true };
+    await data.setJSON("archive-access:notification-state", sharedState);
+    const firstSent = [];
+    const secondSent = [];
+    let signalWarning;
+    let releaseWarning;
+    const warningReached = new Promise(resolve => { signalWarning = resolve; });
+    const warningHeld = new Promise(resolve => { releaseWarning = resolve; });
+    const first = runArchiveCompatibilityAlertDrill({
+      store: data,
+      now,
+      notify: async payload => {
+        firstSent.push(payload);
+        if (payload.status === "warning") {
+          signalWarning();
+          await warningHeld;
+          if (failFirstDelivery) throw new Error("first delivery rejected");
+        }
+      },
+    });
+    await warningReached;
+    let secondResult;
+    try {
+      secondResult = await runArchiveCompatibilityAlertDrill({
+        store: data,
+        now,
+        notify: async payload => { secondSent.push(payload); },
+      });
+      assert.deepEqual(secondSent.map(item => item.status), ["warning", "resolved"]);
+      assert.deepEqual([
+        secondResult.warning,
+        secondResult.duplicateSuppression,
+        secondResult.recovery,
+      ], [
+        { status: "passed", notificationCount: 1 },
+        { status: "passed", notificationCount: 0 },
+        { status: "passed", notificationCount: 1 },
+      ]);
+      assert.deepEqual(secondResult.cleanup, { status: "passed", deleted: 5, remaining: 0 });
+      assert.ok([...data.values.keys()].some(key =>
+        key.startsWith("archive-access:compatibility-drill:")));
+      assert.deepEqual(data.values.get("archive-access:notification-state"), sharedState);
+    } finally {
+      releaseWarning();
+    }
+    if (failFirstDelivery) {
+      await assert.rejects(first, /first delivery rejected/);
+      assert.deepEqual(firstSent.map(item => item.status), ["warning"]);
+    } else {
+      const firstResult = await first;
+      assert.deepEqual(firstSent.map(item => item.status), ["warning", "resolved"]);
+      assert.deepEqual([
+        firstResult.warning,
+        firstResult.duplicateSuppression,
+        firstResult.recovery,
+      ], [
+        { status: "passed", notificationCount: 1 },
+        { status: "passed", notificationCount: 0 },
+        { status: "passed", notificationCount: 1 },
+      ]);
+      assert.deepEqual(firstResult.cleanup, { status: "passed", deleted: 5, remaining: 0 });
+    }
+    assert.deepEqual(
+      [...data.values.keys()].filter(key => key.startsWith("archive-access:compatibility-drill:")),
+      [],
+    );
+    assert.deepEqual(data.values.get("archive-access:notification-state"), sharedState);
+  });
+}
+
+test("compatibility alert drill recovers omitted ETags through the real Blob contract", async t => {
+  const directory = await mkdtemp(join(tmpdir(), "archive-compatibility-drill-blobs-"));
+  const server = new BlobsServer({ directory });
+  const { address } = await server.start();
+  t.after(async () => {
+    await server.stop();
+    await rm(directory, { recursive: true, force: true });
+  });
+  const data = getStore({
+    edgeURL: address,
+    uncachedEdgeURL: address,
+    name: "archive-compatibility-drill-contract",
+    siteID: "test-site",
+    token: "test-token",
+  });
+  const originalGetWithMetadata = data.getWithMetadata.bind(data);
+  data.getWithMetadata = async (...args) => {
+    const entry = await originalGetWithMetadata(...args);
+    if (!entry) return entry;
+    const { etag: _omitted, ...withoutEtag } = entry;
+    return withoutEtag;
+  };
+  const sent = [];
+
+  const result = await runArchiveCompatibilityAlertDrill({
+    store: data,
+    notify: async payload => sent.push(payload),
+    now: new Date("2026-09-20T12:30:00.000Z"),
+  });
+
+  assert.deepEqual(sent.map(item => item.status), ["warning", "resolved"]);
+  assert.deepEqual([
+    result.warning.status,
+    result.duplicateSuppression.status,
+    result.recovery.status,
+    result.cleanup.status,
+  ], ["passed", "passed", "passed", "passed"]);
+  assert.equal(result.cleanup.remaining, 0);
+  const remaining = await data.list({ prefix: "archive-access:compatibility-drill:" });
+  assert.deepEqual(remaining.blobs, []);
+});
+
+test("compatibility alert drill endpoint requires admin auth and a fixed action", async () => {
+  const data = store();
+  const denied = createArchiveAccessOperationsHandler({
+    auth: { authenticateAdmin: async () => { const error = new Error("No"); error.status = 403; throw error; } },
+    getStore: () => data,
+  });
+  assert.equal((await denied(new Request("https://example.test/report", {
+    method: "POST",
+    body: JSON.stringify({ action: "run_compatibility_alert_drill" }),
+  }), {})).status, 403);
+
+  const sent = [];
+  const handler = createArchiveAccessOperationsHandler({
+    auth: { authenticateAdmin: async () => ({ accountId: "operator" }) },
+    getStore: () => data,
+    notify: async payload => sent.push(payload),
+    now: () => new Date("2026-09-20T12:30:00.000Z"),
+  });
+  const invalid = await handler(new Request("https://example.test/report", {
+    method: "POST",
+    body: JSON.stringify({ action: "run_compatibility_alert_drill", resource: "real-resource" }),
+  }), {});
+  assert.equal(invalid.status, 200);
+  const body = await invalid.json();
+  assert.equal(body.drill.resource, "synthetic:archive-compatibility-alert-drill");
+  assert.equal(sent.some(payload => payload.affectedResource === "real-resource"), false);
+  assert.equal(data.values.size, 0);
 });
 
 test("billing persistence requires consecutive populated hours", async () => {
@@ -321,6 +502,173 @@ test("repeated safe-update failures alert once per incident and recovery resolve
     { kind: "incident", affectedResource: secondResource },
     { kind: "resolved", affectedResource: secondResource },
   ]);
+});
+
+test("repair history keeps only the newest receipts from the first Netlify Blobs listing page", async t => {
+  const directory = await mkdtemp(join(tmpdir(), "archive-repair-history-blobs-"));
+  const server = new BlobsServer({ directory });
+  const { address } = await server.start();
+  t.after(async () => {
+    await server.stop();
+    await rm(directory, { recursive: true, force: true });
+  });
+  const data = getStore({
+    edgeURL: address,
+    uncachedEdgeURL: address,
+    name: "archive-repair-history-contract",
+    siteID: "test-site",
+    token: "test-token",
+  });
+  const receiptCount = 1_001;
+  const firstAttempt = Date.parse("2020-01-01T00:00:00.000Z");
+  const attemptedAt = Array.from(
+    { length: receiptCount },
+    (_, index) => new Date(firstAttempt + index * 24 * 60 * 60 * 1000),
+  );
+  await Promise.all(attemptedAt.map((timestamp, index) =>
+    recordArchiveRepairAttempt(data, {
+      operatorId: `operator-${index}`,
+      attemptedAt: timestamp,
+      scanned: index,
+    })));
+
+  const listCalls = [];
+  const originalList = data.list.bind(data);
+  data.list = options => {
+    listCalls.push(options);
+    return originalList(options);
+  };
+
+  const history = await listArchiveRepairHistory(data);
+
+  assert.deepEqual(listCalls, [{
+    prefix: "archive-repair:receipt:",
+    paginate: true,
+  }]);
+  assert.equal(history.length, ARCHIVE_REPAIR_HISTORY_LIMIT);
+  assert.deepEqual(
+    history.map(receipt => receipt.attemptedAt),
+    attemptedAt.slice(-ARCHIVE_REPAIR_HISTORY_LIMIT).reverse().map(date => date.toISOString()),
+  );
+});
+
+test("repair history backfills malformed recent receipts from the same bounded listing page", async () => {
+  const receiptCount = ARCHIVE_REPAIR_HISTORY_LIMIT + 5;
+  const malformedIndexes = new Set([1, 7, 19]);
+  const unreadableIndex = 12;
+  const keys = Array.from(
+    { length: receiptCount },
+    (_, index) => `archive-repair:receipt:${String(index).padStart(4, "0")}`,
+  );
+  const receipts = new Map(keys.map((key, index) => [key, malformedIndexes.has(index)
+    ? { kind: "invalid-repair-receipt", attemptedAt: "not-a-date" }
+    : {
+      kind: "vibe-atlas-archive-repair-receipt",
+      attemptedAt: new Date(Date.UTC(2026, 8, 21) - index * 60_000).toISOString(),
+      operatorId: `operator-${index}`,
+      scanned: index,
+      outcome: "no_op",
+    }]));
+  let listingRequests = 0;
+  const data = {
+    list(options) {
+      assert.deepEqual(options, {
+        prefix: "archive-repair:receipt:",
+        paginate: true,
+      });
+      return {
+        async *[Symbol.asyncIterator]() {
+          listingRequests += 1;
+          yield { blobs: keys.map(key => ({ key })) };
+          throw new Error("repair history must not consume a second listing page");
+        },
+      };
+    },
+    async get(key, options) {
+      assert.deepEqual(options, { type: "json", consistency: "strong" });
+      if (key === keys[unreadableIndex]) {
+        throw new Error("malformed receipt JSON");
+      }
+      return receipts.get(key);
+    },
+  };
+
+  const history = await listArchiveRepairHistory(data);
+  const expected = keys
+    .filter((_, index) => !malformedIndexes.has(index) && index !== unreadableIndex)
+    .slice(0, ARCHIVE_REPAIR_HISTORY_LIMIT)
+    .map(key => receipts.get(key));
+
+  assert.equal(listingRequests, 1);
+  assert.equal(history.length, ARCHIVE_REPAIR_HISTORY_LIMIT);
+  assert.deepEqual(history, expected);
+});
+
+test("archive health reports only an aggregate when malformed repair receipts are skipped", async () => {
+  const data = store();
+  await recordArchiveRepairAttempt(data, {
+    operatorId: "operator-valid",
+    attemptedAt: "2026-09-21T12:00:00.000Z",
+    scanned: 1,
+  });
+  await data.setJSON("archive-repair:receipt:0000:private-malformed-key", {
+    kind: "private-malformed-kind",
+    attemptedAt: "private-malformed-date",
+    operatorId: "private-operator",
+    scanned: "private-scanned-value",
+    outcome: "private-outcome",
+    receiptContents: "private-receipt-contents",
+  });
+
+  const health = await archiveAccessHealth(data, new Date("2026-09-21T12:30:00.000Z"));
+
+  assert.deepEqual(health.repairHistory, {
+    status: "records_skipped",
+    skippedRecords: 1,
+  });
+  const serialized = JSON.stringify(health);
+  assert.equal(serialized.includes("private-malformed"), false);
+  assert.equal(serialized.includes("private-operator"), false);
+  assert.equal(serialized.includes("private-receipt-contents"), false);
+});
+
+test("archive health reports only an aggregate when repair receipt JSON reads fail", async () => {
+  const data = store();
+  await recordArchiveRepairAttempt(data, {
+    operatorId: "operator-valid",
+    attemptedAt: "2026-09-21T12:00:00.000Z",
+    scanned: 1,
+  });
+  const unreadableKey = "archive-repair:receipt:0000:private-unreadable-key";
+  await data.setJSON(unreadableKey, { placeholder: true });
+  const originalGet = data.get;
+  data.get = async (key, options) => {
+    if (key === unreadableKey) throw new Error("private storage read failure");
+    return originalGet(key, options);
+  };
+
+  const health = await archiveAccessHealth(data, new Date("2026-09-21T12:30:00.000Z"));
+
+  assert.deepEqual(health.repairHistory, {
+    status: "records_skipped",
+    skippedRecords: 1,
+  });
+  const serialized = JSON.stringify(health);
+  assert.equal(serialized.includes("private-unreadable-key"), false);
+  assert.equal(serialized.includes("private storage read failure"), false);
+});
+
+test("archive health is unchanged when every repair receipt is valid", async () => {
+  const data = store();
+  await recordArchiveRepairAttempt(data, {
+    operatorId: "operator-valid",
+    attemptedAt: "2026-09-21T12:00:00.000Z",
+    scanned: 1,
+  });
+
+  const health = await archiveAccessHealth(data, new Date("2026-09-21T12:30:00.000Z"));
+
+  assert.equal(Object.hasOwn(health, "repairHistory"), false);
 });
 
 test("retention cleanup paginates high-volume records without changing the rolling report", async () => {
@@ -817,6 +1165,8 @@ test("repair warning delivery failures expose a bounded deduplicated health sign
     lastFailedAt: "2026-09-20T14:00:00.000Z",
     consecutiveFailures: 5,
     escalatedAt: "2026-09-20T12:30:00.000Z",
+    emailStatus: "rejected",
+    emailStatusUpdatedAt: "2026-09-20T14:00:00.000Z",
   });
   assert.equal(JSON.stringify(data.values.get("archive-access:notification-repairs"))
     .includes("private provider"), false);
@@ -936,7 +1286,74 @@ test("successful repair warning delivery resets its failure streak and re-arms e
     lastFailedAt: "2026-09-20T12:30:00.000Z",
     consecutiveFailures: 0,
     escalatedAt: null,
+    providerStatus: null,
+    providerUpdatedAt: "2026-09-20T13:30:00.000Z",
+    providerMessageId: null,
   });
+});
+
+test("signed delivery events update repair warning email health without retaining payload details", async () => {
+  const data = store();
+  const acceptedAt = new Date("2026-09-20T10:30:00.000Z");
+  await data.setJSON("archive-access:notification-repairs", {
+    timestamps: [
+      "2026-09-20T08:00:00.000Z",
+      "2026-09-20T09:00:00.000Z",
+      "2026-09-20T10:00:00.000Z",
+    ],
+    warnedAt: null,
+  });
+  await notifyArchiveAccessTransitions({
+    store: data,
+    health: { status: { billing: "normal", deniedAccess: "normal" } },
+    notify: async () => ({ providerMessageId: "repair-warning-message-1" }),
+    now: acceptedAt,
+  });
+  let deliveryHealth = await archiveAccessNotificationDeliveryHealth(data, acceptedAt);
+  assert.equal(deliveryHealth.repairWarning.emailStatus, "accepted");
+  assert.equal(JSON.stringify(deliveryHealth).includes("repair-warning-message-1"), false);
+
+  const secretBytes = Buffer.from("repair-warning-webhook-secret");
+  const secret = `whsec_${secretBytes.toString("base64")}`;
+  const timestamp = String(Math.floor(acceptedAt.getTime() / 1000));
+  const event = JSON.stringify({
+    type: "email.delivered",
+    created_at: "2026-09-20T10:31:00.000Z",
+    data: {
+      email_id: "repair-warning-message-1",
+      to: ["private-operator@example.test"],
+      subject: "private repair warning",
+    },
+  });
+  const signature = createHmac("sha256", secretBytes)
+    .update(`repair-warning-event.${timestamp}.${event}`)
+    .digest("base64");
+  const handler = createArchiveAccessEmailWebhookHandler({
+    env: { RESEND_WEBHOOK_SECRET: secret },
+    getStore: () => data,
+    now: () => acceptedAt,
+  });
+  const response = await handler(new Request("https://example.test/webhook", {
+    method: "POST",
+    headers: {
+      "svix-id": "repair-warning-event",
+      "svix-timestamp": timestamp,
+      "svix-signature": `v1,${signature}`,
+    },
+    body: event,
+  }), {});
+  assert.equal(response.status, 204);
+  deliveryHealth = await archiveAccessNotificationDeliveryHealth(
+    data,
+    new Date("2026-09-20T10:31:00.000Z"),
+  );
+  assert.equal(deliveryHealth.repairWarning.emailStatus, "delivered");
+  assert.equal(deliveryHealth.repairWarning.emailStatusUpdatedAt, "2026-09-20T10:31:00.000Z");
+  assert.equal(JSON.stringify(deliveryHealth).includes("repair-warning-message-1"), false);
+  assert.equal(JSON.stringify(data.values.get("archive-access:notification-repairs"))
+    .includes("private repair warning"), false);
+  assert.equal(JSON.stringify(data.values.get("archive-access:notification-repairs"))
+    .includes("private-operator"), false);
 });
 
 test("repair warnings re-arm after the previous repair window expires", async () => {
@@ -1296,6 +1713,8 @@ test("notification delivery failure never changes the health response", async ()
     lastSucceededAt: null,
     lastFailedAt: now.toISOString(),
     consecutiveFailures: 1,
+    emailStatus: "rejected",
+    emailStatusUpdatedAt: now.toISOString(),
     repair: {
       count: 0,
       lastRepairedAt: null,
@@ -1360,7 +1779,121 @@ test("repeated delivery failures remain a bounded summary and success resets the
     lastSucceededAt: successAt.toISOString(),
     lastFailedAt: new Date(now.getTime() + 2 * 60_000).toISOString(),
     consecutiveFailures: 0,
+    providerStatus: null,
+    providerUpdatedAt: successAt.toISOString(),
+    providerMessageId: null,
   });
+});
+
+test("accepted archive email status advances through signed delivery events without leaking identifiers", async () => {
+  const data = store();
+  const acceptedAt = new Date("2026-09-20T12:30:00.000Z");
+  const health = {
+    recentHour: {
+      billing_delay: 4,
+      authenticated_checks: 10,
+      billingDelayRate: 0.4,
+    },
+    status: { billing: "warning", deniedAccess: "normal" },
+  };
+  await notifyArchiveAccessTransitions({
+    store: data,
+    health,
+    now: acceptedAt,
+    notify: async () => ({ providerMessageId: "resend-message-1" }),
+  });
+  let deliveryHealth = await archiveAccessNotificationDeliveryHealth(data, acceptedAt);
+  assert.equal(deliveryHealth.emailStatus, "accepted");
+  assert.equal(JSON.stringify(deliveryHealth).includes("resend-message-1"), false);
+
+  const deliveredAt = "2026-09-20T12:31:00.000Z";
+  assert.equal(await recordArchiveAccessEmailDeliveryEvent(data, {
+    providerMessageId: "resend-message-1",
+    status: "delivered",
+    occurredAt: deliveredAt,
+  }), true);
+  assert.equal(await recordArchiveAccessEmailDeliveryEvent(data, {
+    providerMessageId: "resend-message-1",
+    status: "delivered",
+    occurredAt: deliveredAt,
+  }), true);
+  deliveryHealth = await archiveAccessNotificationDeliveryHealth(data, new Date(deliveredAt));
+  assert.equal(deliveryHealth.emailStatus, "delivered");
+  assert.equal(deliveryHealth.emailStatusUpdatedAt, deliveredAt);
+  const bouncedAt = "2026-09-20T12:32:00.000Z";
+  assert.equal(await recordArchiveAccessEmailDeliveryEvent(data, {
+    providerMessageId: "resend-message-1",
+    status: "bounced",
+    occurredAt: bouncedAt,
+  }), true);
+  deliveryHealth = await archiveAccessNotificationDeliveryHealth(data, new Date(bouncedAt));
+  assert.equal(deliveryHealth.emailStatus, "bounced");
+  assert.equal(deliveryHealth.emailStatusUpdatedAt, bouncedAt);
+  assert.equal(Object.keys(data.values.get("archive-access:notification-state").delivery).length, 8);
+});
+
+test("archive email webhook verifies signatures and records bounded rejected status", async () => {
+  const data = store();
+  const now = new Date("2026-09-20T12:32:00.000Z");
+  await data.setJSON("archive-access:notification-state", {
+    updatedAt: now.toISOString(),
+    signals: {},
+    repair: { count: 0, lastRepairedAt: null },
+    delivery: {
+      status: "success",
+      attemptedAt: now.toISOString(),
+      lastSucceededAt: now.toISOString(),
+      lastFailedAt: null,
+      consecutiveFailures: 0,
+      providerStatus: "accepted",
+      providerUpdatedAt: now.toISOString(),
+      providerMessageId: "resend-message-2",
+    },
+  });
+  const secretBytes = Buffer.from("archive-webhook-test-secret");
+  const secret = `whsec_${secretBytes.toString("base64")}`;
+  const timestamp = String(Math.floor(now.getTime() / 1000));
+  const event = JSON.stringify({
+    type: "email.failed",
+    created_at: "2026-09-20T12:32:30.000Z",
+    data: {
+      email_id: "resend-message-2",
+      to: ["must-not-be-persisted@example.test"],
+      subject: "must not be persisted",
+    },
+  });
+  const signature = createHmac("sha256", secretBytes)
+    .update(`webhook-event-1.${timestamp}.${event}`)
+    .digest("base64");
+  const handler = createArchiveAccessEmailWebhookHandler({
+    env: { RESEND_WEBHOOK_SECRET: secret },
+    getStore: () => data,
+    now: () => now,
+  });
+  const response = await handler(new Request("https://example.test/webhook", {
+    method: "POST",
+    headers: {
+      "svix-id": "webhook-event-1",
+      "svix-timestamp": timestamp,
+      "svix-signature": `v1,${signature}`,
+    },
+    body: event,
+  }), {});
+  assert.equal(response.status, 204);
+  const stored = data.values.get("archive-access:notification-state");
+  assert.equal(stored.delivery.providerStatus, "rejected");
+  assert.equal(JSON.stringify(stored).includes("must-not-be-persisted"), false);
+
+  const unauthorized = await handler(new Request("https://example.test/webhook", {
+    method: "POST",
+    headers: {
+      "svix-id": "webhook-event-2",
+      "svix-timestamp": timestamp,
+      "svix-signature": "v1,invalid",
+    },
+    body: event,
+  }), {});
+  assert.equal(unauthorized.status, 401);
 });
 
 test("scheduled archive health runs hourly through shared transitions and isolates failures", async () => {
@@ -1491,7 +2024,7 @@ test("notification email contains aggregate operations data only", async () => {
     },
     fetchImpl: async (...args) => {
       request = args;
-      return new Response(null, { status: 202 });
+      return Response.json({ id: "resend-aggregate-message" }, { status: 202 });
     },
   });
   const message = JSON.parse(request[1].body);
@@ -1518,7 +2051,7 @@ test("repair warning email contains only aggregate count and timestamps", async 
     },
     fetchImpl: async (...args) => {
       request = args;
-      return new Response(null, { status: 202 });
+      return Response.json({ id: "resend-repair-message" }, { status: 202 });
     },
   });
 

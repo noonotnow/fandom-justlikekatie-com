@@ -14,6 +14,7 @@ import {
   ensureArchiveAccessWindow,
   freeArchiveDates,
   listArchiveCatalogEditions,
+  listArchiveCatalogPage,
   publicArchiveEdition,
   reconcileArchiveCatalogIndexes,
   repairArchiveCatalogPublicRecords,
@@ -384,6 +385,223 @@ test("simultaneous publications use independent keys and preserve both editions"
     (await listArchiveCatalogEditions(store)).map(item => item.date),
     ["2026-09-21", "2026-09-20"],
   );
+});
+
+test("concurrent new-year publications replace the bounded snapshot without losing prior-year totals", async () => {
+  const edition = date => ({
+    date,
+    actorName: `Actor ${date}`,
+    vibeLabel: "氛围",
+    previewThumbnails: [],
+    access: "member",
+  });
+  const priorYearDates = ["2026-12-31", "2026-12-30", "2026-01-01"];
+  const store = memoryStore({});
+  for (const date of priorYearDates) {
+    await updateArchiveCatalog(store, edition(date));
+  }
+  await listArchiveCatalogPage(store, {
+    limit: 10,
+    throughDate: "2026-12-31",
+  });
+
+  await Promise.all([
+    updateArchiveCatalog(store, edition("2027-01-01")),
+    updateArchiveCatalog(store, edition("2027-01-02")),
+  ]);
+
+  const index = await store.get(ARCHIVE_CATALOG_INDEX_KEY, { type: "json" });
+  assert.deepEqual(index.years, ["2027", "2026"]);
+  assert.deepEqual(index.yearCounts, { 2026: 3, 2027: 2 });
+  assert.equal(index.total, 5);
+  assert.deepEqual(index.newestYearDates, ["2027-01-02", "2027-01-01"]);
+
+  const beforeBoundary = await listArchiveCatalogPage(store, {
+    limit: 10,
+    throughDate: "2026-12-30",
+  });
+  assert.equal(beforeBoundary.total, 2);
+  assert.deepEqual(
+    beforeBoundary.editions.map(item => item.date),
+    ["2026-12-30", "2026-01-01"],
+  );
+
+  const afterBoundary = await listArchiveCatalogPage(store, {
+    limit: 10,
+    throughDate: "2027-01-01",
+  });
+  assert.equal(afterBoundary.total, 4);
+  assert.deepEqual(
+    afterBoundary.editions.map(item => item.date),
+    ["2027-01-01", ...priorYearDates],
+  );
+});
+
+test("a legacy index upgrades safely after the first new-year publication", async () => {
+  const edition = date => ({
+    date,
+    actorName: `Actor ${date}`,
+    vibeLabel: "氛围",
+    previewThumbnails: [],
+    access: "member",
+  });
+  const store = memoryStore({});
+  for (const date of ["2026-12-31", "2026-12-30", "2026-01-01"]) {
+    await updateArchiveCatalog(store, edition(date));
+  }
+  await updateArchiveCatalog(store, edition("2027-01-01"));
+
+  const legacyIndex = await store.get(ARCHIVE_CATALOG_INDEX_KEY, { type: "json" });
+  assert.deepEqual(legacyIndex.years, ["2027", "2026"]);
+  assert.equal(legacyIndex.yearCounts, undefined);
+  assert.equal(legacyIndex.newestYearDates, undefined);
+
+  store.synchronizeNextMetadataReads(ARCHIVE_CATALOG_INDEX_KEY, 2);
+  const [beforeBoundary, afterBoundary] = await Promise.all([
+    listArchiveCatalogPage(store, {
+      limit: 10,
+      throughDate: "2026-12-30",
+    }),
+    listArchiveCatalogPage(store, {
+      limit: 10,
+      throughDate: "2027-01-01",
+    }),
+  ]);
+
+  assert.equal(beforeBoundary.total, 2);
+  assert.deepEqual(
+    beforeBoundary.editions.map(item => item.date),
+    ["2026-12-30", "2026-01-01"],
+  );
+  assert.equal(afterBoundary.total, 4);
+  assert.deepEqual(
+    afterBoundary.editions.map(item => item.date),
+    ["2027-01-01", "2026-12-31", "2026-12-30", "2026-01-01"],
+  );
+
+  const upgradedIndex = await store.get(ARCHIVE_CATALOG_INDEX_KEY, { type: "json" });
+  assert.deepEqual(upgradedIndex.yearCounts, { 2027: 1, 2026: 3 });
+  assert.equal(upgradedIndex.total, 4);
+  assert.deepEqual(upgradedIndex.newestYearDates, ["2027-01-01"]);
+  assert.equal(store.stats().conflicts, 1);
+});
+
+test("a counted index without a snapshot upgrades on concurrent bounded reads after New Year", async () => {
+  const edition = date => ({
+    date,
+    actorName: `Actor ${date}`,
+    vibeLabel: "氛围",
+    previewThumbnails: [],
+    access: "member",
+  });
+  const priorYearDates = ["2026-12-31", "2026-12-30", "2026-01-01"];
+  const store = memoryStore({
+    ...Object.fromEntries(priorYearDates.map(date => [
+      `${ARCHIVE_CATALOG_EDITION_PREFIX}${date}`, edition(date),
+    ])),
+    [`${ARCHIVE_CATALOG_YEAR_PREFIX}2026`]: {
+      schemaVersion: 1,
+      catalogVersion: 2,
+      kind: "vibe-atlas-archive-catalog-year",
+      year: "2026",
+      dates: priorYearDates,
+    },
+    [ARCHIVE_CATALOG_INDEX_KEY]: {
+      schemaVersion: 1,
+      catalogVersion: 2,
+      kind: "vibe-atlas-archive-catalog-index",
+      years: ["2026"],
+      yearCounts: { 2026: 3 },
+      total: 3,
+    },
+  });
+
+  await updateArchiveCatalog(store, edition("2027-01-01"));
+  await updateArchiveCatalog(store, edition("2027-01-02"));
+  const countedIndex = await store.get(ARCHIVE_CATALOG_INDEX_KEY, { type: "json" });
+  assert.deepEqual(countedIndex.years, ["2027", "2026"]);
+  assert.deepEqual(countedIndex.yearCounts, { 2026: 3, 2027: 2 });
+  assert.equal(countedIndex.total, 5);
+  assert.equal(countedIndex.newestYearDates, undefined);
+
+  store.synchronizeNextMetadataReads(ARCHIVE_CATALOG_INDEX_KEY, 2);
+  const [beforeBoundary, afterBoundary] = await Promise.all([
+    listArchiveCatalogPage(store, { limit: 10, throughDate: "2026-12-30" }),
+    listArchiveCatalogPage(store, { limit: 10, throughDate: "2027-01-01" }),
+  ]);
+  assert.equal(beforeBoundary.total, 2);
+  assert.deepEqual(beforeBoundary.editions.map(item => item.date), priorYearDates.slice(1));
+  assert.equal(afterBoundary.total, 4);
+  assert.deepEqual(
+    afterBoundary.editions.map(item => item.date),
+    ["2027-01-01", ...priorYearDates],
+  );
+
+  const upgradedIndex = await store.get(ARCHIVE_CATALOG_INDEX_KEY, { type: "json" });
+  assert.deepEqual(upgradedIndex.yearCounts, { 2026: 3, 2027: 2 });
+  assert.equal(upgradedIndex.total, 5);
+  assert.deepEqual(upgradedIndex.newestYearDates, ["2027-01-02", "2027-01-01"]);
+  assert.equal(store.stats().conflicts, 1);
+});
+
+test("a publication racing the counted-index upgrade keeps the complete newest-year snapshot", async () => {
+  const edition = date => ({ date, actorName: `Actor ${date}`, vibeLabel: "氛围" });
+  const store = memoryStore({
+    [`${ARCHIVE_CATALOG_EDITION_PREFIX}2026-12-31`]: edition("2026-12-31"),
+    [`${ARCHIVE_CATALOG_YEAR_PREFIX}2026`]: {
+      schemaVersion: 1,
+      catalogVersion: 2,
+      kind: "vibe-atlas-archive-catalog-year",
+      year: "2026",
+      dates: ["2026-12-31"],
+    },
+    [ARCHIVE_CATALOG_INDEX_KEY]: {
+      schemaVersion: 1,
+      catalogVersion: 2,
+      kind: "vibe-atlas-archive-catalog-index",
+      years: ["2026"],
+      yearCounts: { 2026: 1 },
+      total: 1,
+    },
+  });
+  await updateArchiveCatalog(store, edition("2027-01-01"));
+
+  let signalBucketRead;
+  const bucketRead = new Promise(resolve => { signalBucketRead = resolve; });
+  let resumeBucketRead;
+  const resumed = new Promise(resolve => { resumeBucketRead = resolve; });
+  const get = store.get;
+  let paused = false;
+  store.get = async (key, options) => {
+    const result = await get(key, options);
+    if (key === `${ARCHIVE_CATALOG_YEAR_PREFIX}2027` && !paused) {
+      paused = true;
+      signalBucketRead();
+      await resumed;
+    }
+    return result;
+  };
+  const pagePromise = listArchiveCatalogPage(store, {
+    limit: 10,
+    throughDate: "2027-01-01",
+  });
+  await bucketRead;
+  try {
+    await updateArchiveCatalog(store, edition("2027-01-02"));
+  } finally {
+    resumeBucketRead();
+  }
+  const page = await pagePromise;
+  assert.equal(page.total, 2);
+  assert.deepEqual(page.editions.map(item => item.date), ["2027-01-01", "2026-12-31"]);
+  const index = await store.get(ARCHIVE_CATALOG_INDEX_KEY, { type: "json" });
+  assert.deepEqual(index.yearCounts, { 2026: 1, 2027: 2 });
+  assert.equal(index.total, 3);
+  assert.deepEqual(index.newestYearDates, ["2027-01-02", "2027-01-01"]);
+  assert.equal(store.stats().conflicts, 1);
+
+  await updateArchiveCatalog(store, edition("2027-01-03"));
+  assert.equal((await store.get(ARCHIVE_CATALOG_INDEX_KEY, { type: "json" })).total, 4);
 });
 
 test("same-edition updates without revision tags signal lost safe-update support and preserve authoritative metadata", async t => {
@@ -1101,9 +1319,21 @@ function memoryStore(entries) {
   const values = new Map(Object.entries(entries));
   const revisions = new Map([...values.keys()].map(key => [key, 1]));
   let listCalls = 0;
+  let conflicts = 0;
   const writtenKeys = [];
+  let metadataBarrier = null;
   return {
-    stats: () => ({ listCalls, writtenKeys }),
+    stats: () => ({ listCalls, writtenKeys, conflicts }),
+    synchronizeNextMetadataReads(key, count) {
+      let release;
+      metadataBarrier = {
+        key,
+        count,
+        reads: 0,
+        promise: new Promise(resolve => { release = resolve; }),
+        release,
+      };
+    },
     async get(key, options) {
       const value = values.get(key);
       return options?.type === "json" && value ? structuredClone(value) : value || null;
@@ -1118,15 +1348,26 @@ function memoryStore(entries) {
     },
     async getWithMetadata(key, options) {
       const value = values.get(key);
-      return {
+      const snapshot = {
         data: options?.type === "json" && value ? structuredClone(value) : value || null,
         ...(value ? { etag: `revision-${revisions.get(key)}` } : {}),
       };
+      const barrier = metadataBarrier;
+      if (barrier?.key === key && barrier.reads < barrier.count) {
+        barrier.reads += 1;
+        if (barrier.reads === barrier.count) barrier.release();
+        await barrier.promise;
+      }
+      return snapshot;
     },
     async setJSON(key, value, options = {}) {
       const revision = revisions.get(key) || 0;
-      if (options.onlyIfNew && values.has(key)) return { modified: false };
+      if (options.onlyIfNew && values.has(key)) {
+        conflicts += 1;
+        return { modified: false };
+      }
       if (options.onlyIfMatch && options.onlyIfMatch !== `revision-${revision}`) {
+        conflicts += 1;
         return { modified: false };
       }
       values.set(key, structuredClone(value));

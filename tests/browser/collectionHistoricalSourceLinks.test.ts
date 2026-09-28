@@ -2,6 +2,7 @@ import assert from 'node:assert/strict';
 import { test } from 'node:test';
 import { type Page } from '@playwright/test';
 import {
+  gotoTestPage,
   closeBrowserAndServer,
   launchPageForServer,
   startViteTestServer,
@@ -25,7 +26,61 @@ async function seedCollection(page: Page): Promise<void> {
       request.onsuccess = () => resolve(request.result);
       request.onerror = () => reject(request.error);
     });
-    const transaction = db.transaction('sync', 'readwrite');
+    const transaction = db.transaction(['grids', 'sync'], 'readwrite');
+    const grids = transaction.objectStore('grids');
+    const baseGrid = {
+      kind: 'grid',
+      schemaVersion: 1,
+      rendererVersion: 'vibe-atlas-v1',
+      actorAccentColor: '#aabbcc',
+      vibe: 'Archive source test',
+      vibeEn: 'Archive source test',
+      vibeEmoji: '📜',
+      vibeSubtitle: '',
+      vibeSubtitleEn: '',
+      searchSpell: 'archive source test',
+      edition: { provider: null, misprint: false, legendary: false },
+      sourceRoute: '/vibe-atlas',
+    };
+    grids.put({
+      ...baseGrid,
+      id: 'local-historical-source-grid',
+      localId: 'historical-source-local',
+      actorId: 'historical-source-actor',
+      actor: 'Historical Source Actor',
+      actorEn: 'Historical Source Actor',
+      capturedDate: '2026-09-19',
+      generatedAt: '2026-09-19T10:00:00.000Z',
+      savedAt: '2026-09-19T10:00:00.000Z',
+      sourceProvenance: { kind: 'edition', editionDate: '2026-09-19' },
+      images: [],
+    });
+    grids.put({
+      ...baseGrid,
+      id: 'local-corrected-source-grid',
+      localId: 'corrected-source-local',
+      actorId: 'corrected-source-actor',
+      actor: 'Corrected Source Actor',
+      actorEn: 'Corrected Source Actor',
+      capturedDate: '2026-09-18',
+      generatedAt: '2026-09-18T10:00:00.000Z',
+      savedAt: '2026-09-18T10:00:00.000Z',
+      sourceProvenance: { kind: 'edition', editionDate: '2026-09-18' },
+      images: [],
+    });
+    grids.put({
+      ...baseGrid,
+      id: 'local-legacy-source-grid',
+      localId: 'legacy-existing-local',
+      serverId: 'server-legacy-source-grid',
+      actorId: 'legacy-source-actor',
+      actor: 'Legacy Source Actor',
+      actorEn: 'Legacy Source Actor',
+      capturedDate: '2026-08-01',
+      generatedAt: '2026-08-01T09:00:00.000Z',
+      savedAt: '2026-08-01T09:00:00.000Z',
+      images: [],
+    });
     transaction.objectStore('sync').put({
       key: 'state',
       clientId: 'collection-source-links-browser-test',
@@ -44,9 +99,13 @@ async function seedCollection(page: Page): Promise<void> {
 }
 
 test('Collection keeps historical Daily Drop source links visible on saved grids', { timeout: 60_000 }, async () => {
-  const { server, origin } = await startViteTestServer();
+  const { server, origin } = await startViteTestServer({
+    configFile: 'vite.config.ts',
+    server: { host: '127.0.0.1', port: 0, strictPort: false },
+  });
   const { browser, page } = await launchPageForServer(server);
   let syncRequests = 0;
+  const submittedLocalIds = new Set<string>();
 
   try {
     await page.route('**/api/auth/session', route => route.fulfill({
@@ -70,7 +129,8 @@ test('Collection keeps historical Daily Drop source links visible on saved grids
       };
       syncRequests += 1;
       assert.equal(request.expectedAccountId, ACCOUNT_ID);
-      assert.deepEqual(request.operations, []);
+      const operationLocalIds = request.operations.map(operation => operation.localId).sort();
+      operationLocalIds.forEach(localId => submittedLocalIds.add(String(localId)));
       const grid = {
         kind: 'grid',
         schemaVersion: 1,
@@ -126,25 +186,47 @@ test('Collection keeps historical Daily Drop source links visible on saved grids
               title: 'Legacy source image',
               gridPosition: 0,
             }],
+          }, {
+            ...grid,
+            id: 'server-corrected-source-grid',
+            artifactId: 'corrected-source-grid',
+            localId: 'corrected-source-local',
+            actorId: 'corrected-source-actor',
+            actor: 'Corrected Source Actor',
+            actorEn: 'Corrected Source Actor',
+            capturedDate: '2026-09-18',
+            generatedAt: '2026-09-18T10:00:00.000Z',
+            savedAt: '2026-09-18T10:00:00.000Z',
+            sourceProvenance: null,
+            images: [{
+              resultId: 'corrected-source-image',
+              imageUrl: 'https://images.example/corrected-source.jpg',
+              sourceUrl: 'https://source.example/corrected-source',
+              title: 'Corrected source image',
+              gridPosition: 0,
+            }],
           }],
           tombstones: [],
           mappings: {
             'historical-source-local': 'server-historical-source-grid',
             'legacy-source-local': 'server-legacy-source-grid',
+            'corrected-source-local': 'server-corrected-source-grid',
           },
-          acknowledgedMutationIds: [],
+          acknowledgedMutationIds: request.operations.map(operation => operation.mutationId),
         }),
       });
     });
 
-    await page.goto(origin);
+    await gotoTestPage(page, origin, { waitUntil: 'domcontentloaded' });
     await seedCollection(page);
-    await page.goto(`${origin}/vibe-atlas?view=collection`);
+    await gotoTestPage(page, `${origin}/vibe-atlas?view=collection`, { waitUntil: 'domcontentloaded' });
 
     const historicalGrid = page.locator('article').filter({ hasText: 'Historical Source Actor' });
     const legacyGrid = page.locator('article').filter({ hasText: 'Legacy Source Actor' });
+    const correctedGrid = page.locator('article').filter({ hasText: 'Corrected Source Actor' });
     await historicalGrid.waitFor();
     await legacyGrid.waitFor();
+    await correctedGrid.waitFor();
 
     const cardSourceLink = historicalGrid.getByRole('link', { name: EDITION_LABEL });
     assert.equal(await cardSourceLink.getAttribute('href'), EDITION_HREF);
@@ -154,13 +236,33 @@ test('Collection keeps historical Daily Drop source links visible on saved grids
       0,
       'legacy grids without source provenance must not render an empty source label',
     );
+    assert.equal(await historicalGrid.getByText('Sep 19, 2026').count(), 0);
+    assert.equal(
+      await correctedGrid.getByText('Historical Daily Drop', { exact: false }).count(),
+      0,
+      'cloud corrections must retire stale source labels on Collection cards',
+    );
 
     await historicalGrid.getByRole('button', { name: 'View Historical Source Actor Archive source test grid larger' }).click();
     const dialog = page.getByRole('dialog', { name: '📜 Historical Source Actor' });
     const dialogSourceLink = dialog.getByRole('link', { name: EDITION_LABEL });
     await dialog.getByText(`Historical Daily Drop · ${EDITION_LABEL}`).waitFor();
     assert.equal(await dialogSourceLink.getAttribute('href'), EDITION_HREF);
-    assert.equal(syncRequests, 1, 'the Collection should render these grids after one account-sync response');
+    await dialog.getByRole('button', { name: 'Close enlarged view' }).click();
+
+    await correctedGrid.getByRole('button', { name: 'View Corrected Source Actor Archive source test grid larger' }).click();
+    const correctedDialog = page.getByRole('dialog', { name: '📜 Corrected Source Actor' });
+    assert.equal(
+      await correctedDialog.getByText('Historical Daily Drop', { exact: false }).count(),
+      0,
+      'cloud corrections must retire stale source links in the expanded grid',
+    );
+    assert.deepEqual([...submittedLocalIds].sort(), [
+      'corrected-source-local',
+      'historical-source-local',
+      'legacy-existing-local',
+    ]);
+    assert.ok(syncRequests >= 3, 'the Collection should finish after acknowledging the merged grid revisions');
   } finally {
     await closeBrowserAndServer(browser, server);
   }

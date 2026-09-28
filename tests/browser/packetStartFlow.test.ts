@@ -3,6 +3,7 @@ import { test } from 'node:test';
 import { type Page } from '@playwright/test';
 import { createServer, type ViteDevServer } from 'vite';
 import {
+  gotoTestPage,
   BROWSER_ENGINES,
   closeBrowserAndServer,
   launchBrowserForServer,
@@ -173,12 +174,12 @@ async function mockReleaseDesk(page: Page): Promise<void> {
 }
 
 async function openOperatorConsole(page: Page, origin: string): Promise<void> {
-  await page.goto(origin);
+  await gotoTestPage(page, origin);
   await seedSavedGrid(page);
-  await page.goto(`${origin}/vibe-atlas?view=collection`);
+  await gotoTestPage(page, `${origin}/vibe-atlas?view=collection`);
   await page.getByText('Packet flow actor').first().waitFor();
   assert.equal(await page.getByRole('button', { name: 'Make a post in Workstation' }).count(), 0);
-  await page.goto(`${origin}/vibe-atlas?admin=true`);
+  await gotoTestPage(page, `${origin}/vibe-atlas?admin=true`);
   await page.getByRole('heading', { name: 'Release Desk' }).waitFor();
   const gridSelect = page.getByLabel('Saved FANDOM grid');
   await gridSelect.waitFor();
@@ -262,9 +263,9 @@ test('Operator Console keeps unverified saved grids disabled', { timeout: 60_000
       }),
     }));
     await mockReleaseDesk(page);
-    await page.goto(origin);
+    await gotoTestPage(page, origin);
     await seedSavedGrid(page, 'unverified');
-    await page.goto(`${origin}/vibe-atlas?admin=true`);
+    await gotoTestPage(page, `${origin}/vibe-atlas?admin=true`);
     await page.getByRole('heading', { name: 'Release Desk' }).waitFor();
     await page.locator('p').filter({ hasText: 'Unverified saved grid' }).waitFor();
     assert.equal(

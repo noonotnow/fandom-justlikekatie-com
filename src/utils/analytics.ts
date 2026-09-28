@@ -61,7 +61,7 @@ export function consumeReleasedLibrarySignInReturn(): { source: ReleasedLibraryS
     if (!raw) return null;
     const value = JSON.parse(raw) as Record<string, unknown>;
     if (typeof value.started_at !== 'number' || Date.now() - value.started_at > RELEASED_CHECKOUT_ATTRIBUTION_TTL_MS
-      || !['daily_star', 'public_record', 'library_navigation'].includes(String(value.source))) return null;
+      || !['daily_star', 'public_record', 'article', 'library_navigation'].includes(String(value.source))) return null;
     const safe = releasedPackData(value.source as ReleasedLibrarySource, typeof value.actor_id === 'string' ? value.actor_id : null, typeof value.vibe_index === 'number' ? value.vibe_index : null);
     return { source: value.source as ReleasedLibrarySource, ...(typeof safe.actor_id === 'string' ? { actorId: safe.actor_id } : {}), ...(typeof safe.vibe_index === 'number' ? { vibeIndex: safe.vibe_index } : {}) };
   } catch { return null; }
@@ -74,7 +74,7 @@ function consumeReleasedCheckoutAttribution(): AnalyticsData | null {
     if (!raw) return null;
     const value = JSON.parse(raw) as Record<string, unknown>;
     if (typeof value.started_at !== 'number' || Date.now() - value.started_at > RELEASED_CHECKOUT_ATTRIBUTION_TTL_MS
-      || !['daily_star', 'public_record', 'library_navigation'].includes(String(value.source))) return null;
+      || !['daily_star', 'public_record', 'article', 'library_navigation'].includes(String(value.source))) return null;
     return releasedPackData(value.source as ReleasedLibrarySource, typeof value.actor_id === 'string' ? value.actor_id : null, typeof value.vibe_index === 'number' ? value.vibe_index : null);
   } catch { return null; }
 }
@@ -160,47 +160,26 @@ function recordReleasedPackEvent(event: string, data: AnalyticsData): void {
       body: JSON.stringify({ event, ...data }),
       keepalive: true,
     }).catch(() => undefined);
-  } catch { /* Reporting must not prevent navigation or checkout. */ }
+  } catch {
+    // Reporting must not prevent navigation, sign-in, or checkout.
+  }
 }
 
 export function trackReleasedLibraryPageView(source: ReleasedLibrarySource, actorId?: string | null, vibeIndex?: number | null): void {
   recordReleasedPackEvent('released_library_page_view', releasedPackData(source, actorId, vibeIndex));
   const location = `${window.location?.origin ?? ''}${vibeAtlasPath({ view: 'released' })}`;
   if (window.__initialAnalyticsLocation !== location) {
-    try { window.gtag?.('event', 'page_view', { page_location: location }); } catch { /* Optional analytics. */ }
+    try {
+      window.gtag?.('event', 'page_view', { page_location: location });
+    } catch {
+      // Optional analytics cannot prevent a library view.
+    }
   }
 }
 
 function trackReleasedEvent(name: string, data: AnalyticsData): void {
   trackEvent(name, data);
   recordReleasedPackEvent(name, data);
-}
-
-export function trackReleasedLibraryOpened(source: ReleasedLibrarySource, entitled: boolean, actorId?: string | null, vibeIndex?: number | null): void {
-  trackReleasedEvent('released_library_opened', { ...releasedPackData(source, actorId, vibeIndex), entitled });
-}
-
-export function trackReleasedLibraryFilterUsed(filter: ReleasedLibraryFilter, source: ReleasedLibrarySource, actorId?: string | null, vibeIndex?: number | null): void {
-  trackReleasedEvent('released_library_filter_used', { ...releasedPackData(source, actorId, vibeIndex), filter });
-}
-
-export function trackReleasedLibrarySignInStarted(source: ReleasedLibrarySource, actorId?: string | null, vibeIndex?: number | null): void {
-  rememberReleasedAttribution(RELEASED_SIGN_IN_ATTRIBUTION_KEY, source, actorId, vibeIndex);
-  trackReleasedEvent('released_library_sign_in_started', releasedPackData(source, actorId, vibeIndex));
-}
-
-export function trackReleasedLibraryCheckoutStarted(source: ReleasedLibrarySource, actorId?: string | null, vibeIndex?: number | null): void {
-  rememberReleasedAttribution(RELEASED_CHECKOUT_ATTRIBUTION_KEY, source, actorId, vibeIndex);
-  trackReleasedEvent('released_library_checkout_started', releasedPackData(source, actorId, vibeIndex));
-}
-
-export function trackReleasedLibraryCollectorActivated(): void {
-  const attribution = consumeReleasedCheckoutAttribution();
-  if (attribution) trackReleasedEvent('released_library_collector_activated', attribution);
-}
-
-export function trackReleasedPackOpened(source: ReleasedLibrarySource, actorId: string, vibeIndex: number): void {
-  trackReleasedEvent('released_pack_opened', releasedPackData(source, actorId, vibeIndex));
 }
 
 function recordDailyDropEvent(event: DailyDropServerEvent): void {
@@ -241,6 +220,61 @@ function dailyDropEvent(
 
 export function trackDailyArchiveOpened(): void {
   trackEvent('daily_archive_opened');
+}
+
+export function trackReleasedLibraryOpened(
+  source: ReleasedLibrarySource,
+  entitled: boolean,
+  actorId?: string | null,
+  vibeIndex?: number | null,
+): void {
+  trackReleasedEvent('released_library_opened', {
+    ...releasedPackData(source, actorId, vibeIndex),
+    entitled,
+  });
+}
+
+export function trackReleasedLibraryFilterUsed(
+  filter: ReleasedLibraryFilter,
+  source: ReleasedLibrarySource,
+  actorId?: string | null,
+  vibeIndex?: number | null,
+): void {
+  trackReleasedEvent('released_library_filter_used', {
+    ...releasedPackData(source, actorId, vibeIndex),
+    filter,
+  });
+}
+
+export function trackReleasedLibrarySignInStarted(
+  source: ReleasedLibrarySource,
+  actorId?: string | null,
+  vibeIndex?: number | null,
+): void {
+  rememberReleasedAttribution(RELEASED_SIGN_IN_ATTRIBUTION_KEY, source, actorId, vibeIndex);
+  trackReleasedEvent('released_library_sign_in_started', releasedPackData(source, actorId, vibeIndex));
+}
+
+export function trackReleasedLibraryCheckoutStarted(
+  source: ReleasedLibrarySource,
+  actorId?: string | null,
+  vibeIndex?: number | null,
+): void {
+  rememberReleasedAttribution(RELEASED_CHECKOUT_ATTRIBUTION_KEY, source, actorId, vibeIndex);
+  trackReleasedEvent('released_library_checkout_started', releasedPackData(source, actorId, vibeIndex));
+}
+
+export function trackReleasedLibraryCollectorActivated(): void {
+  const attribution = consumeReleasedCheckoutAttribution();
+  if (attribution) trackReleasedEvent('released_library_collector_activated', attribution);
+}
+
+export function trackReleasedPackOpened(
+  source: ReleasedLibrarySource,
+  actorId: string,
+  vibeIndex: number,
+): void {
+  trackReleasedEvent('released_pack_opened', releasedPackData(source, actorId, vibeIndex));
 }
 
 export function trackDailyArchiveEditionSelected(

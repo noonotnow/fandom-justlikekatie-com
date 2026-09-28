@@ -30,6 +30,10 @@ const audienceEvidenceReceiptIndexSource = await readFile(
   new URL('../src/components/FandomAdmin/AudienceEvidenceReceiptIndex.tsx', import.meta.url),
   'utf8',
 );
+const archiveRepairHistorySource = await readFile(
+  new URL('../src/components/FandomAdmin/ArchiveRepairHistory.tsx', import.meta.url),
+  'utf8',
+);
 const collectionSource = await readFile(
   new URL('../src/components/Collection/Collection.tsx', import.meta.url),
   'utf8',
@@ -131,9 +135,67 @@ test('Release Desk is the Admin workspace for private inventory', () => {
     appSource.indexOf(': adminLoading ?'),
     appSource.indexOf('</div>', appSource.indexOf('<FandomAdmin')),
   );
-  assert.match(privateGate, /!isAdmin \? \(\s*<AdminSignIn \/>/);
+  assert.match(privateGate, /!hasAdminAccess \? \(\s*<AdminSignIn \/>/);
   assert.match(privateGate, /<FandomAdmin initialView="release-desk" \/>/);
   assert.doesNotMatch(appSource, /<span>Release Desk<\/span>/);
+});
+
+test('archive repair receipts stay inside the admin workspace and show safe operator fields', async () => {
+  assert.match(adminSource, />Archive repairs<\/button>/);
+  assert.match(adminSource, /<ArchiveRepairHistory \/>/);
+  assert.match(archiveRepairHistorySource, /data-outcome=\{receipt\.outcome\}/);
+  assert.match(archiveRepairHistorySource, /Failure classification/);
+  assert.match(archiveRepairHistorySource, /receipt\.operatorId/);
+  assert.match(archiveRepairHistorySource, /receipt\.scanned\.toLocaleString/);
+  assert.match(archiveRepairHistorySource, /receipt\.repairedDates\.join/);
+  assert.match(appSource.slice(
+    appSource.indexOf(': adminLoading ?'),
+    appSource.indexOf('</div>', appSource.indexOf('<FandomAdmin')),
+  ), /!hasAdminAccess \? \(\s*<AdminSignIn \/>/);
+
+  const originalFetch = globalThis.fetch;
+  globalThis.fetch = (async input => {
+    assert.equal(String(input), '/.netlify/functions/star-of-day?archiveRepairHistory=1');
+    return Response.json({
+      history: [
+        {
+          attemptedAt: '2026-09-20T10:00:00.000Z',
+          operatorId: 'operator-old',
+          scanned: 4,
+          repairedDates: [],
+          outcome: 'no_op',
+        },
+        {
+          attemptedAt: '2026-09-20T12:00:00.000Z',
+          operatorId: 'operator-new',
+          scanned: 12,
+          repairedDates: ['2026-09-19'],
+          outcome: 'repaired',
+        },
+        {
+          attemptedAt: '2026-09-20T11:00:00.000Z',
+          operatorId: 'operator-failed',
+          scanned: 2,
+          repairedDates: [],
+          outcome: 'failed',
+          errorClassification: 'safe_update_unavailable',
+        },
+      ],
+    });
+  }) as typeof fetch;
+  try {
+    const { loadArchiveRepairHistory } = await import(
+      '../src/components/FandomAdmin/ArchiveRepairHistory'
+    );
+    const history = await loadArchiveRepairHistory();
+    assert.deepEqual(history.map(receipt => receipt.operatorId), [
+      'operator-new',
+      'operator-failed',
+      'operator-old',
+    ]);
+  } finally {
+    globalThis.fetch = originalFetch;
+  }
 });
 
 test('receipt-index readiness renders a clearly healthy release-ready state', () => {
@@ -174,10 +236,20 @@ test('receipt-index notification delivery failure is separate from healthy index
   assert.match(markup, /Last delivered:/);
 });
 
-test('Release Desk Audience evidence renders billing receipt-index warnings and release-ready health', async () => {
+test('archive operator health names provider delivery outcomes without recipient details', () => {
+  assert.match(releaseDeskSource, /delivery\.emailStatus/);
+  assert.match(releaseDeskSource, /repairWarningDelivery\.emailStatus/);
+  assert.match(releaseDeskSource, /Notification repair warning:/);
+  assert.match(releaseDeskSource, /emailStatus === 'bounced'/);
+  assert.match(releaseDeskSource, /emailStatus === 'rejected'/);
+  assert.doesNotMatch(releaseDeskSource, /notificationDelivery\.(recipient|email|subject|content)/);
+});
+
+test('Release Desk Audience evidence renders billing readiness and aggregate archive repair warnings', async () => {
   const originalFetch = globalThis.fetch;
   const originalActEnvironment = globalThis.IS_REACT_ACT_ENVIRONMENT;
   let receiptIndex = { status: 'missing', releaseReady: false };
+  let repairHistory: Record<string, unknown> | undefined;
   const receiptIndexNotifications = {
     status: 'delivered',
     lastAttemptAt: '2026-09-20T13:00:00.000Z',
@@ -195,7 +267,7 @@ test('Release Desk Audience evidence renders billing receipt-index warnings and 
       return Response.json({ summary: { recordCount: 0 } });
     }
     if (url.includes('archive-access-operations')) {
-      return Response.json({ status: {} });
+      return Response.json({ status: {}, ...(repairHistory ? { repairHistory } : {}) });
     }
     if (url.includes('billing-operations')) {
       return Response.json({ receiptIndex, receiptIndexNotifications, identityConflict: null });
@@ -238,7 +310,35 @@ test('Release Desk Audience evidence renders billing receipt-index warnings and 
     assert.match(healthyMarkup, /Release-ready/);
     assert.match(healthyMarkup, /resolved/);
     assert.match(healthyMarkup, /retention index is valid and ready/);
+    assert.doesNotMatch(healthyMarkup, /Archive repair history:/);
     assert.equal(desk!.root.findAll(node => node.props.role === 'alert').length, 0);
+    await act(async () => {
+      desk!.unmount();
+    });
+    repairHistory = {
+      status: 'records_skipped',
+      skippedRecords: 2,
+      receiptContents: 'private-receipt',
+      storageError: 'private-storage-error',
+      operatorId: 'private-operator',
+      blobKey: 'private-blob-key',
+    };
+    await act(async () => {
+      desk = create(createElement(ReleaseDesk));
+    });
+    await act(async () => {
+      const audienceTab = desk!.root.findAllByType('button')
+        .find(button => button.props.role === 'tab' && button.props.children[0] === 'Audience evidence');
+      assert.ok(audienceTab);
+      audienceTab.props.onClick();
+    });
+    const skippedMarkup = JSON.stringify(desk!.toJSON());
+    assert.match(skippedMarkup, /"children":\["Archive repair history: ","2"," record","s"," skipped\."\]/);
+    assert.ok(desk!.root.findAll(node => node.props.role === 'alert')
+      .some(node => JSON.stringify(node.props.children).includes('Archive repair history:')));
+    for (const privateValue of ['private-receipt', 'private-storage-error', 'private-operator', 'private-blob-key']) {
+      assert.doesNotMatch(skippedMarkup, new RegExp(privateValue));
+    }
     await act(async () => {
       desk!.unmount();
     });

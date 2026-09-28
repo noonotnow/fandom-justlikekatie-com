@@ -45,13 +45,13 @@ function alwaysConflictStore() {
 
 function makeAdminAuth(accountId = "usr_admin_01") {
   return {
-    authenticateAdmin: async () => ({ user: { accountId, email: "admin@example.com" } }),
+    authenticate: async () => ({ user: { accountId, email: "admin@example.com" } }),
   };
 }
 
 function makeAuth(status, message) {
   return {
-    authenticateAdmin: async () => {
+    authenticate: async () => {
       const err = new Error(message);
       err.status = status;
       throw err;
@@ -273,18 +273,21 @@ test("returns 401 when not signed in", async () => {
   assert.ok((await res.json()).error);
 });
 
-test("returns 403 when signed in but not admin", async () => {
-  const handler = makeHandler({ auth: makeAuth(403, "Admin access is required.") });
+test("allows a signed-in non-admin", async () => {
+  const handler = makeHandler({
+    auth: {
+      authenticate: async () => ({ user: { accountId: "member-1", email: "member@example.com" } }),
+    },
+  });
   const res = await handler(makeRequest(VISUAL_BODY), {});
-  assert.equal(res.status, 403);
-  assert.ok((await res.json()).error);
+  assert.equal(res.status, 200);
 });
 
 test("does not expose unexpected authentication failure details", async () => {
   const sensitiveMessage = "session store failed with credential=private-value";
   const handler = makeHandler({
     auth: {
-      authenticateAdmin: async () => {
+      authenticate: async () => {
         throw new Error(sensitiveMessage);
       },
     },
@@ -1686,7 +1689,7 @@ test("all responses have application/json Content-Type", async () => {
 // Real auth integration
 // ---------------------------------------------------------------------------
 
-test("real auth: non-admin gets 403, admin session succeeds", async () => {
+test("real auth: signed-in non-admin and admin sessions succeed", async () => {
   const { createPublicAuth } = await import("./public-auth.js");
   const stores = new Map();
   const getStore = name => {
@@ -1728,12 +1731,13 @@ test("real auth: non-admin gets 403, admin session succeeds", async () => {
     makeConnectorClient: () => connector,
     now: () => Date.now(),
   });
-  const denied = await nonAdminHandler(new Request(`${ORIGIN}/.netlify/functions/middle-earth-ai`, {
+  const nonAdminResponse = await nonAdminHandler(new Request(`${ORIGIN}/.netlify/functions/middle-earth-ai`, {
     method: "POST",
     headers: { origin: ORIGIN, cookie: nonAdmin.cookie, "content-type": "application/json" },
     body: JSON.stringify(VISUAL_BODY),
   }), {});
-  assert.equal(denied.status, 403);
+  assert.equal(nonAdminResponse.status, 200);
+  assert.equal((await nonAdminResponse.json()).mode, "visual");
 
   const admin = await mintSession("admin@example.com", "magic-token-for-admin-at-least-thirty-two-chars");
   const adminHandler = createMiddleEarthAIHandler({

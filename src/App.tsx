@@ -29,7 +29,7 @@ import {
 } from './utils/membership';
 import { Membership } from './components/Membership/Membership';
 import { ReleasedPackLibrary } from './components/ReleasedPackLibrary/ReleasedPackLibrary';
-import { useIsAdmin } from './hooks/useIsAdmin';
+import { useSession } from './hooks/useSession';
 import {
   hasMalformedGridBuilderSource,
   hasInvalidVibeAtlasEditionDate,
@@ -70,11 +70,14 @@ import type {
   ArchiveRecordLocation,
   ArchiveRecordType,
 } from './utils/analytics';
-import { PUBLIC_ROUTE_PATHS, publicRouteUrl } from '../shared/public-routes.js';
+import { PUBLIC_ORIGIN, PUBLIC_ROUTE_PATHS, publicRouteUrl } from '../shared/public-routes.js';
 
 /** Number of columns in the grid — used to calculate preview row insertion */
 const GRID_COLS = 3;
 const LAST_SAVED_EDITION_KEY = 'fandom_vibe_atlas_last_saved_edition';
+type DailyPackPublication =
+  | { pairKey: string; status: 'checking' | 'unpublished' | 'unavailable' }
+  | { pairKey: string; status: 'published' | 'snapshot'; canonical?: string; cards: { thumbnailUrl: string; title: string }[] };
 
 function VisibleArchiveRecordPlacement({
   as: Element,
@@ -174,11 +177,19 @@ function App() {
 }
 
 function MiddleEarthApp() {
-  const { isAdmin } = useIsAdmin();
+  const { hasAdminAccess, isSignedIn, recheck } = useSession();
   const showCollection = new URLSearchParams(window.location.search).get('view') === 'collection';
 
-  if (showCollection) return <Collection scope="middle-earth" hasCollectorAccess={isAdmin} />;
-  return <MiddleEarthWorkspace isAdmin={isAdmin} />;
+  if (showCollection) {
+    return <Collection scope="middle-earth" hasCollectorAccess={hasAdminAccess} />;
+  }
+  return (
+    <MiddleEarthWorkspace
+      canGenerate={isSignedIn}
+      hasAdminAccess={hasAdminAccess}
+      onSessionExpired={recheck}
+    />
+  );
 }
 
 function VibeAtlasApp({ archiveEntry = false }: { archiveEntry?: boolean }) {
@@ -204,7 +215,11 @@ function VibeAtlasApp({ archiveEntry = false }: { archiveEntry?: boolean }) {
   const activeEditionDate = builderSource === 'edition'
     ? selectedEditionDate ?? initialVibeAtlasEditionDate(window.location.search)
     : selectedEditionDate;
-  const { isAdmin, loading: adminLoading, recheck: recheckAdmin } = useIsAdmin();
+  const {
+    hasAdminAccess,
+    loading: adminLoading,
+    recheck: recheckAdmin,
+  } = useSession();
   const { isDark, toggle: toggleDarkMode } = useDarkMode();
   const {
     items: gridImages,
@@ -221,6 +236,59 @@ function VibeAtlasApp({ archiveEntry = false }: { archiveEntry?: boolean }) {
     error,
     gate,
   } = useStarOfDay(archivePage && !activeEditionDate ? undefined : activeEditionDate);
+  const dailyPairKey = rawData ? `${rawData.date}:${rawData.actorId}:${rawData.vibeIdx}` : '';
+  const [dailyPackPublication, setDailyPackPublication] = useState<DailyPackPublication>({ pairKey: '', status: 'checking' });
+  const visibleDailyPublication: DailyPackPublication = dailyPackPublication.pairKey === dailyPairKey
+    ? dailyPackPublication
+    : { pairKey: dailyPairKey, status: 'checking' };
+  useEffect(() => {
+    if (!rawData?.actorId || rawData.vibeIdx === undefined || activeEditionDate) return;
+    const controller = new AbortController();
+    const pairKey = `${rawData.date}:${rawData.actorId}:${rawData.vibeIdx}`;
+    setDailyPackPublication({ pairKey, status: 'checking' });
+    const params = new URLSearchParams({
+      actorId: rawData.actorId,
+      vibeIdx: String(rawData.vibeIdx),
+      date: rawData.date,
+    });
+    fetch(`/.netlify/functions/public-released-pack-preview?${params}`, { signal: controller.signal })
+      .then(async response => {
+        if (response.status === 404) return { pairKey, status: 'unpublished' } as DailyPackPublication;
+        if (!response.ok) return { pairKey, status: 'unavailable' } as DailyPackPublication;
+        const preview: unknown = await response.json();
+        if (!preview || typeof preview !== 'object') {
+          return { pairKey, status: 'unavailable' } as DailyPackPublication;
+        }
+        const result = preview as {
+          kind?: string;
+          canonical?: string;
+          date?: string;
+          actorId?: string;
+          vibeIdx?: number;
+          cards?: { thumbnailUrl?: string; title?: string }[];
+          preview?: { cards?: { thumbnailUrl?: string; title?: string }[] };
+        };
+        const published = result.kind === 'vibe-atlas-released-pack'
+          && result.canonical?.startsWith(`${PUBLIC_ORIGIN}/vibe-atlas/packs/`);
+        const snapshot = result.kind === 'vibe-atlas-daily-pack-snapshot'
+          && result.date === rawData.date
+          && result.actorId === rawData.actorId
+          && result.vibeIdx === rawData.vibeIdx;
+        const cards = published ? result.preview?.cards : snapshot ? result.cards : null;
+        if (!cards || cards.length !== 9 || cards.some(card => !card.thumbnailUrl?.startsWith('https://'))) {
+          return { pairKey, status: 'unavailable' } as DailyPackPublication;
+        }
+        return {
+          pairKey,
+          status: published ? 'published' : 'snapshot',
+          ...(published ? { canonical: result.canonical } : {}),
+          cards: cards.map(card => ({ thumbnailUrl: card.thumbnailUrl!, title: card.title || '' })),
+        } as DailyPackPublication;
+      })
+      .then(status => { if (!controller.signal.aborted) setDailyPackPublication(status); })
+      .catch(() => { if (!controller.signal.aborted) setDailyPackPublication({ pairKey, status: 'unavailable' }); });
+    return () => controller.abort();
+  }, [rawData?.actorId, rawData?.vibeIdx, rawData?.date, activeEditionDate]);
   const dailyBuilderPool = useMemo(
     () => rawData ? buildDailyDropPool(rawData) : [],
     [rawData],
@@ -287,7 +355,7 @@ function VibeAtlasApp({ archiveEntry = false }: { archiveEntry?: boolean }) {
         if (destination) {
           await refreshMembership();
           // Recheck the admin session with the freshly-issued cookie so that
-          // useIsAdmin transitions to isAdmin=true before the Admin view renders.
+          // useSession refreshes admin authority before the Admin view renders.
           recheckAdmin();
           const archiveReturnDate = destination.startsWith('archive:')
             ? destination.slice('archive:'.length)
@@ -448,6 +516,10 @@ function VibeAtlasApp({ archiveEntry = false }: { archiveEntry?: boolean }) {
         : view === 'collection'
           ? 'Your Vibe Atlas Studio | Fandom Vibes'
           : 'Operator Console | Fandom Vibes';
+    const description = archivePage
+      ? 'Browse past Vibe Atlas C-drama collectible card drops, with one star, one vibe, and nine pieces of evidence in every edition.'
+      : 'Browse today’s Vibe Atlas C-drama collectible: one star, one vibe, and nine pieces of evidence.';
+    const publicPath = archivePage ? PUBLIC_ROUTE_PATHS.vibeAtlasArchive : PUBLIC_ROUTE_PATHS.vibeAtlas;
     document.title = title;
 
     const robots = document.querySelector<HTMLMetaElement>('meta[name="robots"]')
@@ -458,9 +530,22 @@ function VibeAtlasApp({ archiveEntry = false }: { archiveEntry?: boolean }) {
     const canonical = document.querySelector<HTMLLinkElement>('link[rel="canonical"]')
       ?? document.head.appendChild(document.createElement('link'));
     canonical.rel = 'canonical';
-    canonical.href = publicRouteUrl(
-      archivePage ? PUBLIC_ROUTE_PATHS.vibeAtlasArchive : PUBLIC_ROUTE_PATHS.vibeAtlas,
-    );
+    canonical.href = publicRouteUrl(publicPath);
+
+    const setMetaContent = (selector: string, attribute: 'name' | 'property', key: string, content: string) => {
+      const meta = document.querySelector<HTMLMetaElement>(selector)
+        ?? document.head.appendChild(document.createElement('meta'));
+      meta.setAttribute(attribute, key);
+      meta.content = content;
+    };
+    setMetaContent('meta[property="og:title"]', 'property', 'og:title', title);
+    setMetaContent('meta[property="og:description"]', 'property', 'og:description', description);
+    setMetaContent('meta[property="og:url"]', 'property', 'og:url', publicRouteUrl(publicPath));
+    setMetaContent('meta[property="og:image"]', 'property', 'og:image', `${PUBLIC_ORIGIN}/assets/c-drama-fandom/legendary-grid-liu-xueyi-2026-08-29.webp`);
+    setMetaContent('meta[name="twitter:card"]', 'name', 'twitter:card', 'summary_large_image');
+    setMetaContent('meta[name="twitter:title"]', 'name', 'twitter:title', title);
+    setMetaContent('meta[name="twitter:description"]', 'name', 'twitter:description', description);
+    setMetaContent('meta[name="twitter:image"]', 'name', 'twitter:image', `${PUBLIC_ORIGIN}/assets/c-drama-fandom/legendary-grid-liu-xueyi-2026-08-29.webp`);
   }, [archivePage, view]);
 
   useEffect(() => {
@@ -533,9 +618,9 @@ function VibeAtlasApp({ archiveEntry = false }: { archiveEntry?: boolean }) {
       ? vibeAtlasPath()
       : destination === 'membership'
         ? vibeAtlasPath({ view: 'membership' })
-      : destination === 'released'
-        ? vibeAtlasPath({ view: 'released' })
-        : vibeAtlasPath({ view: tab === 'grids' ? 'collection' : tab });
+        : destination === 'released'
+          ? vibeAtlasPath({ view: 'released' })
+          : vibeAtlasPath({ view: tab === 'grids' ? 'collection' : tab });
     window.history.pushState({}, '', nextPath);
     setArchivePage(false);
     setCollectionTab(tab);
@@ -799,10 +884,18 @@ function VibeAtlasApp({ archiveEntry = false }: { archiveEntry?: boolean }) {
            <a href="#daily-evidence">Browse today’s drop</a>
            <a href={`${PUBLIC_ROUTE_PATHS.vibeAtlas}?view=builder&source=daily`}>Open the Grid Builder</a>
             {rawData?.actorId && !selectedEditionDate && (
-              <a href="#todays-released-pack">
-                Open today’s free released pack
-             </a>
-           )}
+              <a href="#todays-released-pack">Open today’s free released pack</a>
+            )}
+            {rawData?.actorId && (
+              <a href={vibeAtlasPath({
+                view: 'released',
+                source: 'daily_star',
+                actorId: rawData.actorId,
+                vibeIdx: rawData.vibeIdx,
+              })}>
+                Explore {rawData.actorShortNameEn || rawData.actorName} released packs
+              </a>
+            )}
          </div>
         {gate && selectedEditionDate ? (
           <ArchiveLockedEdition
@@ -898,16 +991,32 @@ function VibeAtlasApp({ archiveEntry = false }: { archiveEntry?: boolean }) {
            </div>
            <div className="daily-released-pack__access">
              <strong>Today’s pack is free on this homepage.</strong>
+             {visibleDailyPublication.status === 'published' ? (
+               <p>This first daily grid also has a permanent public record. <a href={visibleDailyPublication.canonical}>View the released pack</a>.</p>
+             ) : visibleDailyPublication.status === 'snapshot' ? (
+               <p>Today’s first grid is saved as a public snapshot. A permanent editorial page is not published yet.</p>
+             ) : visibleDailyPublication.status === 'unpublished' ? (
+               <p>A permanent public preview has not been published for this pairing. Today’s nine cards remain free here.</p>
+             ) : (
+               <p>Permanent preview status is {visibleDailyPublication.status === 'checking' ? 'being checked' : 'temporarily unavailable'}. Today’s nine cards remain free here.</p>
+             )}
              <p>The full released-pack library stays available to Fandom Collectors.</p>
-             <a href={vibeAtlasPath({
-               view: 'released',
-               source: 'daily_star',
-               actorId: rawData.actorId,
-               vibeIdx: rawData.vibeIdx,
-             })}>
-               Open the Collector library
+              <a href={vibeAtlasPath({
+                view: 'released',
+                source: 'daily_star',
+                actorId: rawData.actorId,
+                vibeIdx: rawData.vibeIdx,
+              })}>
+               Open fresh grids in the Collector library
              </a>
            </div>
+           {(visibleDailyPublication.status === 'published' || visibleDailyPublication.status === 'snapshot') && (
+             <div className="daily-released-pack__teaser" aria-label="First daily grid teaser">
+               {visibleDailyPublication.cards.slice(0, 6).map((card, index) => (
+                 <img key={index} src={card.thumbnailUrl} alt={card.title || `${rawData.vibeLabelEn || rawData.vibeLabel} card ${index + 1}`} loading="lazy" />
+               ))}
+             </div>
+           )}
          </section>
        )}
 
@@ -991,7 +1100,7 @@ function VibeAtlasApp({ archiveEntry = false }: { archiveEntry?: boolean }) {
           }}
           onTypeChange={(type) => {
             const viewParam = type === 'grids' ? 'collection' : type;
-            window.history.replaceState({}, '', `${PUBLIC_ROUTE_PATHS.vibeAtlas}?view=${viewParam}`);
+            window.history.pushState({}, '', `${PUBLIC_ROUTE_PATHS.vibeAtlas}?view=${viewParam}`);
             setCollectionTab(type);
             if (type === 'builder') setBuilderSource('collection');
           }}
@@ -1027,7 +1136,7 @@ function VibeAtlasApp({ archiveEntry = false }: { archiveEntry?: boolean }) {
         <Membership status={membershipStatus} />
       ) : adminLoading ? (
         <div className="admin-gate-loading" aria-label="Checking admin session…" />
-      ) : !isAdmin ? (
+      ) : !hasAdminAccess ? (
         <AdminSignIn />
       ) : (
         <FandomAdmin initialView="release-desk" />

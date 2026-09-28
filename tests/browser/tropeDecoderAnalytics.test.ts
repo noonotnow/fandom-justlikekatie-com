@@ -2,6 +2,7 @@ import assert from 'node:assert/strict';
 import { test } from 'node:test';
 import { type Page } from '@playwright/test';
 import {
+  gotoTestPage,
   BROWSER_ENGINES,
   closeBrowserAndServer,
   launchBrowserWithServer,
@@ -41,7 +42,7 @@ for (const engine of BROWSER_ENGINES) {
     try {
       const nativePage = await browser.newPage();
       await nativePage.route('https://www.googletagmanager.com/**', route => route.abort());
-      await nativePage.goto(`${origin}/c-drama-fandom/trope-decoder/index.html`, {
+      await gotoTestPage(nativePage, `${origin}/c-drama-fandom/trope-decoder/index.html`, {
         waitUntil: 'domcontentloaded',
       });
       await nativePage.evaluate(`
@@ -73,7 +74,7 @@ for (const engine of BROWSER_ENGINES) {
 
       const copyPage = await browser.newPage();
       await copyPage.route('https://www.googletagmanager.com/**', route => route.abort());
-      await copyPage.goto(`${origin}/c-drama-fandom/trope-decoder/index.html`, {
+      await gotoTestPage(copyPage, `${origin}/c-drama-fandom/trope-decoder/index.html`, {
         waitUntil: 'domcontentloaded',
       });
       await copyPage.evaluate(`

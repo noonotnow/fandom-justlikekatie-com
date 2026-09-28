@@ -185,7 +185,17 @@ function isArchiveCatalogIndex(value) {
         && value.years.every(year => Number.isSafeInteger(value.yearCounts[year])
           && value.yearCounts[year] >= 0)
         && Object.keys(value.yearCounts).every(year => value.years.includes(year))
-        && value.total === value.years.reduce((sum, year) => sum + value.yearCounts[year], 0)));
+        && value.total === value.years.reduce((sum, year) => sum + value.yearCounts[year], 0)))
+    && (value.newestYearDates === undefined
+      || (Array.isArray(value.newestYearDates)
+        && (value.years.length === 0
+          ? value.newestYearDates.length === 0
+          : value.newestYearDates.every((date, index, dates) =>
+            date.startsWith(`${value.years[0]}-`)
+            && /^\d{4}-\d{2}-\d{2}$/.test(date)
+            && (index === 0 || dates[index - 1].localeCompare(date) > 0)))
+        && (!value.yearCounts
+          || value.newestYearDates.length === (value.yearCounts[value.years[0]] || 0))));
 }
 
 function isArchiveCatalogYear(value, year) {
@@ -269,6 +279,17 @@ async function ensureArchiveCatalogDates(store, dates) {
           ...Object.fromEntries(countsByYear),
         }
         : null;
+      const newestYear = years[0];
+      // An index with counts but no snapshot must be upgraded from the whole
+      // newest-year bucket on read, not from just this publication's dates.
+      const newestYearDates = current?.yearCounts && !current.newestYearDates
+        ? undefined
+        : datesByYear.has(newestYear)
+          ? [...new Set([
+            ...datesByYear.get(newestYear),
+            ...(current?.years?.[0] === newestYear ? current?.newestYearDates || [] : []),
+          ])].sort().reverse()
+          : current?.newestYearDates;
       return {
         schemaVersion: 1,
         catalogVersion: ARCHIVE_CATALOG_EDITION_VERSION,
@@ -277,6 +298,7 @@ async function ensureArchiveCatalogDates(store, dates) {
         ...(yearCounts ? {
           yearCounts,
           total: years.reduce((sum, year) => sum + yearCounts[year], 0),
+          ...(newestYearDates ? { newestYearDates } : {}),
         } : {}),
       };
     },
@@ -288,28 +310,68 @@ async function ensureArchiveCatalogDate(store, date) {
 }
 
 async function archiveCatalogIndexWithCounts(store, index) {
-  if (index.yearCounts) return index;
-  const buckets = await Promise.all(index.years.map(async year => {
-    const bucket = await store.get(
-      `${ARCHIVE_CATALOG_YEAR_PREFIX}${year}`,
+  if (index.yearCounts && index.newestYearDates) return index;
+  for (let attempt = 0; attempt < 8; attempt += 1) {
+    const withMetadata = typeof store.getWithMetadata === "function"
+      ? await store.getWithMetadata(
+        ARCHIVE_CATALOG_INDEX_KEY,
+        { type: "json", consistency: "strong" },
+      )
+      : null;
+    const current = withMetadata?.data ?? await store.get(
+      ARCHIVE_CATALOG_INDEX_KEY,
       { type: "json", consistency: "strong" },
     );
-    if (!isArchiveCatalogYear(bucket, year)) {
-      throw new Error("The archive catalogue year is invalid.");
+    if (!isArchiveCatalogIndex(current)) {
+      throw new Error("The archive catalogue index is invalid.");
     }
-    return bucket;
-  }));
-  const yearCounts = Object.fromEntries(buckets.map(bucket => [bucket.year, bucket.dates.length]));
-  return ensureArchiveCatalogList(
-    store,
-    ARCHIVE_CATALOG_INDEX_KEY,
-    isArchiveCatalogIndex,
-    current => ({
+    if (current.yearCounts && current.newestYearDates) return current;
+    const buckets = await Promise.all(current.years.map(async year => {
+      if (current.yearCounts && year !== current.years[0]) return null;
+      const bucket = await store.get(
+        `${ARCHIVE_CATALOG_YEAR_PREFIX}${year}`,
+        { type: "json", consistency: "strong" },
+      );
+      if (!isArchiveCatalogYear(bucket, year)) {
+        throw new Error("The archive catalogue year is invalid.");
+      }
+      return bucket;
+    }));
+    const loadedBuckets = buckets.filter(Boolean);
+    const yearCounts = current.yearCounts || Object.fromEntries(
+      loadedBuckets.map(bucket => [bucket.year, bucket.dates.length]),
+    );
+    const newestYearDates =
+      loadedBuckets.find(bucket => bucket.year === current.years[0])?.dates || [];
+    // The year bucket can lead the index briefly while a publication finishes.
+    if (current.yearCounts
+      && newestYearDates.length !== current.yearCounts[current.years[0]]) continue;
+    if (!withMetadata?.etag) {
+      throw archiveSafeUpdateUnavailable({
+        resource: "archive catalogue index",
+        key: ARCHIVE_CATALOG_INDEX_KEY,
+      });
+    }
+    const next = {
       ...current,
       yearCounts,
       total: Object.values(yearCounts).reduce((sum, count) => sum + count, 0),
-    }),
-  );
+      newestYearDates,
+    };
+    const write = await store.setJSON(
+      ARCHIVE_CATALOG_INDEX_KEY,
+      next,
+      { onlyIfMatch: withMetadata.etag },
+    );
+    if (write?.modified === false) continue;
+    const authoritative = await store.get(
+      ARCHIVE_CATALOG_INDEX_KEY,
+      { type: "json", consistency: "strong" },
+    );
+    if (isArchiveCatalogIndex(authoritative)
+      && JSON.stringify(authoritative) === JSON.stringify(next)) return authoritative;
+  }
+  throw new Error("The archive catalogue index could not be updated safely.");
 }
 
 export async function reconcileArchiveCatalogIndexes(
@@ -710,8 +772,12 @@ export async function listArchiveCatalogPage(
     return sum;
   }, 0);
   if (index.years.includes(throughYear)) {
-    const currentBucket = await readBucket(throughYear);
-    total += currentBucket.dates.filter(date => date <= throughDate).length;
+    if (throughYear === index.years[0]) {
+      total += index.newestYearDates.filter(date => date <= throughDate).length;
+    } else {
+      const currentBucket = await readBucket(throughYear);
+      total += currentBucket.dates.filter(date => date <= throughDate).length;
+    }
   }
   const dates = [];
   for (const year of index.years) {

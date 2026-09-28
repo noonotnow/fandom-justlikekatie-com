@@ -82,6 +82,7 @@ const dailyDropApi = async (init?: RequestInit) => {
 export const ReleaseDesk: React.FC = () => {
   const [inventory, setInventory] = useState<AnyRecord | null>(null);
   const [production, setProduction] = useState<AnyRecord | null>(null);
+  const [catalogHealth, setCatalogHealth] = useState<AnyRecord | null>(null);
   const [view, setView] = useState<'inventory' | 'production' | 'audience'>('inventory');
   const [editions, setEditions] = useState<AnyRecord[]>([]);
   const [loading, setLoading] = useState(true);
@@ -102,6 +103,7 @@ export const ReleaseDesk: React.FC = () => {
         if (!live) return;
         setInventory(auditResult.releaseInventory ?? null);
         setProduction(auditResult.productionReadiness ?? null);
+        setCatalogHealth(auditResult.releaseCatalogHealth ?? null);
         setEditions(dailyDropResult.editions ?? []);
       })
       .catch(error => {
@@ -158,12 +160,52 @@ export const ReleaseDesk: React.FC = () => {
                 }}
               />
               <ReleaseInventory inventory={inventory} onRecoverRepairHealth={recoverRepairHealth} />
+              {catalogHealth && <CatalogHealth health={catalogHealth} />}
             </>
             : <div className={styles.empty}>No release inventory was returned.</div>}
         </>}
     </section>
   );
 };
+
+const CATALOG_REASON_LABELS: Record<string, string> = {
+  revoked_eligibility: 'Revoked eligibility',
+  incomplete_inventory: 'Incomplete inventory',
+  missing_editorial_copy: 'Missing substantive editorial copy',
+  malformed_media: 'Malformed media',
+  eligibility_unavailable: 'Eligibility unavailable',
+};
+
+function CatalogHealth({ health }: { health: AnyRecord }) {
+  const pairings = (health.pairings ?? EMPTY_RECORDS) as AnyRecord[];
+  return (
+    <section className={styles.catalogHealth} aria-labelledby="catalog-health-title">
+      <div className={styles.catalogHealthHeader}>
+        <div>
+          <p className={styles.eyebrow}>Private catalog diagnostics</p>
+          <h4 id="catalog-health-title">Released library health</h4>
+          <p>Read-only reasons from the same fail-closed gates used by the public released-pack catalog.</p>
+        </div>
+        <strong>{health.releasedCount ?? 0} released · {health.withheldCount ?? 0} withheld</strong>
+      </div>
+      <div className={styles.catalogHealthList}>
+        {pairings.map(pair => (
+          <article key={`${pair.actorId}:${pair.vibeIdx}`} data-status={pair.status}>
+            <div>
+              <strong>{pair.actorName}</strong>
+              <span>{pair.vibeLabel}</span>
+            </div>
+            <div>
+              <b>{pair.status === 'released' ? 'Released' : CATALOG_REASON_LABELS[pair.reasonCode] ?? 'Withheld'}</b>
+              <p>{pair.summary}</p>
+              {pair.publicationDate && <small>Latest edition · {formatEditionDate(pair.publicationDate)}</small>}
+            </div>
+          </article>
+        ))}
+      </div>
+    </section>
+  );
+}
 
 function EngagementEvidence() {
   const [summary, setSummary] = useState<AnyRecord | null>(null);
@@ -388,18 +430,54 @@ function BillingIdentityConflict({
 }
 
 function ArchiveAccessHealth({ health }: { health: AnyRecord }) {
+  const [drill, setDrill] = useState<AnyRecord | null>(null);
+  const [drillBusy, setDrillBusy] = useState(false);
+  const [drillNotice, setDrillNotice] = useState('');
   const recent = health.recentHour ?? {};
   const status = health.status ?? {};
   const compatibility = health.storageCompatibility ?? {};
+  const repairHistory = health.repairHistory ?? {};
+  const skippedRepairRecords = repairHistory.skippedRecords;
   const notifications = (health.notifications ?? []) as AnyRecord[];
   const delivery = health.notificationDelivery ?? {};
+  const emailStatus = delivery.emailStatus as string | undefined;
+  const repairWarningDelivery = delivery.repairWarning ?? {};
+  const repairWarningEmailStatus = repairWarningDelivery.emailStatus as string | undefined;
   const percentage = (value: unknown) => `${Math.round((Number(value) || 0) * 100)}%`;
+  async function runCompatibilityDrill() {
+    if (drillBusy) return;
+    setDrillBusy(true);
+    setDrillNotice('');
+    try {
+      const response = await fetch('/.netlify/functions/archive-access-operations', {
+        method: 'POST',
+        credentials: 'include',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ action: 'run_compatibility_alert_drill' }),
+      });
+      const result = await response.json().catch(() => null);
+      if (!response.ok) throw new Error(result?.error || 'Compatibility alert drill failed.');
+      setDrill(result?.drill ?? null);
+      setDrillNotice('Synthetic warning and recovery drill completed.');
+    } catch (error) {
+      setDrillNotice(error instanceof Error ? error.message : 'Compatibility alert drill failed.');
+    } finally {
+      setDrillBusy(false);
+    }
+  }
   return (
     <section aria-labelledby="archive-access-health-title">
       <h5 id="archive-access-health-title">Archive access health</h5>
       <p>
         Authenticated server checks only. Normal anonymous preview and sign-in gates are excluded from incident thresholds.
       </p>
+      {repairHistory.status === 'records_skipped'
+        && Number.isSafeInteger(skippedRepairRecords)
+        && skippedRepairRecords > 0 && (
+          <p className={styles.measurementBoundary} role="alert">
+            Archive repair history: {skippedRepairRecords} record{skippedRepairRecords === 1 ? '' : 's'} skipped.
+          </p>
+        )}
       <div className={styles.evidenceMetrics}>
         <div data-warning={status.billing !== 'normal'}>
           <strong>{recent.billing_delay ?? 0}</strong><span>Billing delays · {status.billing ?? 'normal'}</span>
@@ -435,16 +513,48 @@ function ArchiveAccessHealth({ health }: { health: AnyRecord }) {
       )}
       <p
         className={styles.measurementBoundary}
-        role={delivery.status === 'failure' ? 'alert' : 'status'}
+        role={delivery.status === 'failure' || emailStatus === 'bounced' || emailStatus === 'rejected'
+          ? 'alert'
+          : 'status'}
       >
-        Notification delivery: {delivery.status === 'success'
-          ? `last succeeded ${formatDeliveryTime(delivery.attemptedAt)}`
+        Notification delivery: {emailStatus
+          ? `${emailStatus} ${formatDeliveryTime(delivery.emailStatusUpdatedAt)}`
+          : delivery.status === 'success'
+            ? `last succeeded ${formatDeliveryTime(delivery.attemptedAt)}`
           : delivery.status === 'failure'
             ? `last failed ${formatDeliveryTime(delivery.attemptedAt)} · ${delivery.consecutiveFailures ?? 1} consecutive failure${delivery.consecutiveFailures === 1 ? '' : 's'}`
             : delivery.status === 'unavailable'
               ? 'health unavailable'
               : 'no delivery attempted yet'}.
       </p>
+      {repairWarningEmailStatus && (
+        <p
+          className={styles.measurementBoundary}
+          role={repairWarningEmailStatus === 'bounced' || repairWarningEmailStatus === 'rejected'
+            ? 'alert'
+            : 'status'}
+        >
+          Notification repair warning: {repairWarningEmailStatus} {formatDeliveryTime(repairWarningDelivery.emailStatusUpdatedAt)}.
+        </p>
+      )}
+      <div className={styles.compatibilityDrill}>
+        <div>
+          <strong>Compatibility alert drill</strong>
+          <span>Uses an isolated synthetic resource, sends the real warning and recovery alerts, then removes all drill state.</span>
+        </div>
+        <button type="button" onClick={() => void runCompatibilityDrill()} disabled={drillBusy}>
+          {drillBusy ? 'Running drill…' : 'Run alert drill'}
+        </button>
+        {drill && (
+          <dl>
+            <div><dt>Warning</dt><dd>{drill.warning?.status}</dd></div>
+            <div><dt>Duplicate suppression</dt><dd>{drill.duplicateSuppression?.status}</dd></div>
+            <div><dt>Recovery</dt><dd>{drill.recovery?.status}</dd></div>
+            <div><dt>Cleanup</dt><dd>{drill.cleanup?.status}</dd></div>
+          </dl>
+        )}
+        {drillNotice && <p role="status">{drillNotice}</p>}
+      </div>
     </section>
   );
 }

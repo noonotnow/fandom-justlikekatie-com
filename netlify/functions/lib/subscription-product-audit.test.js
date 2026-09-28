@@ -3,6 +3,12 @@ import assert from "node:assert/strict";
 import {
   auditSubscriptionProducts,
   classifySubscription,
+  PROGRESS_REPORTING_OPERATOR_ALERT,
+  progressReportingAlertTransition,
+  recordSharedProgressReportingHealth,
+  sendProgressReportingOperatorAlert,
+  settleProgressReportingAlertDelivery,
+  settleSharedProgressReportingAlertDelivery,
   validateMembershipPriceMappings,
 } from "./subscription-product-audit.js";
 
@@ -107,6 +113,7 @@ test("audit reports safe identifiers and backfills only unambiguous subscription
   assert.equal(report.activeSubscriptions, 3);
   assert.equal(report.identified, 2);
   assert.equal(report.updated, 1);
+  assert.equal(report.progressReportingFailures, 0);
   assert.deepEqual(report.ambiguous, [{
     subscriptionId: "sub_unknown",
     status: "active",
@@ -118,3 +125,262 @@ test("audit reports safe identifiers and backfills only unambiguous subscription
   }]]);
   assert.equal(JSON.stringify(report).includes("customer"), false);
 });
+
+test("audit reports bounded progress only after successful updates", async () => {
+  const rows = {
+    active: [
+      subscription("sub_first_private", "price_collector"),
+      subscription("sub_second_private", "price_creator"),
+    ],
+    trialing: [],
+  };
+  const progress = [];
+  let updateCalls = 0;
+  const stripe = {
+    subscriptions: {
+      list: ({ status }) => ({
+        async *[Symbol.asyncIterator]() { yield* rows[status]; },
+      }),
+      update: async () => {
+        updateCalls += 1;
+        if (updateCalls === 2) throw new Error("provider detail");
+      },
+    },
+  };
+
+  await assert.rejects(
+    auditSubscriptionProducts({
+      stripe,
+      env,
+      apply: true,
+      onUpdateProgress: updateProgress => progress.push(updateProgress),
+    }),
+    /provider detail/,
+  );
+  assert.deepEqual(progress, [{ updated: 1 }]);
+  assert.deepEqual(Object.keys(progress[0]), ["updated"]);
+});
+
+test("audit isolates progress observer failures after completed updates", async () => {
+  const rows = {
+    active: [
+      subscription("sub_first_private", "price_collector"),
+      subscription("sub_second_private", "price_creator"),
+    ],
+    trialing: [],
+  };
+  const progress = [];
+  const updates = [];
+  const stripe = {
+    subscriptions: {
+      list: ({ status }) => ({
+        async *[Symbol.asyncIterator]() { yield* rows[status]; },
+      }),
+      update: async id => updates.push(id),
+    },
+  };
+
+  const report = await auditSubscriptionProducts({
+    stripe,
+    env,
+    apply: true,
+    onUpdateProgress: async updateProgress => {
+      progress.push(updateProgress);
+      throw new Error("observer detail");
+    },
+  });
+
+  assert.deepEqual(updates, ["sub_first_private", "sub_second_private"]);
+  assert.equal(report.updated, 2);
+  assert.equal(report.progressReportingFailures, 2);
+  assert.equal(report.updated <= report.identified, true);
+  assert.deepEqual(progress, [{ updated: 1 }, { updated: 2 }]);
+  assert.deepEqual(progress.map(Object.keys), [["updated"], ["updated"]]);
+  assert.equal(JSON.stringify(progress).includes("sub_"), false);
+  assert.equal(JSON.stringify(progress).includes("price_"), false);
+  assert.deepEqual(
+    Object.keys(report).filter(key => key.toLowerCase().includes("progress")),
+    ["progressReportingFailures"],
+  );
+  const reportingSignal = JSON.stringify({
+    progressReportingFailures: report.progressReportingFailures,
+  });
+  assert.equal(reportingSignal.includes("observer detail"), false);
+  assert.equal(reportingSignal.includes("sub_"), false);
+  assert.equal(reportingSignal.includes("price_"), false);
+  assert.equal(reportingSignal.includes("provider"), false);
+});
+
+test("progress reporting health alerts once at the repeated-run threshold", () => {
+  const first = progressReportingAlertTransition({}, 3);
+  const second = progressReportingAlertTransition(first.state, 1);
+  const later = progressReportingAlertTransition(second.state, 9);
+
+  assert.deepEqual(first, {
+    state: { consecutiveFailureRuns: 1, alertDelivery: "not_attempted" },
+    shouldAlert: false,
+  });
+  assert.deepEqual(second, {
+    state: { consecutiveFailureRuns: 2, alertDelivery: "pending" },
+    shouldAlert: true,
+  });
+  assert.deepEqual(later, {
+    state: { consecutiveFailureRuns: 2, alertDelivery: "pending" },
+    shouldAlert: false,
+  });
+});
+
+test("progress reporting health recovers and can alert after a new streak", () => {
+  const recovered = progressReportingAlertTransition(
+    { consecutiveFailureRuns: 2 },
+    0,
+  );
+  const firstAfterRecovery = progressReportingAlertTransition(recovered.state, 1);
+  const secondAfterRecovery = progressReportingAlertTransition(firstAfterRecovery.state, 1);
+
+  assert.deepEqual(recovered, {
+    state: { consecutiveFailureRuns: 0, alertDelivery: "recovered" },
+    shouldAlert: false,
+  });
+  assert.equal(firstAfterRecovery.shouldAlert, false);
+  assert.equal(secondAfterRecovery.shouldAlert, true);
+});
+
+test("progress reporting alert state is bounded and contains no private details", () => {
+  const privateState = {
+    consecutiveFailureRuns: Number.MAX_SAFE_INTEGER,
+    observerError: "observer detail",
+    subscriptionId: "sub_private",
+    priceId: "price_private",
+    provider: "StripeAPIError",
+  };
+  const transition = progressReportingAlertTransition(privateState, 4);
+  const serialized = JSON.stringify(transition);
+
+  assert.deepEqual(transition, {
+    state: { consecutiveFailureRuns: 2, alertDelivery: "not_attempted" },
+    shouldAlert: false,
+  });
+  assert.doesNotMatch(
+    `${serialized}\n${PROGRESS_REPORTING_OPERATOR_ALERT}`,
+    /observer detail|sub_private|price_private|StripeAPIError/,
+  );
+  assert.equal(PROGRESS_REPORTING_OPERATOR_ALERT.length < 200, true);
+});
+
+test("progress reporting alerts use the operations channel and record delivery", async () => {
+  const requests = [];
+  await sendProgressReportingOperatorAlert({
+    env: {
+      RESEND_API_KEY: "test-key",
+      FANDOM_AUTH_FROM_EMAIL: "Fandom <ops@example.test>",
+      FANDOM_ADMIN_EMAILS: "one@example.test, two@example.test",
+    },
+    fetchImpl: async (url, options) => {
+      requests.push({ url, options });
+      return { ok: true };
+    },
+  });
+
+  assert.equal(requests[0].url, "https://api.resend.com/emails");
+  const payload = JSON.parse(requests[0].options.body);
+  assert.deepEqual(payload.to, ["one@example.test", "two@example.test"]);
+  assert.match(payload.subject, /^\[Fandom operations\]/);
+  assert.doesNotMatch(
+    JSON.stringify(payload),
+    /sub_private|price_private|observer detail|StripeAPIError/,
+  );
+  assert.deepEqual(
+    settleProgressReportingAlertDelivery(
+      { consecutiveFailureRuns: 2, alertDelivery: "pending" },
+      true,
+    ),
+    { consecutiveFailureRuns: 2, alertDelivery: "delivered" },
+  );
+});
+
+test("rejected progress reporting alerts produce a bounded rejection receipt", async () => {
+  await assert.rejects(
+    sendProgressReportingOperatorAlert({
+      env: {
+        RESEND_API_KEY: "test-key",
+        FANDOM_AUTH_FROM_EMAIL: "Fandom <ops@example.test>",
+        FANDOM_ADMIN_EMAILS: "operator@example.test",
+      },
+      fetchImpl: async () => ({ ok: false, status: 503 }),
+    }),
+    /delivery failed \(503\)/,
+  );
+  assert.deepEqual(
+    settleProgressReportingAlertDelivery(
+      { consecutiveFailureRuns: 2, alertDelivery: "pending" },
+      false,
+    ),
+    { consecutiveFailureRuns: 2, alertDelivery: "rejected" },
+  );
+});
+
+test("shared progress reporting health serializes concurrent threshold transitions", async () => {
+  const store = sharedHealthStore({
+    consecutiveFailureRuns: 1,
+    alertDelivery: "not_attempted",
+  });
+  const transitions = await Promise.all([
+    recordSharedProgressReportingHealth(store, 1),
+    recordSharedProgressReportingHealth(store, 1),
+  ]);
+
+  assert.equal(transitions.filter(transition => transition.shouldAlert).length, 1);
+  assert.deepEqual(store.value(), {
+    consecutiveFailureRuns: 2,
+    alertDelivery: "pending",
+  });
+});
+
+test("shared progress reporting health stores bounded state and settles delivery safely", async () => {
+  const store = sharedHealthStore({
+    consecutiveFailureRuns: Number.MAX_SAFE_INTEGER,
+    alertDelivery: "pending",
+    observer: "private observer",
+    subscription: "sub_private",
+    price: "price_private",
+    provider: "StripeAPIError",
+  });
+
+  const transition = await recordSharedProgressReportingHealth(store, 9);
+  await settleSharedProgressReportingAlertDelivery(store, transition.state, false);
+
+  assert.deepEqual(store.value(), {
+    consecutiveFailureRuns: 2,
+    alertDelivery: "rejected",
+  });
+  assert.doesNotMatch(
+    JSON.stringify(store.value()),
+    /observer|sub_private|price_private|StripeAPIError/,
+  );
+});
+
+function sharedHealthStore(initialValue) {
+  let revision = initialValue === undefined ? 0 : 1;
+  let value = initialValue === undefined ? undefined : structuredClone(initialValue);
+  return {
+    async getWithMetadata() {
+      return value === undefined
+        ? null
+        : { data: structuredClone(value), etag: `"${revision}"` };
+    },
+    async setJSON(_key, next, options = {}) {
+      await new Promise(resolve => setImmediate(resolve));
+      if (options.onlyIfNew && value !== undefined) return { modified: false };
+      if (options.onlyIfMatch && options.onlyIfMatch !== `"${revision}"`) {
+        return { modified: false };
+      }
+      revision += 1;
+      value = structuredClone(next);
+      return { modified: true, etag: `"${revision}"` };
+    },
+    value() {
+      return structuredClone(value);
+    },
+  };
+}

@@ -3,6 +3,7 @@ import { test } from 'node:test';
 import { chromium, type BrowserContext, type Page } from '@playwright/test';
 import {
   closeBrowserAndServer,
+  gotoTestPage,
   launchBrowserForServer,
   startViteTestServer,
 } from './browserEngines.ts';
@@ -198,9 +199,9 @@ test('authenticated free accounts sync a merged Collection grid between isolated
       );
     }
 
-    await pageA.goto(origin);
+    await gotoTestPage(pageA, origin);
     await seedCompleteCollectionGrid(pageA);
-    await pageA.goto(`${origin}/vibe-atlas?view=collection`);
+    await gotoTestPage(pageA, `${origin}/vibe-atlas?view=collection`);
     await pageA.getByText('Merge this browser’s grids and saved results into your account?').waitFor();
     await pageA.getByRole('button', { name: 'Merge and sync' }).click();
     await pageA.getByRole('status').filter({ hasText: 'This device is now synced.' }).waitFor();
@@ -209,8 +210,8 @@ test('authenticated free accounts sync a merged Collection grid between isolated
       'merge consent should upload the complete Collection grid to the shared account backend',
     );
 
-    await pageB.goto(origin);
-    await pageB.goto(`${origin}/vibe-atlas?view=collection`);
+    await gotoTestPage(pageB, origin);
+    await gotoTestPage(pageB, `${origin}/vibe-atlas?view=collection`);
     await pageB.getByText('Merge this browser’s grids and saved results into your account?').waitFor();
     await pageB.getByRole('button', { name: 'Merge and sync' }).click();
     await pageB.getByRole('article').filter({ hasText: GRID_ACTOR }).waitFor();

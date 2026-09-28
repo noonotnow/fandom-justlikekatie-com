@@ -11,13 +11,16 @@ const BYTES = Uint8Array.from([0x89, 0x50, 0x4e, 0x47, 0x0d, 0x0a, 0x1a, 0x0a]);
 const CHECKSUM = createHash("sha256").update(BYTES).digest("hex");
 
 function request(overrides = {}) {
+  const url = overrides.url
+    || `${ORIGIN}/api/collection/media?collectionId=middle-earth&itemId=${ITEM_ID}`;
+  const { url: _url, ...requestOverrides } = overrides;
   return new Request(
-    `${ORIGIN}/api/collection/media?collectionId=middle-earth&itemId=${ITEM_ID}`,
+    url,
     {
       method: "POST",
       headers: { origin: ORIGIN, "content-type": "image/png" },
       body: BYTES,
-      ...overrides,
+      ...requestOverrides,
     },
   );
 }
@@ -43,7 +46,10 @@ test("registers collection uploads in MEDIA and returns a stable associated desc
   let mediaMetadata;
   const registered = new Map();
   const handler = createCollectionMediaHandler({
-    auth: { authenticate: async () => ({ user: { accountId: ACCOUNT_ID } }) },
+    auth: {
+      authenticate: async () => ({ user: { accountId: ACCOUNT_ID } }),
+      authenticateAdmin: async () => ({ user: { accountId: ACCOUNT_ID, isAdmin: true } }),
+    },
     getStore: name => {
       assert.equal(name, "fandom-account-media");
       return { setJSON: async (key, value) => registered.set(key, value) };
@@ -80,10 +86,42 @@ test("registers collection uploads in MEDIA and returns a stable associated desc
   );
 });
 
+test("requires an approved operator for Middle-earth media but preserves ordinary collection uploads", async () => {
+  let calls = 0;
+  const forbidden = Object.assign(new Error("Admin access required."), { status: 403 });
+  const handler = createCollectionMediaHandler({
+    auth: {
+      authenticate: async () => ({ user: { accountId: ACCOUNT_ID } }),
+      authenticateAdmin: async () => { throw forbidden; },
+    },
+    env: {
+      MEDIA_ASSETS_TOKEN: "test-token",
+      MEDIA_ASSETS_URL: "https://media.example/v1/assets/images",
+    },
+    fetchImpl: async () => {
+      calls += 1;
+      return mediaResponse();
+    },
+  });
+
+  const middleEarth = await handler(request(), {});
+  assert.equal(middleEarth.status, 403);
+  assert.equal(calls, 0);
+
+  const vibeAtlas = await handler(request({
+    url: `${ORIGIN}/api/collection/media?collectionId=vibe-atlas&itemId=${ITEM_ID}`,
+  }), {});
+  assert.equal(vibeAtlas.status, 200);
+  assert.equal(calls, 1);
+});
+
 test("rejects invalid uploads before MEDIA and never exposes its credential", async () => {
   let calls = 0;
   const handler = createCollectionMediaHandler({
-    auth: { authenticate: async () => ({ user: { accountId: ACCOUNT_ID } }) },
+    auth: {
+      authenticate: async () => ({ user: { accountId: ACCOUNT_ID } }),
+      authenticateAdmin: async () => ({ user: { accountId: ACCOUNT_ID, isAdmin: true } }),
+    },
     env: { MEDIA_ASSETS_TOKEN: "secret-token" },
     fetchImpl: async () => {
       calls += 1;

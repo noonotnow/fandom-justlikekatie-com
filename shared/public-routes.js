@@ -58,6 +58,12 @@ export const PUBLIC_STATIC_ROUTES = Object.freeze([
   { ...editorial("/c-drama-fandom/fandom-games/", "0.9"), changefreq: "weekly" },
   { ...editorial("/c-drama-fandom/vibing-now/", "0.9"), changefreq: "weekly" },
   { ...editorial("/c-drama-fandom/vibing-now/against-the-current-episode-21/", "0.9"), changefreq: "weekly" },
+  { ...editorial("/c-drama-fandom/where-to-watch/against-the-current/", "0.8"), changefreq: "weekly" },
+  { ...editorial("/c-drama-fandom/soundtrack/against-the-current/", "0.8"), changefreq: "weekly" },
+  editorial("/c-dramas/love-between-fairy-and-devil/", "0.9"),
+  editorial("/c-dramas/love-between-fairy-and-devil/relationships/"),
+  editorial("/c-dramas/love-between-fairy-and-devil/themes-symbolism/"),
+  editorial("/c-dramas/love-between-fairy-and-devil/what-to-watch-next/"),
   {
     path: "/c-drama-fandom/watch-journal/",
     changefreq: "weekly",
@@ -77,6 +83,15 @@ export const PUBLIC_STATIC_ROUTES = Object.freeze([
 ]);
 
 export const PUBLIC_STATIC_PATHS = Object.freeze(PUBLIC_STATIC_ROUTES.map(({ path }) => path));
+
+export function publicStaticPreviewRoutes(routes = PUBLIC_STATIC_ROUTES) {
+  return routes
+    .filter(({ group, page }) => group === "editorial" && page)
+    .map(({ path, page }) => [
+      path.replace(/\/+$/, "") || "/",
+      `/${page.replace(/^public\//, "")}`,
+    ]);
+}
 
 export function publicRouteUrl(path) {
   if (!PUBLIC_STATIC_PATHS.includes(path)) {

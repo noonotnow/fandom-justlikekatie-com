@@ -1,4 +1,5 @@
 import { createHash, randomUUID } from "node:crypto";
+import { getWithResolvedEtag } from "./blob-store.js";
 import { json } from "./public-auth.js";
 
 export const WATCH_JOURNAL_SERIES = Object.freeze({
@@ -961,7 +962,7 @@ function validEpisode(value) {
 
 async function getWithMetadata(store, key) {
   if (typeof store.getWithMetadata === "function") {
-    return store.getWithMetadata(key, { type: "json", consistency: "strong" });
+    return getWithResolvedEtag(store, key, { type: "json" });
   }
   const data = await store.get(key, { type: "json", consistency: "strong" });
   return data ? { data } : null;

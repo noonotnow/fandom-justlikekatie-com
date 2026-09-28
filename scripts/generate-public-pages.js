@@ -9,6 +9,7 @@ import {
   PUBLIC_STATIC_ROUTES,
   staticSitemapXml,
 } from "../netlify/functions/lib/public-routes.js";
+import { evaluateWatchRecord, loadWatchRecord, renderWatchPage, WATCH_PAGE, WATCH_ROUTE } from "./where-to-watch.js";
 
 const scriptFile = fileURLToPath(import.meta.url);
 const root = resolve(dirname(scriptFile), "..");
@@ -53,6 +54,57 @@ export const TROPE_DECODER_SHARE_EVENT = "decoder_share_succeeded";
 export const WATCH_JOURNAL_PUBLIC_PAGES = PUBLIC_STATIC_ROUTES
   .filter(({ group }) => group === "journal")
   .map(({ page }) => page);
+
+export function publicStaticNetlifyRedirects(routes = PUBLIC_STATIC_ROUTES) {
+  return routes
+    .filter(({ group, page }) => page && ["editorial", "journal"].includes(group))
+    .map(({ path, page }) => ({
+      from: path.replace(/\/$/, ""),
+      to: `/${page.replace(/^public\//, "")}`,
+      status: 200,
+    }));
+}
+
+export function assertPublicStaticNetlifyRedirects(
+  netlifyConfig,
+  routes = PUBLIC_STATIC_ROUTES,
+) {
+  const redirectBlocks = netlifyConfig
+    .split(/(?=\[\[redirects\]\])/)
+    .filter((block) => block.startsWith("[[redirects]]"));
+
+  for (const expected of publicStaticNetlifyRedirects(routes)) {
+    const matchingIndex = redirectBlocks.findIndex((block) => (
+      block.match(/^\s*from\s*=\s*"([^"]+)"/m)?.[1] === expected.from
+      && block.match(/^\s*to\s*=\s*"([^"]+)"/m)?.[1] === expected.to
+      && Number(block.match(/^\s*status\s*=\s*(\d+)/m)?.[1]) === expected.status
+      && !/^\s*query\s*=/m.test(block)
+    ));
+
+    if (matchingIndex === -1) {
+      throw new Error(
+        `netlify.toml must serve ${expected.from} from ${expected.to} with status ${expected.status}.`,
+      );
+    }
+
+    const blockingRule = redirectBlocks.slice(0, matchingIndex).find((block) => {
+      if (/^\s*query\s*=/m.test(block)) return false;
+      const from = block.match(/^\s*from\s*=\s*"([^"]+)"/m)?.[1];
+      if (!from) return false;
+      const pattern = new RegExp(`^${from
+        .replace(/[.+?^${}()|[\]\\]/g, "\\$&")
+        .replaceAll("*", ".*")}$`);
+      return pattern.test(expected.from);
+    });
+
+    if (blockingRule) {
+      const blocker = blockingRule.match(/^\s*from\s*=\s*"([^"]+)"/m)?.[1];
+      throw new Error(
+        `netlify.toml route ${expected.from} is unreachable behind earlier redirect ${blocker}.`,
+      );
+    }
+  }
+}
 
 function loadLg01Outcomes() {
   const script = readFileSync(gameScript, "utf8");
@@ -479,6 +531,15 @@ async function prepareOutcomeAssets(template) {
 }
 
 export async function preparePublicPages() {
+  // Publication requires both a reviewed record and an explicit registry/redirect change.
+  const watchRegistered = PUBLIC_STATIC_ROUTES.some(({ path }) => path === WATCH_ROUTE);
+  if (watchRegistered) {
+    const record = loadWatchRecord();
+    const gate = evaluateWatchRecord(record);
+    if (!gate.publishable) throw new Error(`Where-to-watch publication blocked: ${gate.issues.join("; ")}`);
+    mkdirSync(dirname(resolve(root, WATCH_PAGE)), { recursive: true });
+    writeFileSync(resolve(root, WATCH_PAGE), renderWatchPage(record));
+  }
   if (!existsSync(source)) {
     throw new Error(`LG · 01 master is missing: ${source}`);
   }
@@ -495,6 +556,7 @@ export async function preparePublicPages() {
       throw new Error(`Required public page is missing: ${page}`);
     }
   }
+  assertPublicStaticNetlifyRedirects(readFileSync(resolve(root, "netlify.toml"), "utf8"));
   assertTropeDecoderAnalyticsContract();
   for (const page of WATCH_JOURNAL_PUBLIC_PAGES) {
     mkdirSync(dirname(resolve(root, page)), { recursive: true });

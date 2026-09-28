@@ -3,6 +3,9 @@ import assert from 'node:assert/strict';
 import { readFile } from 'node:fs/promises';
 import { createElement } from 'react';
 import { act, create } from 'react-test-renderer';
+import { ReleasedPackLibrary } from '../src/components/ReleasedPackLibrary/ReleasedPackLibrary.tsx';
+import { IDBFactory } from 'fake-indexeddb';
+import { dbGetAllCards, dbGetAllGrids } from '../src/utils/collectionDB.ts';
 import {
   consumeReleasedLibrarySignInReturn,
   trackReleasedLibraryCheckoutStarted,
@@ -13,9 +16,13 @@ import {
   trackReleasedLibrarySignInStarted,
   trackReleasedPackOpened,
 } from '../src/utils/analytics.ts';
-import { ReleasedPackLibrary } from '../src/components/ReleasedPackLibrary/ReleasedPackLibrary.tsx';
-import { IDBFactory } from 'fake-indexeddb';
-import { dbGetAllCards, dbGetAllGrids } from '../src/utils/collectionDB.ts';
+
+test('released pack library has a protected entitlement boundary and locked visitor path', async () => {
+  const source = await readFile(new URL('../src/components/ReleasedPackLibrary/ReleasedPackLibrary.tsx', import.meta.url), 'utf8');
+  assert.match(source, /hasCollectorCapability\(status\)/);
+  assert.ok(source.includes("fetch('/.netlify/functions/actor-pack-depth'"));
+  assert.match(source, /if \(!entitled\)/);
+});
 
 function makeGridRun(id: string) {
   return {
@@ -638,7 +645,9 @@ test('released library pageview uses canonical location without duplicating dire
     value: {
       location: { origin: 'https://example.com' },
       __initialAnalyticsLocation: 'https://example.com/vibe-atlas?view=released',
-      gtag(_command: string, name: string, data?: Record<string, string | number | boolean>) { events.push({ name, data }); },
+      gtag(_command: string, name: string, data?: Record<string, string | number | boolean>) {
+        events.push({ name, data });
+      },
       fetch: () => Promise.resolve(),
     },
   });
@@ -665,6 +674,7 @@ test('only today’s homepage exposes the current released Vibe Pack for free', 
   assert.match(app, /The full released-pack library stays available to Fandom Collectors/);
 });
 
+
 test('released pack navigation preserves actor and vibe selection from daily drop', async () => {
   const [app, routes] = await Promise.all([
     readFile(new URL('../src/App.tsx', import.meta.url), 'utf8'),
@@ -674,6 +684,63 @@ test('released pack navigation preserves actor and vibe selection from daily dro
   assert.match(app, /value !== null && value !== ''/);
   assert.match(app, /<ReleasedPackLibrary/);
   assert.match(routes, /if \(view === 'released'\) return 'released'/);
+});
+
+test('released pack analytics only emits bounded identifiers and no account or free-form data', async () => {
+  const analytics = await readFile(new URL('../src/utils/analytics.ts', import.meta.url), 'utf8');
+  assert.match(analytics, /RELEASED_ACTOR_ID_PATTERN/);
+  assert.match(analytics, /MAX_RELEASED_VIBE_INDEX/);
+  assert.match(analytics, /released_library_opened/);
+  assert.match(analytics, /released_library_filter_used/);
+  assert.match(analytics, /released_library_sign_in_started/);
+  assert.match(analytics, /released_library_checkout_started/);
+  assert.match(analytics, /released_library_collector_activated/);
+  assert.match(analytics, /released_pack_opened/);
+  assert.doesNotMatch(analytics, /releasedPackData[\s\S]{0,500}(email|query|prompt|capability)/);
+});
+
+test('released pack analytics emits bounded payloads and consumes checkout attribution once', () => {
+  const events: Array<{ name: string; data?: Record<string, string | number | boolean> }> = [];
+  const storage = new Map<string, string>();
+  Object.defineProperty(globalThis, 'window', {
+    configurable: true,
+    value: {
+      gtag(_command: string, name: string, data?: Record<string, string | number | boolean>) {
+        events.push({ name, data });
+      },
+      localStorage: {
+        getItem(key: string) { return storage.get(key) ?? null; },
+        setItem(key: string, value: string) { storage.set(key, value); },
+        removeItem(key: string) { storage.delete(key); },
+      },
+    },
+  });
+  try {
+    trackReleasedLibraryOpened('daily_star', false, 'liu-xueyi', 3);
+    trackReleasedLibraryFilterUsed('actor', 'daily_star', 'INVALID ACCOUNT DATA', 300);
+    trackReleasedPackOpened('public_record', 'liu-xueyi', 3);
+    trackReleasedLibrarySignInStarted('daily_star', 'liu-xueyi', 3);
+    assert.deepEqual(consumeReleasedLibrarySignInReturn(), {
+      source: 'daily_star',
+      actorId: 'liu-xueyi',
+      vibeIndex: 3,
+    });
+    assert.equal(consumeReleasedLibrarySignInReturn(), null);
+    trackReleasedLibraryCheckoutStarted('daily_star', 'liu-xueyi', 3);
+    trackReleasedLibraryCollectorActivated();
+    trackReleasedLibraryCollectorActivated();
+
+    assert.deepEqual(events, [
+      { name: 'released_library_opened', data: { source: 'daily_star', actor_id: 'liu-xueyi', vibe_index: 3, entitled: false } },
+      { name: 'released_library_filter_used', data: { source: 'daily_star', filter: 'actor' } },
+      { name: 'released_pack_opened', data: { source: 'public_record', actor_id: 'liu-xueyi', vibe_index: 3 } },
+      { name: 'released_library_sign_in_started', data: { source: 'daily_star', actor_id: 'liu-xueyi', vibe_index: 3 } },
+      { name: 'released_library_checkout_started', data: { source: 'daily_star', actor_id: 'liu-xueyi', vibe_index: 3 } },
+      { name: 'released_library_collector_activated', data: { source: 'daily_star', actor_id: 'liu-xueyi', vibe_index: 3 } },
+    ]);
+  } finally {
+    Reflect.deleteProperty(globalThis, 'window');
+  }
 });
 
 test('public released-pack views use bounded three-card previews and article-only pair routing', async () => {
@@ -708,4 +775,5 @@ test('public released-pack views use bounded three-card previews and article-onl
   assert.match(admin, /pairing\?\.verdict === 'approved_override'/);
   assert.match(admin, /pairing\?\.eligible===true/);
   assert.match(admin, /mode: 'same-origin'/);
+
 });

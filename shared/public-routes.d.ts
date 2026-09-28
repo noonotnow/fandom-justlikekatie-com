@@ -17,5 +17,8 @@ export const PUBLIC_ROUTE_PATHS: Readonly<{
 }>;
 export const PUBLIC_STATIC_ROUTES: readonly PublicStaticRoute[];
 export const PUBLIC_STATIC_PATHS: readonly string[];
+export function publicStaticPreviewRoutes(
+  routes?: readonly PublicStaticRoute[],
+): [string, string][];
 export function publicRouteUrl(path: string): string;
 export function staticSitemapXml(): string;

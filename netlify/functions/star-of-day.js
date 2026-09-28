@@ -26,6 +26,7 @@ import {
   manifestPayload,
   materializePublicationManifest,
   publicEditionPreview,
+  readPublicationManifests as readPublications,
   repairMissingPublicationCatalogDate,
   repairPublicationManifestPublicRecords,
 } from "./lib/publication-manifest.js";
@@ -103,14 +104,28 @@ function cacheKeyFor(dateString) {
 }
 
 async function getHistoricalPayload(store, dateString) {
-  const manifested = manifestPayload(await store.get(gridManifestKey(dateString), {
+  const manifest = await store.get(gridManifestKey(dateString), {
     type: "json",
     consistency: "strong",
-  }), VERSION);
-  if (manifested) return manifested;
+  });
+  const manifested = manifestPayload(manifest, VERSION);
+  if (manifested) {
+    if (!manifested.publicRecord) return manifested;
+    const { manifests, inventory } = await readPublications(store);
+    if (inventory.complete && manifests.some(item =>
+      item.publicationDate === dateString
+      && item.manifestId === manifest.manifestId
+      && item.boardHash === manifest.boardHash)) return manifested;
+    const { publicRecord: _unavailable, ...safePayload } = manifested;
+    return safePayload;
+  }
   for (const version of [VERSION, ...LEGACY_READ_VERSIONS]) {
     const payload = await store.get(`starOfDay:${version}:${dateString}`, { type: "json" });
-    if (payload) return payload;
+    if (payload) {
+      // Legacy cache links are not proof of a public, materialized edition.
+      const { publicRecord: _stale, ...safePayload } = payload;
+      return safePayload;
+    }
   }
   return null;
 }
@@ -1443,6 +1458,8 @@ async function listArchivedEditions(
       const publicEdition = publicEditionPreview(manifest);
       return publicEdition?.path === edition.publicRecord.editionPath
         && publicEdition.actor.path === edition.publicRecord.actorPath
+        && publicEdition.actor.name === edition.actorName
+        && publicEdition.actor.nameEn === edition.actorShortNameEn
         ? edition.publicRecord
         : null;
     } catch {

@@ -5,6 +5,7 @@ import {
   readPublicationManifests,
   PUBLIC_VIBE_ATLAS_ORIGIN,
 } from "./publication-manifest.js";
+import { isValidMediaReference } from "./media-asset.js";
 
 export const RELEASED_PACK_PATH = "/vibe-atlas/packs";
 
@@ -26,11 +27,20 @@ export function releasedPackPath(actor, vibe, vibeIdx) {
   return `${RELEASED_PACK_PATH}/${releasedPackActorSlug(actor)}/${releasedPackVibeSlug(actor, vibe, vibeIdx)}/`;
 }
 
-function safeManifest(manifest) {
-  if (!isGridManifest(manifest) || !Array.isArray(manifest.cards) || manifest.cards.length !== 9) return null;
+export function inspectReleasedPackManifest(manifest) {
+  if (!manifest) return { safe: null, reasonCode: "incomplete_inventory" };
+  if (!isGridManifest(manifest) || !Array.isArray(manifest.cards) || manifest.cards.length !== 9) {
+    return { safe: null, reasonCode: "malformed_media" };
+  }
   const copy = manifest.vibe?.supportingCopyEn || manifest.vibe?.supportingCopy;
-  if (typeof copy !== "string" || copy.trim().length < 40) return null;
-  if (!manifest.vibe?.labelEn?.trim() || !manifest.vibe?.subtitleEn?.trim()) return null;
+  if (
+    typeof copy !== "string"
+    || copy.trim().length < 40
+    || !manifest.vibe?.labelEn?.trim()
+    || !manifest.vibe?.subtitleEn?.trim()
+  ) {
+    return { safe: null, reasonCode: "missing_editorial_copy" };
+  }
   const cards = manifest.cards.map(card => ({
     position: card.position,
     title: typeof card.title === "string" ? card.title : "",
@@ -41,8 +51,13 @@ function safeManifest(manifest) {
     mimeType: card.media?.mimeType || null,
     dimensions: card.media?.dimensions || null,
   }));
-  if (cards.some(card => !card.thumbnailUrl || !card.deliveryUrl)) return null;
-  return { copy: copy.trim(), cards };
+  if (cards.some(card => !card.thumbnailUrl || !card.deliveryUrl)) {
+    return { safe: null, reasonCode: "malformed_media" };
+  }
+  return { safe: { copy: copy.trim(), cards }, reasonCode: null };
+}
+function safeManifest(manifest) {
+  return inspectReleasedPackManifest(manifest).safe;
 }
 
 export function isIndexableReleasedPack(pack) {
@@ -55,6 +70,34 @@ export function isIndexableReleasedPack(pack) {
   );
 }
 
+export function classifyReleasedPackHealth({
+  inventoryComplete,
+  eligibilityAvailable = true,
+  releaseReady = false,
+  manifest = null,
+  malformedMedia = false,
+}) {
+  if (!eligibilityAvailable) return "eligibility_unavailable";
+  if (!releaseReady) return "revoked_eligibility";
+  if (malformedMedia) return "malformed_media";
+  if (!inventoryComplete || !manifest) return "incomplete_inventory";
+  return inspectReleasedPackManifest(manifest).reasonCode;
+}
+
+function hasMalformedPublicationMedia(manifest) {
+  if (
+    !manifest
+    || !Array.isArray(manifest.cards)
+    || manifest.cards.length !== 9
+    || typeof manifest.publicationDate !== "string"
+  ) return false;
+  const associationId = `vibe-atlas:daily-drop:${manifest.publicationDate}`;
+  return manifest.cards.some((card, position) => !isValidMediaReference(card?.media, {
+    type: "publication",
+    id: associationId,
+    itemId: `card-${position}`,
+  }));
+}
 export function publicReleasedPack(pack) {
   if (!isIndexableReleasedPack(pack)) return null;
   return {
@@ -69,7 +112,10 @@ export function publicReleasedPack(pack) {
 }
 
 /**
- * The protected released-pack library follows the exact predicate used by the
+ * Release state is intentionally recomputed from strong eligibility and the
+ * complete immutable publication inventory. No cached eligibility projection
+ * can keep a revoked pairing public. The protected released-pack library
+ * follows the exact predicate used by the
  * Star of the Day scheduler. Public indexing is a narrower projection: a pack
  * is indexable only when an immutable publication manifest supplies verified
  * MEDIA previews. This keeps an unavailable or not-yet-published preview from
@@ -81,7 +127,8 @@ export async function releasedPackCatalog(
     publicationStore = eligibilityStore,
     actorPacks = ACTOR_PACKS,
     origin = PUBLIC_VIBE_ATLAS_ORIGIN,
-    getEligibilitySnapshot = getEligibility,
+    eligibilityReader = getEligibility,
+    getEligibilitySnapshot = eligibilityReader,
     eligibilityPredicate = isReleaseReady,
     readPublications = readPublicationManifests,
   } = {},
@@ -100,7 +147,6 @@ export async function releasedPackCatalog(
   } catch {
     indexingFailureReason = "publication_inventory_unavailable";
   }
-
   const packs = [];
   const collectorPackIds = new Set();
   let eligibilityHealthy = true;
@@ -114,16 +160,21 @@ export async function releasedPackCatalog(
         return;
       }
       if (!eligibilityPredicate(snapshot)) return;
+      // Collector refreshes belong to the approved search recipe, not to the
+      // existence of a public daily snapshot or editorial record.
       collectorPackIds.add(`${actor.id}:${vibeIdx}`);
-      const manifest = manifests
+      const pairingManifests = manifests
         .filter(item => item.actor?.id === actor.id && item.vibe?.idx === vibeIdx)
-        .sort((left, right) => String(right.publicationDate).localeCompare(String(left.publicationDate)))[0];
-      const preview = safeManifest(manifest);
-      if (!preview) return;
+        .sort((left, right) => String(right.publicationDate).localeCompare(String(left.publicationDate)));
+      if (!pairingManifests.length) return;
+      const manifest = pairingManifests.find(item => safeManifest(item));
+      if (!manifest) return;
+      const safe = safeManifest(manifest);
       const path = releasedPackPath(actor, vibe, vibeIdx);
       packs.push({
         actorId: actor.id,
         vibeIdx,
+        publicationDate: manifest.publicationDate,
         canonical: `${origin}${path}`,
         actor: {
           id: actor.id,
@@ -136,10 +187,10 @@ export async function releasedPackCatalog(
           label: vibe.label || vibe.label_en || "",
           labelEn: vibe.label_en || vibe.label || "",
           emoji: vibe.emoji || null,
-          subtitle: vibe.subtitle || vibe.subtitle_en || "",
           subtitleEn: vibe.subtitle_en || vibe.subtitle || "",
+          subtitle: vibe.subtitle || vibe.subtitle_en || "",
         },
-        preview,
+        preview: safe,
         publishedAt: manifest.publishedAt || null,
         runId: snapshot.runId,
       });
@@ -166,6 +217,14 @@ export async function releasedPackCatalog(
   };
 }
 
+const CATALOG_HEALTH_SUMMARIES = {
+  released: "This pairing is present in the released library.",
+  revoked_eligibility: "Current eligibility is not release-ready. A prior approval may have been revoked or superseded.",
+  incomplete_inventory: "Publication inventory is incomplete or has no immutable edition for this pairing.",
+  missing_editorial_copy: "The latest edition is missing substantive English editorial copy or required labels.",
+  malformed_media: "The latest edition or one of its nine MEDIA references is malformed.",
+  eligibility_unavailable: "Current eligibility could not be read, so the catalog failed closed.",
+};
 export function protectedReleasedPackIds(catalog) {
   if (Array.isArray(catalog?.collectorPackIds)) {
     return new Set(catalog.collectorPackIds);
@@ -175,3 +234,100 @@ export function protectedReleasedPackIds(catalog) {
 
 export const buildReleasedPackCatalog = releasedPackCatalog;
 export const releasedPackPreview = publicReleasedPack;
+
+/**
+ * Private operator diagnostics. This report must only be returned by an
+ * admin-authenticated endpoint; public catalog records intentionally omit it.
+ */
+export async function releasedPackCatalogHealth(
+  eligibilityStore,
+  {
+    publicationStore = eligibilityStore,
+    actorPacks = ACTOR_PACKS,
+    eligibilityReader = getEligibility,
+  } = {},
+) {
+  let inventory;
+  try {
+    inventory = await readPublicationManifests(publicationStore);
+  } catch {
+    inventory = { inventory: { complete: false }, manifests: [] };
+  }
+  const manifests = inventory.manifests || [];
+  const invalidCatalogManifests = inventory.invalidCatalogManifests || [];
+  const pairingInputs = actorPacks.flatMap(actor =>
+    (actor.vibes || []).map((vibe, vibeIdx) => ({
+      actor,
+      vibeIdx,
+      base: {
+        actorId: actor.id,
+        actorName: actor.name,
+        actorShortNameEn: actor.shortName_en || actor.shortName || actor.name,
+        vibeIdx,
+        vibeKey: `${actor.id}:${vibeIdx}`,
+        vibeLabel: vibe.label_en || vibe.label || `${actor.id}:${vibeIdx}`,
+      },
+    })));
+  const publicationState = pairingInputs.map(({ actor, vibeIdx, base }) => {
+    const pairingManifests = manifests
+      .filter(item => item.actor?.id === actor.id && item.vibe?.idx === vibeIdx)
+      .sort((left, right) => String(right.publicationDate).localeCompare(String(left.publicationDate)));
+    const manifest = pairingManifests.find(item => safeManifest(item)) || pairingManifests[0];
+    const invalidCatalogManifest = invalidCatalogManifests
+      .filter(item => item.actor?.id === actor.id && item.vibe?.idx === vibeIdx)
+      .sort((left, right) => String(right.publicationDate).localeCompare(String(left.publicationDate)))[0];
+    return { actor, vibeIdx, base, manifest, invalidCatalogManifest };
+  });
+  let pairings;
+  if (inventory.inventory?.complete !== true) {
+    pairings = publicationState.map(({ base, invalidCatalogManifest }) => {
+      const reasonCode = hasMalformedPublicationMedia(invalidCatalogManifest)
+        ? "malformed_media"
+        : "incomplete_inventory";
+      return {
+        ...base,
+        status: "withheld",
+        reasonCode,
+        summary: CATALOG_HEALTH_SUMMARIES[reasonCode],
+        publicationDate: invalidCatalogManifest?.publicationDate || null,
+      };
+    });
+  } else {
+    const eligibilityStates = await Promise.all(publicationState.map(async state => {
+      try {
+        return {
+          ...state,
+          snapshot: await eligibilityReader(eligibilityStore, state.actor, state.vibeIdx),
+          available: true,
+        };
+      } catch {
+        return { ...state, snapshot: null, available: false };
+      }
+    }));
+    const eligibilityHealthy = eligibilityStates.every(state => state.available);
+    pairings = eligibilityStates.map(({ base, snapshot, manifest }) => {
+      const reasonCode = eligibilityHealthy
+        ? classifyReleasedPackHealth({
+          inventoryComplete: true,
+          releaseReady: isReleaseReady(snapshot),
+          manifest,
+        })
+        : "eligibility_unavailable";
+      return {
+        ...base,
+        status: reasonCode ? "withheld" : "released",
+        reasonCode,
+        summary: CATALOG_HEALTH_SUMMARIES[reasonCode || "released"],
+        publicationDate: manifest?.publicationDate || null,
+      };
+    });
+  }
+  return {
+    schemaVersion: 1,
+    readOnly: true,
+    inventoryComplete: inventory.inventory?.complete === true,
+    releasedCount: pairings.filter(pair => pair.status === "released").length,
+    withheldCount: pairings.filter(pair => pair.status === "withheld").length,
+    pairings,
+  };
+}

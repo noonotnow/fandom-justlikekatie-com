@@ -1,10 +1,68 @@
 import Stripe from "stripe";
 import {
   auditSubscriptionProducts,
+  PROGRESS_REPORTING_OPERATOR_ALERT,
+  PROGRESS_REPORTING_NOTIFICATION_REJECTED,
+  recordSharedProgressReportingHealth,
+  sendProgressReportingOperatorAlert,
+  settleSharedProgressReportingAlertDelivery,
   validateMembershipPriceMappings,
 } from "../netlify/functions/lib/subscription-product-audit.js";
+import { getBlobStore } from "../netlify/functions/lib/blob-store.js";
 
-function reportStripeFailure(error) {
+const PROGRESS_REPORTING_STORAGE_WARNING =
+  "Operator warning: Stripe audit outage history was not updated in shared storage. Configure SUBSCRIPTION_PRODUCT_AUDIT_BLOBS_SITE_ID and SUBSCRIPTION_PRODUCT_AUDIT_BLOBS_TOKEN, then retry.";
+
+function progressReportingStore(env = process.env) {
+  const siteID = env.SUBSCRIPTION_PRODUCT_AUDIT_BLOBS_SITE_ID?.trim();
+  const token = env.SUBSCRIPTION_PRODUCT_AUDIT_BLOBS_TOKEN?.trim();
+  if (!siteID || !token) {
+    throw new Error("Shared Stripe audit health storage is not configured.");
+  }
+  return getBlobStore("subscription-product-audit-health", undefined, {
+    siteID,
+    token,
+  });
+}
+
+async function recordProgressReportingHealth(progressReportingFailures) {
+  try {
+    const store = progressReportingStore();
+    const transition = await recordSharedProgressReportingHealth(
+      store,
+      progressReportingFailures,
+    );
+    if (!transition.shouldAlert) return;
+
+    console.error(PROGRESS_REPORTING_OPERATOR_ALERT);
+    let delivered = false;
+    try {
+      await sendProgressReportingOperatorAlert();
+      delivered = true;
+    } catch {
+      console.error(PROGRESS_REPORTING_NOTIFICATION_REJECTED);
+    }
+    await settleSharedProgressReportingAlertDelivery(
+      store,
+      transition.state,
+      delivered,
+    );
+  } catch {
+    // Health tracking must not change Stripe writes or audit outcomes.
+    console.error(PROGRESS_REPORTING_STORAGE_WARNING);
+  }
+}
+
+function reportStripeFailure(error, appliedUpdates = 0) {
+  if (appliedUpdates > 0) {
+    const noun = appliedUpdates === 1 ? "update" : "updates";
+    console.error(
+      `Stripe subscription updates stopped after ${appliedUpdates} successful ${noun}. This run was partially applied. Review current Stripe subscription state before retrying.`,
+    );
+    process.exitCode = 1;
+    return;
+  }
+
   const authenticationFailure = error?.type === "StripeAuthenticationError"
     || error?.statusCode === 401;
   const transientFailure = error?.type === "StripeConnectionError"
@@ -45,12 +103,20 @@ if (!configOnly && configurationValid) {
   const secretKey = process.env.STRIPE_SECRET_KEY || process.env.FANDOM_STRIPE_SECRET_KEY;
   if (!secretKey) throw new Error("STRIPE_SECRET_KEY is required.");
 
+  let appliedUpdates = 0;
   try {
     const stripe = new Stripe(secretKey);
-    const report = await auditSubscriptionProducts({ stripe, apply });
+    const report = await auditSubscriptionProducts({
+      stripe,
+      apply,
+      onUpdateProgress: ({ updated }) => {
+        appliedUpdates = updated;
+      },
+    });
     console.log(JSON.stringify(report, null, 2));
+    await recordProgressReportingHealth(report.progressReportingFailures);
     if (report.ambiguous.length) process.exitCode = 2;
   } catch (error) {
-    reportStripeFailure(error);
+    reportStripeFailure(error, appliedUpdates);
   }
 }
