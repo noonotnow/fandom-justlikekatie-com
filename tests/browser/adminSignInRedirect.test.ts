@@ -66,7 +66,7 @@ async function mockSharedAppRequests(page: import('@playwright/test').Page): Pro
 }
 
 function callbackStageError(engine: string, stage: string, error: unknown, callback = 'admin sign-in'): Error {
-  return new Error(`${engine} ${callback} callback failed during ${stage}.`, { cause: error });
+  return new Error(`${engine} ${callback} callback failed during ${stage}: ${error instanceof Error ? error.message : String(error)}`, { cause: error });
 }
 
 for (const engine of BROWSER_ENGINES) {
@@ -84,7 +84,7 @@ for (const engine of BROWSER_ENGINES) {
         Reflect.deleteProperty(globalThis, 'BroadcastChannel');
         const originalSetItem = Storage.prototype.setItem;
         Storage.prototype.setItem = function (key: string, value: string) {
-          if (this === localStorage && key === 'fandom-collection-notify') {
+          if (key === 'fandom-collection-notify') {
             Reflect.set(globalThis, '__notificationWriteRejected', true);
             throw new DOMException('Storage access is blocked.', 'SecurityError');
           }
