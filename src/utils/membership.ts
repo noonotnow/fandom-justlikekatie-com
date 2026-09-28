@@ -116,10 +116,17 @@ export async function refreshMembershipAfterBilling(
 export function logMembershipEvent(
   event: 'membership_view' | 'upgrade_click' | 'checkout_started' | 'membership_activated' | 'paid_feature_used',
 ): void {
+  const pilotPath = typeof window !== 'undefined'
+    && Date.now() - Number(sessionStorage.getItem('companion-pilot-time')) < 24 * 60 * 60 * 1000
+    ? sessionStorage.getItem('companion-pilot-path') : null;
   void fetch('/.netlify/functions/log-engagement', {
     method: 'POST',
     headers: { 'Content-Type': 'application/json' },
-    body: JSON.stringify({ event, batchKey: 'vibe-atlas-membership' }),
+    body: JSON.stringify({
+      event, batchKey: 'vibe-atlas-membership',
+      ...(event !== 'paid_feature_used' && pilotPath && ['discover', 'context', 'collect'].includes(pilotPath)
+        ? { pilotPath } : {}),
+    }),
   }).catch(() => {});
 }
 

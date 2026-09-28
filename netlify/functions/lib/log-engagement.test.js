@@ -26,6 +26,28 @@ test("handler module loads and exports a default function", () => {
   assert.equal(typeof handler, "function");
 });
 
+test("companion pilot events accept only bounded paths and do not store visitor text", async () => {
+  const { store, context } = makeStoreContext();
+  const event = { event: "companion_path_view", batchKey: "c-drama-companion-pilot", pilotPath: "context", imageUrl: "email@example.com" };
+  assert.equal((await handler(req(event), context)).status, 200);
+  const stored = store._values("c-drama-companion-pilot:companion_path_view:")[0];
+  assert.equal(stored.pilotPath, "context");
+  assert.equal(stored.imageUrl, undefined);
+  assert.equal((await handler(req({ ...event, pilotPath: "unknown" }), context)).status, 400);
+  assert.equal((await handler(req({ ...event, batchKey: "other" }), context)).status, 400);
+  assert.equal((await handler(req({
+    event: "checkout_started", batchKey: "vibe-atlas-membership", pilotPath: "discover",
+  }), context)).status, 200);
+  assert.equal(store._values("vibe-atlas-membership:checkout_started:")[0].pilotPath, "discover");
+  assert.equal((await handler(req({ ...event, event: "companion_qualified_view" }), context)).status, 200);
+  assert.equal(store._values("c-drama-companion-pilot:companion_qualified_view:").length, 1);
+  assert.equal((await handler(new Request("https://example.com/.netlify/functions/log-engagement", {
+    method: "POST", headers: { "user-agent": "Googlebot", "Content-Type": "application/json" },
+    body: JSON.stringify({ ...event, event: "companion_qualified_view" }),
+  }), context)).status, 200);
+  assert.equal(store._values("c-drama-companion-pilot:companion_qualified_view:").length, 1);
+});
+
 // ---------------------------------------------------------------------------
 // In-memory blob store stub
 // ---------------------------------------------------------------------------
@@ -72,7 +94,10 @@ function makeStoreContext() {
 
 /** Minimal POST request stub. */
 function req(body) {
-  return { method: "POST", async json() { return body; } };
+  return new Request("https://example.com/.netlify/functions/log-engagement", {
+    method: "POST", headers: { "Content-Type": "application/json" },
+    body: JSON.stringify(body),
+  });
 }
 
 // ---------------------------------------------------------------------------

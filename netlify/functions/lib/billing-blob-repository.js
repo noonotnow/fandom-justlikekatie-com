@@ -15,6 +15,13 @@ export function createBlobBillingRepository({ getStore, context }) {
   const store = () => getStore(STORE_NAME, context, { consistency: "strong" });
 
   return {
+    async recordCompanionPaidOutcome({ eventId, timestamp }) {
+      await getStore("companion-pilot-outcomes", context).setJSON(
+        `${timestamp.slice(0, 10)}/${keyPart(eventId)}`,
+        { event: "first_paid_collector_invoice", timestamp },
+        { onlyIfNew: true },
+      );
+    },
     async customerForAccount(accountId) {
       const account = await store().get(`accounts/${keyPart(accountId)}`, {
         type: "json",
