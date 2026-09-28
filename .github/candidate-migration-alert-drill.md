@@ -84,11 +84,23 @@ Other manual jobs were skipped for that run; no test email was sent. This
 proves the no-email check works with the protected GitHub Actions secrets,
 not that the default branch already contains the change. The controlled
 delivery retry above remains the evidence for the send-only alert path.
-The narrowly scoped change for GitHub's default branch is under review in
-[pull request #126](https://github.com/noonotnow/fandom-justlikekatie-com/pull/126);
-the temporary verification branch can be removed independently.
-- The second temporary branch was deleted too. No controlled failure step
-  remains in the normal workflow.
+The narrowly scoped change merged into GitHub's default branch in
+[pull request #126](https://github.com/noonotnow/fandom-justlikekatie-com/pull/126)
+on September 25, 2026; the temporary verification branch can be removed independently.
+The second temporary branch was deleted too. No controlled failure step
+remains in the normal workflow.
+
+On September 28, 2026, the first [scheduled default-branch run
+36404844843](https://github.com/noonotnow/fandom-justlikekatie-com/actions/runs/36404844843)
+completed with **Verify operator alert delivery configuration** successful,
+including its no-email sender/credential check. The overall workflow failed
+in the unrelated Netlify packaging proposal job; do not mistake that failure
+for an operator-alert check failure. At this run's default-branch revision,
+the workflow contained no notification jobs, so this scheduled run is not
+evidence of notification delivery or of their key wiring. The readiness
+script's check mode only reads sender-domain status; it does not invoke its
+email-sending mode. The notification steps in the extended workflow use the
+send-only `RESEND_API_KEY`, not `RESEND_DOMAIN_READ_API_KEY`.
 
 ## Repeat safely
 

@@ -9,14 +9,16 @@ import {
 import { WatchJournalCapture } from './WatchJournalCapture';
 import { ActorPreflightLab } from './ActorPreflightLab';
 import { ReleaseDesk } from './ReleaseDesk';
+import { ArchiveRepairHistory } from './ArchiveRepairHistory';
+import { VibingModeration } from './VibingModeration';
 import styles from './FandomAdmin.module.css';
 
-type AdminView = 'court' | 'watch-journal' | 'actor-preflight' | 'release-desk';
+type AdminView = 'court' | 'watch-journal' | 'actor-preflight' | 'release-desk' | 'archive-repairs' | 'vibing-moderation';
 
 function requestedAdminView(fallback: AdminView): AdminView {
   const requested = new URLSearchParams(window.location.search).get('adminView');
-  return requested === 'actor-preflight' || requested === 'release-desk'
-    || requested === 'court' || requested === 'watch-journal'
+  return requested === 'actor-preflight' || requested === 'release-desk' || requested === 'archive-repairs'
+    || requested === 'court' || requested === 'watch-journal' || requested === 'vibing-moderation'
     ? requested
     : fallback;
 }
@@ -31,10 +33,12 @@ export const FandomAdmin: React.FC<{ initialView?: AdminView }> = ({ initialView
           <button type="button" role="tab" aria-selected={view === 'release-desk'} onClick={() => setView('release-desk')}>Release Desk</button>
           <button type="button" role="tab" aria-selected={view === 'court'} onClick={() => setView('court')}>Court rulings</button>
           <button type="button" role="tab" aria-selected={view === 'watch-journal'} onClick={() => setView('watch-journal')}>Field Journal</button>
+          <button type="button" role="tab" aria-selected={view === 'vibing-moderation'} onClick={() => setView('vibing-moderation')}>Vibing Now review</button>
           <button type="button" role="tab" aria-selected={view === 'actor-preflight'} onClick={() => setView('actor-preflight')}>Actor Preflight Lab</button>
+          <button type="button" role="tab" aria-selected={view === 'archive-repairs'} onClick={() => setView('archive-repairs')}>Archive repairs</button>
         </div>
       </header>
-      {view === 'release-desk' ? <ReleaseDesk /> : view === 'court' ? <CourtRulingsEditor /> : view === 'watch-journal' ? <WatchJournalCapture /> : <ActorPreflightLab />}
+      {view === 'release-desk' ? <ReleaseDesk /> : view === 'court' ? <CourtRulingsEditor /> : view === 'watch-journal' ? <WatchJournalCapture /> : view === 'vibing-moderation' ? <VibingModeration /> : view === 'archive-repairs' ? <ArchiveRepairHistory /> : <ActorPreflightLab />}
     </section>
   );
 };

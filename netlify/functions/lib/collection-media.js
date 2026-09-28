@@ -26,6 +26,7 @@ export function createCollectionMediaHandler({
       if (!COLLECTION_ID_RE.test(collectionId) || !ITEM_ID_RE.test(itemId)) {
         return json(400, { error: "Invalid collection media association." });
       }
+      if (collectionId === "middle-earth") await auth.authenticateAdmin(req, context);
 
       const contentType = (req.headers.get("content-type") || "").toLowerCase().split(";")[0].trim();
       const declared = Number(req.headers.get("content-length") || 0);

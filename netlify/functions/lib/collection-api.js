@@ -4,7 +4,6 @@ import { json, secureEqual } from "./public-auth.js";
 
 export function createCollectionHandlers({
   auth, getStore, env = process.env, now = () => new Date(),
-  requireCapability = async () => {},
 }) {
   return {
     sync: async (req, context) => {
@@ -12,18 +11,23 @@ export function createCollectionHandlers({
         if (req.method !== "POST") return json(405, { error: "Method not allowed." });
         validateSameOrigin(req);
         const session = await auth.authenticate(req, context);
-        await requireCapability(session, context);
         const input = await readJson(req);
         if (input.expectedAccountId !== session.user.accountId) {
           const error = new Error("The active account changed. Refresh before syncing.");
           error.status = 409;
           throw error;
         }
+        const store = getStore("fandom-user-collections", context);
         const result = await syncCollection(
-          getStore("fandom-user-collections", context),
+          store,
           session.user.accountId,
           input,
           now,
+          async collection => {
+            if (targetsMiddleEarth(collection, input)) {
+              await auth.authenticateAdmin(req, context);
+            }
+          },
         );
         return json(200, result);
       } catch (error) {
@@ -51,6 +55,30 @@ export function createCollectionHandlers({
       }
     },
   };
+}
+
+function targetsMiddleEarth(collection, input) {
+  const items = Object.values(collection.items || {});
+  return (input.operations || []).some(operation => {
+    const incoming = operation?.type === "upsert" ? operation.item : null;
+    const sourceKey = incoming?.kind === "grid"
+      ? `grid:${incoming.id}`
+      : `local:${operation?.localId}`;
+    const existing = items.find(item => (
+      item.id === operation?.serverId
+      || item.localId === operation?.localId
+      || item.sourceKey === sourceKey
+    ));
+    return isMiddleEarthItem(incoming) || isMiddleEarthItem(existing);
+  });
+}
+
+function isMiddleEarthItem(item) {
+  return Boolean(item && (
+    item.collectionScope === "middle-earth"
+    || item.contentKind === "middle-earth-meme"
+    || item.media?.association?.id === "middle-earth"
+  ));
 }
 
 function validateCreateSignature(req, env, current) {

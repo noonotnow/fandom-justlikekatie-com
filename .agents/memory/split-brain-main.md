@@ -13,3 +13,9 @@ Rule: task-completion rebases can replay historical commits that revive retired 
 **Why:** A completion rebase reintroduced obsolete packet behavior and spliced stale billing fixtures into otherwise current code, producing API mismatches and test failures even though each side looked plausible in isolation.
 
 **How to apply:** Resolve against current product decisions and live interfaces, remove tests for retired behavior, then rerun the production build, full tests, and lint on the rebased tree before completion.
+
+Rule: when production needs one self-contained feature but local history has diverged broadly, release from a narrow worktree based on current `origin/main` instead of merging the entire local task history.
+
+**Why:** A broad reconciliation imported unrelated regressions and obscured the feature’s actual production readiness; a focused cherry-pick produced a healthy Netlify deploy preview while making the pre-existing red CI baseline explicit.
+
+**How to apply:** Cherry-pick only the feature and its direct fixes onto current remote main, validate the deploy preview, and compare failing checks with an untouched remote-main worktree. Do not bypass protection for unrelated failures.

@@ -1,4 +1,5 @@
 import { randomUUID } from "node:crypto";
+import { getWithResolvedEtag } from "./blob-store.js";
 
 const STORE_NAME = "fandom-billing";
 const IDENTITY_CONFLICT_KEY = "operations/stripe-identity-conflict";
@@ -66,9 +67,8 @@ export function createBlobBillingRepository({ getStore, context }) {
       if (!event?.id) return false;
       const key = `events/${keyPart(event.id)}`;
       for (let attempt = 0; attempt < 5; attempt += 1) {
-        const existing = await store().getWithMetadata(key, {
+        const existing = await getWithResolvedEtag(store(), key, {
           type: "json",
-          consistency: "strong",
         });
         if (existing?.data?.state === "processed") return false;
         const claimedAt = Date.parse(existing?.data?.claimedAt || "");
@@ -143,9 +143,8 @@ export function createBlobBillingRepository({ getStore, context }) {
     async recordIdentityConflict({ eventCategory }) {
       const category = eventCategory === "checkout" ? "checkout" : "subscription";
       for (let attempt = 0; attempt < 5; attempt += 1) {
-        const existing = await store().getWithMetadata(IDENTITY_CONFLICT_KEY, {
+        const existing = await getWithResolvedEtag(store(), IDENTITY_CONFLICT_KEY, {
           type: "json",
-          consistency: "strong",
         });
         const occurredAt = new Date().toISOString();
         const previousResolution = validResolution(existing?.data?.resolution);
@@ -192,9 +191,8 @@ export function createBlobBillingRepository({ getStore, context }) {
 
     async claimIdentityConflictNotification({ now = new Date() } = {}) {
       for (let attempt = 0; attempt < 5; attempt += 1) {
-        const existing = await store().getWithMetadata(IDENTITY_CONFLICT_KEY, {
+        const existing = await getWithResolvedEtag(store(), IDENTITY_CONFLICT_KEY, {
           type: "json",
-          consistency: "strong",
         });
         const notification = validReactivationNotification(existing?.data?.reactivationNotification);
         if (!notification || notification.status === "sent") return null;
@@ -230,9 +228,8 @@ export function createBlobBillingRepository({ getStore, context }) {
 
     async settleIdentityConflictNotification({ claimId, delivered, now = new Date() }) {
       for (let attempt = 0; attempt < 5; attempt += 1) {
-        const existing = await store().getWithMetadata(IDENTITY_CONFLICT_KEY, {
+        const existing = await getWithResolvedEtag(store(), IDENTITY_CONFLICT_KEY, {
           type: "json",
-          consistency: "strong",
         });
         const notification = validReactivationNotification(existing?.data?.reactivationNotification);
         if (!notification || notification.status !== "claimed" || notification.claimId !== claimId) {
@@ -278,9 +275,8 @@ export function createBlobBillingRepository({ getStore, context }) {
         return { outcome: "invalid" };
       }
       for (let attempt = 0; attempt < 5; attempt += 1) {
-        const existing = await store().getWithMetadata(IDENTITY_CONFLICT_KEY, {
+        const existing = await getWithResolvedEtag(store(), IDENTITY_CONFLICT_KEY, {
           type: "json",
-          consistency: "strong",
         });
         if (!existing?.data) return { outcome: "missing", summary: null };
         if (
@@ -377,9 +373,8 @@ export function createBlobBillingRepository({ getStore, context }) {
         updatedAt: new Date().toISOString(),
       };
       for (let attempt = 0; attempt < 5; attempt += 1) {
-        const existing = await store().getWithMetadata(subscriptionKey, {
+        const existing = await getWithResolvedEtag(store(), subscriptionKey, {
           type: "json",
-          consistency: "strong",
         });
         if (existing?.data && compareSubscriptionEvents(existing.data, incoming) >= 0) return { outcome: "stale" };
         const write = await store().setJSON(

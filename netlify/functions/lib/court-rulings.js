@@ -1,4 +1,5 @@
 import { json } from "./public-auth.js";
+import { getWithResolvedEtag } from "./blob-store.js";
 
 // Shared custom court rulings — one canon list stored in Netlify Blobs so
 // every admin's browser sees the same rulings.
@@ -71,7 +72,7 @@ function normalize(data) {
 
 async function getWithMetadata(store, key) {
   if (typeof store.getWithMetadata === "function") {
-    return store.getWithMetadata(key, { type: "json", consistency: "strong" });
+    return getWithResolvedEtag(store, key, { type: "json" });
   }
   const data = await store.get(key, { type: "json", consistency: "strong" });
   return data ? { data } : null;

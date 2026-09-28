@@ -24,3 +24,35 @@ export function getBlobStore(name, context, options = {}) {
   }
   return getStore(input);
 }
+
+export async function getWithResolvedEtag(store, key, options = {}) {
+  const readOptions = {
+    ...options,
+    consistency: "strong",
+  };
+  let entry = await store.getWithMetadata(key, readOptions);
+  if (!entry || entry.etag) return entry;
+
+  for (let attempt = 0; attempt < 4; attempt += 1) {
+    const before = await exactKeyEtag(store, key);
+    if (!before) return entry;
+    const fresh = await store.getWithMetadata(key, readOptions);
+    if (!fresh || fresh.etag) return fresh;
+    const after = await exactKeyEtag(store, key);
+    if (before === after) return { ...fresh, etag: after };
+    entry = fresh;
+  }
+  return entry;
+}
+
+async function exactKeyEtag(store, key) {
+  if (typeof store.getMetadata === "function") {
+    const metadata = await store.getMetadata(key, { consistency: "strong" });
+    if (metadata?.etag) return metadata.etag;
+  }
+  if (typeof store.list !== "function") return null;
+
+  const listing = await store.list({ prefix: key });
+  const exact = listing?.blobs?.find(candidate => candidate.key === key);
+  return exact?.etag || null;
+}

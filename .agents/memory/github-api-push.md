@@ -7,3 +7,5 @@ Rule: use a PAT-in-URL (`https://user:PAT@github.com/…`) for `git push`; the c
 **Why:** Direct git push with PAT works reliably from Replit shell. The connector API write paths (PUT /contents, POST /git/trees) have proven unreliable (Cloudflare blocks, 404s).
 
 **How to apply:** Always use `git push https://owner:${GITHUB_PAT}@github.com/owner/repo.git branch`. Never pipe large content through shellExec for blob creation — read files with readFile and verify the sha before any PUT.
+
+When an isolated Actions drill is needed, push a clean branch based on GitHub's current default branch rather than the workspace's divergent history. GitHub secret scanning can reject a temporary branch because of an old local commit even if its current tree contains no credentials. Do not bypass the protection; carry over only the needed job and dependencies. A successful mail API step proves acceptance, not inbox receipt — obtain operator confirmation separately.

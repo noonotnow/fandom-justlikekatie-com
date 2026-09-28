@@ -94,7 +94,6 @@ async function releaseOwnerLease(store, key, ownerToken) {
     // Non-fatal: stale leases expire automatically.
   }
 }
-
 function indexKey(accountId, actorId, vibeIdx) {
   return `accounts/${encodeURIComponent(accountId)}/pairs/${encodeURIComponent(actorId)}/${vibeIdx}/index`;
 }

@@ -1,18 +1,28 @@
 import { randomUUID } from "node:crypto";
+import { getWithResolvedEtag } from "./blob-store.js";
 import { validateGridEditorialContract } from "./grid-editorial-contract.js";
 import { isReleaseCandidateProvenance } from "./approved-board-provenance.js";
 
 const MAX_OPERATIONS = 100;
 
-export async function syncCollection(store, accountId, input, now = () => new Date()) {
+export async function syncCollection(
+  store,
+  accountId,
+  input,
+  now = () => new Date(),
+  authorize = async () => {},
+) {
   validateSync(input);
   const key = `users/${accountId}`;
   for (let attempt = 0; attempt < 8; attempt += 1) {
     const entry = await getWithMetadata(store, key);
     const collection = entry?.data || emptyCollection(accountId);
+    await authorize(collection, input);
     const next = structuredClone(collection);
     const mappings = {};
-    for (const operation of input.operations) applyOperation(next, operation, mappings, now());
+    for (const operation of input.operations) {
+      applyOperation(next, operation, mappings, now(), input.cursor);
+    }
     const result = await store.setJSON(
       key,
       next,
@@ -37,7 +47,7 @@ export async function readCollection(store, accountId, cursor = 0) {
   return delta(data || emptyCollection(accountId), cursor, {});
 }
 
-function applyOperation(collection, operation, mappings, current) {
+function applyOperation(collection, operation, mappings, current, clientCursor) {
   const replay = collection.processed[operation.mutationId];
   if (replay) {
     if (replay.serverId) mappings[operation.localId] = replay.serverId;
@@ -56,6 +66,13 @@ function applyOperation(collection, operation, mappings, current) {
     const serverId = existing?.id || randomUUID();
     collection.items[serverId] = {
       ...operation.item,
+      // A client that has not seen the retirement must not revive its old label
+      // when a conditional-write conflict causes its upsert to be replayed.
+      ...(operation.item.kind === "grid"
+        && existing?.sourceProvenance === null
+        && existing.revision > (Number.isInteger(clientCursor) && clientCursor >= 0 ? clientCursor : 0)
+        ? { sourceProvenance: null }
+        : {}),
       ...(operation.item.kind === "grid" ? { artifactId: operation.item.id } : {}),
       id: serverId,
       localId: operation.localId,
@@ -148,6 +165,7 @@ function validateItem(item) {
     ) throw new TypeError("Collection grid is invalid.");
     if (item.media !== undefined) validateCollectionMedia(item.media);
     if (item.presentation !== undefined) validateGridPresentation(item.presentation);
+    if (item.sourceProvenance !== undefined) validateGridSourceProvenance(item.sourceProvenance);
     if (item.releaseCandidateProvenance !== undefined
       && !isReleaseCandidateProvenance(item.releaseCandidateProvenance)) {
       throw new TypeError("Collection release-candidate provenance is invalid.");
@@ -201,6 +219,39 @@ function validateGridPresentation(presentation) {
     || (presentation.paletteId !== undefined && !allowed.has(presentation.paletteId))
     || (presentation.atmosphereId !== undefined && !allowed.has(presentation.atmosphereId))
   ) throw new TypeError("Collection grid presentation is invalid.");
+}
+
+function validateGridSourceProvenance(provenance) {
+  if (provenance === null) return;
+  const keys = provenance && typeof provenance === "object"
+    ? Object.keys(provenance)
+    : [];
+  const isUndatedSource = (
+    ["collection", "daily"].includes(provenance?.kind)
+    && keys.length === 1
+    && keys[0] === "kind"
+  );
+  const isDatedEdition = (
+    provenance?.kind === "edition"
+    && keys.length === 2
+    && keys.includes("kind")
+    && keys.includes("editionDate")
+    && isCalendarDate(provenance.editionDate)
+  );
+  if (!isUndatedSource && !isDatedEdition) {
+    throw new TypeError("Collection grid source provenance is invalid.");
+  }
+}
+
+function isCalendarDate(value) {
+  if (typeof value !== "string" || !/^\d{4}-\d{2}-\d{2}$/u.test(value)) return false;
+  const [year, month, day] = value.split("-").map(Number);
+  const parsed = new Date(Date.UTC(year, month - 1, day));
+  return (
+    parsed.getUTCFullYear() === year
+    && parsed.getUTCMonth() === month - 1
+    && parsed.getUTCDate() === day
+  );
 }
 
 function validateMisprintMetadata(metadata) {
@@ -346,7 +397,7 @@ function operationsPresent(collection, operations) {
 
 async function getWithMetadata(store, key) {
   if (typeof store.getWithMetadata === "function") {
-    return store.getWithMetadata(key, { type: "json", consistency: "strong" });
+    return getWithResolvedEtag(store, key, { type: "json" });
   }
   const data = await store.get(key, { type: "json", consistency: "strong" });
   return data ? { data } : null;

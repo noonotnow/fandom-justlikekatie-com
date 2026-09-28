@@ -25,7 +25,9 @@ import
 import 
 {
 
+  BROWSER_ENGINES,
   closeBrowserAndServer,
+  gotoTestPage,
   launchBrowserForServer,
   launchPageForServer,
   startViteTestServer,
@@ -1067,7 +1069,7 @@ function publicationReviewRun(runId: string, historical = false, includePublicat
 
 async function configureNetwork(page: Page, 
 {
- missingRetirementRun = false, visualReview = false, completedVisualReview = false, failVisualJudgment = false, contendVisualJudgmentIndex = false, slowVisualJudgment = false, unfinishedBoardReview = false, publicationReview = false, returnCalibrationJsonErrorOnce = false, returnCalibrationGatewayOnce = false, returnMalformedCalibrationExportOnce = false, malformedCalibrationExportContentType = 'application/json', calibrationExportContentType = 'application/json', useSanitizedCalibrationExport = false, failCalibrationExportOnce = false, dropCalibrationExportOnce = false, mixedCalibrationApproval = false, activeMixedCalibrationApproval = false, boundedLegacyRecovery = false, retrievalRepetition = false, partialRetrievalRepetition = false, partialCalibrationProofMetrics = false, malformedCalibrationProofMetrics = false, currentLegacy = false, initialActiveRunId = null as string | null, publicationIndexRepairHealth = null as AnyRecord | null, failRepairHealthRecovery = false, auditHistoryDetailDelays = {} as Record<string, number[]>, auditHistoryDetailErrors = {} as Record<string, string[]>, auditHistoryDetailDrops = {} as Record<string, boolean[]>
+ missingRetirementRun = false, visualReview = false, completedVisualReview = false, failVisualJudgment = false, staleVisualJudgmentOnce = false, contendVisualJudgmentIndex = false, slowVisualJudgment = false, unfinishedBoardReview = false, publicationReview = false, returnCalibrationJsonErrorOnce = false, returnCalibrationGatewayOnce = false, returnMalformedCalibrationExportOnce = false, malformedCalibrationExportContentType = 'application/json', calibrationExportContentType = 'application/json', useSanitizedCalibrationExport = false, failCalibrationExportOnce = false, dropCalibrationExportOnce = false, mixedCalibrationApproval = false, activeMixedCalibrationApproval = false, boundedLegacyRecovery = false, retrievalRepetition = false, partialRetrievalRepetition = false, partialCalibrationProofMetrics = false, malformedCalibrationProofMetrics = false, currentLegacy = false, initialActiveRunId = null as string | null, publicationIndexRepairHealth = null as AnyRecord | null, failRepairHealthRecovery = false, auditHistoryDetailDelays = {} as Record<string, number[]>, auditHistoryDetailErrors = {} as Record<string, string[]>, auditHistoryDetailDrops = {} as Record<string, boolean[]>
 }
  = 
 {
@@ -1102,6 +1104,7 @@ async function configureNetwork(page: Page,
 
   let activeRunId: string | null = currentLegacy ? 'current-legacy' : unfinishedBoardReview ? 'board-review-current' : initialActiveRunId
 ;
+  let activeVisualRunId = 'visual-review-current';
 
   let savedBoard: AnyRecord | undefined
 ;
@@ -2142,7 +2145,7 @@ async function configureNetwork(page: Page,
           ? legacyRun(activeRunId)
           : run(activeRunId, revealed, activeRunId === 'run-2' && revealed)
         : visualReview
-          ? visualReviewRun(visualJudgments)
+          ? visualReviewRun(visualJudgments, activeVisualRunId)
           : null
 ;
 
@@ -2366,6 +2369,17 @@ async function configureNetwork(page: Page,
 
     if (input.action === 'record_visual_judgment' && visualReview) 
 {
+      if (staleVisualJudgmentOnce) {
+        staleVisualJudgmentOnce = false;
+        activeVisualRunId = 'visual-review-next';
+        visualJudgments.length = 0;
+        await route.fulfill({
+          status: 409,
+          contentType: 'application/json',
+          body: JSON.stringify({ error: 'This judgment is not for the current audit run. Refresh and try again.' }),
+        });
+        return;
+      }
 
       if (failVisualJudgment) 
 {
@@ -2446,7 +2460,7 @@ async function configureNetwork(page: Page,
 ;
 
       const response = responseBody(
-        visualReviewRun(visualJudgments),
+        visualReviewRun(visualJudgments, activeVisualRunId),
         'needs_operator_verdict',
       )
 ;
@@ -3179,7 +3193,7 @@ test('saved cache proof reopens after refresh without provider searches and stay
 ;
 
 
-    await page.goto(`${origin}/vibe-atlas?admin=true`)
+    await gotoTestPage(page, `${origin}/vibe-atlas?admin=true`)
 ;
 
     await page.getByRole('tab', 
@@ -3467,7 +3481,7 @@ test('historical cache proof keeps its frozen evidence and starts a new current-
 ;
 
 
-    await page.goto(`${origin}/vibe-atlas?admin=true`)
+    await gotoTestPage(page, `${origin}/vibe-atlas?admin=true`)
 ;
 
     await page.getByRole('tab', 
@@ -3739,7 +3753,7 @@ test('legacy historical cache proof marks its query-change summary unavailable w
 ;
 
 
-    await page.goto(`${origin}/vibe-atlas?admin=true`)
+    await gotoTestPage(page, `${origin}/vibe-atlas?admin=true`)
 ;
 
     await page.getByRole('tab', 
@@ -3862,7 +3876,7 @@ test('a failed cache comparison retries immediately with its active saved reserv
 ;
 
 
-    await page.goto(`${origin}/vibe-atlas?admin=true`)
+    await gotoTestPage(page, `${origin}/vibe-atlas?admin=true`)
 ;
 
     await page.getByRole('tab', 
@@ -3973,7 +3987,7 @@ test('retrieval repetition stays visibly separate from the downstream rejection 
 ;
 
 
-    await page.goto(`${origin}/vibe-atlas?admin=true`)
+    await gotoTestPage(page, `${origin}/vibe-atlas?admin=true`)
 ;
 
     await page.getByRole('tab', 
@@ -4177,7 +4191,7 @@ test('partial retrieval receipts distinguish unavailable counts from recorded ze
 ;
 
 
-    await page.goto(`${origin}/vibe-atlas?admin=true`)
+    await gotoTestPage(page, `${origin}/vibe-atlas?admin=true`)
 ;
 
     await page.getByRole('tab', 
@@ -4660,7 +4674,7 @@ test('calibration proof metrics reject malformed retained and Legacy history wit
 ;
 
 
-    await page.goto(`${origin}/vibe-atlas?admin=true`)
+    await gotoTestPage(page, `${origin}/vibe-atlas?admin=true`)
 ;
 
     await page.getByRole('tab', 
@@ -4837,7 +4851,7 @@ test('retrieval repetition remains visible and read-only after switching to a re
 ;
 
 
-    await page.goto(`${origin}/vibe-atlas?admin=true`)
+    await gotoTestPage(page, `${origin}/vibe-atlas?admin=true`)
 ;
 
     await page.getByRole('tab', 
@@ -5027,7 +5041,7 @@ test('retrieval repetition remains visible beneath Legacy warnings without audit
 ;
 
 
-    await page.goto(`${origin}/vibe-atlas?admin=true`)
+    await gotoTestPage(page, `${origin}/vibe-atlas?admin=true`)
 ;
 
     await page.getByRole('tab', 
@@ -5259,7 +5273,7 @@ test('a date-bounded editorial packet download preserves publication join outcom
 ;
 
 
-    await page.goto(`${origin}/vibe-atlas?admin=true`)
+    await gotoTestPage(page, `${origin}/vibe-atlas?admin=true`)
 ;
 
     await page.getByRole('tab', 
@@ -5443,61 +5457,63 @@ test('a date-bounded editorial packet download preserves publication join outcom
 )
 ;
 
-test('downloaded review packets sanitize malformed retained and Legacy calibration metrics', {
-  timeout: 60_000,
-}, async () => {
-  const { server, origin } = await startApp();
-  const { browser, page } = await launchPageForServer(server);
+for (const engine of BROWSER_ENGINES) {
+  test(`downloaded review packets sanitize malformed retained and Legacy calibration metrics in ${engine.name}`, {
+    timeout: 60_000,
+  }, async () => {
+    const { server, origin } = await startApp();
+    const { browser, page } = await launchPageForServer(server, engine.type);
 
-  try {
-    await configureNetwork(page, { useSanitizedCalibrationExport: true });
-    await page.goto(`${origin}/vibe-atlas?admin=true`);
-    await page.getByRole('tab', {
-      name: 'Actor Preflight Lab',
-      exact: true,
-    }).click();
+    try {
+      await configureNetwork(page, { useSanitizedCalibrationExport: true });
+      await gotoTestPage(page, `${origin}/vibe-atlas?admin=true`);
+      await page.getByRole('tab', {
+        name: 'Actor Preflight Lab',
+        exact: true,
+      }).click();
 
-    const exportPanel = page.getByLabel('Read-only calibration export');
-    await exportPanel.getByLabel('From').fill('2026-09-01');
-    await exportPanel.getByLabel('To').fill('2026-09-10');
+      const exportPanel = page.getByLabel('Read-only calibration export');
+      await exportPanel.getByLabel('From').fill('2026-09-01');
+      await exportPanel.getByLabel('To').fill('2026-09-10');
 
-    const downloadPromise = page.waitForEvent('download');
-    await exportPanel.getByRole('button', {
-      name: 'Download editorial review packet',
-      exact: true,
-    }).click();
-    const download = await downloadPromise;
-    const downloadPath = await download.path();
-    assert.ok(downloadPath, 'the browser should retain the sanitized editorial packet');
+      const downloadPromise = page.waitForEvent('download');
+      await exportPanel.getByRole('button', {
+        name: 'Download editorial review packet',
+        exact: true,
+      }).click();
+      const download = await downloadPromise;
+      const downloadPath = await download.path();
+      assert.ok(downloadPath, 'the browser should retain the sanitized editorial packet');
 
-    const payload = JSON.parse(await readFile(downloadPath, 'utf8')) as AnyRecord;
-    const retained = payload.runs.find(
-      (item: AnyRecord) => item.run.runId === 'retained-malformed-effect',
-    );
-    const legacy = payload.runs.find(
-      (item: AnyRecord) => item.run.runId === 'legacy-malformed-delta',
-    );
+      const payload = JSON.parse(await readFile(downloadPath, 'utf8')) as AnyRecord;
+      const retained = payload.runs.find(
+        (item: AnyRecord) => item.run.runId === 'retained-malformed-effect',
+      );
+      const legacy = payload.runs.find(
+        (item: AnyRecord) => item.run.runId === 'legacy-malformed-delta',
+      );
 
-    assert.equal('beyondExactSavedNineCount' in retained.run.calibrationProof, false);
-    assert.equal(retained.run.calibrationProof.scoreDelta, 0);
-    assert.deepEqual(
-      retained.exportMetadata.missingFields.filter(
-        (path: string) => path.startsWith('run.calibrationProof.'),
-      ),
-      ['run.calibrationProof.beyondExactSavedNineCount'],
-    );
-    assert.equal(legacy.run.calibrationProof.beyondExactSavedNineCount, 0);
-    assert.equal('scoreDelta' in legacy.run.calibrationProof, false);
-    assert.deepEqual(
-      legacy.exportMetadata.missingFields.filter(
-        (path: string) => path.startsWith('run.calibrationProof.'),
-      ),
-      ['run.calibrationProof.scoreDelta'],
-    );
-  } finally {
-    await closeBrowserAndServer(browser, server);
-  }
-});
+      assert.equal('beyondExactSavedNineCount' in retained.run.calibrationProof, false);
+      assert.equal(retained.run.calibrationProof.scoreDelta, 0);
+      assert.deepEqual(
+        retained.exportMetadata.missingFields.filter(
+          (path: string) => path.startsWith('run.calibrationProof.'),
+        ),
+        ['run.calibrationProof.beyondExactSavedNineCount'],
+      );
+      assert.equal(legacy.run.calibrationProof.beyondExactSavedNineCount, 0);
+      assert.equal('scoreDelta' in legacy.run.calibrationProof, false);
+      assert.deepEqual(
+        legacy.exportMetadata.missingFields.filter(
+          (path: string) => path.startsWith('run.calibrationProof.'),
+        ),
+        ['run.calibrationProof.scoreDelta'],
+      );
+    } finally {
+      await closeBrowserAndServer(browser, server);
+    }
+  });
+}
 
 
 for (const 
@@ -5517,8 +5533,9 @@ for (const
 ,
 ]) 
 {
+  for (const engine of BROWSER_ENGINES) {
 
-  test(`a valid ${label} editorial packet downloads exactly once without mutations`, 
+  test(`a valid ${label} editorial packet downloads exactly once without mutations in ${engine.name}`,
 {
  timeout: 60_000 
 }
@@ -5536,7 +5553,7 @@ for (const
 {
  browser, page 
 }
- = await launchPageForServer(server)
+ = await launchPageForServer(server, engine.type)
 ;
 
     try 
@@ -5615,7 +5632,7 @@ for (const
 ;
 
 
-      await page.goto(`${origin}/vibe-atlas?admin=true`)
+      await gotoTestPage(page, `${origin}/vibe-atlas?admin=true`)
 ;
 
       await page.getByRole('tab', 
@@ -5706,6 +5723,8 @@ for (const
 
 }
 
+  }
+
 
 test('retained-run publication summaries keep outcomes and immutable edition links visible without mutations', 
 {
@@ -5776,7 +5795,7 @@ test('retained-run publication summaries keep outcomes and immutable edition lin
 ;
 
 
-    await page.goto(`${origin}/vibe-atlas?admin=true`)
+    await gotoTestPage(page, `${origin}/vibe-atlas?admin=true`)
 ;
 
     await page.getByRole('tab', 
@@ -5975,7 +5994,8 @@ test('retained-run publication summaries keep outcomes and immutable edition lin
 ;
 
 
-test('failed editorial packet downloads stay useful and retryable without mutations', 
+for (const engine of BROWSER_ENGINES) {
+test(`failed editorial packet downloads stay useful and retryable without mutations in ${engine.name}`,
 {
  timeout: 60_000 
 }
@@ -5993,7 +6013,7 @@ test('failed editorial packet downloads stay useful and retryable without mutati
 {
  browser, page 
 }
- = await launchPageForServer(server)
+  = await launchPageForServer(server, engine.type)
 ;
 
   try 
@@ -6075,7 +6095,7 @@ test('failed editorial packet downloads stay useful and retryable without mutati
 ;
 
 
-    await page.goto(`${origin}/vibe-atlas?admin=true`)
+    await gotoTestPage(page, `${origin}/vibe-atlas?admin=true`)
 ;
 
     await page.getByRole('tab', 
@@ -6234,12 +6254,14 @@ test('failed editorial packet downloads stay useful and retryable without mutati
 }
 )
 ;
+}
 
 
 for (const malformedContentType of ['application/json', 'application/vnd.fandom.calibration+json']) 
 {
+for (const engine of BROWSER_ENGINES) {
 
-  test(`malformed ${malformedContentType} editorial packet responses stay retryable without downloads or mutations`, 
+  test(`malformed ${malformedContentType} editorial packet responses stay retryable without downloads or mutations in ${engine.name}`,
 {
  timeout: 60_000 
 }
@@ -6257,7 +6279,7 @@ for (const malformedContentType of ['application/json', 'application/vnd.fandom.
 {
  browser, page 
 }
- = await launchPageForServer(server)
+  = await launchPageForServer(server, engine.type)
 ;
 
     try 
@@ -6337,7 +6359,7 @@ for (const malformedContentType of ['application/json', 'application/vnd.fandom.
 ;
 
 
-      await page.goto(`${origin}/vibe-atlas?admin=true`)
+      await gotoTestPage(page, `${origin}/vibe-atlas?admin=true`)
 ;
 
       await page.getByRole('tab', 
@@ -6387,6 +6409,24 @@ for (const malformedContentType of ['application/json', 'application/vnd.fandom.
       assert.equal(calibrationExportRequests.length, 1, 'the malformed response should require only the read-only packet request')
 ;
 
+      const downloadPromise = page.waitForEvent('download')
+;
+
+      await downloadButton.click()
+;
+
+      const download = await downloadPromise
+;
+
+      assert.equal(download.suggestedFilename(), 'actor-calibration-2026-09-01-2026-09-10.json')
+;
+
+      assert.equal(downloads, 1, 'only the recovered valid JSON response should trigger a download')
+;
+
+      assert.equal(calibrationExportRequests.length, 2, 'retrying should repeat only the same read-only packet request')
+;
+
       assert.deepEqual(mutationRequests, [], 'the malformed response must not issue audit or publication mutations')
 ;
 
@@ -6419,12 +6459,13 @@ for (const malformedContentType of ['application/json', 'application/vnd.fandom.
 ;
 
 }
+}
 
 
-function visualReviewRun(receipts: AnyRecord[]): AnyRecord 
+function visualReviewRun(receipts: AnyRecord[], runId = 'visual-review-current'): AnyRecord
 {
 
-  const result = run('visual-review-current', true)
+  const result = run(runId, true)
 ;
 
   result.queryRuns = [
@@ -7277,7 +7318,7 @@ test('an authenticated image-only review stays completed after read-only history
 ;
 
 
-    await page.goto(`${origin}/vibe-atlas?admin=true`)
+    await gotoTestPage(page, `${origin}/vibe-atlas?admin=true`)
 ;
 
     await page.getByRole('tab', 
@@ -7593,7 +7634,7 @@ test('a failed image-only judgment stays blinded and ready to retry',
 ;
 
 
-    await page.goto(`${origin}/vibe-atlas?admin=true`)
+    await gotoTestPage(page, `${origin}/vibe-atlas?admin=true`)
 ;
 
     await page.getByRole('tab', 
@@ -7773,7 +7814,7 @@ test('a saved image judgment repairs index contention without repeating classifi
 ;
 
 
-    await page.goto(`${origin}/vibe-atlas?admin=true`)
+    await gotoTestPage(page, `${origin}/vibe-atlas?admin=true`)
 ;
 
     await page.getByRole('tab', 
@@ -7885,6 +7926,32 @@ test('a saved image judgment repairs index contention without repeating classifi
 ;
 
 
+test('a stale image judgment moves to the server current run without resubmitting', { timeout: 60_000 }, async () => {
+  const { server, origin } = await startApp();
+  const { browser, page } = await launchPageForServer(server);
+  try {
+    const { auditRequests } = await configureNetwork(page, {
+      visualReview: true,
+      staleVisualJudgmentOnce: true,
+    });
+    await gotoTestPage(page, `${origin}/vibe-atlas?admin=true`);
+    await page.getByRole('tab', { name: 'Actor Preflight Lab', exact: true }).click();
+    const review = page.getByLabel('Blind rejected thumbnail review');
+    await review.getByRole('button', { name: 'Core', exact: true }).click();
+    await page.getByText('A newer audit became current. No judgment was saved for the previous run. Review the current images and choose again; nothing was approved.', { exact: true }).waitFor();
+    await page.getByText('Image-only calibration · audit visual-review-next').waitFor();
+    assert.equal(await review.getByText('1/2 · 0 receipts').isVisible(), true);
+    assert.deepEqual(auditRequests.filter(item => item.action === 'record_visual_judgment').map(item => item.runId), ['visual-review-current']);
+
+    await review.getByRole('button', { name: 'Supporting', exact: true }).click();
+    await review.getByText('2/2 · 1 receipt').waitFor();
+    assert.deepEqual(auditRequests.filter(item => item.action === 'record_visual_judgment').map(item => item.runId), ['visual-review-current', 'visual-review-next']);
+    assert.equal(auditRequests.some(item => item.action === 'verdict' || item.action === 'blind_choice'), false);
+  } finally {
+    await closeBrowserAndServer(browser, server);
+  }
+});
+
 test('a slow image-only judgment ignores a rapid repeated click', 
 {
  timeout: 60_000 
@@ -7921,7 +7988,7 @@ test('a slow image-only judgment ignores a rapid repeated click',
 ;
 
 
-    await page.goto(`${origin}/vibe-atlas?admin=true`)
+    await gotoTestPage(page, `${origin}/vibe-atlas?admin=true`)
 ;
 
     await page.getByRole('tab', 
@@ -8166,7 +8233,7 @@ test('retained and Legacy image-only reviews stay read-only and blinded before r
 ;
 
 
-    await page.goto(`${origin}/vibe-atlas?admin=true`)
+    await gotoTestPage(page, `${origin}/vibe-atlas?admin=true`)
 ;
 
     await page.getByRole('tab', 
@@ -8354,7 +8421,7 @@ test('only the latest rapid audit-history selection can update the displayed run
 ;
 
 
-    await page.goto(`${origin}/vibe-atlas?admin=true`)
+    await gotoTestPage(page, `${origin}/vibe-atlas?admin=true`)
 ;
 
     await page.getByRole('tab', 
@@ -8515,7 +8582,7 @@ test('a stale audit-history error cannot replace a newer successful selection',
 ;
 
 
-    await page.goto(`${origin}/vibe-atlas?admin=true`)
+    await gotoTestPage(page, `${origin}/vibe-atlas?admin=true`)
 ;
 
     await page.getByRole('tab', 
@@ -8644,7 +8711,7 @@ async function runDirectHistoricalReviewScenario(
 )
 ;
 
-    await page.goto(`${origin}/vibe-atlas?${params}`)
+    await gotoTestPage(page, `${origin}/vibe-atlas?${params}`)
 ;
 
     await page.getByRole('tab', 
@@ -8828,7 +8895,7 @@ test('a direct unfinished retained board review stays frozen and blinded before 
 )
 ;
 
-    await page.goto(`${origin}/vibe-atlas?${params}`)
+    await gotoTestPage(page, `${origin}/vibe-atlas?${params}`)
 ;
 
     await page.getByRole('tab', 
@@ -8975,7 +9042,7 @@ test('a current Legacy audit keeps only annotation and rescue exceptions actiona
 ;
 
 
-    await page.goto(`${origin}/vibe-atlas?admin=true`)
+    await gotoTestPage(page, `${origin}/vibe-atlas?admin=true`)
 ;
 
     await page.getByRole('tab', 
@@ -9364,7 +9431,7 @@ test('a current Legacy retrieval receipt survives refresh and history switching 
 }
 
 
-    await page.goto(`${origin}/vibe-atlas?admin=true`)
+    await gotoTestPage(page, `${origin}/vibe-atlas?admin=true`)
 ;
 
     await page.getByRole('tab', 
@@ -9670,7 +9737,7 @@ test('a failed history detail load preserves the current Legacy retrieval receip
 }
 
 
-    await page.goto(`${origin}/vibe-atlas?admin=true`)
+    await gotoTestPage(page, `${origin}/vibe-atlas?admin=true`)
 ;
 
     await page.getByRole('tab', 
@@ -9754,7 +9821,8 @@ test('a failed history detail load preserves the current Legacy retrieval receip
 ;
 
 
-test('a lost history connection preserves the current Legacy evidence and recovers without writes', 
+for (const engine of BROWSER_ENGINES) {
+test(`a lost history connection preserves the current Legacy evidence and recovers without writes in ${engine.name}`,
 {
  timeout: 60_000 
 }
@@ -9768,7 +9836,7 @@ test('a lost history connection preserves the current Legacy evidence and recove
  = await startApp()
 ;
 
-  const browser = await launchBrowserForServer(server)
+  const browser = await launchBrowserForServer(server, engine.type)
 ;
 
   const page = await browser.newPage()
@@ -9966,7 +10034,7 @@ test('a lost history connection preserves the current Legacy evidence and recove
   try 
 {
 
-    await page.goto(`${origin}/vibe-atlas?admin=true`)
+    await gotoTestPage(page, `${origin}/vibe-atlas?admin=true`)
 ;
 
     await page.getByRole('tab', 
@@ -9979,6 +10047,10 @@ test('a lost history connection preserves the current Legacy evidence and recove
     await assertCurrentLegacyEvidence()
 ;
 
+    const runSelect = page.getByLabel('Audit run')
+;
+    assert.equal(await runSelect.inputValue(), 'current-legacy')
+;
 
     const failedRequest = page.waitForEvent('requestfailed', request => 
 {
@@ -9992,9 +10064,6 @@ test('a lost history connection preserves the current Legacy evidence and recove
     
 }
 )
-;
-
-    const runSelect = page.getByLabel('Audit run')
 ;
 
     await runSelect.selectOption('run-1')
@@ -10020,6 +10089,8 @@ test('a lost history connection preserves the current Legacy evidence and recove
 ;
 
     await assertCurrentLegacyEvidence()
+;
+    assert.equal(await runSelect.inputValue(), 'current-legacy')
 ;
 
 
@@ -10081,9 +10152,11 @@ test('a lost history connection preserves the current Legacy evidence and recove
 }
 )
 ;
+}
 
 
-test('a lost connection returning from Legacy history preserves the retained evidence without writes', 
+for (const engine of BROWSER_ENGINES) {
+test(`a lost connection returning from Legacy history preserves the retained evidence without writes in ${engine.name}`,
 {
  timeout: 60_000 
 }
@@ -10097,7 +10170,7 @@ test('a lost connection returning from Legacy history preserves the retained evi
  = await startApp()
 ;
 
-  const browser = await launchBrowserForServer(server)
+  const browser = await launchBrowserForServer(server, engine.type)
 ;
 
   const page = await browser.newPage()
@@ -10115,7 +10188,14 @@ test('a lost connection returning from Legacy history preserves the retained evi
     auditHistoryDetailDrops: 
 {
 
-      'current-legacy': [false, true],
+      'current-legacy': [false, true, false],
+
+}
+,
+    auditHistoryDetailDelays:
+{
+
+      'current-legacy': [0, 0, 500],
     
 }
 ,
@@ -10161,7 +10241,7 @@ test('a lost connection returning from Legacy history preserves the retained evi
   try 
 {
 
-    await page.goto(`${origin}/vibe-atlas?admin=true`)
+    await gotoTestPage(page, `${origin}/vibe-atlas?admin=true`)
 ;
 
     await page.getByRole('tab', 
@@ -10190,6 +10270,10 @@ test('a lost connection returning from Legacy history preserves the retained evi
  name: 'Legacy audit · retained history · run-legacy', exact: true 
 }
 ).waitFor()
+;
+    const legacyWarning = page.getByText('Fully read-only retained Legacy run.', { exact: false })
+;
+    await legacyWarning.waitFor()
 ;
 
 
@@ -10256,23 +10340,66 @@ test('a lost connection returning from Legacy history preserves the retained evi
 
     assert.deepEqual((await repetition.locator('strong').allTextContents()).slice(0, 4), ['7', '6', '5', '2'])
 ;
+    assert.equal(await legacyWarning.isVisible(), true)
+;
+
+    const recoveredResponse = page.waitForResponse(response =>
+{
+
+      const url = new URL(response.url())
+;
+      return response.status() === 200
+        && url.pathname.endsWith('/actor-audits')
+        && url.searchParams.get('runId') === 'current-legacy'
+;
+
+})
+;
+
+    await runSelect.selectOption('current-legacy')
+;
+    assert.equal(
+      await runSelect.inputValue(),
+      'run-legacy',
+      'the selector must remain on Legacy history while the dropped-connection retry is pending',
+    )
+;
+    assert.equal(await legacyWarning.isVisible(), true)
+;
+    assert.deepEqual(
+      (await repetition.locator('strong').allTextContents()).slice(0, 4),
+      ['7', '6', '5', '2'],
+      'Legacy retained evidence must remain intact until the dropped-connection retry succeeds',
+    )
+;
+
+    await recoveredResponse
+;
+    await page.getByRole('heading',
+{
+ name: 'Legacy audit · retained history · current-legacy', exact: true
+}
+).waitFor()
+;
+    assert.equal(await runSelect.inputValue(), 'current-legacy')
+;
 
 
     assert.deepEqual(
       auditTraffic.filter(request => request.runId).map(request => request.runId),
-      ['current-legacy', 'run-legacy', 'current-legacy'],
-      'opening retained history and the failed return must use only selected-run detail reads',
+      ['current-legacy', 'run-legacy', 'current-legacy', 'current-legacy'],
+      'opening retained history, the dropped return, and recovery must use only selected-run detail reads',
     )
 ;
 
     assert.equal(
       auditTraffic.every(request => request.method === 'GET'),
       true,
-      'a failed return to current must not send an audit mutation request',
+      'a dropped return and successful retry must not send an audit mutation request',
     )
 ;
 
-    assert.deepEqual(auditRequests, [], 'a failed return to current must not run or mutate an audit')
+    assert.deepEqual(auditRequests, [], 'a dropped return and successful retry must not run or mutate an audit')
 ;
 
   
@@ -10289,13 +10416,15 @@ test('a lost connection returning from Legacy history preserves the retained evi
 }
 )
 ;
+}
 
 
-test('a lost connection returning from retained history preserves the non-Legacy evidence without writes', {
+for (const engine of BROWSER_ENGINES) {
+test(`a lost connection returning from retained history preserves the non-Legacy evidence without writes in ${engine.name}`, {
   timeout: 60_000,
 }, async () => {
   const { server, origin } = await startApp()
-  const browser = await launchBrowserForServer(server)
+  const browser = await launchBrowserForServer(server, engine.type)
   const page = await browser.newPage()
   const { auditRequests } = await configureNetwork(page, {
     initialActiveRunId: 'run-2',
@@ -10317,7 +10446,7 @@ test('a lost connection returning from retained history preserves the non-Legacy
   })
 
   try {
-    await page.goto(`${origin}/vibe-atlas?admin=true`)
+    await gotoTestPage(page, `${origin}/vibe-atlas?admin=true`)
     await page.getByRole('tab', { name: 'Actor Preflight Lab', exact: true }).click()
     await page.getByRole('heading', { name: 'Audit evidence · run-2', exact: true }).waitFor()
 
@@ -10337,10 +10466,11 @@ test('a lost connection returning from retained history preserves the non-Legacy
 
     await runSelect.selectOption('run-2')
     await failedRequest
-    await page.getByText(
+    const connectionWarning = page.getByText(
       'Audit history lost its connection. The evidence currently on screen is safe and unchanged. Retry the history selection when the connection returns; retrying only reads the selected audit.',
       { exact: true },
-    ).waitFor()
+    )
+    await connectionWarning.waitFor()
 
     assert.equal(await page.getByText(/failed to fetch/i).count(), 0)
     assert.equal(await runSelect.inputValue(), 'run-1')
@@ -10366,6 +10496,7 @@ test('a lost connection returning from retained history preserves the non-Legacy
     await runSelect.selectOption('run-2')
     assert.equal(await runSelect.inputValue(), 'run-1', 'the selector must remain on retained history while the retry is pending')
     await page.getByRole('heading', { name: 'Audit evidence · run-1', exact: true }).waitFor()
+    assert.equal(await connectionWarning.count(), 0, 'retrying should clear the stale connection warning')
     assert.deepEqual(
       (await repetition.locator('strong').allTextContents()).slice(0, 4),
       ['7', '6', '5', '2'],
@@ -10375,6 +10506,7 @@ test('a lost connection returning from retained history preserves the non-Legacy
     await recoveredRequest
     await page.getByRole('heading', { name: 'Audit evidence · run-2', exact: true }).waitFor()
     assert.equal(await runSelect.inputValue(), 'run-2', 'the selector must align with the restored current audit')
+    assert.equal(await connectionWarning.count(), 0, 'the recovered audit must not show a connection warning')
     assert.deepEqual(
       auditTraffic.filter(request => request.runId).map(request => request.runId),
       ['run-2', 'run-1', 'run-2', 'run-2'],
@@ -10390,14 +10522,16 @@ test('a lost connection returning from retained history preserves the non-Legacy
     await closeBrowserAndServer(browser, server)
   }
 })
+}
 ;
 
-test('a temporary server error returning from retained history recovers without writes', {
+for (const engine of BROWSER_ENGINES) {
+test(`a temporary server error returning from retained history recovers without writes in ${engine.name}`, {
   timeout: 60_000,
 }, async () => {
   const historyError = 'The current audit is temporarily unavailable.'
   const { server, origin } = await startApp()
-  const browser = await launchBrowserForServer(server)
+  const browser = await launchBrowserForServer(server, engine.type)
   const page = await browser.newPage()
   const { auditRequests } = await configureNetwork(page, {
     initialActiveRunId: 'run-2',
@@ -10419,7 +10553,7 @@ test('a temporary server error returning from retained history recovers without 
   })
 
   try {
-    await page.goto(`${origin}/vibe-atlas?admin=true`)
+    await gotoTestPage(page, `${origin}/vibe-atlas?admin=true`)
     await page.getByRole('tab', { name: 'Actor Preflight Lab', exact: true }).click()
     await page.getByRole('heading', { name: 'Audit evidence · run-2', exact: true }).waitFor()
 
@@ -10461,6 +10595,7 @@ test('a temporary server error returning from retained history recovers without 
     await runSelect.selectOption('run-2')
     assert.equal(await runSelect.inputValue(), 'run-1', 'the selector must remain on retained history while the retry is pending')
     await page.getByRole('heading', { name: 'Audit evidence · run-1', exact: true }).waitFor()
+    assert.equal(await page.getByText(historyError, { exact: true }).count(), 0, 'retrying should clear the stale server warning')
     assert.deepEqual(
       (await repetition.locator('strong').allTextContents()).slice(0, 4),
       ['7', '6', '5', '2'],
@@ -10470,6 +10605,7 @@ test('a temporary server error returning from retained history recovers without 
     await recoveredResponse
     await page.getByRole('heading', { name: 'Audit evidence · run-2', exact: true }).waitFor()
     assert.equal(await runSelect.inputValue(), 'run-2', 'the selector must align with the restored current audit')
+    assert.equal(await page.getByText(historyError, { exact: true }).count(), 0, 'the recovered audit must not show a server warning')
     assert.deepEqual(
       auditTraffic.filter(request => request.runId).map(request => request.runId),
       ['run-2', 'run-1', 'run-2', 'run-2'],
@@ -10485,6 +10621,126 @@ test('a temporary server error returning from retained history recovers without 
     await closeBrowserAndServer(browser, server)
   }
 })
+}
+;
+
+for (const engine of BROWSER_ENGINES) {
+test(`a temporary server error returning from Legacy history recovers without writes in ${engine.name}`, {
+  timeout: 60_000,
+}, async () => {
+  const historyError = 'The current Legacy audit is temporarily unavailable.'
+  const { server, origin } = await startApp()
+  const browser = await launchBrowserForServer(server, engine.type)
+  const page = await browser.newPage()
+  const { auditRequests } = await configureNetwork(page, {
+    currentLegacy: true,
+    retrievalRepetition: true,
+    auditHistoryDetailDelays: {
+      'current-legacy': [0, 0, 500],
+    },
+    auditHistoryDetailErrors: {
+      'current-legacy': ['', historyError],
+    },
+  })
+  const auditTraffic: Array<{ method: string; runId: string | null }> = []
+
+  page.on('request', request => {
+    const url = new URL(request.url())
+    if (url.pathname.endsWith('/actor-audits')) {
+      auditTraffic.push({ method: request.method(), runId: url.searchParams.get('runId') })
+    }
+  })
+
+  try {
+    await gotoTestPage(page, `${origin}/vibe-atlas?admin=true`)
+    await page.getByRole('tab', { name: 'Actor Preflight Lab', exact: true }).click()
+    await page.getByRole('heading', {
+      name: 'Legacy audit · retained history · current-legacy',
+      exact: true,
+    }).waitFor()
+
+    const runSelect = page.getByLabel('Audit run')
+    await runSelect.selectOption('run-legacy')
+    const legacyHeading = page.getByRole('heading', {
+      name: 'Legacy audit · retained history · run-legacy',
+      exact: true,
+    })
+    await legacyHeading.waitFor()
+    const legacyWarning = page.getByText('Fully read-only retained Legacy run.', { exact: false })
+    await legacyWarning.waitFor()
+
+    const repetition = page
+      .getByRole('region', { name: 'Candidate loss funnel' })
+      .getByRole('region', { name: 'Retrieval repetition' })
+    assert.deepEqual((await repetition.locator('strong').allTextContents()).slice(0, 4), ['7', '6', '5', '2'])
+
+    const failedResponse = page.waitForResponse(response => {
+      const url = new URL(response.url())
+      return response.status() === 503
+        && url.pathname.endsWith('/actor-audits')
+        && url.searchParams.get('runId') === 'current-legacy'
+    })
+
+    await runSelect.selectOption('current-legacy')
+    await failedResponse
+    await page.getByText(historyError, { exact: true }).waitFor()
+
+    assert.equal(await runSelect.inputValue(), 'run-legacy')
+    await legacyHeading.waitFor()
+    assert.equal(await legacyWarning.isVisible(), true)
+    assert.deepEqual(
+      (await repetition.locator('strong').allTextContents()).slice(0, 4),
+      ['7', '6', '5', '2'],
+      'the Legacy warning, retained evidence, and selector must remain aligned after the server error',
+    )
+
+    const recoveredResponse = page.waitForResponse(response => {
+      const url = new URL(response.url())
+      return response.status() === 200
+        && url.pathname.endsWith('/actor-audits')
+        && url.searchParams.get('runId') === 'current-legacy'
+    })
+
+    await runSelect.selectOption('current-legacy')
+    assert.equal(
+      await runSelect.inputValue(),
+      'run-legacy',
+      'the selector must remain on Legacy history while the retry is pending',
+    )
+    await legacyHeading.waitFor()
+    assert.equal(await legacyWarning.isVisible(), true)
+    assert.deepEqual(
+      (await repetition.locator('strong').allTextContents()).slice(0, 4),
+      ['7', '6', '5', '2'],
+      'Legacy retained evidence must remain intact until the successful retry response arrives',
+    )
+
+    await recoveredResponse
+    await page.getByRole('heading', {
+      name: 'Legacy audit · retained history · current-legacy',
+      exact: true,
+    }).waitFor()
+    assert.equal(await runSelect.inputValue(), 'current-legacy')
+    assert.deepEqual(
+      auditTraffic.filter(request => request.runId).map(request => request.runId),
+      ['current-legacy', 'run-legacy', 'current-legacy', 'current-legacy'],
+      'the failed return and recovery retry must use only selected-run detail reads',
+    )
+    assert.equal(
+      auditTraffic.every(request => request.method === 'GET'),
+      true,
+      'both Legacy return attempts must use GET',
+    )
+    assert.deepEqual(
+      auditRequests,
+      [],
+      'returning from Legacy history after a server recovery must not run or mutate an audit',
+    )
+  } finally {
+    await closeBrowserAndServer(browser, server)
+  }
+})
+}
 ;
 
 
@@ -10527,7 +10783,7 @@ test('a signed-in operator saves a rescue board to Collection without calibratin
 ;
 
 
-    await page.goto(`${origin}/vibe-atlas?admin=true`)
+    await gotoTestPage(page, `${origin}/vibe-atlas?admin=true`)
 ;
 
     await page.getByRole('heading', 
@@ -11441,7 +11697,7 @@ test('release inventory repair warnings cover repeated and failed repairs, one s
 )
 ;
 
-    await repeatedRepairPage.goto(`${origin}/vibe-atlas?admin=true`)
+    await gotoTestPage(repeatedRepairPage, `${origin}/vibe-atlas?admin=true`)
 ;
 
     await repeatedRepairPage.getByRole('heading', 
@@ -11496,7 +11752,7 @@ test('release inventory repair warnings cover repeated and failed repairs, one s
 )
 ;
 
-      await failedRepairPage.goto(`${origin}/vibe-atlas?admin=true`)
+      await gotoTestPage(failedRepairPage, `${origin}/vibe-atlas?admin=true`)
 ;
 
       await failedRepairPage.getByRole('heading', 
@@ -11563,7 +11819,7 @@ test('release inventory repair warnings cover repeated and failed repairs, one s
 )
 ;
 
-      await incompleteRepairPage.goto(`${origin}/vibe-atlas?admin=true`)
+      await gotoTestPage(incompleteRepairPage, `${origin}/vibe-atlas?admin=true`)
 ;
 
       await incompleteRepairPage.getByRole('heading', 
@@ -11606,7 +11862,7 @@ test('release inventory repair warnings cover repeated and failed repairs, one s
       },
     })
 ;
-    await recoverableRepairPage.goto(`${origin}/vibe-atlas?admin=true`)
+    await gotoTestPage(recoverableRepairPage, `${origin}/vibe-atlas?admin=true`)
 ;
     const recoverButton = recoverableRepairPage.getByRole('button', {
       name: 'Recover repair health',
@@ -11654,7 +11910,7 @@ test('release inventory repair warnings cover repeated and failed repairs, one s
       },
     })
 ;
-    await failedRecoveryPage.goto(`${origin}/vibe-atlas?admin=true`)
+    await gotoTestPage(failedRecoveryPage, `${origin}/vibe-atlas?admin=true`)
 ;
     await failedRecoveryPage.getByRole('button', {
       name: 'Recover repair health',
@@ -11697,7 +11953,7 @@ test('release inventory repair warnings cover repeated and failed repairs, one s
 )
 ;
 
-    await successfulBootstrapPage.goto(`${origin}/vibe-atlas?admin=true`)
+    await gotoTestPage(successfulBootstrapPage, `${origin}/vibe-atlas?admin=true`)
 ;
 
     await successfulBootstrapPage.getByRole('heading', 
@@ -11740,7 +11996,7 @@ test('release inventory repair warnings cover repeated and failed repairs, one s
 )
 ;
 
-    await publicPage.goto(`${origin}/vibe-atlas`)
+    await gotoTestPage(publicPage, `${origin}/vibe-atlas`)
 ;
 
     await publicPage.getByRole('heading', 
@@ -11808,7 +12064,7 @@ test('mixed calibration evidence does not overstate joint bundle support',
 )
 ;
 
-    await selectionPage.goto(`${origin}/vibe-atlas?admin=true`)
+    await gotoTestPage(selectionPage, `${origin}/vibe-atlas?admin=true`)
 ;
 
     await selectionPage.getByRole('tab', 
@@ -11890,7 +12146,7 @@ test('mixed calibration evidence does not overstate joint bundle support',
 )
 ;
 
-    await activePage.goto(`${origin}/vibe-atlas?admin=true`)
+    await gotoTestPage(activePage, `${origin}/vibe-atlas?admin=true`)
 ;
 
     await activePage.getByRole('tab', 
@@ -11983,7 +12239,7 @@ test('a bounded legacy recovery keeps its active approval visible to operators',
 ;
 
 
-    await page.goto(`${origin}/vibe-atlas?admin=true`)
+    await gotoTestPage(page, `${origin}/vibe-atlas?admin=true`)
 ;
 
     await page.getByRole('tab', 
@@ -12077,7 +12333,7 @@ test('a retirement evidence handoff preserves the receipt identifier when its so
 ;
 
 
-    await page.goto(`${origin}/vibe-atlas?admin=true`)
+    await gotoTestPage(page, `${origin}/vibe-atlas?admin=true`)
 ;
 
     await page.getByRole('heading', 
@@ -12166,7 +12422,7 @@ test('a stale rescue approval keeps the recovery form visible without showing pu
 ;
 
 
-    await page.goto(`${origin}/vibe-atlas?admin=true`)
+    await gotoTestPage(page, `${origin}/vibe-atlas?admin=true`)
 ;
 
     await page.getByRole('tab', 
@@ -12336,7 +12592,7 @@ test('a newer current audit keeps the approval draft intact until the operator r
 ;
 
 
-    await page.goto(`${origin}/vibe-atlas?admin=true`)
+    await gotoTestPage(page, `${origin}/vibe-atlas?admin=true`)
 ;
 
     await page.getByRole('tab', 
@@ -12546,7 +12802,7 @@ test('a newer current audit keeps the rescue-board arrangement intact until the 
 ;
 
 
-    await page.goto(`${origin}/vibe-atlas?admin=true`)
+    await gotoTestPage(page, `${origin}/vibe-atlas?admin=true`)
 ;
 
     await page.getByRole('tab', 
@@ -12758,7 +13014,7 @@ test('an admin can hand off a complete compiled proposal that needs hero review'
 ;
 
 
-    await page.goto(`${origin}/vibe-atlas?admin=true`)
+    await gotoTestPage(page, `${origin}/vibe-atlas?admin=true`)
 ;
 
     await page.getByRole('tab', 

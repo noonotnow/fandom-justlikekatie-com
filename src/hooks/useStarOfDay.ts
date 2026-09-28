@@ -179,6 +179,8 @@ export const useStarOfDay = (editionDate: string | null | undefined = null): Use
   const [error, setError] = useState<string | null>(null);
   const [gate, setGate] = useState<ArchiveGate | null>(null);
   const archiveFirstPageRequest = useRef<Promise<void> | null>(null);
+  const archiveCursorRequests = useRef(new Map<string, Promise<void>>());
+  const archiveRequestCount = useRef(0);
 
   useEffect(() => {
     let cancelled = false;
@@ -273,6 +275,7 @@ export const useStarOfDay = (editionDate: string | null | undefined = null): Use
   }, [editionDate]);
 
   const fetchArchivePage = useCallback(async (cursor: string | null, append: boolean) => {
+    archiveRequestCount.current += 1;
     setArchiveLoading(true);
     setArchiveError(null);
     try {
@@ -300,7 +303,8 @@ export const useStarOfDay = (editionDate: string | null | undefined = null): Use
     } catch (err) {
       setArchiveError(err instanceof Error ? err.message : 'Failed to load the archive');
     } finally {
-      setArchiveLoading(false);
+      archiveRequestCount.current -= 1;
+      setArchiveLoading(archiveRequestCount.current > 0);
     }
   }, []);
 
@@ -320,10 +324,25 @@ export const useStarOfDay = (editionDate: string | null | undefined = null): Use
     }
   }, [fetchArchivePage]);
 
-  const loadMoreArchive = useCallback(
-    () => archiveNextCursor ? fetchArchivePage(archiveNextCursor, true) : Promise.resolve(),
-    [archiveNextCursor, fetchArchivePage],
-  );
+  const loadMoreArchive = useCallback(async () => {
+    if (!archiveNextCursor) return;
+
+    const cursor = archiveNextCursor;
+    const inFlightRequest = archiveCursorRequests.current.get(cursor);
+    if (inFlightRequest) {
+      return inFlightRequest;
+    }
+
+    const request = fetchArchivePage(cursor, true);
+    archiveCursorRequests.current.set(cursor, request);
+    try {
+      await request;
+    } finally {
+      if (archiveCursorRequests.current.get(cursor) === request) {
+        archiveCursorRequests.current.delete(cursor);
+      }
+    }
+  }, [archiveNextCursor, fetchArchivePage]);
 
   return {
     items,

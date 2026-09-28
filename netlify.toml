@@ -86,6 +86,11 @@
   status = 200
 
 [[redirects]]
+  from = "/api/vibing-discussion"
+  to = "/.netlify/functions/vibing-discussion"
+  status = 200
+
+[[redirects]]
   from = "/api/collection/media"
   to = "/.netlify/functions/collection-media"
   status = 200
@@ -267,6 +272,36 @@ status = 200
 [[redirects]]
 from = "/c-drama-fandom/vibing-now/against-the-current-episode-21"
 to = "/c-drama-fandom/vibing-now/against-the-current-episode-21/index.html"
+status = 200
+
+[[redirects]]
+from = "/c-drama-fandom/where-to-watch/against-the-current"
+to = "/c-drama-fandom/where-to-watch/against-the-current/index.html"
+status = 200
+
+[[redirects]]
+from = "/c-drama-fandom/soundtrack/against-the-current"
+to = "/c-drama-fandom/soundtrack/against-the-current/index.html"
+status = 200
+
+[[redirects]]
+from = "/c-dramas/love-between-fairy-and-devil"
+to = "/c-dramas/love-between-fairy-and-devil/index.html"
+status = 200
+
+[[redirects]]
+from = "/c-dramas/love-between-fairy-and-devil/relationships"
+to = "/c-dramas/love-between-fairy-and-devil/relationships/index.html"
+status = 200
+
+[[redirects]]
+from = "/c-dramas/love-between-fairy-and-devil/themes-symbolism"
+to = "/c-dramas/love-between-fairy-and-devil/themes-symbolism/index.html"
+status = 200
+
+[[redirects]]
+from = "/c-dramas/love-between-fairy-and-devil/what-to-watch-next"
+to = "/c-dramas/love-between-fairy-and-devil/what-to-watch-next/index.html"
 status = 200
 
 [[redirects]]

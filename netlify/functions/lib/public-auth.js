@@ -141,7 +141,8 @@ export function createPublicAuth({
         consumedAt: current.toISOString(),
         claim,
       };
-      const result = await magic.setJSON(key, consumed, entry.etag ? { onlyIfMatch: entry.etag } : undefined);
+      if (!entry.etag) throw new Error("Magic-link metadata is missing its ETag.");
+      const result = await magic.setJSON(key, consumed, { onlyIfMatch: entry.etag });
       if (result?.modified === false) throw new PublicError("This sign-in link is invalid or expired.", 401);
       const verified = await getWithMetadata(magic, key);
       if (verified?.data?.claim !== claim) throw new PublicError("This sign-in link is invalid or expired.", 401);
@@ -185,11 +186,8 @@ export function createPublicAuth({
       const auth = await authenticateSession(req, selected, now(), true);
       if (auth) {
         const revoked = { ...auth.session, revokedAt: now().toISOString() };
-        await selected.sessions.setJSON(
-          auth.key,
-          revoked,
-          auth.etag ? { onlyIfMatch: auth.etag } : undefined,
-        );
+        if (!auth.etag) throw new Error("Session metadata is missing its ETag.");
+        await selected.sessions.setJSON(auth.key, revoked, { onlyIfMatch: auth.etag });
       }
       return json(200, { ok: true }, { "Set-Cookie": clearSessionCookie() });
     }),
@@ -391,10 +389,23 @@ function publicUser(user) {
 
 async function getWithMetadata(store, key) {
   if (typeof store.getWithMetadata === "function") {
-    return store.getWithMetadata(key, { type: "json", consistency: "strong" });
+    const preconditionEtag = await getEtagBeforeRead(store, key);
+    const entry = await store.getWithMetadata(key, { type: "json", consistency: "strong" });
+    if (!entry || entry.etag || !preconditionEtag) return entry;
+    return { ...entry, etag: preconditionEtag };
   }
   const data = await store.get(key, { type: "json", consistency: "strong" });
   return data ? { data } : null;
+}
+
+async function getEtagBeforeRead(store, key) {
+  if (typeof store.getMetadata === "function") {
+    const metadata = await store.getMetadata(key, { consistency: "strong" });
+    if (metadata?.etag) return metadata.etag;
+  }
+  if (typeof store.list !== "function") return undefined;
+  const listing = await store.list({ prefix: key });
+  return listing?.blobs?.find(candidate => candidate.key === key)?.etag;
 }
 
 // Deletes every entry in a rate-limits store whose `expiresAt` is at or before
@@ -437,6 +448,40 @@ export function secureEqual(actual, expected) {
   const left = Buffer.from(actual || "");
   const right = Buffer.from(expected || "");
   return left.length === right.length && timingSafeEqual(left, right);
+}
+
+export function verifySvixWebhook({
+  body,
+  headers,
+  secret,
+  now = new Date(),
+  toleranceSeconds = 300,
+} = {}) {
+  if (typeof body !== "string" || !headers || typeof secret !== "string" || !secret) return false;
+  const messageId = headers.get("svix-id");
+  const timestamp = headers.get("svix-timestamp");
+  const signatures = String(headers.get("svix-signature") || "")
+    .split(/\s+/)
+    .map(value => value.split(",", 2))
+    .filter(([version, signature]) => version === "v1" && signature);
+  const timestampSeconds = Number(timestamp);
+  if (
+    !messageId
+    || !Number.isSafeInteger(timestampSeconds)
+    || Math.abs(Math.floor(now.getTime() / 1000) - timestampSeconds) > toleranceSeconds
+  ) return false;
+  const encodedSecret = secret.startsWith("whsec_") ? secret.slice(6) : secret;
+  let key;
+  try {
+    key = Buffer.from(encodedSecret, "base64");
+  } catch {
+    return false;
+  }
+  if (!key.length) return false;
+  const expected = createHmac("sha256", key)
+    .update(`${messageId}.${timestamp}.${body}`)
+    .digest("base64");
+  return signatures.some(([, signature]) => secureEqual(signature, expected));
 }
 
 export function json(status, body, headers = {}) {

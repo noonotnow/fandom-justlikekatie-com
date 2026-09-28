@@ -3,6 +3,7 @@ import { readFileSync } from 'node:fs';
 import { test } from 'node:test';
 import {
   closeBrowserAndServer,
+  gotoTestPage,
   launchBrowserWithServer,
   startViteTestServer,
 } from './browserEngines.ts';
@@ -48,7 +49,8 @@ test('veteran pageviews and events never expose the journal capability', { timeo
       });
     });
 
-    await page.goto(
+    await gotoTestPage(
+      page,
       `${origin}/vibe-atlas/veteran-journal?journal=${JOURNAL_CAPABILITY}&source=private`,
       { waitUntil: 'domcontentloaded' },
     );

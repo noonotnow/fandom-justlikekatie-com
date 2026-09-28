@@ -8,10 +8,12 @@ import {
   type Browser,
   type BrowserType,
   type Page,
+  type Response as PlaywrightResponse,
 } from '@playwright/test';
 import {
   createServer,
   type InlineConfig,
+  type Plugin,
   type ViteDevServer,
 } from 'vite';
 
@@ -22,6 +24,137 @@ export const BROWSER_ENGINES = [
 ] as const;
 
 export type BrowserEngine = (typeof BROWSER_ENGINES)[number];
+
+const SERVER_READY_ATTEMPTS = 3;
+const SERVER_READY_TIMEOUT_MS = 10_000;
+const NATIVE_DOWNLOAD_REQUEST_TIMEOUT_MS = 5_000;
+
+type ServerProbe = (origin: string) => Promise<Response>;
+
+export interface NativeDownloadRequest {
+  url: URL;
+  identifiers: Readonly<Record<string, string | null>>;
+}
+
+export interface NativeDownloadFixture {
+  plugin: Plugin;
+  requests: NativeDownloadRequest[];
+  waitForRequest: (timeoutMs?: number) => Promise<NativeDownloadRequest>;
+}
+
+interface NativeDownloadFixtureOptions {
+  name: string;
+  path: string;
+  headers: Readonly<Record<string, string>>;
+  body: Uint8Array;
+  identifierNames?: readonly string[];
+  matches?: (url: URL) => boolean;
+}
+
+export function createNativeDownloadFixture({
+  name,
+  path,
+  headers,
+  body,
+  identifierNames = [],
+  matches = () => true,
+}: NativeDownloadFixtureOptions): NativeDownloadFixture {
+  const requests: NativeDownloadRequest[] = [];
+  const pendingResolvers: Array<{
+    resolve: (request: NativeDownloadRequest) => void;
+    timeout: ReturnType<typeof setTimeout>;
+  }> = [];
+  let consumedRequestCount = 0;
+
+  return {
+    requests,
+    waitForRequest: (timeoutMs = NATIVE_DOWNLOAD_REQUEST_TIMEOUT_MS) => {
+      const recorded = requests[consumedRequestCount];
+      if (recorded) {
+        consumedRequestCount += 1;
+        return Promise.resolve(recorded);
+      }
+      return new Promise((resolve, reject) => {
+        const pendingResolver = {
+          resolve,
+          timeout: setTimeout(() => {
+            const pendingIndex = pendingResolvers.indexOf(pendingResolver);
+            if (pendingIndex !== -1) pendingResolvers.splice(pendingIndex, 1);
+            reject(new Error(
+              `Timed out after ${timeoutMs}ms waiting for native download request `
+              + `to ${JSON.stringify(path)} with identifiers: ${
+                identifierNames.length > 0 ? identifierNames.join(', ') : '(none)'
+              }.`,
+            ));
+          }, timeoutMs),
+        };
+        pendingResolvers.push(pendingResolver);
+      });
+    },
+    plugin: {
+      name,
+      configureServer(server) {
+        server.middlewares.use((request, response, next) => {
+          const url = new URL(request.url ?? '/', 'http://127.0.0.1');
+          if (request.method !== 'GET' || url.pathname !== path || !matches(url)) {
+            next();
+            return;
+          }
+
+          const recordedRequest: NativeDownloadRequest = {
+            url,
+            identifiers: Object.fromEntries(
+              identifierNames.map(identifier => [identifier, url.searchParams.get(identifier)]),
+            ),
+          };
+          requests.push(recordedRequest);
+          const pendingResolver = pendingResolvers.shift();
+          if (pendingResolver) {
+            consumedRequestCount += 1;
+            clearTimeout(pendingResolver.timeout);
+            pendingResolver.resolve(recordedRequest);
+          }
+
+          response.statusCode = 200;
+          for (const [header, value] of Object.entries(headers)) {
+            response.setHeader(header, value);
+          }
+          response.end(body);
+        });
+      },
+    },
+  };
+}
+
+async function defaultServerProbe(origin: string): Promise<Response> {
+  return fetch(origin, {
+    headers: { accept: 'text/html' },
+    signal: AbortSignal.timeout(SERVER_READY_TIMEOUT_MS),
+  });
+}
+
+async function waitForViteTestServer(
+  origin: string,
+  probe: ServerProbe,
+): Promise<void> {
+  const failures: string[] = [];
+
+  for (let attempt = 1; attempt <= SERVER_READY_ATTEMPTS; attempt += 1) {
+    try {
+      const response = await probe(origin);
+      await response.body?.cancel();
+      if (response.ok) return;
+      failures.push(`attempt ${attempt}: HTTP ${response.status} ${response.statusText}`.trim());
+    } catch (error) {
+      failures.push(`attempt ${attempt}: ${String(error)}`);
+    }
+  }
+
+  throw new Error(
+    `The browser test server did not become ready at ${origin} after ${SERVER_READY_ATTEMPTS} attempts.\n`
+    + failures.join('\n'),
+  );
+}
 
 const isReplitNix = Boolean(process.env.REPLIT_PID2);
 if (isReplitNix) {
@@ -150,6 +283,7 @@ export async function startViteTestServer(
     server: { host: '127.0.0.1', port: 5000, strictPort: false },
   },
   createTestServer: (config: InlineConfig) => Promise<ViteDevServer> = createServer,
+  probe: ServerProbe = defaultServerProbe,
 ): Promise<{ server: ViteDevServer; origin: string }> {
   const server = await createTestServer(config);
   try {
@@ -158,7 +292,9 @@ export async function startViteTestServer(
     if (!address || typeof address === 'string') {
       throw new Error('The browser test server did not expose a TCP port.');
     }
-    return { server, origin: `http://127.0.0.1:${address.port}` };
+    const origin = `http://127.0.0.1:${address.port}`;
+    await waitForViteTestServer(origin, probe);
+    return { server, origin };
   } catch (startError) {
     try {
       await server.close();
@@ -169,6 +305,31 @@ export async function startViteTestServer(
       );
     }
     throw startError;
+  }
+}
+
+export async function gotoTestPage(
+  page: Pick<Page, 'goto'>,
+  url: string,
+  options?: Parameters<Page['goto']>[1],
+  probe: ServerProbe = defaultServerProbe,
+): Promise<PlaywrightResponse | null> {
+  try {
+    return await page.goto(url, options);
+  } catch (navigationError) {
+    const origin = new URL(url).origin;
+    let serverDiagnostic: string;
+    try {
+      const response = await probe(origin);
+      await response.body?.cancel();
+      serverDiagnostic = `server probe returned HTTP ${response.status} ${response.statusText}`.trim();
+    } catch (probeError) {
+      serverDiagnostic = `server probe failed: ${String(probeError)}`;
+    }
+    throw new AggregateError(
+      [navigationError],
+      `Initial browser navigation failed for ${url}; ${serverDiagnostic}.`,
+    );
   }
 }
 

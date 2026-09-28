@@ -2,6 +2,8 @@ import test from 'node:test';
 import assert from 'node:assert/strict';
 import { readFile } from 'node:fs/promises';
 import { IDBFactory } from 'fake-indexeddb';
+import { createCollectionHandlers } from '../netlify/functions/lib/collection-api.js';
+import { syncPublicCollection } from '../src/utils/publicAccount.ts';
 import {
   activateSyncState,
   batchCollectionSyncOperations,
@@ -10,15 +12,19 @@ import {
   createMisprint,
   createLegendaryMisprint,
   dbApplySyncResponse,
-  dbBuildCardSyncRequest,
   dbBuildSyncRequest,
+  dbLegacyReconciliationCandidates,
   dbGetAllCards,
   dbGetAllGrids,
+  dbGetSyncState,
+  dbResolveRemoteDeletion,
   dbRemoveCard,
   dbRemoveGrid,
+  dbBuildCardSyncRequest,
   dbSetMergeDecision,
   dbSaveCard,
   dbSaveGrid,
+  dbSetActiveAccount,
   normalizeCardForCollection,
   markGridAsLegendaryMisprint,
   queueCardDelete,
@@ -27,6 +33,178 @@ import {
   type CollectionSyncState,
   type GridRecord,
 } from '../src/utils/collectionDB.ts';
+
+test('two devices sync card and grid deletions through the collection API without reviving stale copies', async () => {
+  await checkTwoDeviceDeletion(false);
+});
+
+test('a pre-baseline device can sync intentional offline card and grid edits after remote deletion', async () => {
+  await checkTwoDeviceDeletion(true);
+});
+
+async function checkTwoDeviceDeletion(editOffline: boolean): Promise<void> {
+  const accountId = 'two-device-account';
+  const user = { accountId, email: 'member@example.test' };
+  const originalKeys = ['indexedDB', 'fetch', 'window', 'navigator', 'localStorage'] as const;
+  const originals = originalKeys.map(key => [key, Object.getOwnPropertyDescriptor(globalThis, key)] as const);
+  const devices = { a: new IDBFactory(), b: new IDBFactory() };
+  const records = new Map<string, { data: unknown; etag: string }>();
+  let etag = 0;
+  const store = {
+    async get(key: string) { return structuredClone(records.get(key)?.data ?? null); },
+    async getWithMetadata(key: string) {
+      const entry = records.get(key);
+      return entry ? structuredClone(entry) : null;
+    },
+    async setJSON(key: string, data: unknown, options: { onlyIfNew?: boolean; onlyIfMatch?: string } = {}) {
+      const entry = records.get(key);
+      if ((options.onlyIfNew && entry) || (options.onlyIfMatch && options.onlyIfMatch !== entry?.etag)) {
+        return { modified: false };
+      }
+      records.set(key, { data: structuredClone(data), etag: `etag-${++etag}` });
+      return { modified: true };
+    },
+  };
+  const handlers = createCollectionHandlers({
+    auth: { authenticate: async () => ({ user }) },
+    getStore: () => store,
+  });
+  const requests: Array<{
+    device: string; clientId: string; cursor: number; operations: Array<Record<string, unknown>>;
+  }> = [];
+  let activeDevice: 'a' | 'b' = 'b';
+  const select = (device: 'a' | 'b') => {
+    activeDevice = device;
+    Object.defineProperty(globalThis, 'indexedDB', { configurable: true, value: devices[device] });
+  };
+  try {
+    Object.defineProperty(globalThis, 'window', { configurable: true, value: {} });
+    Object.defineProperty(globalThis, 'navigator', { configurable: true, value: { onLine: true } });
+    Object.defineProperty(globalThis, 'localStorage', { configurable: true, value: { setItem() {} } });
+    Object.defineProperty(globalThis, 'fetch', {
+      configurable: true,
+      value: async (url: string, init?: RequestInit) => {
+        if (url === '/api/auth/session') return Response.json({ user });
+        if (url === '/.netlify/functions/log-engagement') return Response.json({});
+        assert.equal(url, '/api/collection/sync');
+        assert.equal(init?.method, 'POST');
+        const payload = JSON.parse(String(init?.body));
+        requests.push({
+          device: activeDevice, clientId: payload.clientId,
+          cursor: payload.cursor, operations: payload.operations,
+        });
+        return handlers.sync(new Request('https://fandom.example/api/collection/sync', {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json', Origin: 'https://fandom.example' },
+          body: init?.body,
+        }));
+      },
+    });
+
+    // B publishes both records. A downloads them as a pre-baseline client:
+    // it knows the server IDs and cursor, but has no acknowledged upserts.
+    select('b');
+    await dbSetActiveAccount(accountId);
+    await dbSetMergeDecision(accountId, true);
+    await dbSaveCard(card(171));
+    await dbSaveGrid({ ...grid(), releaseCandidateProvenance: undefined });
+    await syncPublicCollection(user);
+    const bCursor = (await dbGetSyncState()).cursors[accountId];
+    assert.equal(bCursor, 2);
+    const bClientId = (await dbGetSyncState()).clientId;
+
+    select('a');
+    await dbSetActiveAccount(accountId);
+    await dbSetMergeDecision(accountId, true);
+    await syncPublicCollection(user);
+    const aCursor = (await dbGetSyncState()).cursors[accountId];
+    const aClientId = (await dbGetSyncState()).clientId;
+    await simulatePreBaselineCache(accountId);
+    assert.notEqual(aClientId, bClientId);
+    assert.equal(aCursor, bCursor);
+    assert.ok(requests.filter(call => call.device === 'a').every(call => call.clientId === aClientId));
+    assert.ok(requests.filter(call => call.device === 'b').every(call => call.clientId === bClientId));
+    const [localCard] = await dbGetAllCards();
+    const [localGrid] = await dbGetAllGrids();
+    assert.ok(localCard.serverId);
+    assert.ok(localGrid.serverId);
+    assert.deepEqual(Object.keys(await dbLegacyReconciliationCandidates(accountId)).sort(),
+      [localCard.localId, localGrid.localId].sort());
+
+    if (editOffline) {
+      await dbSaveCard({ ...localCard, title: 'Edited on A while offline' });
+      await dbSaveGrid({ ...localGrid, generationPrompt: 'Edited on A while offline' });
+    }
+
+    select('b');
+    await dbRemoveCard(localCard.imageUrl);
+    await dbRemoveGrid(localGrid.id);
+    await syncPublicCollection(user);
+    const deletedCursor = (await dbGetSyncState()).cursors[accountId];
+    assert.equal(deletedCursor, bCursor + 2);
+    assert.deepEqual((await dbGetAllCards()), []);
+    assert.deepEqual((await dbGetAllGrids()), []);
+
+    const deletionDelta = await handlers.sync(new Request('https://fandom.example/api/collection/sync', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json', Origin: 'https://fandom.example' },
+      body: JSON.stringify({
+        schemaVersion: 1, expectedAccountId: accountId, clientId: aClientId, cursor: aCursor, operations: [],
+      }),
+    }));
+    assert.equal(deletionDelta.status, 200);
+    const deleted = await deletionDelta.json();
+    assert.deepEqual(deleted.items, []);
+    assert.deepEqual(deleted.tombstones.map((item: { id: string }) => item.id).sort(),
+      [localCard.serverId, localGrid.serverId].sort());
+
+    select('a');
+    const reconnectStart = requests.length;
+    await syncPublicCollection(user);
+    const reconnect = requests.slice(reconnectStart);
+    assert.equal(reconnect[0].device, 'a');
+    assert.ok(reconnect.every(call => call.clientId === aClientId));
+    assert.equal(reconnect[0].cursor, aCursor);
+    assert.deepEqual(reconnect[0].operations, [], 'A must read tombstones before sending stale upserts');
+    assert.equal((await dbGetSyncState()).cursors[accountId], editOffline ? deletedCursor + 2 : deletedCursor);
+    if (editOffline) {
+      assert.deepEqual(reconnect[1].operations.map(op => op.type), ['upsert', 'upsert']);
+      assert.equal((await dbGetAllCards())[0].title, 'Edited on A while offline');
+      assert.equal((await dbGetAllGrids())[0].generationPrompt, 'Edited on A while offline');
+      assert.deepEqual((await dbGetSyncState()).remoteDeletionConflictsByAccount?.[accountId] || {}, {});
+    } else {
+      assert.ok(reconnect.every(call => call.operations.length === 0), 'stale copies must not be uploaded');
+      assert.equal((await dbGetAllCards()).length, 1, 'keep the local card for an explicit decision');
+      assert.equal((await dbGetAllGrids()).length, 1, 'keep the local grid for an explicit decision');
+      assert.deepEqual((await dbGetSyncState()).remoteDeletionConflictsByAccount?.[accountId], {
+        [localCard.localId!]: 'card',
+        [localGrid.localId!]: 'grid',
+      });
+      await syncPublicCollection(user);
+      assert.deepEqual(requests.slice(reconnectStart).flatMap(call => call.operations), []);
+    }
+    const readFromB = await handlers.sync(new Request('https://fandom.example/api/collection/sync', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json', Origin: 'https://fandom.example' },
+      body: JSON.stringify({
+        schemaVersion: 1, expectedAccountId: accountId, clientId: bClientId, cursor: deletedCursor, operations: [],
+      }),
+    }));
+    assert.equal(readFromB.status, 200);
+    const serverDelta = await readFromB.json();
+    assert.equal(serverDelta.cursor, editOffline ? deletedCursor + 2 : deletedCursor);
+    assert.equal(serverDelta.items.length, editOffline ? 2 : 0, 'server must not revive untouched stale copies');
+    if (editOffline) {
+      assert.equal(serverDelta.items.find((item: { kind: string }) => item.kind === 'card')?.title, 'Edited on A while offline');
+      assert.equal(serverDelta.items.find((item: { kind: string }) => item.kind === 'grid')?.generationPrompt, 'Edited on A while offline');
+    }
+  } finally {
+    for (const [key, descriptor] of originals) {
+      if (descriptor) Object.defineProperty(globalThis, key, descriptor);
+      else Reflect.deleteProperty(globalThis, key);
+    }
+  }
+}
 
 function card(index: number): CardRecord {
   return {
@@ -103,6 +281,35 @@ function grid(): GridRecord {
   };
 }
 
+async function simulatePreBaselineCache(accountId: string): Promise<void> {
+  const state = await dbGetSyncState();
+  state.remoteUpsertFingerprintsByAccount = {
+    ...state.remoteUpsertFingerprintsByAccount,
+    [accountId]: {},
+  };
+  await new Promise<void>((resolve, reject) => {
+    const request = indexedDB.open('vibe-atlas-collection', 3);
+    request.onsuccess = () => {
+      const db = request.result;
+      const transaction = db.transaction('sync', 'readwrite');
+      transaction.objectStore('sync').put(state);
+      transaction.oncomplete = () => {
+        db.close();
+        resolve();
+      };
+      transaction.onerror = () => {
+        db.close();
+        reject(transaction.error);
+      };
+      transaction.onabort = () => {
+        db.close();
+        reject(transaction.error || new Error('Unable to mark the cache as pre-baseline.'));
+      };
+    };
+    request.onerror = () => reject(request.error);
+  });
+}
+
 function state(): CollectionSyncState {
   return {
     key: 'state',
@@ -137,6 +344,32 @@ test('large collections advance beyond the first 100 acknowledged upserts', () =
   const second = buildSyncOperations(cards, syncState, 'account-a');
   assert.equal(second.length, 51);
   assert.equal(second[0].localId, 'local-99');
+});
+
+test('ordinary Collector sync excludes Middle-earth upserts and scoped deletes', () => {
+  const vibeAtlasCard = card(1);
+  const middleEarthCard = {
+    ...card(2),
+    contentKind: 'middle-earth-meme' as const,
+    collectionScope: 'middle-earth' as const,
+  };
+  const syncState = state();
+  syncState.pendingDeletesByAccount['account-a'] = [
+    { mutationId: 'delete-vibe', localId: 'vibe-local', serverId: 'vibe-server', collectionScope: 'vibe-atlas' },
+    { mutationId: 'delete-meme', localId: 'meme-local', serverId: 'meme-server', collectionScope: 'middle-earth' },
+  ];
+
+  const operations = buildSyncOperations(
+    [vibeAtlasCard, middleEarthCard],
+    syncState,
+    'account-a',
+    [],
+    false,
+  );
+  assert.equal(operations.some(operation => operation.localId === middleEarthCard.localId), false);
+  assert.equal(operations.some(operation => operation.mutationId === 'delete-meme'), false);
+  assert.equal(operations.some(operation => operation.localId === vibeAtlasCard.localId), true);
+  assert.equal(operations.some(operation => operation.mutationId === 'delete-vibe'), true);
 });
 
 test('saved-card identity migration re-uploads previously acknowledged records', () => {
@@ -221,6 +454,314 @@ test('sync response updates the matching saved record when legacy mappings share
   assert.equal(persisted.find(saved => saved.localId === song.localId)?.imageUrl, song.imageUrl);
   assert.equal(persisted.find(saved => saved.localId === liu.localId)?.actor, 'Liu Xueyi');
   assert.equal(persisted.find(saved => saved.localId === liu.localId)?.serverId, 'liu-server-v2');
+});
+
+test('pre-baseline device does not revive a card or grid deleted on another device, and keeps offline edits', async () => {
+  Object.assign(globalThis, { indexedDB: new IDBFactory() });
+  await dbSetActiveAccount('account-a');
+  await dbSetMergeDecision('account-a', true);
+  const savedCard = card(71);
+  const savedGrid = grid();
+  // A pre-release download has server identity and cursor, but no
+  // acknowledged upsert baseline in its IndexedDB sync state.
+  await dbApplySyncResponse('account-a', {
+    cursor: 2,
+    items: [
+      { ...savedCard, kind: 'card', id: 'server-card', localId: savedCard.localId },
+      { ...savedGrid, id: 'server-grid', artifactId: savedGrid.id, localId: savedGrid.localId },
+    ],
+    tombstones: [],
+    mappings: { [savedCard.localId!]: 'server-card', [savedGrid.localId!]: 'server-grid' },
+    acknowledgedMutationIds: [],
+  }, []);
+
+  await simulatePreBaselineCache('account-a');
+  const beforeUpgrade = await dbBuildSyncRequest('account-a');
+  assert.equal(beforeUpgrade.operations.filter(operation => operation.type === 'upsert').length, 2);
+  const candidates = await dbLegacyReconciliationCandidates('account-a');
+  assert.deepEqual(Object.keys(candidates).sort(), [savedCard.localId, savedGrid.localId].sort());
+  // Another device removed both records while this one was offline. The
+  // upgraded device first receives these tombstones with zero operations.
+  await dbApplySyncResponse('account-a', {
+    cursor: 4,
+    items: [],
+    tombstones: [{ id: 'server-card' }, { id: 'server-grid' }],
+    mappings: {},
+    acknowledgedMutationIds: [],
+  }, [], candidates);
+  assert.equal((await dbBuildSyncRequest('account-a')).operations.length, 0);
+  assert.equal((await dbGetAllCards()).length, 1);
+  assert.equal((await dbGetAllGrids()).length, 1);
+  assert.deepEqual(await dbLegacyReconciliationCandidates('account-a'), {});
+  assert.deepEqual((await dbGetSyncState()).remoteDeletionConflictsByAccount?.['account-a'], {
+    [savedCard.localId!]: 'card',
+    [savedGrid.localId!]: 'grid',
+  });
+
+  // Edits after discovery must not silently choose restoration.
+  await dbSaveCard({ ...(await dbGetAllCards())[0], title: 'Offline card edit' });
+  await dbSaveGrid({ ...(await dbGetAllGrids())[0], generationPrompt: 'Offline grid edit' });
+  assert.equal((await dbBuildSyncRequest('account-a')).operations.length, 0);
+  await dbResolveRemoteDeletion('account-a', 'card', savedCard.localId!, 'restore');
+  await dbResolveRemoteDeletion('account-a', 'grid', savedGrid.localId!, 'restore');
+  const restore = await dbBuildSyncRequest('account-a');
+  assert.equal(restore.cursor, 4);
+  assert.equal(restore.operations.filter(operation => operation.type === 'upsert').length, 2);
+  assert.equal((restore.operations.find(operation => operation.localId === savedCard.localId)?.item as CardRecord).title, 'Offline card edit');
+  assert.equal((restore.operations.find(operation => operation.localId === savedGrid.localId)?.item as GridRecord).generationPrompt, 'Offline grid edit');
+  assert.equal((await dbGetAllCards())[0].serverId, undefined);
+  assert.equal((await dbGetAllGrids())[0].serverId, undefined);
+  assert.deepEqual((await dbGetSyncState()).remoteDeletionConflictsByAccount?.['account-a'] || {}, {});
+});
+
+test('discarding a remote-deleted meme or grid removes only the local copy, never queues a remote delete', async () => {
+  Object.assign(globalThis, { indexedDB: new IDBFactory() });
+  await dbSetActiveAccount('account-a');
+  await dbSetMergeDecision('account-a', true);
+  const meme = { ...card(73), collectionScope: 'middle-earth' as const, contentKind: 'middle-earth-meme' as const };
+  const savedGrid = grid();
+  await dbApplySyncResponse('account-a', {
+    cursor: 2,
+    items: [{ ...meme, kind: 'card', id: 'meme-server' },
+      { ...savedGrid, id: 'grid-server', artifactId: savedGrid.id }],
+    tombstones: [],
+    mappings: { [meme.localId!]: 'meme-server', [savedGrid.localId!]: 'grid-server' },
+    acknowledgedMutationIds: [],
+  }, []);
+  await simulatePreBaselineCache('account-a');
+  const candidates = await dbLegacyReconciliationCandidates('account-a');
+  await dbApplySyncResponse('account-a', {
+    cursor: 3, items: [], tombstones: [{ id: 'meme-server' }, { id: 'grid-server' }],
+    mappings: {}, acknowledgedMutationIds: [],
+  }, [], candidates);
+  assert.equal((await dbBuildSyncRequest('account-a', false)).operations.length, 0);
+  await assert.rejects(dbResolveRemoteDeletion('account-b', 'card', meme.localId!, 'restore'));
+  await dbResolveRemoteDeletion('account-a', 'card', meme.localId!, 'discard');
+  await dbResolveRemoteDeletion('account-a', 'grid', savedGrid.localId!, 'discard');
+  assert.equal((await dbGetAllCards()).length, 0);
+  assert.equal((await dbGetAllGrids()).length, 0);
+  assert.equal((await dbBuildSyncRequest('account-a')).operations.length, 0);
+  assert.equal((await dbGetSyncState()).pendingDeletesByAccount['account-a']?.length || 0, 0);
+});
+
+test('ordinary removal of a conflicted card also discards without sending a tombstone', async () => {
+  Object.assign(globalThis, { indexedDB: new IDBFactory() });
+  await dbSetActiveAccount('account-a');
+  await dbSetMergeDecision('account-a', true);
+  const saved = card(74);
+  await dbApplySyncResponse('account-a', {
+    cursor: 1, items: [{ ...saved, kind: 'card', id: 'remote-card' }],
+    tombstones: [], mappings: { [saved.localId!]: 'remote-card' }, acknowledgedMutationIds: [],
+  }, []);
+  await simulatePreBaselineCache('account-a');
+  const candidates = await dbLegacyReconciliationCandidates('account-a');
+  await dbApplySyncResponse('account-a', {
+    cursor: 2, items: [], tombstones: [{ id: 'remote-card' }],
+    mappings: {}, acknowledgedMutationIds: [],
+  }, [], candidates);
+  await dbRemoveCard(saved.imageUrl);
+  assert.equal((await dbBuildSyncRequest('account-a')).operations.length, 0);
+  assert.deepEqual((await dbGetSyncState()).remoteDeletionConflictsByAccount?.['account-a'] || {}, {});
+});
+
+test('restoring a deleted MemeForge card and Legendary grid generates fresh mutations', async () => {
+  Object.assign(globalThis, { indexedDB: new IDBFactory() });
+  await dbSetActiveAccount('account-a');
+  await dbSetMergeDecision('account-a', true);
+  const meme = { ...card(75), collectionScope: 'middle-earth' as const, contentKind: 'middle-earth-meme' as const };
+  const legendary = { ...grid(), legendaryMisprint: {
+    schemaVersion: 1 as const, markedAt: '2026-08-10T01:00:00Z', intendedStudio: 'vibe-atlas' as const,
+    unexpectedActor: { id: 'other', name: 'Other', nameEn: 'Other' },
+  } };
+  await dbApplySyncResponse('account-a', {
+    cursor: 1,
+    items: [{ ...meme, kind: 'card', id: 'meme-server' },
+      { ...legendary, id: 'grid-server', artifactId: legendary.id }],
+    tombstones: [], mappings: { [meme.localId!]: 'meme-server', [legendary.localId!]: 'grid-server' },
+    acknowledgedMutationIds: [],
+  }, []);
+  await simulatePreBaselineCache('account-a');
+  const before = await dbBuildSyncRequest('account-a');
+  const candidates = await dbLegacyReconciliationCandidates('account-a');
+  await dbApplySyncResponse('account-a', {
+    cursor: 2, items: [], tombstones: [{ id: 'meme-server' }, { id: 'grid-server' }],
+    mappings: {}, acknowledgedMutationIds: [],
+  }, [], candidates);
+  await dbResolveRemoteDeletion('account-a', 'card', meme.localId!, 'restore');
+  await dbResolveRemoteDeletion('account-a', 'grid', legendary.localId!, 'restore');
+  const after = await dbBuildSyncRequest('account-a');
+  assert.equal(after.operations.length, 2);
+  for (const operation of after.operations) {
+    assert.notEqual(operation.mutationId, before.operations.find(old => old.localId === operation.localId)?.mutationId);
+  }
+  assert.equal((await dbBuildSyncRequest('account-a', false)).operations.some(op => op.localId === meme.localId), false);
+});
+
+test('edits made after upgrade but before reconnect survive tombstones and remain syncable', async () => {
+  Object.assign(globalThis, { indexedDB: new IDBFactory() });
+  await dbSetActiveAccount('account-a');
+  await dbSetMergeDecision('account-a', true);
+  const savedCard = card(72);
+  const savedGrid = grid();
+  await dbApplySyncResponse('account-a', {
+    cursor: 2,
+    items: [
+      { ...savedCard, kind: 'card', id: 'server-card', localId: savedCard.localId },
+      { ...savedGrid, id: 'server-grid', artifactId: savedGrid.id },
+    ],
+    tombstones: [],
+    mappings: { [savedCard.localId!]: 'server-card', [savedGrid.localId!]: 'server-grid' },
+    acknowledgedMutationIds: [],
+  }, []);
+  await dbSaveCard({ ...(await dbGetAllCards())[0], title: 'Edited offline' });
+  await dbSaveGrid({ ...(await dbGetAllGrids())[0], generationPrompt: 'Edited offline' });
+  const candidates = await dbLegacyReconciliationCandidates('account-a');
+  await dbApplySyncResponse('account-a', {
+    cursor: 4,
+    items: [],
+    tombstones: [{ id: 'server-card' }, { id: 'server-grid' }],
+    mappings: {},
+    acknowledgedMutationIds: [],
+  }, [], candidates);
+  const request = await dbBuildSyncRequest('account-a');
+  assert.equal(request.operations.filter(operation => operation.type === 'upsert').length, 2);
+  assert.equal((request.operations.find(operation => operation.localId === savedCard.localId)?.item as CardRecord).title, 'Edited offline');
+  assert.equal((request.operations.find(operation => operation.localId === savedGrid.localId)?.item as GridRecord).generationPrompt, 'Edited offline');
+});
+
+test('grid collisions apply authoritative Daily Drop provenance updates and removals without inventing legacy provenance', async () => {
+  Object.assign(globalThis, { indexedDB: new IDBFactory() });
+  const historical = {
+    ...grid(),
+    id: 'local-historical-grid',
+    localId: 'historical-local',
+    sourceProvenance: { kind: 'edition', editionDate: '2026-09-19' } as const,
+  };
+  const legacy = {
+    ...grid(),
+    id: 'local-legacy-grid',
+    localId: 'legacy-existing-local',
+    serverId: 'legacy-server',
+    sourceProvenance: undefined,
+  };
+  const corrected = {
+    ...grid(),
+    id: 'local-corrected-grid',
+    localId: 'corrected-local',
+    sourceProvenance: { kind: 'edition', editionDate: '2026-09-18' } as const,
+  };
+  await dbSaveGrid(historical);
+  await dbSaveGrid(legacy);
+  await dbSaveGrid(corrected);
+
+  await dbApplySyncResponse('account-a', {
+    cursor: 1,
+    items: [{
+      ...historical,
+      id: 'historical-server',
+      artifactId: 'historical-artifact',
+      sourceProvenance: { kind: 'edition', editionDate: '2026-09-20' },
+    }, {
+      ...legacy,
+      id: 'legacy-server',
+      artifactId: 'legacy-artifact',
+      localId: 'legacy-cloud-local',
+    }, {
+      ...corrected,
+      id: 'corrected-server',
+      artifactId: 'corrected-artifact',
+      sourceProvenance: null,
+    }],
+    tombstones: [],
+    mappings: {
+      'historical-local': 'historical-server',
+      'legacy-cloud-local': 'legacy-server',
+      'corrected-local': 'corrected-server',
+    },
+    acknowledgedMutationIds: [],
+  }, []);
+
+  const persisted = await dbGetAllGrids();
+  const mergedHistorical = persisted.find(saved => saved.id === 'historical-artifact');
+  const mergedLegacy = persisted.find(saved => saved.id === 'legacy-artifact');
+  const mergedCorrected = persisted.find(saved => saved.id === 'corrected-artifact');
+  assert.deepEqual(mergedHistorical?.sourceProvenance, {
+    kind: 'edition',
+    editionDate: '2026-09-20',
+  });
+  assert.equal(mergedHistorical?.localId, 'historical-local');
+  assert.equal(mergedLegacy?.sourceProvenance, undefined);
+  assert.equal(mergedLegacy?.localId, 'legacy-existing-local');
+  assert.equal(mergedCorrected?.sourceProvenance, undefined);
+  assert.equal(mergedCorrected?.localId, 'corrected-local');
+});
+
+test('legacy malformed cloud provenance cannot add, replace, or clear saved-grid labels', async () => {
+  Object.assign(globalThis, { indexedDB: new IDBFactory() });
+  const malformed: unknown[] = [
+    { kind: 'unknown' },
+    { kind: 'edition' },
+    { kind: 'edition', editionDate: 'not-a-date' },
+    { kind: 'edition', editionDate: '2026-02-30' },
+    { kind: 'edition', editionDate: '2025-02-29' },
+    { kind: 'daily', editionDate: '2026-09-19' },
+    { kind: 'collection', extra: true },
+    'daily',
+    {},
+  ];
+  const existing = malformed.map((_, index) => ({
+    ...grid(),
+    id: `local-damaged-${index}`,
+    localId: `damaged-local-${index}`,
+    sourceProvenance: { kind: 'edition', editionDate: '2026-09-19' } as const,
+  }));
+  for (const saved of existing) await dbSaveGrid(saved);
+  const withoutCloudLabel = {
+    ...grid(),
+    id: 'local-unlabeled-cloud',
+    localId: 'unlabeled-cloud-local',
+    sourceProvenance: { kind: 'daily' } as const,
+  };
+  await dbSaveGrid(withoutCloudLabel);
+
+  await dbApplySyncResponse('account-a', {
+    cursor: 1,
+    items: [
+      ...existing.map((saved, index) => ({
+        ...saved,
+        id: `damaged-server-${index}`,
+        artifactId: `damaged-artifact-${index}`,
+        sourceProvenance: malformed[index],
+      })),
+      {
+        ...withoutCloudLabel,
+        id: 'unlabeled-cloud-server',
+        artifactId: 'unlabeled-cloud-artifact',
+        sourceProvenance: undefined,
+      },
+      {
+        ...grid(),
+        id: 'cloud-only-server',
+        artifactId: 'cloud-only-artifact',
+        localId: 'cloud-only-local',
+        sourceProvenance: { kind: 'edition', editionDate: '2026-02-30' },
+      },
+    ],
+    tombstones: [],
+    mappings: {},
+    acknowledgedMutationIds: [],
+  }, []);
+  const persisted = await dbGetAllGrids();
+  for (const [index, saved] of existing.entries()) {
+    const merged = persisted.find(item => item.id === `damaged-artifact-${index}`);
+    assert.deepEqual(merged?.sourceProvenance, saved.sourceProvenance, `malformed source ${index}`);
+    assert.equal(merged?.localId, saved.localId);
+  }
+  assert.deepEqual(
+    persisted.find(item => item.id === 'unlabeled-cloud-artifact')?.sourceProvenance,
+    { kind: 'daily' },
+  );
+  assert.equal(persisted.find(item => item.id === 'cloud-only-artifact')?.sourceProvenance, undefined);
 });
 
 test('downloaded cards and grids stay deleted after another device tombstones them', async () => {

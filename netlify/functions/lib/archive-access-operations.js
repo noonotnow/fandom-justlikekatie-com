@@ -1,4 +1,5 @@
 import { randomUUID } from "node:crypto";
+import { getWithResolvedEtag } from "./blob-store.js";
 
 const BUCKET_PREFIX = "archive-access:hour:";
 const ARCHIVE_REPAIR_RECEIPT_PREFIX = "archive-repair:receipt:";
@@ -7,6 +8,10 @@ export const ARCHIVE_REPAIR_HISTORY_LIMIT = 50;
 
 const NOTIFICATION_STATE_KEY = "archive-access:notification-state";
 const NOTIFICATION_REPAIR_STATE_KEY = "archive-access:notification-repairs";
+
+const COMPATIBILITY_DRILL_PREFIX = "archive-access:compatibility-drill:";
+
+const RESEND_DELIVERY_STATUSES = new Set(["accepted", "delivered", "bounced", "rejected"]);
 const REPAIR_WARNING_THRESHOLD = 3;
 const REPAIR_WARNING_WINDOW_MS = 24 * 60 * 60 * 1000;
 const REPAIR_WARNING_DELIVERY_FAILURE_THRESHOLD = 3;
@@ -107,23 +112,36 @@ export async function recordArchiveRepairAttempt(store, {
 }
 
 export async function listArchiveRepairHistory(store, limit = ARCHIVE_REPAIR_HISTORY_LIMIT) {
+  return (await readArchiveRepairHistory(store, limit)).history;
+}
+
+async function readArchiveRepairHistory(store, limit = ARCHIVE_REPAIR_HISTORY_LIMIT) {
   const safeLimit = Number.isSafeInteger(limit) && limit > 0
     ? Math.min(limit, ARCHIVE_REPAIR_HISTORY_LIMIT)
     : ARCHIVE_REPAIR_HISTORY_LIMIT;
-  const listing = await store.list({ prefix: ARCHIVE_REPAIR_RECEIPT_PREFIX });
+  const listings = store.list({
+    prefix: ARCHIVE_REPAIR_RECEIPT_PREFIX,
+    paginate: true,
+  });
+  const listing = listings?.[Symbol.asyncIterator]
+    ? (await listings[Symbol.asyncIterator]().next()).value
+    : await listings;
   const keys = (listing?.blobs || [])
     .map(blob => blob?.key)
     .filter(key => typeof key === "string")
-    .sort()
-    .slice(0, safeLimit);
+    .sort();
   const receipts = await Promise.all(keys.map(key =>
-    store.get(key, { type: "json", consistency: "strong" })));
-  return receipts.filter(receipt =>
+    store.get(key, { type: "json", consistency: "strong" }).catch(() => null)));
+  const validReceipts = receipts.filter(receipt =>
     receipt?.kind === "vibe-atlas-archive-repair-receipt"
     && Number.isFinite(Date.parse(receipt.attemptedAt))
     && typeof receipt.operatorId === "string"
     && Number.isSafeInteger(receipt.scanned)
     && ["repaired", "no_op", "failed"].includes(receipt.outcome));
+  return {
+    history: validReceipts.slice(0, safeLimit),
+    skippedRecords: receipts.length - validReceipts.length,
+  };
 }
 
 export async function archiveAccessHealth(store, date = new Date(), hours = 24) {
@@ -175,7 +193,10 @@ export async function archiveAccessHealth(store, date = new Date(), hours = 24) 
     : recentTotals.upgrade >= 10 && denialRate >= 0.4
       ? "warning"
       : "normal";
-  const repairHistory = await listArchiveRepairHistory(store);
+  const {
+    history: repairHistory,
+    skippedRecords: skippedRepairHistoryRecords,
+  } = await readArchiveRepairHistory(store);
   const latestRepair = repairHistory[0] || null;
   const activeFailures = compatibilityFailuresUntilSuccess(repairHistory);
   const activeFailureCounts = countCompatibilityFailures(activeFailures);
@@ -229,6 +250,14 @@ export async function archiveAccessHealth(store, date = new Date(), hours = 24) 
       anonymousPreviewsExcluded: true,
     },
     buckets,
+    ...(skippedRepairHistoryRecords > 0
+      ? {
+        repairHistory: {
+          status: "records_skipped",
+          skippedRecords: skippedRepairHistoryRecords,
+        },
+      }
+      : {}),
   };
   await deleteExpiredBlobs(store, expiredKeys);
   return report;
@@ -280,6 +309,103 @@ export async function notifyArchiveAccessTransitions({
   return notifications;
 }
 
+export async function runArchiveCompatibilityAlertDrill({
+  store,
+  notify,
+  now = new Date(),
+  logger = console,
+} = {}) {
+  if (!store || typeof notify !== "function") {
+    throw new Error("Archive compatibility alert drill is unavailable.");
+  }
+  const namespace = `${COMPATIBILITY_DRILL_PREFIX}${randomUUID()}:`;
+  const drillStore = namespacedStore(store, namespace);
+  const result = {
+    resource: COMPATIBILITY_DRILL_RESOURCE,
+    warning: { status: "failed", notificationCount: 0 },
+    duplicateSuppression: { status: "failed", notificationCount: 0 },
+    recovery: { status: "failed", notificationCount: 0 },
+    cleanup: { status: "pending", deleted: 0, remaining: null },
+  };
+  try {
+    await notifyArchiveAccessTransitions({
+      store: drillStore,
+      health: await archiveAccessHealth(drillStore, now),
+      notify,
+      now,
+      logger,
+    });
+    for (let index = 0; index < COMPATIBILITY_WARNING_THRESHOLD; index += 1) {
+      await recordArchiveRepairAttempt(drillStore, {
+        operatorId: "archive-alert-drill",
+        attemptedAt: new Date(now.getTime() + index),
+        scanned: 1,
+        errorClassification: "safe_update_unavailable",
+        affectedResource: COMPATIBILITY_DRILL_RESOURCE,
+      });
+    }
+    const warningHealth = await archiveAccessHealth(
+      drillStore,
+      new Date(now.getTime() + COMPATIBILITY_WARNING_THRESHOLD),
+    );
+    const warningNotifications = await notifyArchiveAccessTransitions({
+      store: drillStore,
+      health: warningHealth,
+      notify,
+      now: new Date(now.getTime() + COMPATIBILITY_WARNING_THRESHOLD),
+      logger,
+    });
+    result.warning = {
+      status: warningNotifications.some(item =>
+        item.signalCategory === "storage_compatibility" && item.status === "warning")
+        ? "passed"
+        : "failed",
+      notificationCount: warningNotifications.length,
+    };
+
+    const duplicateNotifications = await notifyArchiveAccessTransitions({
+      store: drillStore,
+      health: warningHealth,
+      notify,
+      now: new Date(now.getTime() + COMPATIBILITY_WARNING_THRESHOLD + 1),
+      logger,
+    });
+    result.duplicateSuppression = {
+      status: duplicateNotifications.length === 0 ? "passed" : "failed",
+      notificationCount: duplicateNotifications.length,
+    };
+
+    await recordArchiveRepairAttempt(drillStore, {
+      operatorId: "archive-alert-drill",
+      attemptedAt: new Date(now.getTime() + COMPATIBILITY_WARNING_THRESHOLD + 2),
+      scanned: 1,
+    });
+    const recoveryAt = new Date(now.getTime() + COMPATIBILITY_WARNING_THRESHOLD + 3);
+    const recoveryNotifications = await notifyArchiveAccessTransitions({
+      store: drillStore,
+      health: await archiveAccessHealth(drillStore, recoveryAt),
+      notify,
+      now: recoveryAt,
+      logger,
+    });
+    result.recovery = {
+      status: recoveryNotifications.some(item =>
+        item.signalCategory === "storage_compatibility" && item.status === "resolved")
+        ? "passed"
+        : "failed",
+      notificationCount: recoveryNotifications.length,
+    };
+  } finally {
+    const deleted = await deleteNamespace(store, namespace);
+    const remaining = await listKeys(store, namespace);
+    result.cleanup = {
+      status: remaining.length === 0 ? "passed" : "failed",
+      deleted,
+      remaining: remaining.length,
+    };
+  }
+  return result;
+}
 export async function archiveAccessNotificationDeliveryHealth(store, now = new Date()) {
   const [notificationResult, repairWarningResult] = await Promise.allSettled([
     getWithMetadata(store, NOTIFICATION_STATE_KEY),
@@ -312,10 +438,13 @@ export async function archiveAccessNotificationDeliveryHealth(store, now = new D
         status: "unavailable",
       },
     };
+  const { providerMessageId: _providerMessageId, providerStatus, providerUpdatedAt, ...delivery } =
+    state.delivery;
   return {
-    ...state.delivery,
+    ...delivery,
+    ...(providerStatus ? { emailStatus: providerStatus, emailStatusUpdatedAt: providerUpdatedAt } : {}),
     repair: state.repair,
-    repairWarning: repairWarningState.delivery,
+    repairWarning: publicProviderDelivery(repairWarningState.delivery),
     repairWindow: {
       active: repairWarningState.timestamps.length > 0,
       count: repairWarningState.timestamps.length,
@@ -326,6 +455,68 @@ export async function archiveAccessNotificationDeliveryHealth(store, now = new D
   };
 }
 
+function publicProviderDelivery(delivery) {
+  const { providerMessageId: _providerMessageId, providerStatus, providerUpdatedAt, ...safe } = delivery;
+  return {
+    ...safe,
+    ...(providerStatus ? { emailStatus: providerStatus, emailStatusUpdatedAt: providerUpdatedAt } : {}),
+  };
+}
+
+export async function recordArchiveAccessEmailDeliveryEvent(store, {
+  providerMessageId,
+  status,
+  occurredAt,
+} = {}) {
+  if (
+    !store
+    || typeof providerMessageId !== "string"
+    || providerMessageId.length < 1
+    || providerMessageId.length > 256
+    || !RESEND_DELIVERY_STATUSES.has(status)
+  ) return false;
+  const timestamp = new Date(occurredAt);
+  if (!Number.isFinite(timestamp.getTime())) return false;
+  for (let attempt = 0; attempt < 8; attempt += 1) {
+    const entry = await getWithMetadata(store, NOTIFICATION_STATE_KEY);
+    if (entry) {
+      const state = normalizeNotificationState(entry.data);
+      if (state.delivery.providerMessageId === providerMessageId) {
+        if (Date.parse(state.delivery.providerUpdatedAt) >= timestamp.getTime()) return true;
+        const next = {
+          ...state,
+          delivery: {
+            ...state.delivery,
+            providerStatus: status,
+            providerUpdatedAt: timestamp.toISOString(),
+          },
+        };
+        const write = await conditionalStateWrite(store, entry, next);
+        if (write?.modified !== false) return true;
+        continue;
+      }
+    }
+    break;
+  }
+  for (let attempt = 0; attempt < 8; attempt += 1) {
+    const entry = await getWithMetadata(store, NOTIFICATION_REPAIR_STATE_KEY);
+    if (!entry) return false;
+    const state = normalizeRepairWarningState(entry.data, Number.NEGATIVE_INFINITY);
+    if (state.delivery.providerMessageId !== providerMessageId) return false;
+    if (Date.parse(state.delivery.providerUpdatedAt) >= timestamp.getTime()) return true;
+    const next = {
+      ...state,
+      delivery: {
+        ...state.delivery,
+        providerStatus: status,
+        providerUpdatedAt: timestamp.toISOString(),
+      },
+    };
+    const write = await conditionalWrite(store, NOTIFICATION_REPAIR_STATE_KEY, entry, next);
+    if (write?.modified !== false) return true;
+  }
+  throw new Error("Archive access email delivery state changed too frequently.");
+}
 export async function pruneExpiredArchiveAccessChecks(store, date = new Date()) {
   const retentionCutoff = date.getTime() - RETENTION_MS;
   const { expiredKeys } = await classifyBlobKeys(store, Number.POSITIVE_INFINITY, retentionCutoff);
@@ -406,11 +597,26 @@ export function createArchiveAccessOperationsHandler({
   logger = console,
 } = {}) {
   return async (req, context) => {
-    if (req.method && req.method !== "GET") return response(405, { error: "Method not allowed" });
+    if (req.method && !["GET", "POST"].includes(req.method)) {
+      return response(405, { error: "Method not allowed" });
+    }
     try {
       await auth.authenticateAdmin(req, context);
       const store = getStore(context);
       const generatedAt = now();
+      if (req.method === "POST") {
+        const input = await req.json().catch(() => null);
+        if (input?.action !== "run_compatibility_alert_drill") {
+          return response(400, { error: "Unknown archive access operation." });
+        }
+        const drill = await runArchiveCompatibilityAlertDrill({
+          store,
+          notify,
+          now: generatedAt,
+          logger,
+        });
+        return response(200, { drill });
+      }
       const health = await archiveAccessHealth(store, generatedAt);
       try {
         health.notifications = await notifyArchiveAccessTransitions({
@@ -461,6 +667,28 @@ export function createArchiveAccessOperationsHandler({
   };
 }
 
+function namespacedStore(store, namespace) {
+  return {
+    get: (key, options) => store.get(`${namespace}${key}`, options),
+    getWithMetadata: typeof store.getWithMetadata === "function"
+      ? (key, options) => store.getWithMetadata(`${namespace}${key}`, options)
+      : undefined,
+    getMetadata: typeof store.getMetadata === "function"
+      ? (key, options) => store.getMetadata(`${namespace}${key}`, options)
+      : undefined,
+    setJSON: (key, value, options) => store.setJSON(`${namespace}${key}`, value, options),
+    delete: key => store.delete(`${namespace}${key}`),
+    list: async ({ prefix = "" } = {}) => {
+      const blobs = await listBlobs(store, `${namespace}${prefix}`);
+      return {
+        blobs: blobs.map(blob => ({
+          ...blob,
+          key: blob.key.slice(namespace.length),
+        })),
+      };
+    },
+  };
+}
 function response(status, body) {
   return new Response(JSON.stringify(body), {
     status,
@@ -503,7 +731,7 @@ export async function sendArchiveAccessNotification({
       }),
     });
     if (!response.ok) throw new Error(`Archive access notification delivery failed (${response.status}).`);
-    return;
+    return parseResendAcceptance(response);
   }
   const percent = `${Math.round(payload.rate * 100)}%`;
   const title = payload.kind === "resolved"
@@ -535,9 +763,17 @@ export async function sendArchiveAccessNotification({
     }),
   });
   if (!response.ok) throw new Error(`Archive access notification delivery failed (${response.status}).`);
+  return parseResendAcceptance(response);
 }
 
-async function settleClaim(store, signal, claimId, signalState, deliveryOutcome) {
+async function parseResendAcceptance(response) {
+  const result = await response.json().catch(() => null);
+  if (typeof result?.id !== "string" || result.id.length < 1 || result.id.length > 256) {
+    throw new Error("Archive access notification acceptance was missing its message identifier.");
+  }
+  return { providerMessageId: result.id };
+}
+async function settleClaim(store, signal, claimId, signalState, deliveryOutcome, providerMessageId = null) {
   for (let attempt = 0; attempt < 8; attempt += 1) {
     const entry = await getWithMetadata(store, NOTIFICATION_STATE_KEY);
     const state = normalizeNotificationState(entry?.data);
@@ -546,7 +782,9 @@ async function settleClaim(store, signal, claimId, signalState, deliveryOutcome)
     const write = await conditionalStateWrite(
       store,
       entry,
-      deliveryOutcome ? updateDeliveryState(nextState, deliveryOutcome, signalState.updatedAt) : nextState,
+      deliveryOutcome
+        ? updateDeliveryState(nextState, deliveryOutcome, signalState.updatedAt, providerMessageId)
+        : nextState,
     );
     if (write?.modified !== false) return;
   }
@@ -580,6 +818,17 @@ function normalizeNotificationState(value) {
         && delivery.consecutiveFailures > 0
         ? delivery.consecutiveFailures
         : 0,
+      providerStatus: RESEND_DELIVERY_STATUSES.has(delivery.providerStatus)
+        ? delivery.providerStatus
+        : null,
+      providerUpdatedAt: Number.isFinite(Date.parse(delivery.providerUpdatedAt))
+        ? delivery.providerUpdatedAt
+        : null,
+      providerMessageId: typeof delivery.providerMessageId === "string"
+        && delivery.providerMessageId.length > 0
+        && delivery.providerMessageId.length <= 256
+        ? delivery.providerMessageId
+        : null,
     },
   };
 }
@@ -674,8 +923,9 @@ async function processSignalTransition({ store, health, notify, now, signal, def
           : health.storageCompatibility?.affectedResource || null }
         : {}),
     };
+    let acceptance;
     try {
-      await notify(payload);
+      acceptance = await notify(payload);
     } catch (error) {
       await settleClaim(store, signal, claimId, {
         status: previousStatus,
@@ -693,7 +943,7 @@ async function processSignalTransition({ store, health, notify, now, signal, def
       ...(signal === "storageCompatibility" && targetStatus !== "normal"
         ? { affectedResource: health.storageCompatibility?.affectedResource || null }
         : {}),
-    }, "success");
+    }, "success", acceptance?.providerMessageId);
     return payload;
   }
   throw new Error("Archive access notification state changed too frequently.");
@@ -793,8 +1043,9 @@ async function processRepairWarning({ store, notify, now, logger }) {
       lastRepairedAt: state.timestamps.at(-1),
       windowHours: REPAIR_WARNING_WINDOW_MS / (60 * 60 * 1000),
     };
+    let acceptance;
     try {
-      await notify(payload);
+      acceptance = await notify(payload);
     } catch (error) {
       const delivery = await settleRepairWarningClaim(store, claimId, null, "failure", now);
       if (
@@ -808,18 +1059,37 @@ async function processRepairWarning({ store, notify, now, logger }) {
       }
       throw error;
     }
-    await settleRepairWarningClaim(store, claimId, now.toISOString(), "success", now);
+    await settleRepairWarningClaim(
+      store,
+      claimId,
+      now.toISOString(),
+      "success",
+      now,
+      acceptance?.providerMessageId,
+    );
     return payload;
   }
   throw new Error("Archive access repair warning state changed too frequently.");
 }
 
-async function settleRepairWarningClaim(store, claimId, warnedAt, outcome, now) {
+async function settleRepairWarningClaim(
+  store,
+  claimId,
+  warnedAt,
+  outcome,
+  now,
+  providerMessageId = null,
+) {
   for (let attempt = 0; attempt < 8; attempt += 1) {
     const entry = await getWithMetadata(store, NOTIFICATION_REPAIR_STATE_KEY);
     const state = normalizeRepairWarningState(entry?.data, Number.NEGATIVE_INFINITY);
     if (state.warningClaim?.claimId !== claimId) return;
-    const delivery = updateRepairWarningDeliveryState(state.delivery, outcome, now);
+    const delivery = updateRepairWarningDeliveryState(
+      state.delivery,
+      outcome,
+      now,
+      providerMessageId,
+    );
     const next = { timestamps: state.timestamps, warnedAt, delivery };
     const write = await conditionalWrite(store, NOTIFICATION_REPAIR_STATE_KEY, entry, next);
     if (write?.modified !== false) return delivery;
@@ -857,6 +1127,9 @@ function emptyRepairWarningDeliveryState() {
     lastFailedAt: null,
     consecutiveFailures: 0,
     escalatedAt: null,
+    providerStatus: null,
+    providerUpdatedAt: null,
+    providerMessageId: null,
   };
 }
 
@@ -876,10 +1149,21 @@ function normalizeRepairWarningDeliveryState(value) {
       ? value.consecutiveFailures
       : 0,
     escalatedAt: Number.isFinite(Date.parse(value.escalatedAt)) ? value.escalatedAt : null,
+    providerStatus: RESEND_DELIVERY_STATUSES.has(value.providerStatus)
+      ? value.providerStatus
+      : null,
+    providerUpdatedAt: Number.isFinite(Date.parse(value.providerUpdatedAt))
+      ? value.providerUpdatedAt
+      : null,
+    providerMessageId: typeof value.providerMessageId === "string"
+      && value.providerMessageId.length > 0
+      && value.providerMessageId.length <= 256
+      ? value.providerMessageId
+      : null,
   };
 }
 
-function updateRepairWarningDeliveryState(value, outcome, now) {
+function updateRepairWarningDeliveryState(value, outcome, now, providerMessageId = null) {
   const previous = normalizeRepairWarningDeliveryState(value);
   const attemptedAt = now.toISOString();
   const failed = outcome === "failure";
@@ -895,6 +1179,9 @@ function updateRepairWarningDeliveryState(value, outcome, now) {
     escalatedAt: failed && consecutiveFailures >= REPAIR_WARNING_DELIVERY_FAILURE_THRESHOLD
       ? previous.escalatedAt || attemptedAt
       : null,
+    providerStatus: failed ? "rejected" : (providerMessageId ? "accepted" : null),
+    providerUpdatedAt: attemptedAt,
+    providerMessageId: providerMessageId || null,
   };
 }
 
@@ -921,7 +1208,7 @@ function updateSignalState(state, signal, signalState) {
   };
 }
 
-function updateDeliveryState(state, outcome, attemptedAt) {
+function updateDeliveryState(state, outcome, attemptedAt, providerMessageId = null) {
   const previous = normalizeNotificationState(state).delivery;
   const failed = outcome === "failure";
   return {
@@ -935,24 +1222,18 @@ function updateDeliveryState(state, outcome, attemptedAt) {
       consecutiveFailures: failed
         ? Math.min(previous.consecutiveFailures + 1, Number.MAX_SAFE_INTEGER)
         : 0,
+      providerStatus: failed ? "rejected" : (providerMessageId ? "accepted" : null),
+      providerUpdatedAt: attemptedAt,
+      providerMessageId: providerMessageId || null,
     },
   };
 }
 
 async function getWithMetadata(store, key) {
   if (typeof store.getWithMetadata === "function") {
-    const entry = await store.getWithMetadata(key, { type: "text", consistency: "strong" });
+    const entry = await getWithResolvedEtag(store, key, { type: "text" });
     if (!entry) return null;
-    const decoded = { ...entry, data: parseNotificationState(entry.data) };
-    if (entry.etag) return decoded;
-    if (typeof store.getMetadata === "function") {
-      const metadata = await store.getMetadata(key, { consistency: "strong" });
-      if (metadata?.etag) return { ...decoded, etag: metadata.etag };
-    }
-    if (typeof store.list !== "function") return decoded;
-    const listing = await store.list({ prefix: key });
-    const blob = listing?.blobs?.find(candidate => candidate.key === key);
-    return { ...decoded, etag: blob?.etag };
+    return { ...entry, data: parseNotificationState(entry.data) };
   }
   const data = await store.get(key, { type: "text", consistency: "strong" });
   return data === null ? null : { data: parseNotificationState(data) };
@@ -991,3 +1272,27 @@ function normalizeSignalState(value) {
 }
 
 const NOTIFICATION_CLAIM_TTL_MS = 5 * 60 * 1000;
+
+async function deleteNamespace(store, namespace) {
+  const keys = await listKeys(store, namespace);
+  const results = await Promise.allSettled(keys.map(key => store.delete(key)));
+  return results.filter(result => result.status === "fulfilled").length;
+}
+
+const COMPATIBILITY_DRILL_RESOURCE = "synthetic:archive-compatibility-alert-drill";
+
+async function listKeys(store, prefix) {
+  return (await listBlobs(store, prefix)).map(blob => blob.key);
+}
+
+async function listBlobs(store, prefix) {
+  const listing = store.list({ prefix, paginate: true });
+  if (listing && typeof listing[Symbol.asyncIterator] === "function") {
+    const blobs = [];
+    for await (const page of listing) {
+      blobs.push(...(page.blobs || []).filter(blob => typeof blob?.key === "string"));
+    }
+    return blobs;
+  }
+  return ((await listing)?.blobs || []).filter(blob => typeof blob?.key === "string");
+}

@@ -5,6 +5,12 @@ description: Editorial rules for deciding between coherent Event boards and vari
 
 **Rule:** Treat Event as a bounded, evidence-backed exception. A coherent Event may be one appearance, scene, shoot, look, or a character mood board bounded to a specific work/role and signature styling. Related queries for the same character/look may combine across publishers. Similarity alone, publisher alone, or a generic style query must not force Event.
 
+**Generated-grid size rule:** New Collector Event and Compiled boards are both nine frames; do not retrofit previously saved larger Event records into a different composition.
+
+**Why:** The public released-pack teaser is deliberately smaller, but that does not authorize changing a member's already saved artifact. The nine-frame limit is for newly generated Collector boards, not historical record migration.
+
+**How to apply:** Enforce nine at proposal and new-record creation boundaries; retain compatibility when reading existing saved records.
+
 **Composition rule:** Character-look compatibility is placement-aware: hero and high-salience positions must satisfy every required Vibe-anchor combination, while supporting or contrasting clusters are bounded to secondary positions and cannot silently change the board thesis. Promise contracts must distinguish required combinations, supporting anchors, hard anti-anchors, soft contradictions, and hero-slot requirements; query provenance is bounded evidence, never proof. Every actor/Vibe pair needs an enforceable promise—never an empty allow-all fallback. A coherent cluster below nine cards is a search lead, not a board: preserve its character/state evidence and turn its missing relationship, scene, emotional, or character coverage into targeted follow-up searches.
 
 **Proposal integrity rule:** Reaching nine distinct cards and passing automated publication qualification are separate states. Preserve and show every complete proposal even when its hero or promise gate fails; name the failed gate, and never rewrite that result as “did not reach nine.” Count displayable retained images separately from automatically qualified publication cards.
@@ -15,7 +21,7 @@ description: Editorial rules for deciding between coherent Event boards and vari
 
 **Character-state rule:** A character does not own one permanent Vibe. Resolve compatibility through actor → character → look → emotional/scene state → Vibe; identity or costume without the relevant state cannot claim or contradict a stateful cluster.
 
-**Release rule:** A blind preference records only which proposal is better. Plain approval separately requires the operator to confirm both “Yes, that’s the Vibe” and “Yes, this is publishable.” Liu Xueyi enters Star of the Day only after two fresh pairings earn both confirmations; scores, comparative wins, rescue boards, and overrides do not count.
+**Release rule:** A blind preference records only which proposal is better. Plain approval separately requires the operator to confirm both “Yes, that’s the Vibe” and “Yes, this is publishable.” An explicit approved override also counts as a released pairing before those two ordinary confirmations, as the creator subsequently clarified. Scores, comparative wins, rescue boards, and unapproved overrides do not count.
 
 **Why:** The product distinguishes rhythm within one bounded editorial from search-result collapse across a compiled set. Overweighting Event produces confidently repetitive daily grids; overweighting diversity can destroy a strong visual argument.
 

@@ -210,7 +210,7 @@ export const ActorPreflightLab: React.FC = () => {
       // while this detail endpoint is the authoritative stored snapshot.
       const refreshed=await api(undefined,{actorId,vibeKey});
       const startedRunId=started.currentRun?.runId;
-      const result=!startedRunId||refreshed.currentRun?.runId===startedRunId ? refreshed : started;
+      const result=refreshed;
       const nextRun=result.currentRun ?? null;
       if(!nextRun) throw new Error('The audit was saved, but its review did not load. Refresh this page to open the saved run.');
       if(nextRun.blindReview?.status==='pending') {
@@ -230,9 +230,11 @@ export const ActorPreflightLab: React.FC = () => {
       setPreferredRescueReceiptId('');
       setDisagreementReasons([]);
       setEditorialNote('');
-      setNotice(nextRun.blindReview?.status==='unavailable'
-        ? `${nextScope === 'full' ? 'Full' : 'Representative'} audit completed, but it did not produce two complete boards. Review the retained evidence below; one complete board can still ship after both human confirmations.`
-        : `${nextScope === 'full' ? 'Full' : 'Representative'} audit completed. Choose between the two boards below.`);
+      setNotice(startedRunId && nextRun.runId !== startedRunId
+        ? 'Another audit became current while this one finished. Review the current audit below; no choice was submitted for the earlier run.'
+        : nextRun.blindReview?.status==='unavailable'
+          ? `${nextScope === 'full' ? 'Full' : 'Representative'} audit completed, but it did not produce two complete boards. Review the retained evidence below; one complete board can still ship after both human confirmations.`
+          : `${nextScope === 'full' ? 'Full' : 'Representative'} audit completed. Choose between the two boards below.`);
       requestAnimationFrame(()=>document.getElementById('actor-audit-evidence')?.scrollIntoView({behavior:'smooth',block:'start'}));
     } catch(e:any) {
       setNotice(e.message);
@@ -391,17 +393,18 @@ export const ActorPreflightLab: React.FC = () => {
   }
   async function saveVisualJudgment(judgmentToken:string,classification:string) {
     if(!currentRun?.runId||run?.runId!==currentRun.runId||visualJudgmentsInFlight.current.has(judgmentToken))return;
+    const submittedRunId=currentRun.runId;
     visualJudgmentsInFlight.current.add(judgmentToken);
     setBusy(`visual-judgment:${judgmentToken}`); setNotice('');
     try {
-      const result=await api({action:'record_visual_judgment',actorId,vibeKey,runId:currentRun.runId,judgmentToken,classification});
+      const result=await api({action:'record_visual_judgment',actorId,vibeKey,runId:submittedRunId,judgmentToken,classification});
       applyRefresh(result);
       const next=result.currentRun ?? currentRun;
       setRun(next); setCurrentRun(next); setPriorRuns(result.priorRuns ?? priorRuns);
       setNotice('Blind image judgment saved as a separate immutable receipt. Production scoring is unchanged.');
     } catch(e:any) {
       const repair=e?.payload;
-      if(repair?.receiptSaved===true&&repair?.repairAction==='repair_visual_judgment_index'&&repair?.runId===currentRun.runId&&repair?.receiptId) {
+      if(repair?.receiptSaved===true&&repair?.repairAction==='repair_visual_judgment_index'&&repair?.runId===submittedRunId&&repair?.receiptId) {
         try {
           await api({action:'repair_visual_judgment_index',actorId,vibeKey,runId:repair.runId,receiptId:repair.receiptId});
           const refreshed=await api(undefined,{actorId,vibeKey});
@@ -411,6 +414,22 @@ export const ActorPreflightLab: React.FC = () => {
           setNotice('Blind image judgment saved and its receipt index repaired. Production scoring is unchanged.');
         } catch(repairError:any) {
           setNotice(`The image judgment was saved, but its receipt index still needs repair: ${repairError.message}`);
+        }
+      } else if(e?.status===409&&e?.message==='This judgment is not for the current audit run. Refresh and try again.') {
+        try {
+          const refreshed=await api(undefined,{actorId,vibeKey});
+          applyRefresh(refreshed);
+          const next=refreshed.currentRun ?? null;
+          setCurrentRun(next);
+          setRun(next);
+          setPriorRuns(refreshed.priorRuns ?? []);
+          setHandoffReadOnly(false);
+          clearHandoff();
+          setNotice(next?.runId && next.runId!==submittedRunId
+            ? 'A newer audit became current. No judgment was saved for the previous run. Review the current images and choose again; nothing was approved.'
+            : 'The server rejected this judgment as not current (409). No receipt was saved. The latest audit could not be confirmed as a different run; refresh the page before trying again.');
+        } catch {
+          setNotice('The server rejected this judgment as not current (409). No receipt was saved. Could not reload the current audit; refresh the page before trying again.');
         }
       } else {
         setNotice('The image judgment was not saved. The same image remains ready—retry your choice.');
@@ -589,7 +608,7 @@ export const ActorPreflightLab: React.FC = () => {
       URL.revokeObjectURL(url);
       setNotice('Read-only cross-audit editorial review, retained evidence, and publication receipts downloaded. No audit was rerun or changed.');
     } catch(e:any) {
-      setNotice(e instanceof Error && e.message && e.message !== 'Failed to fetch'
+      setNotice(e instanceof Error && !(e instanceof TypeError) && e.message
         ? e.message
         : 'Editorial packet download failed. Check your connection and retry.');
     } finally { setBusy(''); }

@@ -36,7 +36,7 @@ function createMemoryStore() {
       const blobs = [...values.keys()]
         .filter(key => key.startsWith(prefix))
         .sort()
-        .map(key => ({ key }));
+        .map(key => ({ key, etag: `"${versions.get(key)}"` }));
       if (!paginate) return Promise.resolve({ blobs });
       return {
         async *[Symbol.asyncIterator]() {
@@ -352,6 +352,30 @@ test("an abandoned event claim can be recovered after its lease expires", async 
   assert.deepEqual(await applyBlobBillingEvent({ repository, event: abandonedEvent }), { applied: true });
   assert.equal((await repository.membershipForAccount("account_one")).status, "active");
   assert.equal((await store.get("events/evt_abandoned")).state, "processed");
+});
+
+test("an abandoned event claim recovers its etag when the strong read omits it", async () => {
+  const { repository, store } = createRepository();
+  await store.setJSON("events/evt_missing_etag", {
+    eventId: "evt_missing_etag",
+    type: "customer.subscription.updated",
+    state: "processing",
+    claimedAt: "2020-01-01T00:00:00.000Z",
+  });
+  const originalRead = store.getWithMetadata.bind(store);
+  store.getWithMetadata = async (...args) => {
+    const entry = await originalRead(...args);
+    if (!entry) return entry;
+    const { etag: _etag, ...withoutEtag } = entry;
+    return withoutEtag;
+  };
+
+  assert.equal(await repository.claimEvent({
+    id: "evt_missing_etag",
+    type: "customer.subscription.updated",
+    created: 120,
+  }), true);
+  assert.equal((await store.get("events/evt_missing_etag")).state, "processing");
 });
 
 test("reordered lifecycle events preserve the newest authoritative state", async () => {

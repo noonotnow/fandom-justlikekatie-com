@@ -1,4 +1,5 @@
 import { json } from "./public-auth.js";
+import { getWithResolvedEtag } from "./blob-store.js";
 import {
   AESTHETIC_NAMES,
   ARTIFACT_TYPE_NAMES,
@@ -96,7 +97,7 @@ class AppError extends Error {
 
 async function getWithMetadata(store, key) {
   if (typeof store.getWithMetadata === "function") {
-    return store.getWithMetadata(key, { type: "json", consistency: "strong" });
+    return getWithResolvedEtag(store, key, { type: "json" });
   }
   const data = await store.get(key, { type: "json", consistency: "strong" });
   return data ? { data } : null;
@@ -1068,18 +1069,14 @@ export function createMiddleEarthAIHandler({
       }
       validateSameOrigin(req);
 
-      // Admin-only
       let authResult;
       try {
-        authResult = await auth.authenticateAdmin(req, context);
+        authResult = await auth.authenticate(req, context);
       } catch (err) {
         if (err?.status === 401) {
           return json(401, { error: "Sign in is required." });
         }
-        if (err?.status === 403) {
-          return json(403, { error: "Admin access is required." });
-        }
-        console.error("[middle-earth-ai] admin authentication failed unexpectedly");
+        console.error("[middle-earth-ai] authentication failed unexpectedly");
         return json(503, { error: "Authentication service is temporarily unavailable." });
       }
 

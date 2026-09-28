@@ -7,8 +7,13 @@ import {
   VIBE_ATLAS_NETLIFY_ROUTES,
   publicRouteUrl,
 } from '../shared/public-routes.js';
-import { injectLaunchpadCanonical } from '../vite.config.js';
-import { readFile, readdir } from 'node:fs/promises';
+import { injectLaunchpadCanonical, launchpadOgImagePath } from '../vite.config.js';
+import {
+  checkLaunchpadPreview,
+  launchpadOgImageUrl,
+} from '../scripts/check-launchpad-preview.js';
+import { access, readFile, readdir } from 'node:fs/promises';
+import sharp from 'sharp';
 
 const indexHtml = await readFile(new URL('../index.html', import.meta.url), 'utf8');
 const appSource = await readFile(new URL('../src/App.tsx', import.meta.url), 'utf8');
@@ -31,10 +36,12 @@ const srcRouteSources = await Promise.all(
     .map(path => readFile(new URL(`../src/${path}`, import.meta.url), 'utf8')),
 );
 
-test('the launchpad canonical and social URLs are injected from the shared public routes before React runs', () => {
+test('the launchpad canonical and social URLs are injected from the shared public routes before React runs', async () => {
   const builtHtml = injectLaunchpadCanonical(indexHtml);
   const expectedCanonical = publicRouteUrl(PUBLIC_ROUTE_PATHS.launchpad);
-  const expectedImage = `${PUBLIC_ORIGIN}/assets/c-drama-fandom/lg01-master-og.jpg`;
+  const expectedImage = `${PUBLIC_ORIGIN}${launchpadOgImagePath}`;
+
+  await access(new URL(`../public${launchpadOgImagePath}`, import.meta.url));
 
   assert.match(
     indexHtml,
@@ -61,6 +68,68 @@ test('the launchpad canonical and social URLs are injected from the shared publi
   assert.throws(
     () => injectLaunchpadCanonical(builtHtml),
     /Expected exactly one %PUBLIC_LAUNCHPAD_CANONICAL% placeholder.*found 0/,
+  );
+});
+
+test('the production smoke check requests the exact launchpad Open Graph image and requires JPEG', async () => {
+  const expectedImage = `${PUBLIC_ORIGIN}${launchpadOgImagePath}`;
+  let requestedUrl = '';
+  let requestedRedirectMode = '';
+  const imageUrl = await checkLaunchpadPreview(async (input, init) => {
+    requestedUrl = String(input);
+    requestedRedirectMode = init?.redirect ?? '';
+    return new Response('jpeg bytes', {
+      status: 200,
+      headers: { 'content-type': 'image/jpeg' },
+    });
+  }, indexHtml);
+
+  assert.equal(launchpadOgImageUrl(indexHtml), expectedImage);
+  assert.equal(imageUrl, expectedImage);
+  assert.equal(requestedUrl, expectedImage);
+  assert.equal(requestedRedirectMode, 'manual');
+});
+
+test('the launchpad social preview image decodes at the expected dimensions', async () => {
+  const imageUrl = new URL(`../public${launchpadOgImagePath}`, import.meta.url);
+  const image = await readFile(imageUrl);
+  const { info } = await sharp(image, { failOn: 'error' })
+    .raw()
+    .toBuffer({ resolveWithObject: true });
+
+  assert.deepEqual(
+    { width: info.width, height: info.height },
+    { width: 1200, height: 630 },
+  );
+});
+
+test('the production smoke check rejects redirects, HTML fallbacks, and errors', async () => {
+  await assert.rejects(
+    checkLaunchpadPreview(
+      async () => new Response(null, {
+        status: 301,
+        headers: { location: '/index.html' },
+      }),
+      indexHtml,
+    ),
+    /returned HTTP 301/,
+  );
+  await assert.rejects(
+    checkLaunchpadPreview(
+      async () => new Response('<!doctype html>', {
+        status: 200,
+        headers: { 'content-type': 'text/html; charset=utf-8' },
+      }),
+      indexHtml,
+    ),
+    /did not return image\/jpeg/,
+  );
+  await assert.rejects(
+    checkLaunchpadPreview(
+      async () => new Response('missing', { status: 404 }),
+      indexHtml,
+    ),
+    /returned HTTP 404/,
   );
 });
 
@@ -102,6 +171,55 @@ test('the public daily HTML remains indexable and advertises its own route', asy
   assert.doesNotMatch(srcRouteSources.join('\n'), /(['"`])\/vibe-atlas(?:\/[^'"`]*)?(?:[?'"`])/);
   assert.doesNotMatch(appSource, /https:\/\/fandom\.justlikekatie\.com\/vibe-atlas\/archive/);
   assert.match(await readFile(new URL('../netlify/edge-functions/seo-indexing.js', import.meta.url), 'utf8'), /PUBLIC_ROUTE_PATHS\.vibeAtlasActors/);
+});
+
+test('public Vibe Atlas responses expose route-specific sharing metadata before JavaScript runs', async () => {
+  const routes = [
+    {
+      path: PUBLIC_ROUTE_PATHS.vibeAtlas,
+      title: 'Vibe Atlas | Daily C-Drama Collectible Cards | Fandom Vibes',
+      description: 'Browse today’s Vibe Atlas C-drama collectible: one star, one vibe, and nine pieces of evidence.',
+    },
+    {
+      path: PUBLIC_ROUTE_PATHS.vibeAtlasArchive,
+      title: 'Vibe Atlas Archive | Fandom Vibes',
+      description: 'Browse past Vibe Atlas C-drama collectible card drops, with one star, one vibe, and nine pieces of evidence in every edition.',
+    },
+  ];
+
+  for (const route of routes) {
+    const url = publicRouteUrl(route.path);
+    const response = await seoIndexing(
+      new Request(url),
+      {
+        next: async () => new Response(injectLaunchpadCanonical(indexHtml), {
+          headers: { 'content-type': 'text/html; charset=UTF-8' },
+        }),
+      },
+    );
+    const html = await response.text();
+    const expectedTags = [
+      `<meta property="og:title" content="${route.title}" />`,
+      `<meta property="og:description" content="${route.description}" />`,
+      `<meta property="og:url" content="${url}" />`,
+      '<meta name="twitter:card" content="summary_large_image" />',
+      `<meta name="twitter:title" content="${route.title}" />`,
+      `<meta name="twitter:description" content="${route.description}" />`,
+    ];
+
+    for (const tag of expectedTags) {
+      assert.equal(
+        html.split(tag).length - 1,
+        1,
+        `${route.path} raw response must expose exactly one ${tag}`,
+      );
+    }
+    assert.doesNotMatch(
+      html,
+      /<meta property="og:url" content="https:\/\/fandom\.justlikekatie\.com\/" \/>/,
+      `${route.path} raw response must not retain the launchpad sharing URL`,
+    );
+  }
 });
 
 test('Netlify route bindings match the shared Vibe Atlas public-route registry', () => {

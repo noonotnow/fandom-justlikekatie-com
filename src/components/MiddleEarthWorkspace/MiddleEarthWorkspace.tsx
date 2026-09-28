@@ -4,6 +4,7 @@ import {
   generateRednoteCopy,
   generateVisualObject,
   middleEarthGroundingFingerprint,
+  MiddleEarthAiError,
   translateMemeMoment,
   type GeneratedMemeTranslation,
   type MiddleEarthAiSource,
@@ -571,7 +572,15 @@ function parseTagList(value: string): string[] {
     .map((tag) => `#${tag.slice(0, 49)}`);
 }
 
-export function MiddleEarthWorkspace({ isAdmin }: { isAdmin: boolean }) {
+export function MiddleEarthWorkspace({
+  canGenerate,
+  hasAdminAccess,
+  onSessionExpired,
+}: {
+  canGenerate: boolean;
+  hasAdminAccess: boolean;
+  onSessionExpired?: () => void;
+}) {
   const kind: MiddleEarthContentKind = "meme";
   const [activeStep, setActiveStep] = useState<"forge" | "spellbook">("forge");
   const [archiveSearchRequestGate] = useState(createArchiveSearchRequestGate);
@@ -1019,7 +1028,7 @@ export function MiddleEarthWorkspace({ isAdmin }: { isAdmin: boolean }) {
   };
 
   const translateMoment = async () => {
-    if (!isAdmin) {
+    if (!canGenerate) {
       setError("Sign in to translate a moment.");
       return;
     }
@@ -1067,6 +1076,9 @@ export function MiddleEarthWorkspace({ isAdmin }: { isAdmin: boolean }) {
       if (!translationRequestGate.isCurrent(requestId)) return;
       setStatus("Moment translated. The text joke and image joke are paired; choose the reaction still that lands the bit, then forge the card.");
     } catch (translationError) {
+      if (translationError instanceof MiddleEarthAiError && translationError.status === 401) {
+        onSessionExpired?.();
+      }
       setError(translationError instanceof Error ? translationError.message : "MemeForge could not translate that moment.");
     } finally {
       setBusy(false);
@@ -1128,7 +1140,7 @@ export function MiddleEarthWorkspace({ isAdmin }: { isAdmin: boolean }) {
   } : undefined, [selected]);
 
   const generateVisual = async () => {
-    if (!isAdmin) {
+    if (!canGenerate) {
       setError("Sign in to use AI generation.");
       return;
     }
@@ -1177,6 +1189,9 @@ export function MiddleEarthWorkspace({ isAdmin }: { isAdmin: boolean }) {
       });
       setStatus(`Visual object generated${generated.rationale ? ` — ${generated.rationale}` : "."}`);
     } catch (generationError) {
+      if (generationError instanceof MiddleEarthAiError && generationError.status === 401) {
+        onSessionExpired?.();
+      }
       setError(generationError instanceof Error ? generationError.message : "MemeForge could not generate the visual object.");
     } finally {
       setBusy(false);
@@ -1184,7 +1199,7 @@ export function MiddleEarthWorkspace({ isAdmin }: { isAdmin: boolean }) {
   };
 
   const generateCopy = async () => {
-    if (!isAdmin) {
+    if (!canGenerate) {
       setError("Sign in to use AI generation.");
       return;
     }
@@ -1231,6 +1246,9 @@ export function MiddleEarthWorkspace({ isAdmin }: { isAdmin: boolean }) {
       setRednoteGroundingFingerprint(currentGroundingFingerprint);
       setStatus("Rednote title, caption, and tags generated. Edit anything before saving.");
     } catch (generationError) {
+      if (generationError instanceof MiddleEarthAiError && generationError.status === 401) {
+        onSessionExpired?.();
+      }
       setError(generationError instanceof Error ? generationError.message : "Spellbook could not generate the Rednote copy.");
     } finally {
       setBusy(false);
@@ -1326,7 +1344,9 @@ export function MiddleEarthWorkspace({ isAdmin }: { isAdmin: boolean }) {
     try {
       await dbSaveCard(originalMemeCard(selected));
       const session = await getPublicSession();
-      const registeredInMedia = Boolean(session && await shouldSyncCollection(session.accountId));
+      const registeredInMedia = Boolean(
+        hasAdminAccess && session && await shouldSyncCollection(session.accountId),
+      );
       let savedAsset = selected;
       if (registeredInMedia && selected.thumbnail.startsWith("data:image/")) {
         savedAsset = await registerUploadedAssetInMedia(selected);
@@ -1334,7 +1354,7 @@ export function MiddleEarthWorkspace({ isAdmin }: { isAdmin: boolean }) {
       }
       if (session && registeredInMedia) {
         await syncPublicCollection(session);
-      } else {
+      } else if (hasAdminAccess) {
         schedulePublicCollectionSync();
       }
       setOriginalCollectionSaved(true);
@@ -1359,7 +1379,9 @@ export function MiddleEarthWorkspace({ isAdmin }: { isAdmin: boolean }) {
         throw new Error("Choose an existing meme and add at least one rework line before saving.");
       }
       const session = await getPublicSession();
-      const registeredInMedia = Boolean(session && await shouldSyncCollection(session.accountId));
+      const registeredInMedia = Boolean(
+        hasAdminAccess && session && await shouldSyncCollection(session.accountId),
+      );
       let sourceAsset = selected;
       if (
         isReworkExisting
@@ -1411,7 +1433,7 @@ export function MiddleEarthWorkspace({ isAdmin }: { isAdmin: boolean }) {
       });
       if (session && registeredInMedia) {
         await syncPublicCollection(session);
-      } else {
+      } else if (hasAdminAccess) {
         schedulePublicCollectionSync();
       }
       setCollectionSaved(true);
@@ -1492,7 +1514,7 @@ export function MiddleEarthWorkspace({ isAdmin }: { isAdmin: boolean }) {
           <div className={styles.momentExamples} aria-label="Moment examples">
             {momentExamples.map((example) => <button key={example} type="button" onClick={() => updateMoment(example)} disabled={busy}>{example}</button>)}
           </div>
-           {isAdmin
+           {canGenerate
              ? <button className={styles.translateAction} type="button" onClick={() => void translateMoment()} disabled={busy || !moment.trim()}>{busy ? "Working…" : isReworkExisting ? "Suggest a joke" : "Translate moment"}</button>
             : <a className={styles.stagingLink} href={`${PUBLIC_ROUTE_PATHS.vibeAtlas}?view=plan`}>Sign in to translate</a>}
         </div>
@@ -1736,7 +1758,7 @@ export function MiddleEarthWorkspace({ isAdmin }: { isAdmin: boolean }) {
           {activeStep === "forge" ? <>
             <div className={styles.aiPanel}>
                 <div><strong>{reworkPanelTitle}</strong><p>{isReworkExisting ? "AI is optional. Describe a moment above if you want a joke suggestion, or type your own overlay below." : "Uses the translated moment first, then the selected clean reaction still as its visual anchor. The new card copy remains yours to edit."}</p></div>
-              {isAdmin
+              {canGenerate
                 ? <button className={styles.aiAction} onClick={() => void generateVisual()} disabled={busy || !translation || isExistingMemeAsIs}>{busy ? "Generating…" : isExistingMemeAsIs ? "Choose Rework to forge" : visualGeneration ? "Reforge card" : "Forge card"}</button>
                 : <a className={styles.stagingLink} href={`${PUBLIC_ROUTE_PATHS.vibeAtlas}?view=plan`}>Sign in to generate</a>}
             </div>
@@ -1756,7 +1778,7 @@ export function MiddleEarthWorkspace({ isAdmin }: { isAdmin: boolean }) {
             {visualGeneration && rednoteTouched && !rednoteIsCurrent && <p className={styles.copyWarning}>The grounding changed. Regenerate this copy before saving it.</p>}
             <div className={styles.aiPanel}>
               <div><strong>Character-filtered Rednote writer</strong><p>Generates a separate editable title, caption, and tag set. Existing edits are used as refinement context.</p></div>
-              {isAdmin
+              {canGenerate
                 ? <button className={styles.aiAction} onClick={() => void generateCopy()} disabled={busy || !visualGeneration || !text.trim()}>{busy ? "Writing…" : rednoteIsCurrent ? "Refine copy" : "Generate copy"}</button>
                 : <a className={styles.stagingLink} href={`${PUBLIC_ROUTE_PATHS.vibeAtlas}?view=plan`}>Sign in to generate</a>}
             </div>

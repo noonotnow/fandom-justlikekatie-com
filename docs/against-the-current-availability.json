@@ -1,0 +1,77 @@
+{
+  "slug": "against-the-current",
+  "title": "Against the Current",
+  "originalTitle": "兰香如故",
+  "reviewer": "Replit Agent — official-source and spoiler-safe link review",
+  "rightsReviewed": true,
+  "spoilerReviewed": true,
+  "checkedAt": "2026-09-28T12:16:32Z",
+  "platforms": [
+    {
+      "name": "Viki · free episodes",
+      "url": "https://www.viki.com/tv/41705c-against-the-current?locale=en",
+      "sourceUrl": "https://www.viki.com/tv/41705c-against-the-current?locale=en",
+      "checkedAt": "2026-09-28T12:16:32Z",
+      "territories": ["US"],
+      "accessTier": "Free listing; sign-in and ads may apply",
+      "episodes": { "from": 1, "through": 6 },
+      "subtitles": { "language": "English", "status": "verified" },
+      "cadence": null,
+      "standardFinaleAt": null,
+      "advanceFinaleAt": null,
+      "state": "verified",
+      "conflict": null,
+      "evidence": "Official Viki episode listing and https://api.viki.io/v4/series/41705c/episodes.json?app=100000a&per_page=50 show US geo=false, paywall=false, upcoming=false and English subtitles 100% for Episodes 1–6. This is a US listing check, not a purchase or playback guarantee."
+    },
+    {
+      "name": "Viki · Viki Pass episodes",
+      "url": "https://www.viki.com/tv/41705c-against-the-current?locale=en",
+      "sourceUrl": "https://www.viki.com/tv/41705c-against-the-current?locale=en",
+      "checkedAt": "2026-09-28T12:16:32Z",
+      "territories": ["US"],
+      "accessTier": "Viki Pass subscription",
+      "episodes": { "from": 7, "through": 33 },
+      "subtitles": { "language": "English", "status": "verified" },
+      "cadence": null,
+      "standardFinaleAt": null,
+      "advanceFinaleAt": null,
+      "state": "verified",
+      "conflict": null,
+      "evidence": "Official Viki episode data from a US connection show geo=false, paywall=true, upcoming=false and English subtitles 100% for Episodes 7–33. The page also displays 35 episode tiles while the API lists 33 released episodes; do not count future tiles as playable."
+    },
+    {
+      "name": "WeTV · English-language listing",
+      "url": "https://wetv.vip/en/play/94jt6sxiwsjw5n6",
+      "sourceUrl": "https://wetv.vip/en/play/94jt6sxiwsjw5n6",
+      "checkedAt": "2026-09-28T12:16:32Z",
+      "territories": ["unknown"],
+      "accessTier": "unknown",
+      "episodes": null,
+      "subtitles": { "language": "English", "status": "unknown" },
+      "cadence": null,
+      "standardFinaleAt": null,
+      "advanceFinaleAt": null,
+      "state": "unknown",
+      "conflict": "WeTV's 'All 47 EPs' label is catalog length, not proof that 47 subtitled episodes can be played in the US or another country. Search labels say English subtitles, but player/region access was not established.",
+      "evidence": "Official WeTV English series listing only. No country-specific episode or subtitle guarantee."
+    }
+  ],
+  "schedule": {
+    "state": "unknown",
+    "timeZone": null,
+    "checkedAt": null,
+    "sourceUrl": null,
+    "standardFinaleAt": null,
+    "windows": []
+  },
+  "history": [
+    {
+      "checkedAt": "2026-09-28T02:47:54Z",
+      "note": "Initial listing review: Viki showed 33 released episodes versus 35 episode tiles; WeTV said All 47 EPs. Country-specific access not checked.",
+      "sources": [
+        "https://www.viki.com/tv/41705c-against-the-current?locale=en",
+        "https://wetv.vip/en/play/94jt6sxiwsjw5n6"
+      ]
+    }
+  ]
+}

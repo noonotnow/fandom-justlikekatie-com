@@ -1,4 +1,5 @@
 import { createHash, randomUUID } from "node:crypto";
+import { hasValidReceiptTimestamp } from "./receipt-timestamp.js";
 import { json } from "./public-auth.js";
 import {
   AESTHETIC_CLUSTER_VERSION,
@@ -104,6 +105,7 @@ import {
   blindReviewCandidateEligibility,
   isBlindReviewQueueCandidate,
 } from "./blind-calibration-evidence.js";
+import { releasedPackCatalogHealth } from "./released-pack-catalog.js";
 
 const MAX_BODY_BYTES = 48 * 1024;
 const MAX_NOTE_LENGTH = 2000;
@@ -393,13 +395,17 @@ export function createActorAuditHandler({
         const vibeKey = url.searchParams.get("vibeKey");
         if (!actorId && !vibeKey) {
           const publicationStore = getPublicationStore(context);
-          const [actors, releaseInventory, productionReadiness] = await Promise.all([
+          const [actors, releaseInventory, productionReadiness, releaseCatalogHealth] = await Promise.all([
             listActors(store, actorPacks),
             releaseReadyInventory(store, actorPacks, {
               publicationStore,
               now,
             }),
             productionReadinessFor(store, actorPacks),
+            releasedPackCatalogHealth(store, {
+              publicationStore,
+              actorPacks,
+            }),
           ]);
           return json(200, {
             schemaVersion: 1,
@@ -411,6 +417,7 @@ export function createActorAuditHandler({
             actors,
             releaseInventory,
             productionReadiness,
+            releaseCatalogHealth,
           });
         }
         const pair = resolvePair(actorPacks, actorId, vibeKey);
@@ -1280,7 +1287,6 @@ export function createActorAuditHandler({
             preferredRescueBoard,
             operator,
             now,
-            operatorBoardApproval,
           );
         }
         const next = await readReport(store, pair);
@@ -2174,6 +2180,24 @@ export function createActorAuditHandler({
           createdAt: stamp,
           createdBy: operator.user.accountId,
         };
+        const projectedFlags = feedback.flags
+          .filter(flag => flag.candidateId !== receipt.candidateId);
+        if (receipt.flagged) {
+          projectedFlags.push({
+            ...receipt,
+            ...feedbackDisposition(receipt, gate),
+          });
+          projectedFlags.sort((left, right) => left.candidateId.localeCompare(right.candidateId));
+        }
+        if (projectedFlags.length) {
+          await persistRequestedReview(store, pair, {
+            ...run,
+            editorialFeedback: {
+              ...feedback,
+              flags: projectedFlags,
+            },
+          }, now);
+        }
         const write = await store.setJSON(
           auditFeedbackKey(pair.actor.id, pair.vibeIdx, run.runId, receipt.eventId),
           receipt,
@@ -2182,10 +2206,10 @@ export function createActorAuditHandler({
         if (write?.modified === false) {
           return json(409, { error: "Another operator recorded this grid-review request first." });
         }
-        const refreshed = await readReport(store, pair);
-        const refreshedRun = refreshed.currentRun;
-        if (refreshedRun?.runId === run.runId && refreshedRun.editorialFeedback?.flags?.length) {
-          await persistRequestedReview(store, pair, refreshedRun, now);
+        const committed = await readReport(store, pair);
+        if (committed.currentRun?.runId === run.runId
+          && committed.currentRun.editorialFeedback?.flags?.length) {
+          await persistRequestedReview(store, pair, committed.currentRun, now);
         }
         const next = await readReport(store, pair);
         return json(200, {
@@ -5727,10 +5751,10 @@ async function reconcileApprovedEligibilityWithMisprints({
 }
 
 async function readEditorialFeedback(store, pair, run) {
-  const listing = await store.list({
+  const blobs = await readAllListedBlobs(store, {
     prefix: auditFeedbackPrefix(pair.actor.id, pair.vibeIdx, run.runId),
   });
-  const receipts = (await Promise.all((listing?.blobs || []).map(async blob => {
+  const receipts = (await Promise.all(blobs.map(async blob => {
     if (typeof blob?.key !== "string") return null;
     const value = await store.get(blob.key, { type: "json", consistency: "strong" });
     return value ? { key: blob.key, value } : null;
@@ -6343,21 +6367,27 @@ async function ensureRescueCalibration(
   receipt,
   operator,
   now,
-  publishable = false,
 ) {
   const key = auditRescueCalibrationKey(pair.actor.id, pair.vibeIdx, receipt.receiptId);
-  const existing = await store.get(key, { type: "json", consistency: "strong" });
-  if (existing) return existing;
   const calibration = {
     ...createRescueCalibration(pair, run, receipt, operator, now),
-    publishable: publishable === true,
+    publishable: false,
   };
+  const existing = await store.get(key, { type: "json", consistency: "strong" });
+  if (existing) {
+    if (recordHash(rescueCalibrationIdentity(existing))
+      !== recordHash(rescueCalibrationIdentity(calibration))) {
+      const error = new Error("The rescue calibration receipt is immutable.");
+      error.status = 409;
+      throw error;
+    }
+    return existing;
+  }
   await store.setJSON(key, calibration, { onlyIfNew: true });
   const authoritative = await store.get(key, { type: "json", consistency: "strong" });
   if (!authoritative
-    || authoritative.sourceRescueReceiptId !== receipt.receiptId
-    || authoritative.actor?.id !== pair.actor.id
-    || authoritative.vibePack?.key !== pair.vibeKey) {
+    || recordHash(rescueCalibrationIdentity(authoritative))
+      !== recordHash(rescueCalibrationIdentity(calibration))) {
     const error = new Error("The rescue calibration receipt could not be verified.");
     error.status = 409;
     throw error;
@@ -7178,8 +7208,6 @@ async function persistRequestedReview(store, pair, run, now) {
   if (!flags.length) return null;
   const hash = feedbackHash(flags);
   const key = auditRequestedReviewKey(pair.actor.id, pair.vibeIdx, run.runId, hash);
-  const existing = await store.get(key, { type: "json", consistency: "strong" });
-  if (existing) return existing;
   const eligibleFlags = flags.filter(flag => flag.disposition === "requested");
   const board = eligibleFlags.length ? buildFrozenRescueBoard(run, flags) : null;
   const review = {
@@ -7212,8 +7240,26 @@ async function persistRequestedReview(store, pair, run, now) {
         : "Every preference is excluded or unavailable.",
   };
   review.status = board ? "provisional_board" : eligibleFlags.length ? "needs_more_candidates" : "blocked";
+  const existing = await store.get(key, { type: "json", consistency: "strong" });
+  if (existing) {
+    if (recordHash(requestedReviewIdentity(existing))
+      !== recordHash(requestedReviewIdentity(review))) {
+      const error = new Error("The requested-review receipt is immutable.");
+      error.status = 409;
+      throw error;
+    }
+    return existing;
+  }
   const write = await store.setJSON(key, review, { onlyIfNew: true });
-  return write?.modified === false ? store.get(key, { type: "json", consistency: "strong" }) : review;
+  if (write?.modified !== false) return review;
+  const authoritative = await store.get(key, { type: "json", consistency: "strong" });
+  if (recordHash(requestedReviewIdentity(authoritative))
+    !== recordHash(requestedReviewIdentity(review))) {
+    const error = new Error("The requested-review receipt could not be verified.");
+    error.status = 409;
+    throw error;
+  }
+  return authoritative;
 }
 
 function feedbackDisposition(receipt, gate) {
@@ -7713,9 +7759,13 @@ function parseChallengeReasons(value) {
     : null;
 }
 
-function clientRun(run, pair) {
+export function clientRun(run, pair) {
   if (!run) return null;
   const auditContract = auditContractFor(run, pair);
+  const {
+    evidenceUnavailableReasons: _storedEvidenceUnavailableReasons,
+    ...runWithoutEvidenceUnavailableReasons
+  } = run;
   const evidenceUnavailableReasons = normalizedEvidenceUnavailableReasons(
     run.evidenceUnavailableReasons,
   );
@@ -7727,7 +7777,7 @@ function clientRun(run, pair) {
   const visualPending = auditContract.isCurrent && !visualJudgmentsComplete(run);
   if (!visualPending && (auditContract.isLegacy || review.choice || review.status === "unavailable")) {
     return {
-      ...run,
+      ...runWithoutEvidenceUnavailableReasons,
       ...(evidenceUnavailableReasons ? { evidenceUnavailableReasons } : {}),
       auditContract,
     };
@@ -7922,21 +7972,21 @@ function humanProxyRejectionStage(candidate) {
   return "post_ranking_omission";
 }
 async function readFirstReceipt(store, prefix, timestampField) {
-  const listing = await store.list({ prefix });
-  const receipts = (await Promise.all((listing?.blobs || []).map(async blob => {
+  const blobs = await readAllListedBlobs(store, { prefix });
+  const receipts = (await Promise.all(blobs.map(async blob => {
     if (typeof blob?.key !== "string") return null;
     const value = await store.get(blob.key, { type: "json", consistency: "strong" });
     return value ? { key: blob.key, value } : null;
-  }))).filter(Boolean);
+  }))).filter(receipt => hasValidReceiptTimestamp(receipt?.value, timestampField));
   receipts.sort((left, right) =>
-    String(left.value[timestampField] || "").localeCompare(String(right.value[timestampField] || ""))
+    left.value[timestampField].localeCompare(right.value[timestampField])
     || left.key.localeCompare(right.key));
   return receipts[0]?.value || null;
 }
 
 async function readAllReceipts(store, prefix, timestampField) {
-  const listing = await store.list({ prefix });
-  const receipts = (await Promise.all((listing?.blobs || []).map(blob =>
+  const blobs = await readAllListedBlobs(store, { prefix });
+  const receipts = (await Promise.all(blobs.map(blob =>
     store.get(blob.key, { type: "json", consistency: "strong" }))))
     .filter(Boolean);
   return receipts.sort((left, right) =>
@@ -7944,6 +7994,17 @@ async function readAllReceipts(store, prefix, timestampField) {
     || String(left?.receiptId || "").localeCompare(String(right?.receiptId || "")));
 }
 
+async function readAllListedBlobs(store, options) {
+  const listing = await store.list({ ...options, paginate: true });
+  const pages = listing?.[Symbol.asyncIterator]
+    ? listing
+    : [listing];
+  const blobs = [];
+  for await (const page of pages) {
+    blobs.push(...(page?.blobs || []).filter(blob => typeof blob?.key === "string"));
+  }
+  return blobs;
+}
 async function appendVisualJudgmentIndex(store, pair, runId, receipt) {
   const key = auditVisualJudgmentIndexKey(pair.actor.id, pair.vibeIdx, runId);
   for (let attempt = 0; attempt < 8; attempt += 1) {
@@ -7986,7 +8047,9 @@ async function readVisualJudgments(store, pair, runId) {
 
 async function readCanonicalReceipt(store, key, prefix, timestampField) {
   const canonical = await store.get(key, { type: "json", consistency: "strong" });
-  return canonical || readFirstReceipt(store, prefix, timestampField);
+  return hasValidReceiptTimestamp(canonical, timestampField)
+    ? canonical
+    : readFirstReceipt(store, prefix, timestampField);
 }
 
 async function readReceipts(store, prefix, timestampField) {
@@ -8236,6 +8299,18 @@ function visualJudgmentToken(runId, occurrenceId) {
 }
 
 const CALIBRATION_ADJUSTMENT_TYPES = new Set(["class", "query_ladder"]);
+
+function rescueCalibrationIdentity(receipt) {
+  if (!receipt) return null;
+  const { confirmedAt: _confirmedAt, ...identity } = receipt;
+  return identity;
+}
+
+function requestedReviewIdentity(receipt) {
+  if (!receipt) return null;
+  const { generatedAt: _generatedAt, ...identity } = receipt;
+  return identity;
+}
 
 function calibrationApprovalIdentity(receipt) {
   return {

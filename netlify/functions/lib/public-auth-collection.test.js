@@ -1,6 +1,11 @@
 import test from "node:test";
 import assert from "node:assert/strict";
 import { createHash, createHmac } from "node:crypto";
+import { mkdtemp, rm } from "node:fs/promises";
+import { tmpdir } from "node:os";
+import { join } from "node:path";
+import { getStore } from "@netlify/blobs";
+import { BlobsServer } from "@netlify/blobs/server";
 import { createPublicAuth, pruneExpiredRateLimits } from "./public-auth.js";
 import { readCollection, syncCollection } from "./collection-repository.js";
 import { createCollectionHandlers } from "./collection-api.js";
@@ -107,6 +112,376 @@ test("magic links are hashed, single-use, and mint a secure revocable session", 
     cookie: cookie.split(";")[0],
   }));
   assert.equal((await afterLogout.json()).user, null);
+});
+
+test("magic-link consumption and session revocation stay conditional when strong Blob reads omit ETags", async t => {
+  const directory = await mkdtemp(join(tmpdir(), "public-auth-blobs-"));
+  const server = new BlobsServer({ directory });
+  const { address } = await server.start();
+  t.after(async () => {
+    await server.stop();
+    await rm(directory, { recursive: true, force: true });
+  });
+
+  const stores = new Map();
+  const conditionalWrites = [];
+  const magicToken = "blob-contract-magic-token-at-least-thirty-two-chars";
+  const magicKey = `tokens/${createHash("sha256").update(magicToken).digest("hex")}`;
+  let releaseFirstMagicRead;
+  let firstMagicBodyRead;
+  const firstMagicBodyReadStarted = new Promise(resolve => {
+    firstMagicBodyRead = resolve;
+  });
+  const releaseFirstMagicBodyRead = new Promise(resolve => {
+    releaseFirstMagicRead = resolve;
+  });
+  let magicBodyReads = 0;
+  const getStoreForAuth = name => {
+    if (!stores.has(name)) {
+      const store = getStore({
+        edgeURL: address,
+        uncachedEdgeURL: address,
+        name,
+        siteID: "test-site",
+        token: "test-token",
+      });
+      const originalRead = store.getWithMetadata.bind(store);
+      store.getWithMetadata = async (key, options) => {
+        const entry = await originalRead(key, options);
+        if (!entry) return entry;
+        const { etag: _etag, ...withoutEtag } = entry;
+        if (name === "fandom-auth-magic-links" && key === magicKey) {
+          magicBodyReads += 1;
+          if (magicBodyReads === 1) {
+            firstMagicBodyRead();
+            await releaseFirstMagicBodyRead;
+          }
+        }
+        return withoutEtag;
+      };
+      const originalSetJSON = store.setJSON.bind(store);
+      store.setJSON = async (key, value, options) => {
+        if (options?.onlyIfMatch) conditionalWrites.push({ name, key, options });
+        return originalSetJSON(key, value, options);
+      };
+      stores.set(name, store);
+    }
+    return stores.get(name);
+  };
+  const tokens = [
+    magicToken,
+    "blob-contract-session-token-at-least-thirty-two-chars",
+    "second-blob-session-token-at-least-thirty-two-chars",
+  ];
+  const auth = createPublicAuth({
+    env: {
+      FANDOM_AUTH_ID_SECRET: "identity-secret",
+      FANDOM_PUBLIC_ORIGIN: "https://fandom.justlikekatie.com",
+    },
+    getStore: getStoreForAuth,
+    sendEmail: async () => {},
+    randomToken: () => tokens.shift(),
+    now: () => new Date("2026-09-21T12:00:00Z"),
+  });
+
+  await auth.requestMagicLink(request("/api/auth/magic-link", {
+    body: { email: "blob-contract@example.com" },
+  }));
+  const firstVerification = auth.verifyMagicLink(request("/api/auth/verify", {
+    body: { token: magicToken },
+  }));
+  await firstMagicBodyReadStarted;
+
+  const competingVerification = await auth.verifyMagicLink(request("/api/auth/verify", {
+    body: { token: magicToken },
+  }));
+  assert.equal(competingVerification.status, 200);
+  releaseFirstMagicRead();
+  const staleVerification = await firstVerification;
+  assert.equal(staleVerification.status, 401);
+
+  const sessionListing = await stores.get("fandom-auth-sessions").list({ prefix: "sessions/" });
+  assert.equal(sessionListing.blobs.length, 1, "exactly one concurrent verifier may mint a session");
+
+  const replay = await auth.verifyMagicLink(request("/api/auth/verify", {
+    body: { token: magicToken },
+  }));
+  assert.equal(replay.status, 401);
+
+  const cookie = competingVerification.headers.get("set-cookie").split(";")[0];
+  const logout = await auth.logout(request("/api/auth/logout", {
+    body: {},
+    cookie,
+  }));
+  assert.equal(logout.status, 200);
+  const afterLogout = await auth.getSession(request("/api/auth/session", {
+    method: "GET",
+    cookie,
+  }));
+  assert.equal((await afterLogout.json()).user, null);
+
+  assert.equal(
+    conditionalWrites.filter(write => write.name === "fandom-auth-magic-links").length,
+    2,
+    "both concurrent consumers must use conditional writes",
+  );
+  assert.equal(
+    conditionalWrites.filter(write => write.name === "fandom-auth-sessions").length,
+    1,
+  );
+});
+
+test("email and IP rate limits stay exact when strong Blob reads omit ETags", async t => {
+  const directory = await mkdtemp(join(tmpdir(), "public-auth-rate-limit-blobs-"));
+  const server = new BlobsServer({ directory });
+  const { address } = await server.start();
+  t.after(async () => {
+    await server.stop();
+    await rm(directory, { recursive: true, force: true });
+  });
+
+  const stores = new Map();
+  const conditionalWrites = [];
+  const blockedReads = new Map();
+  const getStoreForAuth = name => {
+    if (!stores.has(name)) {
+      const store = getStore({
+        edgeURL: address,
+        uncachedEdgeURL: address,
+        name,
+        siteID: "test-site",
+        token: "test-token",
+      });
+      if (name === "fandom-auth-rate-limits") {
+        const originalRead = store.getWithMetadata.bind(store);
+        store.getWithMetadata = async (key, options) => {
+          const entry = await originalRead(key, options);
+          if (!entry) return entry;
+          const { etag: _etag, ...withoutEtag } = entry;
+          const blocked = blockedReads.get(key);
+          if (blocked && !blocked.started) {
+            blocked.started = true;
+            blocked.notifyStarted();
+            await blocked.release;
+          }
+          return withoutEtag;
+        };
+        const originalSetJSON = store.setJSON.bind(store);
+        store.setJSON = async (key, value, options) => {
+          if (options?.onlyIfMatch) conditionalWrites.push({ key, options });
+          return originalSetJSON(key, value, options);
+        };
+      }
+      stores.set(name, store);
+    }
+    return stores.get(name);
+  };
+  const blockNextRead = key => {
+    let notifyStarted;
+    let releaseRead;
+    const started = new Promise(resolve => {
+      notifyStarted = resolve;
+    });
+    const release = new Promise(resolve => {
+      releaseRead = resolve;
+    });
+    blockedReads.set(key, { started: false, notifyStarted, release });
+    return { started, release: releaseRead };
+  };
+  const delivered = [];
+  let tokenIndex = 0;
+  const now = new Date("2026-09-21T12:00:00Z");
+  const secret = "identity-secret";
+  const auth = createPublicAuth({
+    env: {
+      FANDOM_AUTH_ID_SECRET: secret,
+      FANDOM_PUBLIC_ORIGIN: "https://fandom.justlikekatie.com",
+    },
+    getStore: getStoreForAuth,
+    sendEmail: async message => delivered.push(message),
+    randomToken: () => `blob-rate-limit-token-${String(tokenIndex++).padStart(4, "0")}-xxxxxxxx`,
+    now: () => now,
+  });
+
+  const window = Math.floor(now.getTime() / (15 * 60 * 1000));
+  const limits = getStoreForAuth("fandom-auth-rate-limits");
+  const email = "concurrent-limit@example.com";
+  const emailKey = `email/${createHmac("sha256", secret).update(email).digest("base64url")}/${window}`;
+  await limits.setJSON(emailKey, {
+    count: 4,
+    updatedAt: now.toISOString(),
+    expiresAt: new Date((window + 1) * 15 * 60 * 1000).toISOString(),
+  });
+  const emailBarrier = blockNextRead(emailKey);
+  const staleEmailIncrement = auth.requestMagicLink(request("/api/auth/magic-link", {
+    body: { email },
+  }));
+  await emailBarrier.started;
+  const competingEmailIncrement = await auth.requestMagicLink(request("/api/auth/magic-link", {
+    body: { email },
+  }));
+  emailBarrier.release();
+  assert.equal((await staleEmailIncrement).status, 202);
+  assert.equal(competingEmailIncrement.status, 202);
+  assert.equal(
+    delivered.filter(message => message.email === email).length,
+    1,
+    "concurrent increments from four to six must deliver only the fifth request",
+  );
+
+  const ip = "203.0.113.42";
+  const ipKey = `ip/${createHmac("sha256", secret).update(ip).digest("base64url")}/${window}`;
+  await limits.setJSON(ipKey, {
+    count: 19,
+    updatedAt: now.toISOString(),
+    expiresAt: new Date((window + 1) * 15 * 60 * 1000).toISOString(),
+  });
+  const ipBarrier = blockNextRead(ipKey);
+  const staleIpIncrement = auth.requestMagicLink(request("/api/auth/magic-link", {
+    body: { email: "concurrent-ip-stale@example.com" },
+    headers: { "x-nf-client-connection-ip": ip },
+  }));
+  await ipBarrier.started;
+  const competingIpIncrement = await auth.requestMagicLink(request("/api/auth/magic-link", {
+    body: { email: "concurrent-ip-competing@example.com" },
+    headers: { "x-nf-client-connection-ip": ip },
+  }));
+  ipBarrier.release();
+  assert.equal((await staleIpIncrement).status, 202);
+  assert.equal(competingIpIncrement.status, 202);
+  assert.equal(
+    delivered.filter(message => message.email.startsWith("concurrent-ip-")).length,
+    1,
+    "concurrent increments from nineteen to twenty-one must deliver only the twentieth request",
+  );
+
+  assert.equal((await limits.get(emailKey, { type: "json", consistency: "strong" })).count, 6);
+  assert.equal((await limits.get(ipKey, { type: "json", consistency: "strong" })).count, 21);
+  assert.ok(
+    conditionalWrites.some(write => write.key === emailKey),
+    "existing email counters must be incremented with onlyIfMatch",
+  );
+  assert.ok(
+    conditionalWrites.some(write => write.key === ipKey),
+    "existing IP counters must be incremented with onlyIfMatch",
+  );
+});
+
+test("email and IP bursts retry consecutive Blob conflicts through their exact limits", async t => {
+  const directory = await mkdtemp(join(tmpdir(), "public-auth-burst-blobs-"));
+  const server = new BlobsServer({ directory });
+  const { address } = await server.start();
+  t.after(async () => {
+    await server.stop();
+    await rm(directory, { recursive: true, force: true });
+  });
+
+  const stores = new Map();
+  const blockedReads = new Map();
+  const conflicts = new Map();
+  const getStoreForAuth = name => {
+    if (!stores.has(name)) {
+      const store = getStore({
+        edgeURL: address,
+        uncachedEdgeURL: address,
+        name,
+        siteID: "test-site",
+        token: "test-token",
+      });
+      if (name === "fandom-auth-rate-limits") {
+        const originalRead = store.getWithMetadata.bind(store);
+        store.getWithMetadata = async (key, options) => {
+          const entry = await originalRead(key, options);
+          const barrier = blockedReads.get(key);
+          if (barrier) {
+            blockedReads.delete(key);
+            barrier.started();
+            await barrier.release;
+          }
+          // The Blob test server omits this from strong body reads. The auth
+          // path must recover the revision from metadata for each CAS retry.
+          if (!entry) return entry;
+          const { etag: _etag, ...withoutEtag } = entry;
+          return withoutEtag;
+        };
+        const originalSetJSON = store.setJSON.bind(store);
+        store.setJSON = async (key, value, options) => {
+          const result = await originalSetJSON(key, value, options);
+          if (options?.onlyIfMatch && result?.modified === false) {
+            conflicts.set(key, (conflicts.get(key) || 0) + 1);
+          }
+          return result;
+        };
+      }
+      stores.set(name, store);
+    }
+    return stores.get(name);
+  };
+  const blockNextRead = key => {
+    let started;
+    let release;
+    const waiting = new Promise(resolve => { started = resolve; });
+    const held = new Promise(resolve => { release = resolve; });
+    blockedReads.set(key, { started, release: held });
+    return { waiting, release };
+  };
+
+  const now = new Date("2026-09-21T12:00:00Z");
+  const secret = "identity-secret";
+  const window = Math.floor(now.getTime() / (15 * 60 * 1000));
+  const delivered = [];
+  let tokenIndex = 0;
+  const auth = createPublicAuth({
+    env: {
+      FANDOM_AUTH_ID_SECRET: secret,
+      FANDOM_PUBLIC_ORIGIN: "https://fandom.justlikekatie.com",
+    },
+    getStore: getStoreForAuth,
+    sendEmail: async message => delivered.push(message),
+    randomToken: () => `burst-token-${String(tokenIndex++).padStart(4, "0")}-xxxxxxxxxxxxxxxxxxxxxxxx`,
+    now: () => now,
+  });
+  const limits = getStoreForAuth("fandom-auth-rate-limits");
+  const send = (email, ip) => auth.requestMagicLink(request("/api/auth/magic-link", {
+    body: { email },
+    ...(ip ? { headers: { "x-nf-client-connection-ip": ip } } : {}),
+  }));
+  const raceThreeIncrements = async (key, staleEmail, competitorEmail, ip) => {
+    let barrier = blockNextRead(key);
+    const stale = send(staleEmail, ip);
+    for (let index = 0; index < 3; index += 1) {
+      await barrier.waiting;
+      const competitor = await send(competitorEmail(index), ip);
+      assert.equal(competitor.status, 202);
+      const next = index < 2 ? blockNextRead(key) : null;
+      barrier.release();
+      if (next) barrier = next;
+    }
+    assert.equal((await stale).status, 202);
+    assert.equal(conflicts.get(key), 3, "the stale writer must lose three consecutive CAS attempts");
+  };
+
+  const email = "burst-email@example.com";
+  const emailKey = `email/${createHmac("sha256", secret).update(email).digest("base64url")}/${window}`;
+  assert.equal((await send(email)).status, 202);
+  await raceThreeIncrements(emailKey, email, () => email);
+  assert.equal(delivered.filter(message => message.email === email).length, 5);
+  assert.equal((await limits.get(emailKey, { type: "json", consistency: "strong" })).count, 5);
+  assert.equal((await send(email)).status, 202);
+  assert.equal(delivered.filter(message => message.email === email).length, 5, "sixth email is silently suppressed");
+  assert.equal((await limits.get(emailKey, { type: "json", consistency: "strong" })).count, 6);
+
+  const ip = "203.0.113.84";
+  const ipKey = `ip/${createHmac("sha256", secret).update(ip).digest("base64url")}/${window}`;
+  for (let index = 0; index < 16; index += 1) {
+    assert.equal((await send(`burst-ip-${index}@example.com`, ip)).status, 202);
+  }
+  await raceThreeIncrements(ipKey, "burst-ip-stale@example.com", index => `burst-ip-competing-${index}@example.com`, ip);
+  assert.equal(delivered.filter(message => message.email.startsWith("burst-ip-")).length, 20);
+  assert.equal((await limits.get(ipKey, { type: "json", consistency: "strong" })).count, 20);
+  assert.equal((await send("burst-ip-over@example.com", ip)).status, 202);
+  assert.equal(delivered.filter(message => message.email.startsWith("burst-ip-")).length, 20, "twenty-first IP request is silently suppressed");
+  assert.equal((await limits.get(ipKey, { type: "json", consistency: "strong" })).count, 21);
 });
 
 test("admin magic-link end-to-end: request with next=plan → link URL carries next=plan → verify → session → plan destination", async () => {
@@ -504,6 +879,342 @@ test("collection sync enforces complete editorial compositions while preserving 
     })),
     /Collection grid is invalid/,
   );
+});
+
+test("collection sync accepts defined grid source provenance shapes and explicit removal", async () => {
+  const store = memoryStore();
+  const base = {
+    kind: "grid",
+    id: "source-grid",
+    schemaVersion: 1,
+    rendererVersion: "vibe-atlas-v1",
+    images: [{ resultId: "result-1", imageUrl: "https://images.example/one.jpg" }],
+  };
+  const operation = (sourceProvenance, suffix) => ({
+    schemaVersion: 1,
+    clientId: "device-a",
+    cursor: 0,
+    operations: [{
+      type: "upsert",
+      mutationId: `mutation-source-${suffix}`,
+      localId: "source-grid",
+      item: { ...base, sourceProvenance },
+    }],
+  });
+
+  for (const [suffix, provenance] of [
+    ["collection", { kind: "collection" }],
+    ["daily", { kind: "daily" }],
+    ["edition", { kind: "edition", editionDate: "2026-09-19" }],
+    ["removed", null],
+  ]) {
+    const response = await syncCollection(store, "usr_test", operation(provenance, suffix));
+    assert.deepEqual(response.items[0].sourceProvenance, provenance);
+  }
+});
+
+test("collection sync rejects malformed grid source provenance kinds and dates", async () => {
+  const store = memoryStore();
+  const base = {
+    kind: "grid",
+    id: "source-grid",
+    schemaVersion: 1,
+    rendererVersion: "vibe-atlas-v1",
+    images: [{ resultId: "result-1", imageUrl: "https://images.example/one.jpg" }],
+  };
+  const operation = (sourceProvenance, index) => ({
+    schemaVersion: 1,
+    clientId: "device-a",
+    cursor: 0,
+    operations: [{
+      type: "upsert",
+      mutationId: `mutation-invalid-source-${index}`,
+      localId: "source-grid",
+      item: { ...base, sourceProvenance },
+    }],
+  });
+  const malformed = [
+    { kind: "weekly" },
+    { kind: "edition" },
+    { kind: "edition", editionDate: "not-a-date" },
+    { kind: "edition", editionDate: "2026-02-30" },
+    { kind: "daily", editionDate: "2026-09-19" },
+  ];
+
+  for (const [index, provenance] of malformed.entries()) {
+    await assert.rejects(
+      () => syncCollection(store, "usr_test", operation(provenance, index)),
+      /Collection grid source provenance is invalid/,
+    );
+  }
+});
+
+test("collection delta preserves explicit source provenance removal separately from legacy absence", async t => {
+  const directory = await mkdtemp(join(tmpdir(), "collection-provenance-blobs-"));
+  const server = new BlobsServer({ directory });
+  const { address } = await server.start();
+  t.after(async () => {
+    await server.stop();
+    await rm(directory, { recursive: true, force: true });
+  });
+  const store = getStore({
+    edgeURL: address,
+    uncachedEdgeURL: address,
+    name: "fandom-public-collections",
+    siteID: "test-site",
+    token: "test-token",
+  });
+  const grid = id => ({
+    kind: "grid",
+    id,
+    schemaVersion: 1,
+    rendererVersion: "vibe-atlas-v1",
+    images: [{
+      resultId: `${id}-result`,
+      imageUrl: `https://images.example/${id}.jpg`,
+    }],
+  });
+  const operation = (item, mutationId) => ({
+    type: "upsert",
+    mutationId,
+    localId: item.id,
+    item,
+  });
+
+  const legacy = await syncCollection(store, "usr_test", {
+    schemaVersion: 1,
+    clientId: "device-a",
+    cursor: 0,
+    operations: [operation(grid("legacy-grid"), "mutation-legacy-grid")],
+  });
+  assert.equal(
+    Object.prototype.hasOwnProperty.call(legacy.items[0], "sourceProvenance"),
+    false,
+  );
+
+  await syncCollection(store, "usr_test", {
+    schemaVersion: 1,
+    clientId: "device-a",
+    cursor: legacy.cursor,
+    operations: [operation({
+      ...grid("retired-daily-drop-grid"),
+      sourceProvenance: null,
+    }, "mutation-retired-daily-drop-grid")],
+  });
+
+  const laterDelta = await readCollection(store, "usr_test", legacy.cursor);
+  assert.equal(laterDelta.items.length, 1);
+  assert.equal(laterDelta.items[0].artifactId, "retired-daily-drop-grid");
+  assert.equal(laterDelta.items[0].sourceProvenance, null);
+  assert.equal(
+    Object.prototype.hasOwnProperty.call(laterDelta.items[0], "sourceProvenance"),
+    true,
+  );
+
+  const fullCollection = await readCollection(store, "usr_test");
+  const legacyGrid = fullCollection.items.find(item => item.artifactId === "legacy-grid");
+  const retiredGrid = fullCollection.items.find(
+    item => item.artifactId === "retired-daily-drop-grid",
+  );
+  assert.equal(Object.prototype.hasOwnProperty.call(legacyGrid, "sourceProvenance"), false);
+  assert.equal(Object.prototype.hasOwnProperty.call(retiredGrid, "sourceProvenance"), true);
+  assert.equal(retiredGrid.sourceProvenance, null);
+});
+
+test("authenticated collection API preserves retired Daily Drop labels separately from legacy absence", async t => {
+  const directory = await mkdtemp(join(tmpdir(), "collection-api-provenance-blobs-"));
+  const server = new BlobsServer({ directory });
+  const { address } = await server.start();
+  t.after(async () => {
+    await server.stop();
+    await rm(directory, { recursive: true, force: true });
+  });
+
+  const accountId = "usr_abcdefghijklmnopqrstuvwxyzABCDEF";
+  const token = "collection-api-session-token-at-least-thirty-two-chars";
+  const authStores = new Map();
+  const getStoreForAuth = name => {
+    if (!authStores.has(name)) authStores.set(name, memoryStore());
+    return authStores.get(name);
+  };
+  await getStoreForAuth("fandom-auth-sessions").setJSON(
+    `sessions/${createHash("sha256").update(token).digest("hex")}`,
+    { accountId, expiresAt: "2026-09-25T00:00:00Z", revokedAt: null },
+  );
+  await getStoreForAuth("fandom-auth-users").setJSON(`users/${accountId}`, {
+    accountId,
+    email: "member@example.com",
+  });
+  const now = new Date("2026-09-24T12:00:00Z");
+  const auth = createPublicAuth({
+    env: {
+      FANDOM_AUTH_ID_SECRET: "identity-secret",
+      FANDOM_PUBLIC_ORIGIN: "https://fandom.justlikekatie.com",
+      FANDOM_ADMIN_EMAILS: "",
+    },
+    getStore: getStoreForAuth,
+    now: () => now,
+  });
+  const env = {
+    CREATE_FANDOM_COLLECTION_READ_KEY_ID: "read-key",
+    CREATE_FANDOM_COLLECTION_READ_SECRET: "read-secret",
+  };
+  const collectionStore = getStore({
+    edgeURL: address,
+    uncachedEdgeURL: address,
+    name: "fandom-user-collections",
+    siteID: "test-site",
+    token: "test-token",
+  });
+  const handlers = createCollectionHandlers({
+    auth,
+    env,
+    getStore: () => collectionStore,
+    now: () => now,
+  });
+  const grid = id => ({
+    kind: "grid",
+    id,
+    schemaVersion: 1,
+    rendererVersion: "vibe-atlas-v1",
+    images: [{ resultId: `${id}-result`, imageUrl: `https://images.example/${id}.jpg` }],
+  });
+  const cookie = `__Host-fandom_session=${token}`;
+  const synced = await handlers.sync(request("/api/collection/sync", {
+    cookie,
+    body: {
+      schemaVersion: 1,
+      clientId: "device-a",
+      expectedAccountId: accountId,
+      cursor: 0,
+      operations: [
+        {
+          type: "upsert",
+          mutationId: "legacy-grid",
+          localId: "legacy-grid",
+          item: grid("legacy-grid"),
+        },
+        {
+          type: "upsert",
+          mutationId: "retired-grid",
+          localId: "retired-grid",
+          item: { ...grid("retired-grid"), sourceProvenance: null },
+        },
+      ],
+    },
+  }));
+  assert.equal(synced.status, 200);
+  const syncedItems = (await synced.json()).items;
+  assert.equal(syncedItems.find(item => item.artifactId === "retired-grid").sourceProvenance, null);
+
+  const later = await handlers.sync(request("/api/collection/sync", {
+    cookie,
+    body: {
+      schemaVersion: 1,
+      clientId: "device-b",
+      expectedAccountId: accountId,
+      cursor: 0,
+      operations: [],
+    },
+  }));
+  assert.equal(later.status, 200);
+  const items = (await later.json()).items;
+  assert.equal(items.length, 2);
+  const legacy = items.find(item => item.artifactId === "legacy-grid");
+  const retired = items.find(item => item.artifactId === "retired-grid");
+  assert.ok(legacy);
+  assert.ok(retired);
+  assert.equal(Object.hasOwn(legacy, "sourceProvenance"), false);
+  assert.equal(Object.hasOwn(retired, "sourceProvenance"), true);
+  assert.equal(retired.sourceProvenance, null);
+
+  const path = `/api/create/collection?accountId=${accountId}&cursor=0`;
+  const timestamp = String(Math.floor(now.getTime() / 1000));
+  const digest = createHash("sha256").update("").digest("hex");
+  const signature = createHmac("sha256", env.CREATE_FANDOM_COLLECTION_READ_SECRET)
+    .update(`${timestamp}\nGET\n${path}\n${digest}`)
+    .digest("hex");
+  const read = await handlers.createRead(request(path, {
+    method: "GET",
+    headers: {
+      "X-Fandom-Key-Id": env.CREATE_FANDOM_COLLECTION_READ_KEY_ID,
+      "X-Fandom-Timestamp": timestamp,
+      "X-Fandom-Signature": `v1=${signature}`,
+    },
+  }));
+  assert.equal(read.status, 200);
+  const readItems = (await read.json()).items;
+  assert.equal(Object.hasOwn(readItems.find(item => item.artifactId === "legacy-grid"), "sourceProvenance"), false);
+  assert.equal(readItems.find(item => item.artifactId === "retired-grid").sourceProvenance, null);
+});
+
+test("overlapping device saves cannot restore a retired Daily Drop label after a conditional-write retry", async () => {
+  const base = memoryStore();
+  const grid = {
+    kind: "grid",
+    id: "shared-daily-grid",
+    schemaVersion: 1,
+    rendererVersion: "vibe-atlas-v1",
+    images: [{ resultId: "daily-result", imageUrl: "https://images.example/daily.jpg" }],
+    sourceProvenance: { kind: "daily" },
+    title: "Original",
+  };
+  const input = (clientId, mutationId, cursor, item) => ({
+    schemaVersion: 1,
+    clientId,
+    cursor,
+    operations: [{ type: "upsert", mutationId, localId: grid.id, item }],
+  });
+  const initial = await syncCollection(base, "usr_test", input("device-a", "seed", 0, grid));
+  const cursor = initial.cursor;
+  let racing = false;
+  let initialReads = 0;
+  let failedWrites = 0;
+  let releaseReads;
+  const bothRead = new Promise(resolve => { releaseReads = resolve; });
+  let releaseStaleWrite;
+  const retiredWritten = new Promise(resolve => { releaseStaleWrite = resolve; });
+  const store = {
+    get: (...args) => base.get(...args),
+    async getWithMetadata(...args) {
+      const snapshot = await base.getWithMetadata(...args);
+      if (racing && ++initialReads <= 2) {
+        if (initialReads === 2) releaseReads();
+        await bothRead;
+      }
+      return snapshot;
+    },
+    async setJSON(key, value, options) {
+      if (racing && Object.values(value.items).some(item => item.title === "Other device edit")) {
+        await retiredWritten;
+      }
+      const result = await base.setJSON(key, value, options);
+      if (result.modified === false) failedWrites += 1;
+      if (racing && Object.values(value.items).some(item => item.sourceProvenance === null)
+        && result.modified) releaseStaleWrite();
+      return result;
+    },
+  };
+
+  racing = true;
+  const retirement = syncCollection(store, "usr_test", input(
+    "device-a", "retire-label", cursor, { ...grid, sourceProvenance: null },
+  ));
+  const staleEdit = syncCollection(store, "usr_test", input(
+    "device-b", "edit-title", cursor, { ...grid, title: "Other device edit" },
+  ));
+  const [retired, edited] = await Promise.all([retirement, staleEdit]);
+
+  assert.equal(initialReads >= 3, true, "the losing writer must re-read after a conflict");
+  assert.equal(failedWrites, 1, "the stale write must lose its first conditional write");
+  assert.equal(retired.acknowledgedMutationIds[0], "retire-label");
+  assert.equal(edited.acknowledgedMutationIds[0], "edit-title");
+  assert.equal(edited.items[0].title, "Other device edit");
+  assert.equal(edited.items[0].sourceProvenance, null);
+  const delta = await readCollection(store, "usr_test", cursor);
+  assert.equal(delta.items.length, 1);
+  assert.equal(delta.items[0].title, "Other device edit");
+  assert.equal(delta.items[0].sourceProvenance, null);
 });
 
 test("collection sync preserves attributed Middle-earth meme metadata", async () => {
@@ -1387,6 +2098,191 @@ test("collection sync rejects a stale tab when its expected account differs from
   assert.equal(store.records.size, 0);
 });
 
+test("a free signed-in account syncs only its own saved cards and grids without paid capability", async () => {
+  const stores = new Map();
+  const auth = {
+    authenticate: async req => ({
+      user: { accountId: req.headers.get("x-test-account") === "other" ? "usr_other" : "usr_free" },
+    }),
+    authenticateAdmin: async () => { throw Object.assign(new Error("Operator required."), { status: 403 }); },
+  };
+  const handlers = createCollectionHandlers({
+    auth,
+    getStore: () => {
+      if (!stores.has("collection")) stores.set("collection", memoryStore());
+      return stores.get("collection");
+    },
+  });
+  const payload = {
+    schemaVersion: 1, clientId: "free-device", expectedAccountId: "usr_free",
+    cursor: 0, operations: [
+      {
+        type: "upsert", mutationId: "free-card", localId: "card-local",
+        item: {
+          kind: "card", imageUrl: "https://images.example/card.jpg",
+          thumbnailUrl: "https://images.example/card-thumb.jpg", collectionScope: "vibe-atlas",
+        },
+      },
+      {
+        type: "upsert", mutationId: "free-grid", localId: "grid-local",
+        item: {
+          kind: "grid", id: "saved-grid", schemaVersion: 1, rendererVersion: "vibe-atlas-v1",
+          images: [{ resultId: "card", imageUrl: "https://images.example/card.jpg" }],
+        },
+      },
+    ],
+  };
+  const saved = await handlers.sync(request("/api/collection/sync", { body: payload }));
+  assert.equal(saved.status, 200);
+  const result = await saved.json();
+  assert.deepEqual(new Set(result.items.map(item => item.kind)), new Set(["card", "grid"]));
+  const other = await handlers.sync(request("/api/collection/sync", {
+    headers: { "x-test-account": "other" }, body: { ...payload, expectedAccountId: "usr_other", operations: [] },
+  }));
+  assert.equal(other.status, 200);
+  assert.equal((await other.json()).items.length, 0);
+  const stolen = await handlers.sync(request("/api/collection/sync", {
+    headers: { "x-test-account": "other" }, body: { ...payload, operations: [] },
+  }));
+  assert.equal(stolen.status, 409);
+  const deleted = await handlers.sync(request("/api/collection/sync", {
+    body: {
+      ...payload, cursor: result.cursor,
+      operations: [{ type: "delete", mutationId: "remove-card", localId: "card-local" }],
+    },
+  }));
+  assert.equal(deleted.status, 200);
+  assert.equal((await deleted.json()).tombstones.length, 1);
+});
+
+test("collection sync requires an approved operator for Middle-earth mutations", async () => {
+  const store = memoryStore();
+  let adminChecks = 0;
+  let approvedOperator = false;
+  const handlers = createCollectionHandlers({
+    auth: {
+      authenticate: async () => ({ user: { accountId: "usr_member" } }),
+      authenticateAdmin: async () => {
+        adminChecks += 1;
+        if (!approvedOperator) {
+          throw Object.assign(new Error("Admin access required."), { status: 403 });
+        }
+        return { user: { accountId: "usr_member", isAdmin: true } };
+      },
+    },
+    getStore: () => store,
+  });
+  const middleEarth = await handlers.sync(request("/api/collection/sync", {
+    body: {
+      schemaVersion: 1,
+      clientId: "member-device",
+      expectedAccountId: "usr_member",
+      cursor: 0,
+      operations: [{
+        type: "upsert",
+        mutationId: "middle-earth-upsert",
+        localId: "middle-earth-local",
+        item: {
+          kind: "card",
+          imageUrl: "https://images.example/meme.jpg",
+          thumbnailUrl: "https://images.example/meme-thumb.jpg",
+          contentKind: "middle-earth-meme",
+          collectionScope: "middle-earth",
+        },
+      }],
+    },
+  }));
+  assert.equal(middleEarth.status, 403);
+  assert.equal(adminChecks, 1);
+  assert.equal(store.records.size, 0);
+
+  const vibeAtlas = await handlers.sync(request("/api/collection/sync", {
+    body: {
+      schemaVersion: 1,
+      clientId: "member-device",
+      expectedAccountId: "usr_member",
+      cursor: 0,
+      operations: [{
+        type: "upsert",
+        mutationId: "vibe-atlas-upsert",
+        localId: "vibe-atlas-local",
+        item: {
+          kind: "card",
+          imageUrl: "https://images.example/card.jpg",
+          thumbnailUrl: "https://images.example/card-thumb.jpg",
+          collectionScope: "vibe-atlas",
+        },
+      }],
+    },
+  }));
+  assert.equal(vibeAtlas.status, 200);
+  assert.equal(adminChecks, 1);
+
+  approvedOperator = true;
+  const approvedMiddleEarth = await handlers.sync(request("/api/collection/sync", {
+    body: {
+      schemaVersion: 1,
+      clientId: "operator-device",
+      expectedAccountId: "usr_member",
+      cursor: 0,
+      operations: [{
+        type: "upsert",
+        mutationId: "approved-middle-earth-upsert",
+        localId: "approved-middle-earth-local",
+        item: {
+          kind: "card",
+          imageUrl: "https://images.example/approved-meme.jpg",
+          thumbnailUrl: "https://images.example/approved-meme-thumb.jpg",
+          contentKind: "middle-earth-meme",
+          collectionScope: "middle-earth",
+        },
+      }],
+    },
+  }));
+  assert.equal(approvedMiddleEarth.status, 200);
+  const approvedBody = await approvedMiddleEarth.json();
+  const middleEarthServerId = approvedBody.mappings["approved-middle-earth-local"];
+  assert.ok(middleEarthServerId);
+
+  approvedOperator = false;
+  const forbiddenReplacement = await handlers.sync(request("/api/collection/sync", {
+    body: {
+      schemaVersion: 1,
+      clientId: "member-device",
+      expectedAccountId: "usr_member",
+      cursor: approvedBody.cursor,
+      operations: [{
+        type: "upsert",
+        mutationId: "forbidden-middle-earth-reclassification",
+        localId: "approved-middle-earth-local",
+        item: {
+          kind: "card",
+          imageUrl: "https://images.example/disguised-card.jpg",
+          thumbnailUrl: "https://images.example/disguised-card-thumb.jpg",
+          collectionScope: "vibe-atlas",
+        },
+      }],
+    },
+  }));
+  assert.equal(forbiddenReplacement.status, 403);
+
+  const forbiddenDelete = await handlers.sync(request("/api/collection/sync", {
+    body: {
+      schemaVersion: 1,
+      clientId: "member-device",
+      expectedAccountId: "usr_member",
+      cursor: approvedBody.cursor,
+      operations: [{
+        type: "delete",
+        mutationId: "forbidden-middle-earth-delete",
+        localId: "approved-middle-earth-local",
+        serverId: middleEarthServerId,
+      }],
+    },
+  }));
+  assert.equal(forbiddenDelete.status, 403);
+});
+
 test("an authenticated free account syncs saved cards across devices without granting another account access", async () => {
   const store = memoryStore();
   const handlers = createCollectionHandlers({
@@ -1602,10 +2498,11 @@ test("rate-limit counter returns MAX_SAFE_INTEGER when all CAS retries fail, blo
   // A limits store whose setJSON always reports a CAS conflict (modified: false).
   // incrementLimit exhausts all 4 attempts and returns Number.MAX_SAFE_INTEGER,
   // which isRateLimited treats as over-limit. No email must be delivered.
+  let writes = 0;
   const alwaysConflictStore = {
     async get() { return null; },
     async getWithMetadata() { return null; },
-    async setJSON() { return { modified: false }; },
+    async setJSON() { writes += 1; return { modified: false }; },
   };
 
   const delivered = [];
@@ -1641,6 +2538,15 @@ test("rate-limit counter returns MAX_SAFE_INTEGER when all CAS retries fail, blo
     0,
     "no email must be sent when all CAS retries fail — MAX_SAFE_INTEGER count enforces the limit",
   );
+  assert.equal(writes, 4, "email counter must stop after four failed writes");
+
+  const ipRes = await auth.requestMagicLink(request("/api/auth/magic-link", {
+    body: { email: "another@example.com" },
+    headers: { "x-nf-client-connection-ip": "203.0.113.90" },
+  }));
+  assert.equal(ipRes.status, 202);
+  assert.equal(writes, 12, "both email and IP counters must stop after four failed writes each");
+  assert.equal(delivered.length, 0, "exhausted IP retries must also fail closed");
 });
 
 test("rate-limit window resets: a rate-limited email can request a new magic link in the next window", async () => {
@@ -2238,4 +3144,107 @@ test("pruneExpiredRateLimits physically deletes expired entries and leaves non-e
   assert.equal(store.records.has("email/hash-a/100"), false, "first expired entry must be gone");
   assert.equal(store.records.has("ip/hash-b/100"),    false, "second expired entry must be gone");
   assert.equal(store.records.has("email/hash-c/101"), true,  "non-expired entry must remain");
+});
+
+test("pruneExpiredRateLimits visits later listing pages for expired email and IP counters", async () => {
+  const store = memoryStore();
+  const now = new Date("2026-08-10T02:00:00Z");
+  const past = new Date(now.getTime() - 1).toISOString();
+  const future = new Date(now.getTime() + 60_000).toISOString();
+  const expired = {
+    "email/expired-first/100": { count: 3, expiresAt: past },
+    "email/expired-later/100": { count: 6, expiresAt: now.toISOString() },
+    "ip/expired-later/100": { count: 7, expiresAt: past },
+  };
+  const active = {
+    "email/active/101": { count: 2, expiresAt: future },
+    "ip/active/101": { count: 5, expiresAt: future },
+  };
+  for (const [key, value] of Object.entries({ ...expired, ...active })) {
+    await store.setJSON(key, value);
+  }
+
+  const pages = [
+    ["email/expired-first/100", "ip/active/101"],
+    ["email/expired-later/100", "email/active/101"],
+    ["ip/expired-later/100"],
+  ];
+  let visitedPages = 0;
+  store.list = options => {
+    assert.deepEqual(options, { paginate: true });
+    return (async function* () {
+      for (const keys of pages) {
+        visitedPages += 1;
+        yield { blobs: keys.map(key => ({ key })) };
+      }
+    })();
+  };
+
+  assert.equal(await pruneExpiredRateLimits(store, now), Object.keys(expired).length);
+  assert.equal(visitedPages, pages.length, "the pruning sweep must consume every listing page");
+  for (const key of Object.keys(expired)) {
+    assert.equal(await store.get(key), null, `${key} must be deleted`);
+  }
+  for (const [key, value] of Object.entries(active)) {
+    assert.deepEqual(await store.get(key), value, `${key} must remain unchanged`);
+  }
+});
+
+test("pruneExpiredRateLimits removes only expired email and IP counters from Netlify Blobs", async t => {
+  const directory = await mkdtemp(join(tmpdir(), "public-auth-prune-blobs-"));
+  const server = new BlobsServer({ directory });
+  const { address } = await server.start();
+  t.after(async () => {
+    await server.stop();
+    await rm(directory, { recursive: true, force: true });
+  });
+  const store = getStore({
+    edgeURL: address,
+    uncachedEdgeURL: address,
+    name: "fandom-auth-rate-limits",
+    siteID: "test-site",
+    token: "test-token",
+  });
+  const now = new Date("2026-08-10T02:00:00Z");
+  const expired = {
+    "email/expired/100": { count: 3, expiresAt: now.toISOString() },
+    "ip/expired/100": { count: 7, expiresAt: new Date(now.getTime() - 1).toISOString() },
+  };
+  const active = {
+    "email/active/101": { count: 2, expiresAt: new Date(now.getTime() + 60_000).toISOString() },
+    "ip/active/101": { count: 5, expiresAt: new Date(now.getTime() + 60_000).toISOString() },
+  };
+  for (const [key, value] of Object.entries({ ...expired, ...active })) {
+    await store.setJSON(key, value);
+  }
+
+  const originalList = store.list.bind(store);
+  const originalGet = store.get.bind(store);
+  const listOptions = [];
+  const readOptions = [];
+  store.list = options => {
+    listOptions.push(options);
+    return originalList(options);
+  };
+  store.get = (key, options) => {
+    readOptions.push({ key, options });
+    return originalGet(key, options);
+  };
+  assert.equal(await pruneExpiredRateLimits(store, now), 2);
+  assert.deepEqual(listOptions, [{ paginate: true }]);
+  assert.deepEqual(
+    readOptions.map(({ key }) => key).sort(),
+    Object.keys({ ...expired, ...active }).sort(),
+  );
+  assert.ok(readOptions.every(({ options }) =>
+    options.type === "json" && options.consistency === "strong"));
+
+  const remaining = await originalList();
+  assert.deepEqual(remaining.blobs.map(({ key }) => key).sort(), Object.keys(active).sort());
+  for (const key of Object.keys(expired)) {
+    assert.equal(await originalGet(key, { type: "json", consistency: "strong" }), null, `${key} must be deleted`);
+  }
+  for (const [key, value] of Object.entries(active)) {
+    assert.deepEqual(await originalGet(key, { type: "json", consistency: "strong" }), value);
+  }
 });

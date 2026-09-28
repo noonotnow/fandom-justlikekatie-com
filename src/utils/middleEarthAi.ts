@@ -188,6 +188,16 @@ export async function generateRednoteCopy(input: RednoteInput): Promise<Generate
   return requestGeneration<GeneratedRednoteCopy>({ mode: 'rednote', ...input });
 }
 
+export class MiddleEarthAiError extends Error {
+  readonly status: number;
+
+  constructor(message: string, status: number) {
+    super(message);
+    this.name = 'MiddleEarthAiError';
+    this.status = status;
+  }
+}
+
 async function requestGeneration<T>(input: Record<string, unknown>): Promise<T> {
   const response = await fetch(MIDDLE_EARTH_AI_URL, {
     method: 'POST',
@@ -197,7 +207,10 @@ async function requestGeneration<T>(input: Record<string, unknown>): Promise<T> 
   });
   const body = await readJson(response);
   if (!response.ok) {
-    throw new Error(stringField(body, 'error') || `MemeForge AI returned HTTP ${response.status}.`);
+    throw new MiddleEarthAiError(
+      stringField(body, 'error') || `MemeForge AI returned HTTP ${response.status}.`,
+      response.status,
+    );
   }
   const result = body && typeof body === 'object' ? Reflect.get(body, 'result') : null;
   if (!result || typeof result !== 'object') {

@@ -50,7 +50,8 @@ test('a completed actor audit reloads its authoritative saved review', () => {
   const detailRequest = startAudit.indexOf('api(undefined,{actorId,vibeKey})');
   assert.ok(runRequest >= 0, 'the audit must first be started');
   assert.ok(detailRequest > runRequest, 'the saved detail must be fetched after the audit completes');
-  assert.match(startAudit, /refreshed\.currentRun\?\.runId===startedRunId/);
+  assert.match(startAudit, /const result=refreshed/);
+  assert.match(startAudit, /nextRun\.runId !== startedRunId/);
 });
 
 test('a saved visual judgment repairs its contended index without repeating classification', () => {

@@ -2,6 +2,7 @@ import assert from 'node:assert/strict';
 import { test } from 'node:test';
 import { type Page } from '@playwright/test';
 import {
+  gotoTestPage,
   BROWSER_ENGINES,
   closeBrowserAndServer,
   launchBrowserWithServer,
@@ -251,7 +252,7 @@ for (const engine of BROWSER_ENGINES) {
         });
       });
 
-      await page.goto(`${origin}/vibe-atlas`, { waitUntil: 'domcontentloaded' });
+      await gotoTestPage(page, `${origin}/vibe-atlas`, { waitUntil: 'domcontentloaded' });
       await page.getByText("Today's curated card drop").waitFor();
       assert.equal(
         await page.getByRole('button', { name: 'Copy archived edition link' }).count(),
@@ -259,7 +260,7 @@ for (const engine of BROWSER_ENGINES) {
         'today must not show the archived-edition copy action',
       );
 
-      await page.goto(`${origin}/vibe-atlas?date=${ARCHIVED_DATE}`, { waitUntil: 'domcontentloaded' });
+      await gotoTestPage(page, `${origin}/vibe-atlas?date=${ARCHIVED_DATE}`, { waitUntil: 'domcontentloaded' });
       await page.getByText('Archived card drop · Aug 31, 2026').waitFor();
 
       await page.getByRole('button', { name: 'Copy archived edition link' }).click();
@@ -277,7 +278,7 @@ for (const engine of BROWSER_ENGINES) {
         { exact: true },
       ).waitFor();
 
-      await page.goto(`${origin}/vibe-atlas`, { waitUntil: 'domcontentloaded' });
+      await gotoTestPage(page, `${origin}/vibe-atlas`, { waitUntil: 'domcontentloaded' });
       await page.getByText("Today's curated card drop").waitFor();
       assert.equal(
         await page.getByRole('button', { name: 'Copy archived edition link' }).count(),
@@ -326,7 +327,7 @@ test('archive review pageviews follow in-app daily and archive surface transitio
       });
     });
 
-    await page.goto(`${origin}/vibe-atlas`, { waitUntil: 'domcontentloaded' });
+    await gotoTestPage(page, `${origin}/vibe-atlas`, { waitUntil: 'domcontentloaded' });
     await page.getByText("Today's curated card drop").waitFor();
     await page.getByRole('button', { name: 'Vibe Atlas archive' }).click();
     await page.getByRole('heading', { name: 'The Star of the Day Archive' }).waitFor();
@@ -371,7 +372,7 @@ test('approved public-record links work across today and the full archive while 
       });
     });
 
-    await page.goto(`${origin}/vibe-atlas`, { waitUntil: 'domcontentloaded' });
+    await gotoTestPage(page, `${origin}/vibe-atlas`, { waitUntil: 'domcontentloaded' });
     const todayRecords = page.getByRole('navigation', { name: 'Curated public records' });
     await todayRecords.waitFor();
     assert.equal(
@@ -466,7 +467,7 @@ test('partial public-record metadata stays fail-closed across today, the locked 
       });
     });
 
-    await page.goto(`${origin}/vibe-atlas`, { waitUntil: 'domcontentloaded' });
+    await gotoTestPage(page, `${origin}/vibe-atlas`, { waitUntil: 'domcontentloaded' });
     await page.getByText("Today's curated card drop").waitFor();
     assert.equal(
       await page.getByRole('navigation', { name: 'Curated public records' }).count(),
@@ -474,7 +475,7 @@ test('partial public-record metadata stays fail-closed across today, the locked 
       'today must not render navigation for a partial record pair',
     );
 
-    await page.goto(`${origin}/vibe-atlas?date=${MALFORMED_DATE}`, { waitUntil: 'domcontentloaded' });
+    await gotoTestPage(page, `${origin}/vibe-atlas?date=${MALFORMED_DATE}`, { waitUntil: 'domcontentloaded' });
     await page.getByText(/Founding Members can unlock the complete nine-card board/).waitFor();
     assert.equal(
       await page.getByRole('navigation', { name: 'Curated public records' }).count(),
@@ -550,7 +551,7 @@ test('complete-looking public-record metadata with unapproved paths stays fail-c
         });
       });
 
-      await page.goto(`${origin}/vibe-atlas`, { waitUntil: 'domcontentloaded' });
+      await gotoTestPage(page, `${origin}/vibe-atlas`, { waitUntil: 'domcontentloaded' });
       await page.getByText("Today's curated card drop").waitFor();
       assert.equal(
         await page.getByRole('navigation', { name: 'Curated public records' }).count(),
@@ -558,7 +559,7 @@ test('complete-looking public-record metadata with unapproved paths stays fail-c
         `today must not render navigation for ${fixture.actorName}`,
       );
 
-      await page.goto(`${origin}/vibe-atlas?date=${fixture.date}`, { waitUntil: 'domcontentloaded' });
+      await gotoTestPage(page, `${origin}/vibe-atlas?date=${fixture.date}`, { waitUntil: 'domcontentloaded' });
       await page.getByText(/Founding Members can unlock the complete nine-card board/).waitFor();
       assert.equal(
         await page.getByRole('navigation', { name: 'Curated public records' }).count(),
@@ -643,7 +644,7 @@ test('an older direct archive URL renders only the Founding Member preview gate'
       });
     });
 
-    await page.goto(`${origin}/vibe-atlas?date=${ARCHIVED_DATE}`, { waitUntil: 'domcontentloaded' });
+    await gotoTestPage(page, `${origin}/vibe-atlas?date=${ARCHIVED_DATE}`, { waitUntil: 'domcontentloaded' });
     await page.getByRole('heading', { name: /Browser Archive Actor/ }).waitFor();
     await page.getByText(/Founding Members can unlock the complete nine-card board/).waitFor();
     const lockedRecords = page.getByRole('navigation', { name: 'Curated public records' });

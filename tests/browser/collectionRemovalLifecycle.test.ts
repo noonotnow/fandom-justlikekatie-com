@@ -2,6 +2,7 @@ import assert from 'node:assert/strict';
 import { test } from 'node:test';
 import { type Page } from '@playwright/test';
 import {
+  gotoTestPage,
   BROWSER_ENGINES,
   closeBrowserAndServer,
   launchPageForServer,
@@ -119,6 +120,70 @@ async function collectionContents(page: Page): Promise<{
   }, { gridId: GRID_ID, cardUrl: CARD_URL });
 }
 
+test('Collection lets a signed-in reader discard a retained result and restore a retained grid', { timeout: 60_000 }, async () => {
+  const { server, origin } = await startApp();
+  const { browser, page } = await launchPageForServer(server);
+  try {
+    await page.route('**/api/auth/session', route => route.fulfill({
+      contentType: 'application/json',
+      body: JSON.stringify({ user: { accountId: ACCOUNT_ID, email: 'reader@example.test' } }),
+    }));
+    await page.route('**/api/membership/status', route => route.fulfill({
+      contentType: 'application/json',
+      body: JSON.stringify({ state: 'active', isMember: true, capabilities: ['fandom_collector'] }),
+    }));
+    await gotoTestPage(page, origin);
+    await seedCollection(page);
+    await page.evaluate(async ({ gridId, cardUrl, accountId }) => {
+      const request = indexedDB.open('vibe-atlas-collection', 3);
+      const db = await new Promise<IDBDatabase>(resolve => { request.onsuccess = () => resolve(request.result); });
+      const tx = db.transaction(['cards', 'grids', 'sync'], 'readwrite');
+      const cards = tx.objectStore('cards');
+      const grids = tx.objectStore('grids');
+      const sync = tx.objectStore('sync');
+      const cardRequest = cards.get(cardUrl);
+      const gridRequest = grids.get(gridId);
+      const stateRequest = sync.get('state');
+      await new Promise<void>((resolve, reject) => {
+        stateRequest.onsuccess = () => {
+          cards.put({ ...cardRequest.result, localId: 'retained-card', serverId: 'deleted-card' });
+          grids.put({ ...gridRequest.result, localId: 'retained-grid', serverId: 'deleted-grid' });
+          sync.put({
+            ...stateRequest.result,
+            mappingsByAccount: { [accountId]: { 'retained-card': 'deleted-card', 'retained-grid': 'deleted-grid' } },
+            remoteDeletionConflictsByAccount: { [accountId]: { 'retained-card': 'card', 'retained-grid': 'grid' } },
+          });
+        };
+        tx.oncomplete = () => resolve();
+        tx.onerror = () => reject(tx.error);
+      });
+    }, { gridId: GRID_ID, cardUrl: CARD_URL, accountId: ACCOUNT_ID });
+    await gotoTestPage(page, `${origin}/vibe-atlas?view=collection`);
+    await page.getByText('Deleted on another device').first().waitFor();
+    await page.getByRole('button', { name: 'Keep & restore' }).click();
+    await page.getByRole('button', { name: 'Saved results' }).click();
+    await page.getByText('Deleted on another device').waitFor();
+    await page.getByRole('button', { name: 'Discard this copy' }).click();
+    await expectEventually(async () => {
+      const contents = await collectionContents(page);
+      assert.equal(contents.card, undefined);
+      assert.equal((contents.grid as { serverId?: string }).serverId, undefined);
+    });
+    const syncState = await page.evaluate(async () => {
+      const request = indexedDB.open('vibe-atlas-collection', 3);
+      const db = await new Promise<IDBDatabase>(resolve => { request.onsuccess = () => resolve(request.result); });
+      const stateRequest = db.transaction('sync').objectStore('sync').get('state');
+      return new Promise<{ remoteDeletionConflictsByAccount: Record<string, Record<string, string>>; pendingDeletesByAccount: Record<string, unknown[]> }>(
+        resolve => { stateRequest.onsuccess = () => resolve(stateRequest.result); },
+      );
+    });
+    assert.deepEqual(syncState.remoteDeletionConflictsByAccount[ACCOUNT_ID], {});
+    assert.equal(syncState.pendingDeletesByAccount[ACCOUNT_ID]?.length || 0, 0);
+  } finally {
+    await closeBrowserAndServer(browser, server);
+  }
+});
+
 test('Collection commits pending grid and saved-result removals when navigation unmounts it', { timeout: 60_000 }, async () => {
   const { server, origin } = await startApp();
   const { browser, page } = await launchPageForServer(server);
@@ -147,9 +212,9 @@ test('Collection commits pending grid and saved-result removals when navigation 
       },
     );
 
-    await page.goto(origin);
+    await gotoTestPage(page, origin);
     await seedCollection(page);
-    await page.goto(`${origin}/vibe-atlas?view=collection`);
+    await gotoTestPage(page, `${origin}/vibe-atlas?view=collection`);
     await page.getByRole('button', { name: 'Remove' }).first().click();
     await page.getByRole('button', { name: '今日之星 · Daily' }).click();
 
@@ -203,7 +268,7 @@ test('Collection shows local records when account sync fails', { timeout: 60_000
       body: JSON.stringify({ error: 'Collection sync unavailable.' }),
     }));
 
-    await page.goto(origin);
+    await gotoTestPage(page, origin);
     await seedCollection(page);
     await page.evaluate(async accountId => {
       const request = indexedDB.open('vibe-atlas-collection', 3);
@@ -226,7 +291,7 @@ test('Collection shows local records when account sync fails', { timeout: 60_000
       });
     }, ACCOUNT_ID);
 
-    await page.goto(`${origin}/vibe-atlas?view=collection`);
+    await gotoTestPage(page, `${origin}/vibe-atlas?view=collection`);
     await page.getByText('Grid cleanup actor').first().waitFor();
     await page.getByRole('status').filter({ hasText: 'account sync failed' }).waitFor();
   } finally {
@@ -250,9 +315,9 @@ test('Grid Builder keeps saved results but does not unpack saved grids into its 
       body: JSON.stringify({ state: 'active', isMember: true }),
     }));
 
-    await page.goto(origin);
+    await gotoTestPage(page, origin);
     await seedCollection(page);
-    await page.goto(`${origin}/vibe-atlas?view=collection`);
+    await gotoTestPage(page, `${origin}/vibe-atlas?view=collection`);
     await page.getByRole('button', { name: 'Grid Builder', exact: true }).click();
     await page.getByText('1 saved result matches this lens').waitFor();
     await page.getByRole('button', { name: /Card cleanup actor 1/ }).waitFor();
@@ -304,9 +369,9 @@ test('Collection result Misprints teach the curator before preserving the collec
       });
     });
 
-    await page.goto(origin);
+    await gotoTestPage(page, origin);
     await seedCollection(page);
-    await page.goto(`${origin}/vibe-atlas?view=collection`);
+    await gotoTestPage(page, `${origin}/vibe-atlas?view=collection`);
     await page.getByRole('button', { name: 'Saved results' }).click();
     await page.getByText('Card cleanup actor').first().waitFor();
     await page.getByText('Mark Misprint', { exact: true }).click();
@@ -355,14 +420,13 @@ test('Collection result Misprints teach the curator before preserving the collec
     assert.equal(promoted.misprint?.calibrationStatus, 'applied');
     assert.equal(promoted.legendaryMisprint, undefined);
 
-    await collectible.getByRole('button', { name: 'Move to Middle-earth' }).click();
-    await page.getByText('Saved result moved to the Middle-earth Collection.').waitFor();
-    const moved = (await collectionContents(page)).card as {
+    assert.equal(await collectible.getByRole('button', { name: /Move to Middle-earth|Move to Vibe Atlas/ }).count(), 0);
+    const saved = (await collectionContents(page)).card as {
       collectionScope?: string;
       misprint?: { calibrationStatus?: string };
     };
-    assert.equal(moved.collectionScope, 'middle-earth');
-    assert.equal(moved.misprint?.calibrationStatus, 'applied');
+    assert.notEqual(saved.collectionScope, 'middle-earth');
+    assert.equal(saved.misprint?.calibrationStatus, 'applied');
     assert.equal(correctionRequestCount, 1);
   } finally {
     await closeBrowserAndServer(browser, server);
@@ -398,9 +462,9 @@ for (const engine of BROWSER_ENGINES) {
         },
       );
 
-      await page.goto(origin);
+      await gotoTestPage(page, origin);
       await seedCollection(page);
-      await page.goto(`${origin}/vibe-atlas?view=collection`);
+      await gotoTestPage(page, `${origin}/vibe-atlas?view=collection`);
       await page.getByRole('button', { name: 'Remove' }).first().click();
       assert.equal(
         await page.evaluate(() => localStorage.getItem('fandom-pending-collection-removal') !== null),
@@ -442,7 +506,7 @@ test('Collection replays a saved-result removal left durable by a closed page', 
       }),
     }));
 
-    await page.goto(origin);
+    await gotoTestPage(page, origin);
     await seedCollection(page);
     await page.evaluate(({ cardUrl, accountId }) => {
       localStorage.setItem('fandom-pending-collection-removal', JSON.stringify({
@@ -464,7 +528,7 @@ test('Collection replays a saved-result removal left durable by a closed page', 
       }));
     }, { cardUrl: CARD_URL, accountId: ACCOUNT_ID });
 
-    await page.goto(`${origin}/vibe-atlas?view=collection`);
+    await gotoTestPage(page, `${origin}/vibe-atlas?view=collection`);
     await expectEventually(async () => {
       const contents = await collectionContents(page);
       assert.notEqual(contents.grid, undefined, 'recovery must not remove unrelated grids');

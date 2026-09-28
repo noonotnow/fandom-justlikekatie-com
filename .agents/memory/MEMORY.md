@@ -1,4 +1,4 @@
-- [Fandom Vibes product context](product-context.md) — Fandom Vibes is the umbrella universe; Vibe Atlas is its C-drama studio, MemeForge its Middle-earth studio; CREATE remains optional.
+- [Fandom Vibes product context](product-context.md) — Vibe Atlas is the C-drama studio; the Middle-earth meme scope is an experiment with a legacy Collection cleanup, not a roadmap.
 - [MemeForge example mechanisms](memeforge-example-mechanisms.md) — new references emphasize recontextualized reactions, sequential escalation, canon contradiction, and relationship chemistry.
 - [GitHub API push protocol](github-api-push.md) — use PAT-in-URL for git push; connector API write paths (PUT/trees) are unreliable, fallback needs readFile utf-8 blobs + sha verification; never pipe large blobs through shellExec.
 - [Actions token vs branch protection](actions-token-branch-protection.md) — GITHUB_TOKEN can't see required_status_checks; use REPO_ADMIN_PAT secret; `administration` is an invalid workflow permissions key.
@@ -9,15 +9,19 @@
 - [Netlify Function-log verification](netlify-function-log-verification.md) — Real-time can appear empty; verify current Production calls in Last hour with filters cleared.
 - [Netlify dual-lockfile parity](netlify-dual-lockfile-parity.md) — Netlify freezes pnpm-lock.yaml when both npm and pnpm locks exist; npm-only CI can miss release-blocking drift.
 - [Netlify function root layout](netlify-function-root-layout.md) — keep tests and helpers out of the function directory root or Netlify may deploy them as endpoints.
+- [Netlify Function response contract](netlify-function-response-contract.md) — Web Request/Response handlers need V2 default exports; named handlers use classic result objects or live edge returns 502.
+- [Archive public links](archive-public-links.md) — stored link metadata is not current proof of a public page; validate against the publication manifest and retain dated Archive fallback.
 - [Netlify secret runtime audits](netlify-secret-runtime-audits.md) — secret-scoped values are redacted through CLI reads; production audits needing them must execute inside a protected function.
 - [Collection local-first loading](collection-local-first-loading.md) — render browser saves before account sync; sync failures must never make an existing Collection appear empty.
+- [Pre-baseline Collection conflicts](pre-baseline-collection-conflicts.md) — old synced records lack a reliable content baseline; preserve ambiguous local copies but never auto-upload them over remote deletions.
+- [Retired source labels](retired-source-labels.md) — explicit label retirement outranks stale device saves; a device must observe retirement before it can intentionally relabel.
 - [Vite preview port](vite-preview-port.md) — keep the Vite server and Start application webview workflow aligned on port 5000.
 - [Browser test concurrency](browser-test-concurrency.md) — keep Chromium checks parallel with a bounded runner concurrency so native resources remain available.
 - [Legendary Misprint scope](legendary-misprint-scope.md) — misprints are member-saved, event-scoped exceptions; they never redefine a universe or ordinary Builder/grid views.
 - [MemeForge reaction-card format](memeforge-reaction-card.md) — clean-still aesthetic reaction cards are a finished path alongside unchanged memes and future reworks.
 - [MemeForge uploaded-source staging](memeforge-uploaded-source-staging.md) — canonicalize uploads to MEDIA with a stable UUID before creating durable packets.
 - [Distinct data-URL derivatives](distinct-data-url-derivatives.md) — use URL fragments for unique collection keys without changing image bytes or MIME type.
-- [Vibe Atlas billing boundary](vibe-atlas-billing-boundary.md) — public historical records stay browsable; Collector gates deeper archive utility, cloud persistence, treatments, and Master Exports.
+- [Vibe Atlas billing boundary](vibe-atlas-billing-boundary.md) — free account Collection sync is separate from paid pack access; Collector gates deeper archive utility, treatments, and Master Exports.
 - [Article-linked pack discovery](article-pack-discovery.md) — editorial teasers are contextual; the daily actor's pack view must not show another actor's previews.
 - [Editorial record access boundary](editorial-record-access-boundary.md) — index substantive editorial records, gate collectible utility, and make premium emerge from artifact quality rather than raw-result access.
 - [External Netlify deployment](external-netlify-deployment.md) — verify the custom domain’s bundle and function routes before production-only tests; Replit deployment metadata is separate.
@@ -27,6 +31,7 @@
 - [Netlify query indexing](netlify-query-indexing.md) — query-string privacy directives require edge handling because robots.txt cannot disallow query parameters.
 - [Xianxia decoder joke engine](xianxia-decoder-voice.md) — veteran lines explain the absurd narrative necessity behind events; never stop at naming or predicting the trope.
 - [Field Journal spoiler integrity](field-journal-spoiler-integrity.md) — filed watch boundaries govern verdicts, linked evidence, and all reader-safe delivery; fail closed on uncertainty.
+- [Vibing Now discussion publication](vibing-discussion-publication.md) — public replies derive from approved records in one private archive; new episode threads need separate editorial activation.
 - [Capability-link analytics](capability-link-analytics.md) — remove public capability values from browser URLs before trackers initialize; canonicalize pageview and event locations.
 - [Vibe Atlas public positioning](vibe-atlas-public-positioning.md) — daily-drop messaging is funnel-wide; audit crawlable guides and regenerate derived previews when it changes.
 - [Daily Drop grid curation contract](grid-curation-contract.md) — Event is a bounded, evidence-backed exception that must beat a competitive Compiled board on scored evidence.
@@ -51,3 +56,18 @@
 - [Archive access incident signals](archive-access-incident-signals.md) — alert only on aggregate authenticated checks; anonymous previews and sign-in gates are funnel activity, not incidents.
 - [Playwright WebKit on Replit Nix](playwright-webkit-replit-nix.md) — bypass ldconfig-only preflight and the WebKit wrapper’s overwritten library path while retaining a real launch probe.
 - [Archive link diagnostics](archive-link-diagnostics.md) — diagnose authoritative stored archive metadata, not regenerated safe projections, or malformed-link failures become invisible.
+- [Semantic rebase verification](semantic-rebase-verification.md) — conflict-free files can still be mangled by automatic reconciliation; run syntax and full tests after rebasing divergent branches.
+- [Cross-browser fetch failures](cross-browser-fetch-failures.md) — network fetch rejections use engine-specific messages; classify TypeError rather than matching Chromium text.
+- [Native download test routing](native-download-test-routing.md) — Chromium/WebKit attachment navigations may bypass Playwright routes; serve download fixtures through test-server middleware.
+- [Browser-evaluated test helpers](browser-evaluated-test-helpers.md) — inline helpers in tsx-transformed page.evaluate callbacks can reference an unavailable __name runtime.
+- [Cleanup alias scope parity](cleanup-alias-scope-parity.md) — newly recognized resource bindings must be registered in lexical scope tracking before ownership analysis, including nonstandard binding sites.
+- [Resend sender checks](resend-sender-checks.md) — non-sending domain verification uses Resend's read API, which rejects sending-only keys.
+- [Released-pack reporting boundary](released-pack-reporting.md) — external Netlify analytics needs a verifiable live bundle and authorized aggregates before conversion claims.
+- [Sync wire-shape tests](sync-wire-shape-tests.md) — distinguish the outbound operation wrapper from its item and from the server response when writing sync fixtures.
+- [Netlify preview trigger](netlify-preview-trigger.md) — a PR opened against a non-default base may not start a deploy preview after changing its base; push a new commit to trigger synchronization.
+- [Sitemap record release checks](sitemap-record-release-checks.md) — verify every listed actor and edition record after release; sampling the first of each hides later broken entries.
+- [Collector live evidence boundary](collector-live-evidence.md) — distinguish mocked bundles from authenticated responses; shared source links can collide as image-card keys and inflate DOM counts.
+- [Local worktree checkpoint safety](local-worktree-checkpoint-safety.md) — exclude separate working copies before editing; automatic checkpoints can accidentally commit their entire contents.
+- [Clean main synchronization](clean-main-synchronization.md) — when local history contains tracked workspace copies, publish a reviewed clean snapshot from remote main and keep a backup ref.
+- [Protected workflow alert verification](protected-workflow-alert-verification.md) — isolate failure dispatches, preserve the original failed job, and require inbox confirmation beyond provider acceptance.
+- [Soundtrack source boundary](soundtrack-source-boundary.md) — fan OST lists are discovery leads; licensed catalog credits and named storefront listings still need separate verification.

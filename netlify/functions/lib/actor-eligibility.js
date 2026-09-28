@@ -8,6 +8,7 @@ import {
 } from "./actor-identity-profiles.js";
 import { CURATION_VERSION } from "./grid-curation.js";
 import { blindCalibrationEvidence } from "./blind-calibration-evidence.js";
+import { hasValidReceiptTimestamp } from "./receipt-timestamp.js";
 
 export const ELIGIBILITY_STORE = "actor-audit";
 export const APPROVED_VERDICTS = new Set(["approved", "approved_override"]);
@@ -502,21 +503,26 @@ function recordHash(value) {
 }
 
 async function readFirstReceipt(store, prefix, timestampField) {
-  const listing = await store.list({ prefix });
-  const receipts = (await Promise.all((listing?.blobs || []).map(async blob => {
+  const listing = await store.list({ prefix, paginate: true });
+  const pages = listing?.[Symbol.asyncIterator] ? listing : [listing];
+  const blobs = [];
+  for await (const page of pages) blobs.push(...(page?.blobs || []));
+  const receipts = (await Promise.all(blobs.map(async blob => {
     if (typeof blob?.key !== "string") return null;
     const value = await store.get(blob.key, { type: "json", consistency: "strong" });
     return value ? { key: blob.key, value } : null;
-  }))).filter(Boolean);
+  }))).filter(receipt => hasValidReceiptTimestamp(receipt?.value, timestampField));
   receipts.sort((left, right) =>
-    String(left.value[timestampField] || "").localeCompare(String(right.value[timestampField] || ""))
+    left.value[timestampField].localeCompare(right.value[timestampField])
     || left.key.localeCompare(right.key));
   return receipts[0]?.value || null;
 }
 
 async function readCanonicalReceipt(store, key, prefix, timestampField) {
   const canonical = await store.get(key, { type: "json", consistency: "strong" });
-  return canonical || readFirstReceipt(store, prefix, timestampField);
+  return hasValidReceiptTimestamp(canonical, timestampField)
+    ? canonical
+    : readFirstReceipt(store, prefix, timestampField);
 }
 
 async function readReceipts(store, prefix, timestampField) {

@@ -192,6 +192,10 @@ export interface GridRecord {
     misprint: boolean;
     legendary: boolean;
   };
+  /**
+   * Label source for a saved grid. Cloud corrections may send `null` as the
+   * explicit removal marker; dbApplySyncResponse removes it locally.
+   */
   sourceProvenance?: {
     kind: 'collection' | 'daily' | 'edition';
     editionDate?: string;
@@ -392,11 +396,25 @@ export async function dbSaveCard(card: CardRecord): Promise<void> {
     ...normalizedCard,
     collectionScope: collectionScopeForCard(normalizedCard),
     localId: normalizedCard.localId || existing?.localId || crypto.randomUUID(),
-    savedAt: normalizedCard.savedAt || new Date().toISOString(),
+    savedAt: existing?.serverId ? new Date().toISOString() : normalizedCard.savedAt || new Date().toISOString(),
   };
   return new Promise((resolve, reject) => {
-    const tx = db.transaction(CARD_STORE, 'readwrite');
+    const tx = db.transaction([CARD_STORE, SYNC_STORE], 'readwrite');
     tx.objectStore(CARD_STORE).put(record);
+    if (existing?.serverId) {
+      const syncStore = tx.objectStore(SYNC_STORE);
+      syncStore.get('state').onsuccess = event => {
+        const state = normalizeSyncState((event.target as IDBRequest).result);
+        const accountId = existing.ownerAccountId || state.activeAccountId;
+        if (accountId) {
+          if (!state.acknowledgedUpsertsByAccount[accountId]?.[record.localId]) {
+            ((state.locallyEditedByAccount ||= {})[accountId] ||= {})[record.localId] = true;
+          }
+          delete state.acknowledgedUpsertsByAccount[accountId]?.[record.localId];
+          syncStore.put(state);
+        }
+      };
+    }
     tx.oncomplete = () => {
       fetch('/.netlify/functions/log-engagement', {
         method: 'POST',
@@ -426,7 +444,12 @@ export async function dbRemoveCard(imageUrl: string): Promise<void> {
   cardStore.delete(imageUrl);
   if (existing?.localId) {
     const state = normalizeSyncState(await requestResult(syncStore.get('state')));
-    if (queueCardDelete(state, existing, crypto.randomUUID())) syncStore.put(state);
+    const accountId = resolveDeleteAccount(existing, state);
+    if (accountId && state.remoteDeletionConflictsByAccount?.[accountId]?.[existing.localId]) {
+      delete state.remoteDeletionConflictsByAccount[accountId][existing.localId];
+      delete state.mappingsByAccount[accountId]?.[existing.localId];
+      syncStore.put(state);
+    } else if (queueCardDelete(state, existing, crypto.randomUUID())) syncStore.put(state);
   }
   await transactionDone(tx);
 }
@@ -461,7 +484,15 @@ export function queueCardDelete(
     ? (state.pendingDeletesByAccount[accountId] || [])
     : (state.legacyUnscoped?.pendingDeletes || []);
   if (!pending.some(item => item.localId === card.localId && item.serverId === serverId)) {
-    pending.push({ mutationId, localId: card.localId, serverId });
+    const collectionScope = 'collectionScope' in card
+      ? collectionScopeForCard(card as CardRecord)
+      : undefined;
+    pending.push({
+      mutationId,
+      localId: card.localId,
+      serverId,
+      ...(collectionScope ? { collectionScope } : {}),
+    });
   }
   if (accountId) {
     state.pendingDeletesByAccount[accountId] = pending;
@@ -627,12 +658,14 @@ export interface CollectionSyncState {
   cursors: Record<string, number>;
   mergeDecisions: Record<string, boolean>;
   mappingsByAccount: Record<string, Record<string, string>>;
-  pendingDeletesByAccount: Record<string, Array<{ mutationId: string; localId: string; serverId: string }>>;
+  pendingDeletesByAccount: Record<string, Array<{ mutationId: string; localId: string; serverId: string; collectionScope?: CollectionScope }>>;
   acknowledgedUpsertsByAccount: Record<string, Record<string, string>>;
-  remoteUpsertFingerprintsByAccount: Record<string, Record<string, string>>;
+  locallyEditedByAccount?: Record<string, Record<string, boolean>>;
+  remoteDeletionConflictsByAccount?: Record<string, Record<string, 'card' | 'grid'>>;
+  remoteUpsertFingerprintsByAccount?: Record<string, Record<string, string>>;
   legacyUnscoped?: {
     mappings?: Record<string, string>;
-    pendingDeletes?: Array<{ mutationId: string; localId: string; serverId: string }>;
+    pendingDeletes?: Array<{ mutationId: string; localId: string; serverId: string; collectionScope?: CollectionScope }>;
   };
 }
 
@@ -692,7 +725,10 @@ export async function dbSetActiveAccount(accountId?: string): Promise<void> {
   await transactionDone(tx);
 }
 
-export async function dbBuildSyncRequest(accountId: string): Promise<CollectionSyncRequest> {
+export async function dbBuildSyncRequest(
+  accountId: string,
+  includeMiddleEarth = true,
+): Promise<CollectionSyncRequest> {
   const [loadedCards, loadedGrids, state] = await Promise.all([
     dbGetAllCards(),
     dbGetAllGrids(),
@@ -710,7 +746,7 @@ export async function dbBuildSyncRequest(accountId: string): Promise<CollectionS
     ...request,
     operations: batchCollectionSyncOperations(
       request,
-      buildSyncOperations(cards, state, accountId, grids),
+      buildSyncOperations(cards, state, accountId, grids, includeMiddleEarth),
     ),
   };
 }
@@ -737,6 +773,36 @@ export async function dbBuildCardSyncRequest(
 }
 
 /**
+ * Pre-baseline downloads have server identity but no acknowledged mutation.
+ * We cannot tell an untouched download from an offline edit made by an older
+ * client, so keep the local copy and defer its upload until an explicit save.
+ */
+export async function dbLegacyReconciliationCandidates(
+  accountId: string,
+  includeMiddleEarth = true,
+): Promise<Record<string, string>> {
+  const [cards, grids, state] = await Promise.all([
+    dbGetAllCards(), dbGetAllGrids(), dbGetSyncState(),
+  ]);
+  if (state.mergeDecisions[accountId] !== true) return {};
+  const mappings = state.mappingsByAccount[accountId] || {};
+  const acknowledged = state.acknowledgedUpsertsByAccount[accountId] || {};
+  const eligibleCards = cards.filter(card =>
+    includeMiddleEarth || collectionScopeForCard(card) !== 'middle-earth');
+  const eligible = [...eligibleCards, ...grids].filter(record =>
+    record.localId
+    && (record.ownerAccountId === accountId || !record.ownerAccountId)
+    && (mappings[record.localId] || (record.serverId && (record.ownerAccountId === accountId
+      || (!record.ownerAccountId && state.activeAccountId === accountId))))
+    && !acknowledged[record.localId]);
+  const operations = buildSyncOperations(eligibleCards, state, accountId, grids);
+  return Object.fromEntries(operations
+    .filter(operation => operation.type === 'upsert'
+      && eligible.some(record => record.localId === operation.localId))
+    .map(operation => [operation.localId as string, operation.mutationId as string]));
+}
+
+/**
  * Builds an explicit, single-grid upsert. This intentionally bypasses the
  * device merge preference: a creator has selected this one artifact to hand
  * off, rather than opting the account into merging its whole device cache.
@@ -749,6 +815,9 @@ export async function dbBuildGridSyncRequest(
   if (!localId) throw new Error('The selected grid is no longer saved on this device.');
   const [grid, state] = await Promise.all([dbGetGrid(gridId), dbGetSyncState()]);
   if (!grid) throw new Error('The selected grid is no longer saved on this device.');
+  if (state.remoteDeletionConflictsByAccount?.[accountId]?.[localId]) {
+    throw new Error('Resolve this grid’s deletion conflict before syncing it.');
+  }
   if (grid.ownerAccountId && grid.ownerAccountId !== accountId) {
     throw new Error('The selected grid belongs to a different account.');
   }
@@ -767,16 +836,22 @@ export function buildSyncOperations(
   state: CollectionSyncState,
   accountId: string,
   grids: GridRecord[] = [],
+  includeMiddleEarth = true,
 ): Array<Record<string, unknown>> {
-  const deletes = (state.pendingDeletesByAccount[accountId] || []).map(operation => ({
-    ...operation,
-    type: 'delete',
-  }));
+  const deletes = (state.pendingDeletesByAccount[accountId] || [])
+    .filter(operation => includeMiddleEarth || operation.collectionScope !== 'middle-earth')
+    .map(operation => ({
+      ...operation,
+      type: 'delete',
+    }));
   if (state.mergeDecisions[accountId] !== true) return deletes;
   const acknowledged = state.acknowledgedUpsertsByAccount[accountId] || {};
-  const remoteFingerprints = state.remoteUpsertFingerprintsByAccount[accountId] || {};
+  const conflicts = state.remoteDeletionConflictsByAccount?.[accountId] || {};
+  const remoteFingerprints = state.remoteUpsertFingerprintsByAccount?.[accountId] || {};
   const upserts = cards
     .filter(card => !card.ownerAccountId || card.ownerAccountId === accountId)
+    .filter(card => includeMiddleEarth || collectionScopeForCard(card) !== 'middle-earth')
+    .filter(card => !card.localId || !conflicts[card.localId])
     .map(rawCard => cardUpsertOperation(normalizeCardForCollection(rawCard), state))
     .filter(operation =>
       acknowledged[operation.localId] !== operation.mutationId
@@ -785,6 +860,7 @@ export function buildSyncOperations(
     );
   const gridUpserts = grids
     .filter(grid => !grid.ownerAccountId || grid.ownerAccountId === accountId)
+    .filter(grid => !grid.localId || !conflicts[grid.localId])
     .map(grid => gridUpsertOperation(grid, state))
     .filter(operation =>
       acknowledged[operation.localId] !== operation.mutationId
@@ -894,6 +970,7 @@ export async function dbApplySyncResponse(
     acknowledgedMutationIds: string[];
   },
   submittedOperations: Array<Record<string, unknown>>,
+  legacyCandidates: Record<string, string> = {},
 ): Promise<void> {
   const db = await openDB();
   const cards = await dbGetAllCards();
@@ -915,17 +992,25 @@ export async function dbApplySyncResponse(
     item => !response.acknowledgedMutationIds.includes(item.mutationId),
   );
   const acknowledgedUpserts = state.acknowledgedUpsertsByAccount[accountId] || {};
+  const locallyEdited = state.locallyEditedByAccount ||= {};
+  for (const [localId, mutationId] of Object.entries(legacyCandidates)) {
+    if (!locallyEdited[accountId]?.[localId]) acknowledgedUpserts[localId] = mutationId;
+  }
   for (const operation of submittedOperations) {
     if (
       operation.type === 'upsert'
       && typeof operation.localId === 'string'
       && typeof operation.mutationId === 'string'
       && acknowledged.has(operation.mutationId)
-    ) acknowledgedUpserts[operation.localId] = operation.mutationId;
+    ) {
+      acknowledgedUpserts[operation.localId] = operation.mutationId;
+      delete locallyEdited[accountId]?.[operation.localId];
+    }
   }
   state.acknowledgedUpsertsByAccount[accountId] = acknowledgedUpserts;
-  const remoteFingerprints = state.remoteUpsertFingerprintsByAccount[accountId] || {};
-  state.remoteUpsertFingerprintsByAccount[accountId] = remoteFingerprints;
+  const remoteFingerprintsByAccount = state.remoteUpsertFingerprintsByAccount ||= {};
+  const remoteFingerprints = remoteFingerprintsByAccount[accountId] || {};
+  remoteFingerprintsByAccount[accountId] = remoteFingerprints;
   const projectionState: CollectionSyncState = {
     ...state,
     mergeDecisions: { ...state.mergeDecisions, [accountId]: true },
@@ -934,15 +1019,21 @@ export async function dbApplySyncResponse(
       [accountId]: {},
     },
     remoteUpsertFingerprintsByAccount: {
-      ...state.remoteUpsertFingerprintsByAccount,
+      ...remoteFingerprintsByAccount,
       [accountId]: {},
     },
   };
   for (const item of response.items) {
     const serverId = String(item.id);
     const localId = String(item.localId || '');
+    const protectedLocalId = localId || Object.entries(mappings)
+      .find(([, id]) => id === serverId)?.[0];
+    if (protectedLocalId && legacyCandidates[protectedLocalId]) continue;
     if (item.kind === 'grid') {
       const existing = gridsByServerId.get(serverId) || gridsByLocalId.get(localId);
+      const removesSourceProvenance = Object.prototype.hasOwnProperty.call(item, 'sourceProvenance')
+        && item.sourceProvenance === null;
+      const sourceProvenance = normalizeGridSourceProvenance(item.sourceProvenance);
       const record = {
         ...(item as unknown as GridRecord),
         id: typeof item.artifactId === 'string' ? item.artifactId : existing?.id || serverId,
@@ -972,8 +1063,13 @@ export async function dbApplySyncResponse(
       if (!existingFingerprint || existingFingerprint === syncOperationFingerprint(remoteOperation)) {
         remoteFingerprints[fingerprintKey] = syncOperationFingerprint(remoteOperation);
       }
+      // Invalid legacy cloud values do not replace a valid local provenance label.
+      if (sourceProvenance) record.sourceProvenance = sourceProvenance;
+      else delete record.sourceProvenance;
       if (existing && existing.id !== record.id) gridStore.delete(existing.id);
-      gridStore.put({ ...existing, ...record });
+      const mergedRecord = { ...existing, ...record };
+      if (removesSourceProvenance) delete mergedRecord.sourceProvenance;
+      gridStore.put(mergedRecord);
       continue;
     }
     const existingByLocalId = byLocalId.get(localId);
@@ -1024,6 +1120,19 @@ export async function dbApplySyncResponse(
   }
   for (const tombstone of response.tombstones) {
     const mappedLocalId = Object.entries(mappings).find(([, serverId]) => serverId === tombstone.id)?.[0];
+    const protectedLocalId = mappedLocalId
+      || byServerId.get(tombstone.id)?.localId
+      || gridsByServerId.get(tombstone.id)?.localId;
+    if (protectedLocalId && legacyCandidates[protectedLocalId]) {
+      const existingCard = byServerId.get(tombstone.id) || byLocalId.get(mappedLocalId);
+      const existingGrid = gridsByServerId.get(tombstone.id) || gridsByLocalId.get(mappedLocalId);
+      if ((existingCard || existingGrid) && !locallyEdited[accountId]?.[protectedLocalId]) {
+        ((state.remoteDeletionConflictsByAccount ||= {})[accountId] ||= {})[protectedLocalId] =
+          existingCard ? 'card' : 'grid';
+      }
+      continue;
+    }
+    if (protectedLocalId && state.remoteDeletionConflictsByAccount?.[accountId]?.[protectedLocalId]) continue;
     const existing = byServerId.get(tombstone.id) || byLocalId.get(mappedLocalId);
     if (existing) {
       const operation = buildSyncOperations([existing], projectionState, accountId)
@@ -1063,6 +1172,43 @@ export async function dbApplySyncResponse(
   await transactionDone(tx);
 }
 
+/** Resolve a retained pre-baseline copy without re-sending the old tombstone. */
+export async function dbResolveRemoteDeletion(
+  accountId: string,
+  kind: 'card' | 'grid',
+  localId: string,
+  decision: 'restore' | 'discard',
+): Promise<void> {
+  const db = await openDB();
+  const tx = db.transaction([CARD_STORE, GRID_STORE, SYNC_STORE], 'readwrite');
+  const syncStore = tx.objectStore(SYNC_STORE);
+  const state = normalizeSyncState(await requestResult(syncStore.get('state')));
+  if (state.activeAccountId !== accountId || state.remoteDeletionConflictsByAccount?.[accountId]?.[localId] !== kind) {
+    throw new Error('This deletion conflict is no longer available for this account.');
+  }
+  const store = tx.objectStore(kind === 'card' ? CARD_STORE : GRID_STORE);
+  const records = await requestResult<Array<CardRecord | GridRecord>>(store.getAll());
+  const record = records.find(item => item.localId === localId
+    && (!item.ownerAccountId || item.ownerAccountId === accountId));
+  if (!record) throw new Error('This saved copy is no longer on this device.');
+  if (decision === 'discard') {
+    store.delete(kind === 'card' ? (record as CardRecord).imageUrl : (record as GridRecord).id);
+  } else {
+    // New timestamp and no stale server identity: the explicit restore is a
+    // fresh upsert, not a replay of an old acknowledged mutation.
+    const restored = { ...record, serverId: undefined, savedAt: new Date().toISOString() };
+    store.put(restored);
+    delete state.acknowledgedUpsertsByAccount[accountId]?.[localId];
+  }
+  delete state.remoteDeletionConflictsByAccount![accountId][localId];
+  delete state.mappingsByAccount[accountId]?.[localId];
+  delete state.locallyEditedByAccount?.[accountId]?.[localId];
+  state.pendingDeletesByAccount[accountId] = (state.pendingDeletesByAccount[accountId] || [])
+    .filter(item => item.localId !== localId);
+  syncStore.put(state);
+  await transactionDone(tx);
+}
+
 export async function dbRemoveAccountCache(accountId: string): Promise<void> {
   const [cards, grids] = await Promise.all([dbGetAllCards(), dbGetAllGrids()]);
   const db = await openDB();
@@ -1084,11 +1230,25 @@ export async function dbSaveGrid(grid: GridRecord): Promise<void> {
   const record = {
     ...grid,
     localId: grid.localId || existing?.localId || crypto.randomUUID(),
-    savedAt: grid.savedAt || new Date().toISOString(),
+    savedAt: existing?.serverId ? new Date().toISOString() : grid.savedAt || new Date().toISOString(),
   };
   return new Promise((resolve, reject) => {
-    const tx = db.transaction(GRID_STORE, 'readwrite');
+    const tx = db.transaction([GRID_STORE, SYNC_STORE], 'readwrite');
     tx.objectStore(GRID_STORE).put(record);
+    if (existing?.serverId) {
+      const syncStore = tx.objectStore(SYNC_STORE);
+      syncStore.get('state').onsuccess = event => {
+        const state = normalizeSyncState((event.target as IDBRequest).result);
+        const accountId = existing.ownerAccountId || state.activeAccountId;
+        if (accountId) {
+          if (!state.acknowledgedUpsertsByAccount[accountId]?.[record.localId]) {
+            ((state.locallyEditedByAccount ||= {})[accountId] ||= {})[record.localId] = true;
+          }
+          delete state.acknowledgedUpsertsByAccount[accountId]?.[record.localId];
+          syncStore.put(state);
+        }
+      };
+    }
     tx.oncomplete = () => resolve();
     tx.onerror = () => reject(tx.error);
   });
@@ -1104,21 +1264,35 @@ export async function dbGetAllGrids(): Promise<GridRecord[]> {
   });
 }
 
+function normalizeGridSourceProvenance(value: unknown): GridRecord['sourceProvenance'] | undefined {
+  if (!value || typeof value !== 'object' || Array.isArray(value)) return undefined;
+  const provenance = value as Record<string, unknown>;
+  const keys = Object.keys(provenance);
+  if (
+    (provenance.kind === 'collection' || provenance.kind === 'daily')
+    && keys.length === 1 && keys[0] === 'kind'
+  ) return { kind: provenance.kind };
+  if (
+    provenance.kind !== 'edition'
+    || keys.length !== 2
+    || !keys.includes('kind')
+    || !keys.includes('editionDate')
+    || typeof provenance.editionDate !== 'string'
+    || !/^\d{4}-\d{2}-\d{2}$/u.test(provenance.editionDate)
+  ) return undefined;
+  const [year, month, day] = provenance.editionDate.split('-').map(Number);
+  const date = new Date(Date.UTC(year, month - 1, day));
+  if (
+    date.getUTCFullYear() !== year
+    || date.getUTCMonth() !== month - 1
+    || date.getUTCDate() !== day
+  ) return undefined;
+  return { kind: 'edition', editionDate: provenance.editionDate };
+}
+
 export function normalizeGridRecord(grid: Partial<GridRecord>): GridRecord {
   const images = Array.isArray(grid.images) ? grid.images : [];
-  const sourceProvenance = grid.sourceProvenance;
-  const normalizedSourceProvenance = sourceProvenance
-    && ['collection', 'daily', 'edition'].includes(sourceProvenance.kind)
-    && (sourceProvenance.kind !== 'edition'
-      || (
-        typeof sourceProvenance.editionDate === 'string'
-        && /^\d{4}-\d{2}-\d{2}$/u.test(sourceProvenance.editionDate)
-      ))
-    ? {
-      kind: sourceProvenance.kind,
-      ...(sourceProvenance.editionDate ? { editionDate: sourceProvenance.editionDate } : {}),
-    }
-    : undefined;
+  const normalizedSourceProvenance = normalizeGridSourceProvenance(grid.sourceProvenance);
   return {
     kind: 'grid',
     schemaVersion: 1,
@@ -1184,7 +1358,12 @@ export async function dbRemoveGrid(id: string): Promise<void> {
   gridStore.delete(id);
   if (existing?.localId) {
     const state = normalizeSyncState(await requestResult(syncStore.get('state')));
-    if (queueCardDelete(state, existing, crypto.randomUUID())) syncStore.put(state);
+    const accountId = resolveDeleteAccount(existing, state);
+    if (accountId && state.remoteDeletionConflictsByAccount?.[accountId]?.[existing.localId]) {
+      delete state.remoteDeletionConflictsByAccount[accountId][existing.localId];
+      delete state.mappingsByAccount[accountId]?.[existing.localId];
+      syncStore.put(state);
+    } else if (queueCardDelete(state, existing, crypto.randomUUID())) syncStore.put(state);
   }
   await transactionDone(tx);
 }
@@ -1258,7 +1437,9 @@ function gridUpsertOperation(
   if (!localId) throw new Error('A grid must have a local identity before syncing.');
   return {
     type: 'upsert',
-    mutationId: `upsert:${state.clientId}:${localId}:${grid.legendaryMisprint?.markedAt || grid.savedAt}`,
+    // A restore must never replay the mutation that created a now-deleted
+    // Legendary grid; its markedAt is intentionally immutable.
+    mutationId: `upsert:${state.clientId}:${localId}:${grid.savedAt}`,
     localId,
     item: collectionGridSyncItem(grid),
   };
@@ -1323,6 +1504,8 @@ function normalizeSyncState(value: LegacyCollectionSyncState | undefined): Colle
     mappingsByAccount: value?.mappingsByAccount || {},
     pendingDeletesByAccount: value?.pendingDeletesByAccount || {},
     acknowledgedUpsertsByAccount: value?.acknowledgedUpsertsByAccount || {},
+    locallyEditedByAccount: value?.locallyEditedByAccount || {},
+    remoteDeletionConflictsByAccount: value?.remoteDeletionConflictsByAccount || {},
     remoteUpsertFingerprintsByAccount: value?.remoteUpsertFingerprintsByAccount || {},
     legacyUnscoped,
   };

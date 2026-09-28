@@ -4,8 +4,157 @@ import {
   explicitProductForMembership,
   productForPrice,
 } from "./capabilities.js";
+import { getWithResolvedEtag } from "./blob-store.js";
 
 const ACTIVE_STATUSES = ["active", "trialing"];
+
+const PROGRESS_REPORTING_STATE_KEY = "progress-reporting-health";
+const PROGRESS_REPORTING_STATE_UPDATE_ATTEMPTS = 8;
+export const PROGRESS_REPORTING_ALERT_THRESHOLD = 2;
+export const PROGRESS_REPORTING_OPERATOR_ALERT =
+  "Operator alert: Stripe audit progress reporting failed in repeated runs. Audit results and completed subscription updates were not affected.";
+export const PROGRESS_REPORTING_NOTIFICATION_REJECTED =
+  "Operator alert delivery was rejected. Stripe audit results and completed subscription updates were not affected.";
+
+export async function sendProgressReportingOperatorAlert({
+  env = process.env,
+  fetchImpl = fetch,
+} = {}) {
+  const recipients = String(env.FANDOM_ADMIN_EMAILS || "")
+    .split(",")
+    .map(value => value.trim())
+    .filter(Boolean);
+  if (!env.RESEND_API_KEY || !env.FANDOM_AUTH_FROM_EMAIL || recipients.length === 0) {
+    throw new Error("Stripe reporting notifications are not configured.");
+  }
+  const response = await fetchImpl("https://api.resend.com/emails", {
+    method: "POST",
+    headers: {
+      Authorization: `Bearer ${env.RESEND_API_KEY}`,
+      "Content-Type": "application/json",
+      "Idempotency-Key": "stripe-progress-reporting:persistent-failure",
+    },
+    body: JSON.stringify({
+      from: env.FANDOM_AUTH_FROM_EMAIL,
+      to: recipients,
+      subject: "[Fandom operations] Stripe audit reporting needs attention",
+      text: [
+        "Stripe audit progress reporting failed in repeated runs.",
+        "Audit results and completed subscription updates were not affected.",
+        "Review the private audit environment before the next unattended run.",
+      ].join("\n"),
+    }),
+  });
+  if (!response.ok) {
+    throw new Error(`Stripe reporting notification delivery failed (${response.status}).`);
+  }
+}
+
+export function settleProgressReportingAlertDelivery(state, delivered) {
+  return {
+    consecutiveFailureRuns: Number.isSafeInteger(state?.consecutiveFailureRuns)
+      ? state.consecutiveFailureRuns
+      : 0,
+    alertDelivery: delivered ? "delivered" : "rejected",
+  };
+}
+
+export function progressReportingAlertTransition(
+  previousState,
+  progressReportingFailures,
+  threshold = PROGRESS_REPORTING_ALERT_THRESHOLD,
+) {
+  const safeThreshold = Number.isSafeInteger(threshold) && threshold > 0
+    ? threshold
+    : PROGRESS_REPORTING_ALERT_THRESHOLD;
+  const previousRuns = Number.isSafeInteger(previousState?.consecutiveFailureRuns)
+    && previousState.consecutiveFailureRuns > 0
+    ? Math.min(previousState.consecutiveFailureRuns, safeThreshold)
+    : 0;
+  const hasFailures = Number.isSafeInteger(progressReportingFailures)
+    && progressReportingFailures > 0;
+  const consecutiveFailureRuns = hasFailures
+    ? Math.min(previousRuns + 1, safeThreshold)
+    : 0;
+  const shouldAlert = hasFailures
+    && previousRuns < safeThreshold
+    && consecutiveFailureRuns === safeThreshold;
+  const previousDelivery = ["pending", "delivered", "rejected"].includes(
+    previousState?.alertDelivery,
+  )
+    ? previousState.alertDelivery
+    : "not_attempted";
+  const alertDelivery = !hasFailures
+    ? (previousRuns >= safeThreshold ? "recovered" : "not_attempted")
+    : shouldAlert
+      ? "pending"
+      : previousRuns >= safeThreshold
+        ? previousDelivery
+        : "not_attempted";
+
+  return {
+    state: { consecutiveFailureRuns, alertDelivery },
+    shouldAlert,
+  };
+}
+
+export async function recordSharedProgressReportingHealth(
+  store,
+  progressReportingFailures,
+  { key = PROGRESS_REPORTING_STATE_KEY } = {},
+) {
+  for (let attempt = 0; attempt < PROGRESS_REPORTING_STATE_UPDATE_ATTEMPTS; attempt += 1) {
+    const current = await getWithResolvedEtag(store, key, {
+      type: "json",
+    });
+    if (current?.data && !current.etag) {
+      throw new Error("Progress reporting health state cannot be updated safely.");
+    }
+    const transition = progressReportingAlertTransition(
+      current?.data,
+      progressReportingFailures,
+    );
+    const write = await store.setJSON(
+      key,
+      transition.state,
+      current?.etag ? { onlyIfMatch: current.etag } : { onlyIfNew: true },
+    );
+    if (write?.modified === false) continue;
+    return transition;
+  }
+  throw new Error("Progress reporting health state update was contended.");
+}
+
+export async function settleSharedProgressReportingAlertDelivery(
+  store,
+  expectedState,
+  delivered,
+  { key = PROGRESS_REPORTING_STATE_KEY } = {},
+) {
+  for (let attempt = 0; attempt < PROGRESS_REPORTING_STATE_UPDATE_ATTEMPTS; attempt += 1) {
+    const current = await getWithResolvedEtag(store, key, {
+      type: "json",
+    });
+    if (!current?.etag) {
+      throw new Error("Progress reporting alert delivery cannot be updated safely.");
+    }
+    if (
+      current.data?.consecutiveFailureRuns !== expectedState?.consecutiveFailureRuns
+      || current.data?.alertDelivery !== "pending"
+    ) {
+      return current.data;
+    }
+    const state = settleProgressReportingAlertDelivery(current.data, delivered);
+    const write = await store.setJSON(
+      key,
+      state,
+      { onlyIfMatch: current.etag },
+    );
+    if (write?.modified === false) continue;
+    return state;
+  }
+  throw new Error("Progress reporting alert delivery update was contended.");
+}
 
 export function validateMembershipPriceMappings(env = process.env) {
   const configured = MEMBERSHIP_PRICE_MAPPINGS.flatMap(({ product, envKeys }) =>
@@ -40,6 +189,7 @@ export async function auditSubscriptionProducts({
   env = process.env,
   apply = false,
   now = () => new Date().toISOString(),
+  onUpdateProgress = () => {},
 }) {
   const report = {
     auditedAt: now(),
@@ -47,6 +197,7 @@ export async function auditSubscriptionProducts({
     activeSubscriptions: 0,
     identified: 0,
     updated: 0,
+    progressReportingFailures: 0,
     ambiguous: [],
   };
 
@@ -71,6 +222,12 @@ export async function auditSubscriptionProducts({
           metadata: { ...metadata, product: decision.product, capability: decision.product },
         });
         report.updated += 1;
+        try {
+          await onUpdateProgress({ updated: report.updated });
+        } catch {
+          report.progressReportingFailures += 1;
+          // Progress reporting must not change the outcome of a completed Stripe write.
+        }
       }
     }
   }

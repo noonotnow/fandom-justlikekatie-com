@@ -1,6 +1,8 @@
 import assert from 'node:assert/strict';
 import { test } from 'node:test';
 import {
+  gotoTestPage,
+  BROWSER_ENGINES,
   closeBrowserAndServer,
   launchPageForServer,
   startViteTestServer,
@@ -36,6 +38,581 @@ async function startApp() {
   return startViteTestServer();
 }
 
+test('an expired MemeForge session returns generation to sign-in without removing local saves', { timeout: 60_000 }, async () => {
+  const { server, origin } = await startApp();
+  const { browser, page } = await launchPageForServer(server);
+  let sessionActive = true;
+
+  try {
+    await page.route('**/api/auth/session', route => route.fulfill({
+      status: sessionActive ? 200 : 401,
+      contentType: 'application/json',
+      body: JSON.stringify(sessionActive
+        ? { user: { accountId: 'expiring-member', email: 'member@example.test', isAdmin: false } }
+        : { error: 'Unauthorized' }),
+    }));
+    await page.route('**/api/middle-earth-ai', route => {
+      sessionActive = false;
+      return route.fulfill({
+        status: 401,
+        contentType: 'application/json',
+        body: JSON.stringify({ error: 'Your session expired. Sign in again.' }),
+      });
+    });
+
+    await gotoTestPage(page, `${origin}/memeforge/middle-earth`);
+    await page.getByRole('button', { name: /^01 Keep original/ }).click();
+    await page.locator('#existing-meme-upload').setInputFiles({
+      name: 'saved-before-session-expiry.png',
+      mimeType: 'image/png',
+      buffer: onePixelPng,
+    });
+    await page.getByRole('button', { name: 'Save to Collection' }).click();
+    await page.getByRole('button', { name: 'Saved to Collection' }).waitFor();
+
+    await page.getByRole('button', { name: /^03 Make reaction card/ }).click();
+    await page.getByLabel('The moment').fill('The fellowship missed the session timeout');
+    await page.getByRole('button', { name: 'Translate moment' }).click();
+    await page.getByRole('status').getByText('Your session expired. Sign in again.').waitFor();
+    await page.getByRole('link', { name: 'Sign in to translate' }).waitFor();
+    await page.getByRole('link', { name: 'Sign in to generate' }).waitFor();
+
+    const savedRecords = await page.evaluate(async () => new Promise<Record<string, unknown>[]>((resolve, reject) => {
+      const request = indexedDB.open('vibe-atlas-collection', 3);
+      request.onerror = () => reject(request.error);
+      request.onsuccess = () => {
+        const cardsRequest = request.result.transaction('cards', 'readonly').objectStore('cards').getAll();
+        cardsRequest.onerror = () => reject(cardsRequest.error);
+        cardsRequest.onsuccess = () => resolve(cardsRequest.result as Record<string, unknown>[]);
+      };
+    }));
+    assert.equal(
+      savedRecords.some(record => String(record.title || '').includes('saved-before-session-expiry')),
+      true,
+      'refreshing expired session state must preserve local Collection records',
+    );
+  } finally {
+    await closeBrowserAndServer(browser, server);
+  }
+});
+
+for (const engine of BROWSER_ENGINES) {
+test(`an expired Rednote Spellbook session returns copy generation to sign-in without losing edits or local saves in ${engine.name}`, { timeout: 90_000 }, async () => {
+  const { server, origin } = await startApp();
+  const { browser, page } = await launchPageForServer(server, engine.type);
+  let sessionActive = true;
+  let sessionChecks = 0;
+
+  try {
+    await page.route('**/api/auth/session', route => {
+      sessionChecks += 1;
+      return route.fulfill({
+        status: sessionActive ? 200 : 401,
+        contentType: 'application/json',
+        body: JSON.stringify(sessionActive
+          ? { user: { accountId: 'spellbook-member', email: 'member@example.test', isAdmin: false } }
+          : { error: 'Unauthorized' }),
+      });
+    });
+    await page.route('**/api/middle-earth-ai', route => {
+      const { mode } = route.request().postDataJSON() as { mode: string };
+      if (mode === 'rednote') {
+        sessionActive = false;
+        return route.fulfill({
+          status: 401,
+          contentType: 'application/json',
+          body: JSON.stringify({ error: 'Your session expired. Sign in again.' }),
+        });
+      }
+      if (mode === 'translation') {
+        return route.fulfill({
+          contentType: 'application/json',
+          body: JSON.stringify({ result: {
+            translatedMoment: 'A small task becomes a quest.',
+            scene: 'Sam helps Frodo.',
+            character: 'Samwise',
+            memeFlavor: 'Samwise Loyalty',
+            comicMechanism: 'Responsibility inflation',
+            aesthetic: 'Cozy Hobbiton',
+            artifactType: 'Meme card',
+            tone: 'Deadpan',
+            visualDirection: 'A friend takes on a burden.',
+            referenceStillFamily: 'sam-carrying-frodo',
+            cardText: { format: 'Reaction Card', line1: 'WHEN THE TASK BECOMES A QUEST', line2: 'ME: I NEED SECOND BREAKFAST.', footer: 'Friday fellowship' },
+            reactionImageBrief: {
+              socialUseQuery: 'Sam carrying Frodo reaction still Lord of the Rings',
+              characterEmotionQueries: [],
+              iconicSceneQueries: [],
+              broadFallbackQueries: [],
+              performedEmotion: ['patient support'],
+              visualRole: 'Sam carries the burden.',
+            },
+          } }),
+        });
+      }
+      assert.equal(mode, 'visual');
+      return route.fulfill({
+        contentType: 'application/json',
+        body: JSON.stringify({ result: {
+          title: 'Friday fellowship',
+          primaryText: 'WHEN THE TASK BECOMES A QUEST',
+          secondaryText: 'ME: I NEED SECOND BREAKFAST.',
+          cardFormat: 'Reaction Card',
+          cardText: { format: 'Reaction Card', line1: 'WHEN THE TASK BECOMES A QUEST', line2: 'ME: I NEED SECOND BREAKFAST.', footer: 'Friday fellowship' },
+          layout: 'Editorial caption',
+        } }),
+      });
+    });
+    await page.route(
+      url => new URL(url).pathname === '/.netlify/functions/middle-earth-search',
+      route => route.fulfill({
+        contentType: 'application/json',
+        body: JSON.stringify({
+          query: 'Sam carrying Frodo reaction still Lord of the Rings',
+          provider: 'google',
+          results: [selectedSource],
+        }),
+      }),
+    );
+    await page.route(
+      url => new URL(url).pathname === '/.netlify/functions/image-proxy',
+      route => route.fulfill({ contentType: 'image/gif', body: onePixelGif }),
+    );
+
+    await gotoTestPage(page, `${origin}/memeforge/middle-earth`);
+    await page.getByRole('button', { name: /^01 Keep original/ }).click();
+    await page.locator('#existing-meme-upload').setInputFiles({
+      name: 'saved-before-spellbook-expiry.png',
+      mimeType: 'image/png',
+      buffer: onePixelPng,
+    });
+    await page.getByRole('button', { name: 'Save to Collection' }).click();
+    await page.getByRole('button', { name: 'Saved to Collection' }).waitFor();
+
+    await page.getByRole('button', { name: /^03 Make reaction card/ }).click();
+    await page.getByLabel('The moment').fill('The fellowship missed the deadline');
+    await page.getByRole('button', { name: 'Translate moment' }).click();
+    await page.getByText('A small task becomes a quest.').waitFor();
+    await page.getByRole('button', { name: 'Forge card' }).click();
+    await page.getByText('Visual object generated').waitFor();
+    await page.getByLabel('Setup line').fill('MY EDITED VISUAL SETUP');
+    await page.getByRole('button', { name: /^2\. Rednote Spellbook/ }).click();
+    await page.getByLabel('Rednote title').fill('My unfinished title');
+    await page.getByRole('button', { name: 'Generate copy' }).click();
+    await page.getByRole('status').getByText('Your session expired. Sign in again.').waitFor();
+    await page.getByRole('link', { name: 'Sign in to generate' }).waitFor();
+    assert.ok(sessionChecks >= 2, 'the 401 must trigger a public session refresh');
+    assert.equal(await page.getByRole('button', { name: 'Generate copy' }).count(), 0, 'copy generation must not remain available');
+    assert.equal(await page.getByLabel('Rednote title').inputValue(), 'My unfinished title');
+    await page.getByRole('button', { name: /^1\. MemeForge/ }).click();
+    assert.equal(await page.getByLabel('Setup line').inputValue(), 'MY EDITED VISUAL SETUP');
+    await page.getByRole('button', { name: /^2\. Rednote Spellbook/ }).click();
+    assert.equal(await page.getByText('Generate the visual object in step 1 before using Spellbook.').count(), 0);
+
+    const savedRecords = await page.evaluate(async () => new Promise<Record<string, unknown>[]>((resolve, reject) => {
+      const request = indexedDB.open('vibe-atlas-collection', 3);
+      request.onerror = () => reject(request.error);
+      request.onsuccess = () => {
+        const cardsRequest = request.result.transaction('cards', 'readonly').objectStore('cards').getAll();
+        cardsRequest.onerror = () => reject(cardsRequest.error);
+        cardsRequest.onsuccess = () => resolve(cardsRequest.result as Record<string, unknown>[]);
+      };
+    }));
+    assert.equal(savedRecords.some(record => String(record.title || '').includes('saved-before-spellbook-expiry')), true);
+  } finally {
+    await closeBrowserAndServer(browser, server);
+  }
+});
+}
+
+for (const engine of BROWSER_ENGINES) {
+  test(`an expired visual request keeps the translated draft and local Collection save in ${engine.name}`, { timeout: 90_000 }, async () => {
+    const { server, origin } = await startApp();
+    const { browser, page } = await launchPageForServer(server, engine.type);
+    let sessionActive = true;
+    const aiModes: string[] = [];
+
+    try {
+      await page.route('**/api/auth/session', route => route.fulfill({
+        status: sessionActive ? 200 : 401,
+        contentType: 'application/json',
+        body: JSON.stringify(sessionActive
+          ? { user: { accountId: `expiring-visual-${engine.id}`, email: 'member@example.test', isAdmin: false } }
+          : { error: 'Unauthorized' }),
+      }));
+      await page.route('**/api/middle-earth-ai', route => {
+        const { mode } = route.request().postDataJSON() as { mode: string };
+        aiModes.push(mode);
+        if (mode === 'translation') {
+          return route.fulfill({
+            contentType: 'application/json',
+            body: JSON.stringify({
+              result: {
+                translatedMoment: 'Carrying a small work task until it becomes a quest.',
+                scene: 'Sam quietly takes the impossible item from a tired friend.',
+                character: 'Samwise',
+                memeFlavor: 'Samwise Loyalty',
+                comicMechanism: 'Responsibility inflation',
+                aesthetic: 'Cozy Hobbiton',
+                artifactType: 'Meme card',
+                tone: 'Deadpan',
+                visualDirection: 'A faithful friend carrying the whole plan without complaint.',
+                referenceStillFamily: 'sam-carrying-frodo',
+                cardText: {
+                  format: 'Reaction Card',
+                  line1: 'WHEN THE TASK BECOMES A QUEST',
+                  line2: 'ME: I NEED SECOND BREAKFAST.',
+                  footer: 'Friday fellowship',
+                },
+                reactionImageBrief: {
+                  socialUseQuery: 'Sam carrying Frodo reaction still Lord of the Rings',
+                  characterEmotionQueries: [],
+                  iconicSceneQueries: [],
+                  broadFallbackQueries: [],
+                  performedEmotion: ['patient support'],
+                  visualRole: 'Sam carries the burden.',
+                },
+                model: 'grok-test',
+              },
+            }),
+          });
+        }
+        if (mode === 'visual') {
+          sessionActive = false;
+          return route.fulfill({
+            status: 401,
+            contentType: 'application/json',
+            body: JSON.stringify({ error: 'Your session expired. Sign in again.' }),
+          });
+        }
+        throw new Error(`Unexpected MemeForge mode: ${mode}`);
+      });
+      await page.route(
+        url => new URL(url).pathname === '/.netlify/functions/middle-earth-search',
+        route => route.fulfill({
+          contentType: 'application/json',
+          body: JSON.stringify({
+            query: 'Sam carrying Frodo reaction still Lord of the Rings',
+            provider: 'google',
+            results: [selectedSource],
+          }),
+        }),
+      );
+      await page.route(
+        url => new URL(url).pathname === '/.netlify/functions/image-proxy',
+        route => route.fulfill({ contentType: 'image/gif', body: onePixelGif }),
+      );
+
+      await gotoTestPage(page, `${origin}/memeforge/middle-earth`);
+      await page.getByRole('button', { name: /^01 Keep original/ }).click();
+      await page.locator('#existing-meme-upload').setInputFiles({
+        name: `saved-before-visual-expiry-${engine.id}.png`,
+        mimeType: 'image/png',
+        buffer: onePixelPng,
+      });
+      await page.getByRole('button', { name: 'Save to Collection' }).click();
+      await page.getByRole('button', { name: 'Saved to Collection' }).waitFor();
+
+      await page.getByRole('button', { name: /^03 Make reaction card/ }).click();
+      await page.getByLabel('The moment').fill('Not wanting to go to work on Friday');
+      await page.getByRole('button', { name: 'Translate moment' }).click();
+      await page.getByText('Carrying a small work task until it becomes a quest.').waitFor();
+      await page.getByRole('button', { name: 'Forge card' }).click();
+      await page.getByRole('status').getByText('Your session expired. Sign in again.').waitFor();
+      await page.getByRole('link', { name: 'Sign in to translate' }).waitFor();
+      await page.getByRole('link', { name: 'Sign in to generate' }).waitFor();
+      assert.deepEqual(aiModes, ['translation', 'visual'], `${engine.name} must expire on visual generation, not translation`);
+      assert.equal(await page.getByLabel('The moment').inputValue(), 'Not wanting to go to work on Friday');
+      assert.equal(await page.getByLabel('Setup line').inputValue(), 'WHEN THE TASK BECOMES A QUEST');
+      assert.equal(await page.getByLabel('Punchline / reaction line').inputValue(), 'ME: I NEED SECOND BREAKFAST.');
+      await page.getByText('Carrying a small work task until it becomes a quest.').waitFor();
+      assert.equal(await page.getByRole('button', { name: 'Forge card' }).count(), 0);
+
+      const savedRecords = await page.evaluate(async () => new Promise<Record<string, unknown>[]>((resolve, reject) => {
+        const request = indexedDB.open('vibe-atlas-collection', 3);
+        request.onerror = () => reject(request.error);
+        request.onsuccess = () => {
+          const cardsRequest = request.result.transaction('cards', 'readonly').objectStore('cards').getAll();
+          cardsRequest.onerror = () => reject(cardsRequest.error);
+          cardsRequest.onsuccess = () => resolve(cardsRequest.result as Record<string, unknown>[]);
+        };
+      }));
+      assert.equal(
+        savedRecords.some(record => String(record.title || '').includes(`saved-before-visual-expiry-${engine.id}`)),
+        true,
+        `${engine.name} must preserve local Collection records after visual generation expires`,
+      );
+    } finally {
+      await closeBrowserAndServer(browser, server);
+    }
+  });
+}
+
+for (const engine of BROWSER_ENGINES) {
+  test(`a signed-in non-admin keeps generated MemeForge cards local in ${engine.name}`, { timeout: 90_000 }, async () => {
+    const { server, origin } = await startApp();
+    const { browser, page } = await launchPageForServer(server, engine.type);
+    let collectionMediaRequests = 0;
+    let collectionSyncRequests = 0;
+
+    try {
+      await page.route('**/api/auth/session', route => route.fulfill({
+        contentType: 'application/json',
+        body: JSON.stringify({
+          user: {
+            accountId: `test-member-${engine.id}`,
+            email: 'member@example.test',
+            isAdmin: false,
+          },
+        }),
+      }));
+      await page.route('**/api/membership/status', route => route.fulfill({
+        contentType: 'application/json',
+        body: JSON.stringify({ state: 'active', capabilities: ['fandom_collector'] }),
+      }));
+      await page.route('**/api/collection/media?*', route => {
+        collectionMediaRequests += 1;
+        return route.fulfill({ status: 403, contentType: 'application/json', body: JSON.stringify({ error: 'Forbidden' }) });
+      });
+      await page.route('**/api/collection/sync', route => {
+        collectionSyncRequests += 1;
+        return route.fulfill({
+          contentType: 'application/json',
+          body: JSON.stringify({
+            cursor: 0,
+            items: [],
+            tombstones: [],
+            mappings: {},
+            acknowledgedMutationIds: [],
+          }),
+        });
+      });
+      await page.route('**/api/middle-earth-ai', route => {
+        const request = route.request().postDataJSON() as Record<string, unknown>;
+        if (request.mode === 'translation') {
+          return route.fulfill({
+            contentType: 'application/json',
+            body: JSON.stringify({
+              result: {
+                translatedMoment: 'Carrying a small work task until it becomes a quest.',
+                scene: 'Sam quietly takes the impossible item from a tired friend.',
+                character: 'Samwise',
+                memeFlavor: 'Samwise Loyalty',
+                comicMechanism: 'Responsibility inflation',
+                aesthetic: 'Cozy Hobbiton',
+                artifactType: 'Meme card',
+                tone: 'Deadpan',
+                visualDirection: 'A faithful friend carrying the whole plan without complaint.',
+                referenceStillFamily: 'sam-carrying-frodo',
+                cardText: {
+                  format: 'Reaction Card',
+                  line1: 'WHEN THE TASK BECOMES A QUEST',
+                  line2: 'ME: I NEED SECOND BREAKFAST.',
+                  footer: 'Friday fellowship',
+                },
+                reactionImageBrief: {
+                  socialUseQuery: 'Sam carrying Frodo reaction still Lord of the Rings',
+                  characterEmotionQueries: [],
+                  iconicSceneQueries: [],
+                  broadFallbackQueries: [],
+                  performedEmotion: ['patient support'],
+                  visualRole: 'Sam carries the burden.',
+                },
+                model: 'grok-test',
+              },
+            }),
+          });
+        }
+        if (request.mode === 'visual') {
+          return route.fulfill({
+            contentType: 'application/json',
+            body: JSON.stringify({
+              result: {
+                title: 'Friday fellowship',
+                primaryText: 'WHEN THE TASK BECOMES A QUEST',
+                secondaryText: 'ME: I NEED SECOND BREAKFAST.',
+                cardFormat: 'Reaction Card',
+                comicMechanism: 'Responsibility inflation',
+                cardText: {
+                  format: 'Reaction Card',
+                  line1: 'WHEN THE TASK BECOMES A QUEST',
+                  line2: 'ME: I NEED SECOND BREAKFAST.',
+                  footer: 'Friday fellowship',
+                },
+                layout: 'Editorial caption',
+                rationale: 'The grounded still leaves room for the reaction.',
+                translation: {
+                  scene: 'A small task becomes an epic detour.',
+                  archetype: 'Unexpected Journey',
+                  vibe: 'Dry workplace humor',
+                },
+                model: 'grok-test',
+              },
+            }),
+          });
+        }
+        throw new Error(`Unexpected MemeForge mode: ${String(request.mode)}`);
+      });
+      await page.route(
+        url => new URL(url).pathname === '/.netlify/functions/middle-earth-search',
+        route => route.fulfill({
+          contentType: 'application/json',
+          body: JSON.stringify({
+            query: 'Sam carrying Frodo reaction still Lord of the Rings',
+            provider: 'google',
+            results: [selectedSource],
+          }),
+        }),
+      );
+      await page.route(
+        url => new URL(url).pathname === '/.netlify/functions/image-proxy',
+        route => route.fulfill({ contentType: 'image/gif', body: onePixelGif }),
+      );
+
+      await gotoTestPage(page, `${origin}/memeforge/middle-earth`);
+      await page.getByRole('button', { name: /^03 Make reaction card/ }).click();
+      await page.getByLabel('The moment').fill('Not wanting to go to work on Friday');
+      await page.getByRole('button', { name: 'Translate moment' }).click();
+      await page.getByText('Carrying a small work task until it becomes a quest.').waitFor();
+      await page.getByRole('button', { name: 'Forge card' }).click();
+      await page.getByText('Visual object generated').waitFor();
+      await page.getByRole('button', { name: 'Save reaction card' }).click();
+      await page.getByRole('button', { name: 'Saved to Collection' }).waitFor();
+      await page.getByText(/Reaction card saved to the Middle-earth Collection on this device/i).waitFor();
+
+      await gotoTestPage(page, `${origin}/memeforge/middle-earth`);
+      await page.getByRole('button', { name: /^02 Rework meme/ }).click();
+      await page.locator('#existing-meme-upload').setInputFiles({
+        name: `local-rework-${engine.id}.png`,
+        mimeType: 'image/png',
+        buffer: onePixelPng,
+      });
+      await page.getByText(/is ready\. Save the original now/).waitFor();
+      await page.getByLabel('Joke line 1').fill('YOU SHALL NOT PASS THIS DEADLINE');
+      await page.getByRole('button', { name: 'Save linked rework' }).click();
+      await page.getByRole('button', { name: 'Saved to Collection' }).waitFor();
+      await page.getByText(/Reworked derivative and its untouched original were saved on this device/i).waitFor();
+
+      assert.equal(collectionMediaRequests, 0, `${engine.name} must not register generated MemeForge MEDIA`);
+      assert.equal(collectionSyncRequests, 0, `${engine.name} must not sync generated MemeForge cards`);
+
+      await page.getByRole('link', { name: 'Open Collection' }).click();
+      await page.getByRole('heading', { name: 'Middle-earth Collection' }).waitFor();
+      await page.getByText(new RegExp(`local-rework-${engine.id}`)).first().waitFor();
+      assert.equal(await page.getByRole('button', { name: 'Merge and sync' }).count(), 0);
+      assert.equal(await page.getByRole('button', { name: 'Keep separate' }).count(), 0);
+      assert.equal(collectionMediaRequests, 0, `${engine.name} Collection must not register generated MemeForge MEDIA`);
+      assert.equal(collectionSyncRequests, 0, `${engine.name} Collection must not sync generated MemeForge cards`);
+    } finally {
+      await closeBrowserAndServer(browser, server);
+    }
+  });
+}
+
+test('a signed-in non-admin keeps MemeForge saves and exports local without cloud controls', { timeout: 60_000 }, async () => {
+  const { server, origin } = await startApp();
+  const { browser, page } = await launchPageForServer(server);
+  let collectionMediaRequests = 0;
+  const collectionSyncRequests: Array<Record<string, unknown>> = [];
+
+  try {
+    await page.route('**/api/auth/session', route => route.fulfill({
+      contentType: 'application/json',
+      body: JSON.stringify({
+        user: {
+          accountId: 'test-member',
+          email: 'member@example.test',
+          isAdmin: false,
+        },
+      }),
+    }));
+    await page.route('**/api/collection/media?*', route => {
+      collectionMediaRequests += 1;
+      return route.fulfill({ status: 403, contentType: 'application/json', body: JSON.stringify({ error: 'Forbidden' }) });
+    });
+    await page.route('**/api/collection/sync', route => {
+      const request = route.request().postDataJSON() as Record<string, unknown>;
+      collectionSyncRequests.push(request);
+      return route.fulfill({
+        contentType: 'application/json',
+        body: JSON.stringify({
+          cursor: 0,
+          items: [],
+          tombstones: [],
+          mappings: {},
+          acknowledgedMutationIds: [],
+        }),
+      });
+    });
+
+      await gotoTestPage(page, `${origin}/memeforge/middle-earth`);
+    await page.getByRole('button', { name: /^01 Keep original/ }).click();
+    await page.locator('#existing-meme-upload').setInputFiles({
+      name: 'local-fellowship.png',
+      mimeType: 'image/png',
+      buffer: onePixelPng,
+    });
+    await page.getByText('is ready. The editor is bypassed').waitFor();
+
+    const downloadPromise = page.waitForEvent('download');
+    await page.getByRole('button', { name: 'Export original' }).click();
+    assert.equal((await downloadPromise).suggestedFilename(), 'local-fellowship.png');
+
+    await page.getByRole('button', { name: 'Save to Collection' }).click();
+    await page.getByRole('button', { name: 'Saved to Collection' }).waitFor();
+    await page.getByText(/saved to the Middle-earth Collection on this device/i).waitFor();
+    await page.getByRole('link', { name: 'Open Collection' }).click();
+
+    await page.getByRole('heading', { name: 'Middle-earth Collection' }).waitFor();
+    await page.getByText(/local-fellowship/).first().waitFor();
+    assert.equal(await page.getByRole('button', { name: 'Merge and sync' }).count(), 0);
+    assert.equal(await page.getByRole('button', { name: 'Keep separate' }).count(), 0);
+    assert.equal(collectionMediaRequests, 0, 'a non-admin local save must not register MEDIA');
+    assert.equal(collectionSyncRequests.length, 0, 'a non-admin local save must not call collection sync');
+
+    await page.evaluate(async accountId => {
+      const request = indexedDB.open('vibe-atlas-collection', 3);
+      const db = await new Promise<IDBDatabase>((resolve, reject) => {
+        request.onsuccess = () => resolve(request.result);
+        request.onerror = () => reject(request.error);
+      });
+      const transaction = db.transaction('sync', 'readwrite');
+      const store = transaction.objectStore('sync');
+      const state = await new Promise<Record<string, unknown>>((resolve, reject) => {
+        const read = store.get('state');
+        read.onsuccess = () => resolve(read.result);
+        read.onerror = () => reject(read.error);
+      });
+      state.mergeDecisions = { [accountId]: true };
+      store.put(state);
+      await new Promise<void>((resolve, reject) => {
+        transaction.oncomplete = () => resolve();
+        transaction.onerror = () => reject(transaction.error);
+      });
+    }, 'test-member');
+    await page.route('**/api/membership/status', route => route.fulfill({
+      contentType: 'application/json',
+      body: JSON.stringify({ state: 'active', capabilities: ['fandom_collector'] }),
+    }));
+    await gotoTestPage(page, `${origin}/vibe-atlas?view=collection`);
+    await page.getByRole('heading', { name: 'Your Collection' }).waitFor();
+    await page.waitForTimeout(250);
+    const syncedOperations = collectionSyncRequests.flatMap(request =>
+      request.operations as Array<{ item?: { collectionScope?: string; contentKind?: string } }>,
+    );
+    assert.equal(
+      syncedOperations.some(operation =>
+        operation.item?.collectionScope === 'middle-earth'
+        || operation.item?.contentKind === 'middle-earth-meme'),
+      false,
+      'ordinary Collector sync must exclude locally saved MemeForge records',
+    );
+    assert.equal(collectionMediaRequests, 0, 'ordinary Collector sync must not register MemeForge media');
+  } finally {
+    await closeBrowserAndServer(browser, server);
+  }
+});
+
 test('a signed-in creator can translate, swap reaction stills, export, and preserve provenance', { timeout: 60_000 }, async () => {
   const { server, origin } = await startApp();
   const { browser, page } = await launchPageForServer(server);
@@ -57,6 +634,13 @@ test('a signed-in creator can translate, swap reaction stills, export, and prese
         }),
       });
     });
+    await page.route('**/api/membership/status', route => route.fulfill({
+      contentType: 'application/json',
+      body: JSON.stringify({
+        state: 'active',
+        capabilities: ['fandom_collector'],
+      }),
+    }));
     await page.route('**/api/middle-earth-ai', async route => {
       const request = route.request().postDataJSON() as Record<string, unknown>;
       if (request.mode === 'translation') {
@@ -220,7 +804,7 @@ test('a signed-in creator can translate, swap reaction stills, export, and prese
       });
     });
 
-    await page.goto(`${origin}/memeforge/middle-earth`);
+    await gotoTestPage(page, `${origin}/memeforge/middle-earth`);
     const newImagePath = page.getByRole('button', { name: /^03 Make reaction card/ });
     const reworkPath = page.getByRole('button', { name: /^02 Rework meme/ });
     const unchangedPath = page.getByRole('button', { name: /^01 Keep original/ });
@@ -352,7 +936,7 @@ test('a signed-in creator can translate, swap reaction stills, export, and prese
       'collection sync must never receive the embedded base64 image',
     );
 
-    await page.goto(`${origin}/memeforge/middle-earth`);
+    await gotoTestPage(page, `${origin}/memeforge/middle-earth`);
     await reworkPath.waitFor();
     await reworkPath.click();
     await page.getByRole('heading', { name: 'Want help with a new joke?' }).waitFor();
@@ -383,7 +967,7 @@ test('a signed-in creator can translate, swap reaction stills, export, and prese
       'a manual rework should register the rendered result separately from its original source',
     );
 
-    await page.goto(`${origin}/memeforge/middle-earth`);
+    await gotoTestPage(page, `${origin}/memeforge/middle-earth`);
     await newImagePath.waitFor();
     await newImagePath.click();
     await page.getByLabel('The moment').fill('Not wanting to go to work on Friday');
