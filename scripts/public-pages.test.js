@@ -701,6 +701,10 @@ test("Against the Current follow-ups keep their reviewed episode boundaries and 
     assert.ok(route, `${path} must be registered`);
     assertCanonicalMatchesRoute(html, route);
     assert.match(html, new RegExp(`data-source-page="${source}"`));
+    assert.match(read("public/c-drama-fandom/editorial.js"), new RegExp(`"${source}"`));
+    for (const [, section] of html.matchAll(/data-section-id="([^"]+)"/g)) {
+      assert.match(read("public/c-drama-fandom/editorial.js"), new RegExp(`"${section}"`));
+    }
     assert.match(html, new RegExp(`stops at the end of Episode ${boundary}`));
     assert.match(html, /Source-reviewed September 28, 2026/);
     assert.match(html, /<script defer src="\/c-drama-fandom\/editorial\.js"><\/script>/);
