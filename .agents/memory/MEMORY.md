@@ -32,6 +32,7 @@
 - [Xianxia decoder joke engine](xianxia-decoder-voice.md) — veteran lines explain the absurd narrative necessity behind events; never stop at naming or predicting the trope.
 - [Field Journal spoiler integrity](field-journal-spoiler-integrity.md) — filed watch boundaries govern verdicts, linked evidence, and all reader-safe delivery; fail closed on uncertainty.
 - [Vibing Now discussion publication](vibing-discussion-publication.md) — public replies derive from approved records in one private archive; new episode threads need separate editorial activation.
+- [Vibing Now episode boundaries](vibing-episode-boundaries.md) — editorial approval does not replace a claim-by-claim watch-note check against the article's stated episode limit.
 - [Capability-link analytics](capability-link-analytics.md) — remove public capability values from browser URLs before trackers initialize; canonicalize pageview and event locations.
 - [Vibe Atlas public positioning](vibe-atlas-public-positioning.md) — daily-drop messaging is funnel-wide; audit crawlable guides and regenerate derived previews when it changes.
 - [Daily Drop grid curation contract](grid-curation-contract.md) — Event is a bounded, evidence-backed exception that must beat a competitive Compiled board on scored evidence.
