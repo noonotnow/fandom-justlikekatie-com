@@ -6,6 +6,43 @@
   "rightsReviewed": true,
   "spoilerReviewed": true,
   "checkedAt": "2026-09-28T12:16:32Z",
+  "regionGuidance": [
+    {
+      "name": "United States",
+      "status": "verified",
+      "note": "The US Viki listing below distinguishes free Episodes 1–6 from Viki Pass episodes. Check the current episode tile and subtitle track before subscribing.",
+      "sourceUrl": "https://www.viki.com/tv/41705c-against-the-current?locale=en",
+      "checkedAt": "2026-09-28T12:16:32Z"
+    },
+    {
+      "name": "United Kingdom",
+      "status": "unverified",
+      "note": "No UK-specific playback, access tier, episode range or English-subtitle availability was established. Open the official Viki or WeTV listing from the UK to check.",
+      "sourceUrl": "https://www.viki.com/tv/41705c-against-the-current?locale=en",
+      "checkedAt": "2026-09-28T12:16:32Z"
+    },
+    {
+      "name": "Australia",
+      "status": "unverified",
+      "note": "No Australia-specific playback, access tier, episode range or English-subtitle availability was established. Open the official Viki or WeTV listing from Australia to check.",
+      "sourceUrl": "https://wetv.vip/en/play/94jt6sxiwsjw5n6",
+      "checkedAt": "2026-09-28T12:16:32Z"
+    },
+    {
+      "name": "Europe (country by country)",
+      "status": "unverified",
+      "note": "Europe is not one streaming-rights territory. No country-wide or Europe-wide access claim is verified here. Check the official Viki or WeTV listing in your own country.",
+      "sourceUrl": "https://www.viki.com/tv/41705c-against-the-current?locale=en",
+      "checkedAt": "2026-09-28T12:16:32Z"
+    },
+    {
+      "name": "Mainland China",
+      "status": "unverified",
+      "note": "The title is listed on Tencent Video, but mainland playback, episode range, subscription terms and English subtitles were not independently established. Check the official listing locally.",
+      "sourceUrl": "https://v.qq.com/x/cover/mzc00200803dr6b.html",
+      "checkedAt": "2026-09-28T12:16:32Z"
+    }
+  ],
   "platforms": [
     {
       "name": "Viki · free episodes",

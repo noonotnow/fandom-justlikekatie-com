@@ -20,6 +20,7 @@ import { PUBLIC_ORIGIN, PUBLIC_STATIC_ROUTES } from "../netlify/functions/lib/pu
 import { PUBLIC_ROUTE_PATHS, publicStaticPreviewRoutes } from "../shared/public-routes.js";
 import { createPublicSitemapHandler } from "../netlify/functions/public-sitemap.js";
 import { manifestStore, publicManifest } from "../netlify/functions/public-test-fixture.js";
+import { PUBLICATION_RELEASE_DATES_KEY } from "../netlify/functions/lib/publication-manifest.js";
 
 const root = resolve(dirname(fileURLToPath(import.meta.url)), "..");
 
@@ -503,6 +504,59 @@ test("generated and production sitemaps preserve every crawlable static route", 
   }
 });
 
+test("sitemap detects a released date removed from a syntactically valid catalog", async () => {
+  const release = publicManifest();
+  const store = manifestStore([release]);
+  const released = {
+    schemaVersion: 1,
+    kind: "vibe-atlas-released-dates",
+    verifiedBaseline: true,
+    dates: [release.publicationDate],
+  };
+  let catalogDates = [release.publicationDate];
+  const publicationStore = {
+    get: (key, options) => key === PUBLICATION_RELEASE_DATES_KEY
+      ? released
+      : key.includes("grid-manifest-catalog")
+        ? Promise.resolve({
+          schemaVersion: 1, catalogVersion: "v1",
+          kind: "vibe-atlas-publication-manifest-catalog", dates: catalogDates,
+        })
+        : store.get(key, options),
+    list: () => ({ blobs: [] }), // Listing may lag or be empty independently of the catalog.
+  };
+  const handler = createPublicSitemapHandler({
+    getStore: () => publicationStore,
+    buildReleaseCatalog: async () => ({ complete: true, packs: [] }),
+  });
+  const request = new Request(`${PUBLIC_ORIGIN}/sitemap.xml`);
+  let result = await handler(request, {});
+  assert.equal(result.headers["X-Public-Sitemap-Inventory"], "complete");
+  catalogDates = [];
+  result = await handler(request, {});
+  assert.equal(result.headers["X-Public-Sitemap-Inventory"], "publication-history-mismatch");
+  assert.doesNotMatch(result.body, /\/vibe-atlas\/editions\//);
+  catalogDates = [release.publicationDate];
+  result = await handler(request, {});
+  assert.equal(result.headers["X-Public-Sitemap-Inventory"], "complete");
+});
+
+test("a verified release history must cover every catalog date", async () => {
+  const store = manifestStore([publicManifest()]);
+  const handler = createPublicSitemapHandler({
+    getStore: () => ({
+      ...store,
+      get: (key, options) => key.includes("grid-release-dates")
+        ? { schemaVersion: 1, kind: "vibe-atlas-released-dates",
+          verifiedBaseline: true, dates: [] }
+        : store.get(key, options),
+    }),
+    buildReleaseCatalog: async () => ({ complete: true, packs: [] }),
+  });
+  const result = await handler(new Request(`${PUBLIC_ORIGIN}/sitemap.xml`), {});
+  assert.equal(result.headers["X-Public-Sitemap-Inventory"], "release-history-unavailable");
+});
+
 test("the fandom-literacy pages answer independently and continue honestly into Atlas", () => {
   const literacyPages = [
     ["cp", /What does CP mean in C-drama fandom\?/i],
@@ -804,6 +858,19 @@ test("the C-drama guide makes the Watch Journal discoverable", () => {
     /<a href="\/c-drama-fandom\/watch-journal\/">Open the Watch Journal →<\/a>/,
     "the guide exploration rail must link to the Watch Journal",
   );
+});
+
+test("the where-to-watch guide is crawlable from the hub without implying worldwide access", () => {
+  const route = "/c-drama-fandom/where-to-watch/against-the-current/";
+  const guide = read("public/c-drama-fandom/index.html");
+  const html = read("public/c-drama-fandom/where-to-watch/against-the-current/index.html");
+  assert.match(guide, /href="\/c-drama-fandom\/where-to-watch\/against-the-current\/"/);
+  assert.equal(PUBLIC_STATIC_ROUTES.filter((entry) => entry.path === route).length, 1);
+  assert.match(read("netlify.toml"), /from = "\/c-drama-fandom\/where-to-watch\/against-the-current"\s+to = "\/c-drama-fandom\/where-to-watch\/against-the-current\/index\.html"/);
+  assert.match(read("public/sitemap.xml"), /<loc>https:\/\/fandom\.justlikekatie\.com\/c-drama-fandom\/where-to-watch\/against-the-current\/<\/loc>/);
+  assert.match(html, /rel="canonical" href="https:\/\/fandom\.justlikekatie\.com\/c-drama-fandom\/where-to-watch\/against-the-current\/"/);
+  assert.match(html, /United Kingdom — availability not verified/);
+  assert.match(html, /Mainland China — availability not verified/);
 });
 
 test("the field journal source persists a strict boundary and fetches no unfiltered payload", () => {

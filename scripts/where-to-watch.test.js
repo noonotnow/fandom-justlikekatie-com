@@ -10,6 +10,12 @@ const fixture = () => ({
   slug: "against-the-current", title: "Against the Current", originalTitle: "兰香如故",
   reviewer: "Editorial reviewer", rightsReviewed: true, spoilerReviewed: true,
   checkedAt: "2026-09-28T08:00:00Z",
+  regionGuidance: ["United States", "United Kingdom", "Australia", "Europe (country by country)", "Mainland China"].map((name) => ({
+    name, status: name === "United States" ? "verified" : "unverified",
+    note: name === "United States" ? "US listing checked." : "Local access not verified.",
+    sourceUrl: name === "Mainland China" ? "https://v.qq.com/official" : "https://www.viki.com/official",
+    checkedAt: "2026-09-28T08:00:00Z",
+  })),
   platforms: [
     { name: "Provider A", url: "https://www.viki.com/watch", sourceUrl: "https://www.viki.com/official",
       checkedAt: "2026-09-28T08:00:00Z", territories: ["US"], accessTier: "subscription",
@@ -51,6 +57,8 @@ test("claims require current, complete, non-contradictory provider evidence", ()
     (r) => { r.platforms[0].checkedAt = "2026-09-10T08:00:00Z"; },
     (r) => { r.platforms[0].sourceUrl = "https://unrelated.test/article"; },
     (r) => { r.checkedAt = "2026-09-10T08:00:00Z"; },
+    (r) => { r.regionGuidance[1].status = "verified"; },
+    (r) => { r.regionGuidance[2].sourceUrl = "https://unrelated.test/listing"; },
   ];
   for (const change of cases) {
     const record = fixture();
@@ -113,7 +121,11 @@ test("published US observations do not imply another country or a finale date", 
   const record = loadWatchRecord();
   const html = renderWatchPage(record, now);
   assert.match(html, /Listing only:/);
-  assert.match(html, /US listings are checked separately from other countries/);
+  assert.match(html, /We have not verified access for the UK, Australia, individual European countries or mainland China/);
+  for (const region of ["United Kingdom", "Australia", "Europe (country by country)", "Mainland China"]) {
+    assert.match(html, new RegExp(region.replace(/[()]/g, "\\$&") + " — availability not verified"));
+  }
+  assert.match(html, /href="https:\/\/v\.qq\.com\/x\/cover\/mzc00200803dr6b\.html"/);
   assert.match(html, /country-specific playback and subtitles have not been verified/);
   assert.match(html, /original-platform, standard, VIP\/express and English-subtitled regional finale times are unknown/);
   assert.equal(releaseAdvisory(record, now).broadlyReleased, false);

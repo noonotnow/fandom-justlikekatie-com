@@ -61,7 +61,7 @@ function renderEdition(edition, query) {
   const description = edition.vibe.copy;
   const hero = edition.previews[edition.heroPosition]?.deliveryUrl || edition.previews[0]?.deliveryUrl;
   const cards = edition.previews.map(card => (
-    `<figure><img src="${escapeHtml(card.thumbnailUrl)}" alt="${escapeHtml(card.title)}" loading="lazy"><figcaption>${escapeHtml(card.title)}</figcaption></figure>`
+    `<figure><img src="${escapeHtml(card.thumbnailUrl)}" data-media-delivery-url="${escapeHtml(card.deliveryUrl)}" alt="${escapeHtml(card.title)}" loading="lazy"><figcaption>${escapeHtml(card.title)}</figcaption></figure>`
   )).join("");
   const body = `<a href="${escapeHtml(edition.actor.path)}">All ${escapeHtml(edition.actor.nameEn || edition.actor.name)} records</a><h1>${escapeHtml(title)}</h1><p>${escapeHtml(edition.vibe.subtitleEn)}</p><p>${escapeHtml(description)}</p><section aria-label="Approved preview grid">${cards}</section>`;
   return response(200, page({

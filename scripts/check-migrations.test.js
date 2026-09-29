@@ -75,8 +75,8 @@ function assertPostgresCompatibilityMatrix(packageJson, workflow) {
   const candidateJob = candidateJobMatch[1];
   assert.match(
     candidateJob,
-    /if:\s*github\.event_name == 'schedule' \|\| github\.event_name == 'workflow_dispatch'/,
-    "migration-next-major must run only on the schedule or a manual workflow dispatch",
+    /if:\s*github\.event_name == 'schedule' \|\| \(github\.event_name == 'workflow_dispatch' && github\.ref == 'refs\/heads\/main'\)/,
+    "migration-next-major must run only on the schedule or a main-branch manual dispatch",
   );
   const candidateMatrixMatch = candidateJob.match(
     /matrix:\s*\n\s+postgres:\s*\[([^\]]*)\]/,
@@ -139,7 +139,7 @@ test("PostgreSQL compatibility drift explains how to synchronize CI", () => {
         postgres: ["16", "17"]
 
   migration-next-major:
-    if: github.event_name == 'schedule' || github.event_name == 'workflow_dispatch'
+    if: github.event_name == 'schedule' || (github.event_name == 'workflow_dispatch' && github.ref == 'refs/heads/main')
     strategy:
       matrix:
         postgres: ["19"]
@@ -171,7 +171,7 @@ test("PostgreSQL candidate drift remains separate from supported versions", () =
         postgres: ["16", "17"]
 
   migration-next-major:
-    if: github.event_name == 'schedule' || github.event_name == 'workflow_dispatch'
+    if: github.event_name == 'schedule' || (github.event_name == 'workflow_dispatch' && github.ref == 'refs/heads/main')
     strategy:
       matrix:
         postgres: ["19"]

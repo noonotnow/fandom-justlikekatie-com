@@ -1107,6 +1107,13 @@ test("historical and archive reads prefer the verified publication manifest over
   const store = makeStore({
     [`starOfDay:v10:${date}`]: transient,
     [gridManifestKey(date)]: publicationManifest(date),
+    ["vibeAtlas:grid-release-dates:v1:all"]: {
+      schemaVersion: 1, kind: "vibe-atlas-released-dates",
+      verifiedBaseline: true, dates: [date],
+    },
+    [`vibeAtlas:grid-release-receipt:v1:${date}`]: {
+      schemaVersion: 1, kind: "vibe-atlas-release-receipt", date,
+    },
     [publicationManifestCatalogKey()]: {
       schemaVersion: 1,
       catalogVersion: "v1",
@@ -1154,6 +1161,15 @@ test("historical and archive reads prefer the verified publication manifest over
     buildReleaseCatalog: async () => ({ complete: true, packs: [] }),
   })(new Request("https://fandom.justlikekatie.com/sitemap.xml"), {});
   assert.equal(edition.statusCode, 200);
+  const published = publicationManifest(date);
+  const grid = edition.body.match(/<section aria-label="Approved preview grid">([\s\S]*?)<\/section>/)?.[1];
+  assert.ok(grid);
+  assert.equal((grid.match(/<img /g) || []).length, 9);
+  for (const card of published.cards) {
+    assert.ok(grid.includes(`src="${card.media.thumbnailUrl}" data-media-delivery-url="${card.media.deliveryUrl}"`));
+    assert.ok(!edition.body.includes(card.sourceUrl));
+    assert.ok(!edition.body.includes(card.link));
+  }
   assert.equal(actor.statusCode, 200);
   assert.equal(sitemap.statusCode, 200);
   assert.match(sitemap.body, new RegExp(archived.editions[0].publicRecord.editionPath));
@@ -1400,6 +1416,46 @@ test("publication catalogue repair requires admin access and an explicit date", 
   assert.equal(invalid.status, 400);
   assert.equal(invalid.headers.get("cache-control"), "private, no-store");
   assert.equal(store.stats().setCalls, 0);
+});
+
+test("release-history backfill is private and requires a migrated, complete Archive", async () => {
+  const url = "https://example.test/star-of-day?releaseHistoryBackfill=1";
+  const store = makeStore();
+  const denied = createStarOfDayHandler({
+    getStore: () => store,
+    auth: { authenticateAdmin: async () => {
+      throw Object.assign(new Error("Sign in is required."), { status: 401 });
+    } },
+  });
+  assert.equal((await denied({ method: "GET", url }, {})).status, 401);
+  assert.equal(store.stats().setCalls, 0);
+  const allowed = createStarOfDayHandler({
+    getStore: () => store,
+    auth: { authenticateAdmin: async () => ({ user: { accountId: "operator" } }) },
+    backfillReleaseHistory: async () => { throw new Error("must not run"); },
+  });
+  assert.equal((await allowed({ method: "GET", url }, {})).status, 500);
+
+  const archive = archiveCatalogEntries([
+    { date: "2026-09-01", actorName: "A", vibeLabel: "V" },
+    { date: "2026-09-02", actorName: "A", vibeLabel: "V" },
+  ]);
+  let confirmed;
+  const migrated = createStarOfDayHandler({
+    getStore: () => makeStore(archive),
+    today: () => "2026-09-03",
+    auth: { authenticateAdmin: async () => ({ user: { accountId: "operator" } }) },
+    backfillReleaseHistory: async (_store, editions) => {
+      confirmed = editions.map(edition => edition.date);
+      return { verifiedBaseline: true, dates: confirmed };
+    },
+  });
+  const response = await migrated({ method: "GET", url }, {});
+  assert.equal(response.status, 200);
+  assert.deepEqual(confirmed, ["2026-09-02", "2026-09-01"]);
+  assert.deepEqual((await response.json()).releaseHistoryBackfill,
+    { verifiedBaseline: true, releaseCount: 2 });
+  assert.equal(response.headers.get("cache-control"), "private, no-store");
 });
 
 test("the builder skips a failed approved pairing and preserves the public 3x3 payload contract", async () => {

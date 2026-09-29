@@ -55,7 +55,7 @@ test("launchpad preview smoke check runs after successful production deployments
 
   assert.match(workflow, /^  deployment_status:$/m);
   assert.match(job, /github\.event_name == 'schedule'/);
-  assert.match(job, /github\.event_name == 'workflow_dispatch'/);
+  assert.match(job, /\(github\.event_name == 'workflow_dispatch' && github\.ref == 'refs\/heads\/main'\)/);
   assert.match(job, /github\.event_name == 'deployment_status'/);
   assert.match(job, /github\.event\.deployment_status\.state == 'success'/);
   assert.match(
@@ -115,7 +115,7 @@ test("shared Stripe audit consistency check stays protected and scheduled", asyn
 
   assert.match(
     job,
-    /^    if: github\.event_name == 'schedule' \|\| github\.event_name == 'workflow_dispatch'$/m,
+    /^    if: github\.event_name == 'schedule' \|\| \(github\.event_name == 'workflow_dispatch' && github\.ref == 'refs\/heads\/main'\)$/m,
   );
   assert.match(job, /^    name: Shared Stripe audit consistency check$/m);
 
@@ -211,6 +211,7 @@ test("Netlify compatibility workflow preserves the reviewed proposal contract", 
   assert.match(job, /^          ref: \$\{\{ github\.event_name == 'schedule' && 'main' \|\| github\.ref \}\}$/m);
   const filesStep = workflowStep(job, "Select proposal files");
   assert.match(filesStep, /^        id: proposal_files$/m);
+  assert.match(filesStep, /^        if: steps\.netlify_cli\.outputs\.upgrade == 'true' \|\| inputs\.verification_only$/m);
   assert.match(filesStep, /^          VERIFICATION_ONLY: \$\{\{ inputs\.verification_only \}\}$/m);
   assert.match(proposalStep, /^          add-paths: \$\{\{ steps\.proposal_files\.outputs\.paths \}\}$/m);
   assert.match(proposalStep, /^          branch: \$\{\{ inputs\.verification_only && 'automation\/netlify-cli-pin-verification' \|\| 'automation\/netlify-cli-pin' \}\}$/m);
@@ -251,12 +252,15 @@ test("Netlify compatibility workflow preserves the reviewed proposal contract", 
   assert.doesNotMatch(job, /\b(?:auto-merge|merge-pull-request)\b/i);
 });
 
-test("Netlify proposals stage only files present in each run mode", async () => {
+test("Netlify proposal only stages a verification receipt when it exists", async () => {
   const workflow = await readFile(workflowPath, "utf8");
   const job = indentedBlock(workflow, /^  netlify-package-compatibility:$/m, /^  [a-zA-Z0-9_-]+:$/m);
   const step = workflowStep(job, "Select proposal files");
-  const script = step.split("        run: |\n")[1].split("\n").map((line) => line.slice(10)).join("\n");
-  assert.ok(script);
+  const script = step.split("        run: |\n")[1]
+    .split("\n")
+    .map((line) => line.slice(10))
+    .join("\n");
+  assert.ok(script, "Expected a shell command selecting proposal files");
   for (const [verificationOnly, expected] of [
     ["false", ["package.json"]],
     ["true", ["package.json", ".github/netlify-cli-proposal-verification.md"]],
@@ -269,7 +273,10 @@ test("Netlify proposals stage only files present in each run mode", async () => 
         encoding: "utf8",
       });
       assert.equal(result.status, 0, result.stderr);
-      assert.deepEqual((await readFile(output, "utf8")).trim().split("\n"), ["paths<<EOF", ...expected, "EOF"]);
+      assert.deepEqual(
+        (await readFile(output, "utf8")).trim().split("\n"),
+        ["paths<<EOF", ...expected, "EOF"],
+      );
     } finally {
       await rm(directory, { recursive: true, force: true });
     }

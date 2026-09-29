@@ -78,11 +78,11 @@ test("shared audit notification delivery errors do not reveal provider responses
   );
 });
 
-test("only failed scheduled or manual shared audit jobs attempt the notification", async () => {
+test("only failed scheduled or main-dispatched shared audit jobs attempt the notification", async () => {
   const workflow = await readFile(new URL("../.github/workflows/test.yml", import.meta.url), "utf8");
   const job = workflow.split("  shared-stripe-audit-consistency:\n")[1].split("\n  netlify-package-compatibility:")[0];
   const alert = job.split("      - name: Notify operators about failed shared Stripe audit consistency check\n")[1];
-  assert.match(job, /if: github\.event_name == 'schedule' \|\| github\.event_name == 'workflow_dispatch'/);
+  assert.match(job, /if: github\.event_name == 'schedule' \|\| \(github\.event_name == 'workflow_dispatch' && github\.ref == 'refs\/heads\/main'\)/);
   assert.match(job, /node --test scripts\/audit-subscription-products\.blob-integration\.test\.js/);
   assert.match(alert, /if: failure\(\) && \(github\.event_name == 'schedule' \|\| github\.event_name == 'workflow_dispatch'\)/);
   for (const secret of ["RESEND_API_KEY", "FANDOM_AUTH_FROM_EMAIL", "FANDOM_ADMIN_EMAILS"]) {

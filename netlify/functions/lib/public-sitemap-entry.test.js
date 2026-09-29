@@ -29,6 +29,7 @@ test("deployed sitemap uses the V2 Blobs context and serves the registered stati
     { blobs: { getStore: () => store } },
   );
   assert.equal(response.status, 200);
+  assert.equal(response.headers.get("x-public-sitemap-inventory"), "complete");
   const xml = await response.text();
   assert.equal(xml.split("<loc>https://fandom.justlikekatie.com/c-drama-fandom/vibing-now/against-the-current-episode-21/</loc>").length - 1, 1);
   assert.match(xml, /<loc>https:\/\/fandom\.justlikekatie\.com\/vibe-atlas\/actors\/liu-xueyi\/<\/loc>/);
@@ -44,6 +45,7 @@ test("dynamic sitemap falls back to static routes while the catalog is incomplet
   const result = await handler(new Request("https://fandom.justlikekatie.com/sitemap.xml"), {});
   assert.equal(result.statusCode, 200);
   assert.equal(result.headers["Cache-Control"], "no-store");
+  assert.equal(result.headers["X-Public-Sitemap-Inventory"], "publication-incomplete");
   assert.match(result.body, /c-drama-fandom\/glossary/);
   assert.match(result.body, /against-the-current-episode-21/);
   assert.doesNotMatch(result.body, /vibe-atlas\/actors\/liu-xueyi/);
@@ -58,6 +60,7 @@ test("dynamic sitemap falls back to static routes when dynamic inventory throws"
   });
   const result = await handler(new Request("https://fandom.justlikekatie.com/sitemap.xml"), {});
   assert.equal(result.statusCode, 200);
+  assert.equal(result.headers["X-Public-Sitemap-Inventory"], "unavailable");
   assert.match(result.body, /c-drama-fandom\/glossary/);
   assert.match(result.body, /against-the-current-episode-21/);
 });
@@ -71,6 +74,7 @@ test("dynamic sitemap includes approved actor and edition once and excludes thin
   const result = await handler(new Request("https://fandom.justlikekatie.com/sitemap.xml"), {});
   assert.equal(result.statusCode, 200);
   assert.equal(result.headers["Cache-Control"], "no-store");
+  assert.equal(result.headers["X-Public-Sitemap-Inventory"], "complete");
   const actorUrl = "https://fandom.justlikekatie.com/vibe-atlas/actors/liu-xueyi/";
   const editionUrl = "https://fandom.justlikekatie.com/vibe-atlas/editions/2026-09-03/liu-xueyi/";
   assert.equal(result.body.split(actorUrl).length - 1, 1);
@@ -86,9 +90,52 @@ test("dynamic sitemap never emits partial inventory when catalog coverage is mis
     const result = await handler(new Request("https://fandom.justlikekatie.com/sitemap.xml"), {});
     assert.equal(result.statusCode, 200);
     assert.equal(result.headers["Cache-Control"], "no-store");
+    assert.equal(result.headers["X-Public-Sitemap-Inventory"], "publication-incomplete");
     assert.match(result.body, /c-drama-fandom\/glossary/);
     assert.doesNotMatch(result.body, /2026-09-03|liu-xueyi/);
   }
+});
+
+test("dynamic sitemap marks an incomplete released-pack catalog without exposing partial editions", async () => {
+  for (const catalog of [
+    { complete: false, packs: [] },
+    { complete: true, indexingComplete: false, packs: [] },
+  ]) {
+    const handler = createPublicSitemapHandler({
+      getStore: () => manifestStore([publicManifest()]),
+      buildReleaseCatalog: async () => catalog,
+    });
+    const result = await handler(new Request("https://fandom.justlikekatie.com/sitemap.xml"), {});
+    assert.equal(result.statusCode, 200);
+    assert.equal(result.headers["X-Public-Sitemap-Inventory"], "release-catalog-incomplete");
+    assert.doesNotMatch(result.body, /\/vibe-atlas\/editions\//);
+  }
+});
+
+test("a valid empty publication catalog is complete, not a sitemap fallback", async () => {
+  const handler = createPublicSitemapHandler({
+    getStore: () => catalogStore({ ...completeCatalog(), dates: [] }),
+    buildReleaseCatalog: async () => ({ complete: true, indexingComplete: true, packs: [] }),
+  });
+  const result = await handler(new Request("https://fandom.justlikekatie.com/sitemap.xml"), {});
+  assert.equal(result.headers["X-Public-Sitemap-Inventory"], "complete");
+  assert.match(result.body, /c-drama-fandom\/glossary/);
+  assert.doesNotMatch(result.body, /\/vibe-atlas\/editions\//);
+});
+
+test("an uninitialized release history never certifies a valid-looking empty catalog", async () => {
+  const store = catalogStore({ ...completeCatalog(), dates: [] });
+  const handler = createPublicSitemapHandler({
+    getStore: () => ({
+      ...store,
+      get: (key, options) => key.includes("grid-release-dates")
+        ? null : store.get(key, options),
+    }),
+    buildReleaseCatalog: async () => ({ complete: true, packs: [] }),
+  });
+  const result = await handler(new Request("https://fandom.justlikekatie.com/sitemap.xml"), {});
+  assert.equal(result.headers["X-Public-Sitemap-Inventory"], "release-history-unavailable");
+  assert.match(result.body, /c-drama-fandom\/glossary/);
 });
 
 test("dynamic sitemap includes only the qualified released-pack catalog", async () => {
