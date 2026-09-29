@@ -193,6 +193,27 @@ function MiddleEarthApp() {
 }
 
 function VibeAtlasApp({ archiveEntry = false }: { archiveEntry?: boolean }) {
+  const [exploreOpen, setExploreOpen] = useState(false);
+  const exploreRef = useRef<HTMLDivElement>(null);
+  const exploreToggleRef = useRef<HTMLButtonElement>(null);
+  useEffect(() => {
+    if (!exploreOpen) return;
+    const dismissOutside = (event: PointerEvent) => {
+      if (!exploreRef.current?.contains(event.target as Node)) setExploreOpen(false);
+    };
+    const dismissEscape = (event: KeyboardEvent) => {
+      if (event.key === 'Escape') {
+        setExploreOpen(false);
+        exploreToggleRef.current?.focus();
+      }
+    };
+    document.addEventListener('pointerdown', dismissOutside);
+    document.addEventListener('keydown', dismissEscape);
+    return () => {
+      document.removeEventListener('pointerdown', dismissOutside);
+      document.removeEventListener('keydown', dismissEscape);
+    };
+  }, [exploreOpen]);
   const [expandedId, setExpandedId] = useState<string | null>(null);
   const [lightboxIndex, setLightboxIndex] = useState<number | null>(null);
   const [dailyGridZoomOpen, setDailyGridZoomOpen] = useState(false);
@@ -601,6 +622,7 @@ function VibeAtlasApp({ archiveEntry = false }: { archiveEntry?: boolean }) {
   };
 
   const openArchivePage = () => {
+    setExploreOpen(false);
     setArchivePage(true);
     setSelectedEditionDate(null);
     setExpandedId(null);
@@ -614,6 +636,7 @@ function VibeAtlasApp({ archiveEntry = false }: { archiveEntry?: boolean }) {
     destination: 'daily' | 'collection' | 'membership' | 'released',
     tab: 'grids' | 'results' | 'builder' = 'grids',
   ) => {
+    setExploreOpen(false);
     const nextPath = destination === 'daily'
       ? vibeAtlasPath()
       : destination === 'membership'
@@ -804,52 +827,58 @@ function VibeAtlasApp({ archiveEntry = false }: { archiveEntry?: boolean }) {
           <span className="fandom-universe-mark">FV</span>
           <span><strong>Fandom Vibes</strong><small>Worldbuilding launchpad</small></span>
         </a>
-        <div className="fandom-universe-tools">
-          <span className="fandom-universe-current">Current universe</span>
-          <a className="fandom-tool-link fandom-tool-link--active" href={PUBLIC_ROUTE_PATHS.vibeAtlas}>
-            <strong>Vibe Atlas</strong><small>Daily C-drama card drop</small>
-          </a>
-        </div>
         <div className="fandom-atlas-nav" aria-label="Vibe Atlas workspace">
-          <button
-            type="button"
-            onClick={() => navigateAtlas('released')}
-            className={view === 'released' ? 'fandom-atlas-nav__active' : ''}
-          >
-            <span>Released packs</span><small>Collector library</small>
-          </button>
+          <span className="fandom-atlas-nav__title">Vibe Atlas</span>
           <button
             type="button"
             aria-label="今日之星 · Daily"
             onClick={() => navigateAtlas('daily')}
-            className={(view === 'daily' || (view === 'collection' && collectionTab === 'builder' && builderSource === 'daily')) && !archivePage
-              ? 'fandom-atlas-nav__active'
-              : ''}
+            aria-current={!archivePage && view === 'daily' ? 'page' : undefined}
+            className={!archivePage && view === 'daily' ? 'fandom-atlas-nav__active' : ''}
           >
-            <span>Daily card drop</span><small>今日之星</small>
-          </button>
-          <button
-            type="button"
-            aria-label="Vibe Atlas archive"
-            onClick={openArchivePage}
-            className={archivePage ? 'fandom-atlas-nav__active' : ''}
-          >
-            <span>Archive</span><small>往期图鉴</small>
+            <span>Today</span>
           </button>
           <button
             type="button"
             aria-label="Your Collection · Saved Grids and Grid Builder"
             onClick={() => navigateAtlas('collection', 'grids')}
-            className={view === 'collection' && builderSource === 'collection' ? 'fandom-atlas-nav__active' : ''}
+            aria-current={!archivePage && view === 'collection' ? 'page' : undefined}
+            className={!archivePage && view === 'collection' ? 'fandom-atlas-nav__active' : ''}
           >
-            <span>Your Collection</span><small>Saved Grids · Grid Builder</small>
+            <span>Your Collection</span>
           </button>
+          <div
+            className="fandom-atlas-nav__group"
+            ref={exploreRef}
+            onBlur={event => {
+              if (!event.currentTarget.contains(event.relatedTarget)) setExploreOpen(false);
+            }}
+          >
+            <button
+              ref={exploreToggleRef}
+              type="button"
+              aria-expanded={exploreOpen}
+              aria-controls="atlas-explore-links"
+              className={archivePage || view === 'released' ? 'fandom-atlas-nav__active' : ''}
+              onClick={() => setExploreOpen(open => !open)}
+            >
+              <span>Explore <span aria-hidden="true" className="fandom-atlas-nav__chevron">⌄</span></span>
+            </button>
+            {exploreOpen && (
+              <div id="atlas-explore-links" className="fandom-atlas-nav__panel">
+                <p>Discover</p>
+                <button type="button" aria-current={!archivePage && view === 'released' ? 'page' : undefined} onClick={() => navigateAtlas('released')}>Released packs</button>
+                <button type="button" aria-label="Vibe Atlas archive" aria-current={archivePage ? 'page' : undefined} onClick={openArchivePage}>Archive</button>
+              </div>
+            )}
+          </div>
           <button
             type="button"
             onClick={() => navigateAtlas('membership')}
-            className={view === 'membership' ? 'fandom-atlas-nav__active' : ''}
+            aria-current={!archivePage && view === 'membership' ? 'page' : undefined}
+            className={!archivePage && view === 'membership' ? 'fandom-atlas-nav__active' : ''}
           >
-            <span>Membership</span><small>Founding Member</small>
+            <span>Membership</span>
           </button>
         </div>
       </nav>

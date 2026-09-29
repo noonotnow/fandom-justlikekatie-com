@@ -329,6 +329,7 @@ test('archive review pageviews follow in-app daily and archive surface transitio
 
     await gotoTestPage(page, `${origin}/vibe-atlas`, { waitUntil: 'domcontentloaded' });
     await page.getByText("Today's curated card drop").waitFor();
+    await page.getByRole('button', { name: 'Explore', exact: false }).click();
     await page.getByRole('button', { name: 'Vibe Atlas archive' }).click();
     await page.getByRole('heading', { name: 'The Star of the Day Archive' }).waitFor();
     await page.getByRole('button', { name: '今日之星 · Daily' }).click();
@@ -384,6 +385,7 @@ test('approved public-record links work across today and the full archive while 
       EDITION_RECORD_PATH,
     );
 
+    await page.getByRole('button', { name: 'Explore', exact: false }).click();
     await page.getByRole('button', { name: 'Vibe Atlas archive' }).click();
     await page.getByRole('heading', { name: 'The Star of the Day Archive' }).waitFor();
     const approvedCard = page.locator('.archive-card').filter({ hasText: 'Browser Archive Actor' });
@@ -483,6 +485,7 @@ test('partial public-record metadata stays fail-closed across today, the locked 
       'the locked preview must not render navigation for a partial record pair',
     );
 
+    await page.getByRole('button', { name: 'Explore', exact: false }).click();
     await page.getByRole('button', { name: 'Vibe Atlas archive' }).click();
     await page.getByRole('heading', { name: 'The Star of the Day Archive' }).waitFor();
     const malformedCard = page.locator('.archive-card').filter({ hasText: 'Partial Record Actor' });
@@ -567,6 +570,7 @@ test('complete-looking public-record metadata with unapproved paths stays fail-c
         `the locked preview must not render navigation for ${fixture.actorName}`,
       );
 
+      await page.getByRole('button', { name: 'Explore', exact: false }).click();
       await page.getByRole('button', { name: 'Vibe Atlas archive' }).click();
       await page.getByRole('heading', { name: 'The Star of the Day Archive' }).waitFor();
       const malformedCard = page.locator('.archive-card').filter({ hasText: fixture.actorName });

@@ -183,6 +183,7 @@ test('Daily and Archive UI and history navigation keeps one registered canonical
     await gotoTestPage(page, `${origin}${dailyRoute.path}`, { waitUntil: 'domcontentloaded' });
     await assertRouteMetadata(page, dailyRoute, APP_RENDERED_ROUTE_METADATA[dailyRoute.path]);
 
+    await page.getByRole('button', { name: 'Explore', exact: false }).click();
     await page.getByRole('button', { name: 'Vibe Atlas archive' }).click();
     await page.waitForURL(`${origin}${archiveRoute.path}`);
     await assertRouteMetadata(page, archiveRoute, APP_RENDERED_ROUTE_METADATA[archiveRoute.path]);
@@ -194,6 +195,92 @@ test('Daily and Archive UI and history navigation keeps one registered canonical
     await page.goForward();
     await page.waitForURL(`${origin}${archiveRoute.path}`);
     await assertRouteMetadata(page, archiveRoute, APP_RENDERED_ROUTE_METADATA[archiveRoute.path]);
+  } finally {
+    await closeBrowserAndServer(browser, server);
+  }
+});
+
+test('public menus retain reachable destinations, keyboard dismissal, history and compact layouts', { timeout: 60_000 }, async () => {
+  const [{ server, origin }, browser] = await launchBrowserWithServer(startViteTestServer());
+  try {
+    for (const width of [1280, 390]) {
+      const page = await browser.newPage({ viewport: { width, height: 800 } });
+      page.setDefaultTimeout(8_000);
+      await page.route('https://www.googletagmanager.com/**', route => route.abort());
+      await gotoTestPage(page, origin, { waitUntil: 'domcontentloaded' });
+      const guide = page.getByRole('navigation', { name: 'Explore C-drama fandom' });
+      assert.equal(await guide.getByRole('link', { name: /Explore the C-drama guide/ }).getAttribute('href'), '/c-drama-fandom/');
+      assert.equal(await guide.getByRole('link', { name: /Start here/ }).getAttribute('href'), '/c-drama-fandom/getting-started/');
+      const more = guide.getByRole('button', { name: /More guides/ });
+      await more.click();
+      assert.equal(await more.getAttribute('aria-expanded'), 'true');
+      for (const [name, href] of [
+        ['Glossary', '/c-drama-fandom/glossary/'],
+        ['Archetypes', '/c-drama-fandom/archetypes/'],
+        ['Veteran journal', '/c-drama-fandom/watch-journal/'],
+        ['Vibing Now', '/c-drama-fandom/vibing-now/'],
+      ]) {
+        assert.equal(await guide.getByRole('link', { name }).getAttribute('href'), href);
+      }
+      await page.keyboard.press('Escape');
+      assert.equal(await more.getAttribute('aria-expanded'), 'false');
+      assert.equal(await more.evaluate(el => el === document.activeElement), true);
+      await more.press('Enter');
+      await guide.getByRole('link', { name: 'Vibing Now' }).press('Tab');
+      assert.equal(await more.getAttribute('aria-expanded'), 'false');
+      await more.click();
+      await page.getByRole('heading', { name: /Build a world/ }).click();
+      assert.equal(await more.getAttribute('aria-expanded'), 'false');
+      assert.equal(await page.evaluate(() => document.documentElement.scrollWidth <= innerWidth), true);
+
+      await gotoTestPage(page, `${origin}/vibe-atlas`, { waitUntil: 'domcontentloaded' });
+      const nav = page.getByRole('navigation', { name: 'Fandom Vibes navigation' });
+      const today = nav.getByRole('button', { name: '今日之星 · Daily' });
+      const collection = nav.getByRole('button', { name: 'Your Collection · Saved Grids and Grid Builder' });
+      const explore = nav.getByRole('button', { name: 'Explore', exact: false });
+      assert.equal(await today.getAttribute('aria-current'), 'page');
+      await explore.click();
+      assert.equal(await explore.getAttribute('aria-expanded'), 'true');
+      await nav.getByRole('button', { name: 'Released packs' }).press('Tab');
+      await nav.getByRole('button', { name: 'Membership' }).focus();
+      assert.equal(await explore.getAttribute('aria-expanded'), 'false');
+      await explore.click();
+      await page.keyboard.press('Escape');
+      assert.equal(await explore.getAttribute('aria-expanded'), 'false');
+      assert.equal(await explore.evaluate(el => el === document.activeElement), true);
+      await explore.click();
+      await nav.getByRole('button', { name: 'Released packs' }).click();
+      await page.waitForURL(`${origin}/vibe-atlas?view=released`);
+      assert.equal(await explore.getAttribute('aria-current'), null);
+      await explore.click();
+      assert.equal(await nav.getByRole('button', { name: 'Released packs' }).getAttribute('aria-current'), 'page');
+      await nav.getByRole('button', { name: 'Vibe Atlas archive' }).click();
+      await page.waitForURL(`${origin}/vibe-atlas/archive`);
+      await explore.click();
+      assert.equal(await nav.getByRole('button', { name: 'Vibe Atlas archive' }).getAttribute('aria-current'), 'page');
+      await collection.click();
+      await page.waitForURL(`${origin}/vibe-atlas?view=collection`);
+      assert.equal(await collection.getAttribute('aria-current'), 'page');
+      await nav.getByRole('button', { name: 'Membership' }).click();
+      await page.waitForURL(`${origin}/vibe-atlas?view=membership`);
+      await page.goBack();
+      assert.equal(await collection.getAttribute('aria-current'), 'page');
+      await page.goForward();
+      assert.equal(await nav.getByRole('button', { name: 'Membership' }).getAttribute('aria-current'), 'page');
+      await today.click();
+      assert.equal(await today.getAttribute('aria-current'), 'page');
+      if (await page.getByRole('button', { name: 'Switch to light mode' }).count()) {
+        await page.getByRole('button', { name: 'Switch to light mode' }).click();
+      }
+      await explore.click();
+      const lightColor = await nav.locator('.fandom-atlas-nav__panel').evaluate(el => getComputedStyle(el).backgroundColor);
+      await page.getByRole('button', { name: 'Switch to dark mode' }).click();
+      await explore.click();
+      const darkColor = await nav.locator('.fandom-atlas-nav__panel').evaluate(el => getComputedStyle(el).backgroundColor);
+      assert.notEqual(darkColor, lightColor);
+      assert.equal(await page.evaluate(() => document.documentElement.scrollWidth <= innerWidth), true);
+      await page.close();
+    }
   } finally {
     await closeBrowserAndServer(browser, server);
   }

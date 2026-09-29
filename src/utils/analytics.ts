@@ -222,6 +222,16 @@ export function trackDailyArchiveOpened(): void {
   trackEvent('daily_archive_opened');
 }
 
+export type HomepageGuideMenuDestination = 'glossary' | 'archetypes' | 'watch_journal' | 'vibing_now';
+
+export function trackHomepageGuideMenuOpened(): void {
+  trackEvent('homepage_guide_menu_opened');
+}
+
+export function trackHomepageGuideMenuLinkSelected(destination: HomepageGuideMenuDestination): void {
+  trackEvent('homepage_guide_menu_link_selected', { destination });
+}
+
 export function trackReleasedLibraryOpened(
   source: ReleasedLibrarySource,
   entitled: boolean,
