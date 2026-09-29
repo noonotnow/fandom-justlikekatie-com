@@ -34,6 +34,17 @@ function materializationError(reasonCode, position, cause) {
   return error;
 }
 
+async function publicationStage(reasonCode, operation) {
+  try {
+    return await operation();
+  } catch (cause) {
+    const error = new Error("The preview publication service is unavailable.", { cause });
+    error.status = 503;
+    error.reasonCode = reasonCode;
+    throw error;
+  }
+}
+
 function safeEditorialCopy(vibe, explicitCopy = "") {
   const candidates = [explicitCopy, vibe?.supportingCopy_en, vibe?.supportingCopy, vibe?.subtitle_en, vibe?.subtitle];
   return candidates.map(value => typeof value === "string" ? value.trim() : "")
@@ -150,11 +161,13 @@ export async function publishPreflightPreview({
 }) {
   const vibe = actor?.vibes?.[vibeIdx];
   if (!actor || !vibe) return null;
-  const selected = await approvedBoard({ eligibilityStore, actor, vibeIdx, eligibilityReader });
+  const selected = await publicationStage("approval_read_unavailable",
+    () => approvedBoard({ eligibilityStore, actor, vibeIdx, eligibilityReader }));
   if (!selected) return null;
   const { approval, candidates, boardHash } = selected;
   const receiptKey = preflightPreviewKey(actor.id, vibeIdx, approval.runId);
-  const existing = await store.get(receiptKey, { type: "json", consistency: "strong" });
+  const existing = await publicationStage("receipt_storage_unavailable",
+    () => store.get(receiptKey, { type: "json", consistency: "strong" }));
   if (existing) {
     return validReceipt(existing, actor.id, vibeIdx, approval.runId, boardHash)
       ? existing
@@ -212,7 +225,8 @@ export async function publishPreflightPreview({
   }));
 
   // Re-read the complete approval chain before committing the public receipt.
-  const confirmed = await approvedBoard({ eligibilityStore, actor, vibeIdx, eligibilityReader });
+  const confirmed = await publicationStage("approval_read_unavailable",
+    () => approvedBoard({ eligibilityStore, actor, vibeIdx, eligibilityReader }));
   if (!confirmed || confirmed.approval.runId !== approval.runId || confirmed.boardHash !== boardHash) {
     return null;
   }
@@ -228,8 +242,10 @@ export async function publishPreflightPreview({
     publishedAt: now(),
   };
   if (!validReceipt(receipt, actor.id, vibeIdx, approval.runId, boardHash)) return null;
-  await store.setJSON(receiptKey, receipt, { onlyIfNew: true });
-  const authoritative = await store.get(receiptKey, { type: "json", consistency: "strong" });
+  await publicationStage("receipt_storage_unavailable",
+    () => store.setJSON(receiptKey, receipt, { onlyIfNew: true }));
+  const authoritative = await publicationStage("receipt_storage_unavailable",
+    () => store.get(receiptKey, { type: "json", consistency: "strong" }));
   return validReceipt(authoritative, actor.id, vibeIdx, approval.runId, boardHash)
     ? authoritative
     : null;

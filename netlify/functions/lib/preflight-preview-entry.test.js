@@ -147,3 +147,28 @@ test("admin publication reports a bounded failure stage without exposing upstrea
     cardPosition: 2,
   });
 });
+
+test("admin publication reports storage failure without upstream detail or a card number", async () => {
+  const handler = createPublishPreflightPreviewHandler({
+    actorPacks,
+    getStore: name => ({ name }),
+    auth: { authenticateAdmin: async () => {} },
+    publishPreview: async () => {
+      throw Object.assign(new Error("private storage URL"), {
+        status: 503,
+        reasonCode: "receipt_storage_unavailable",
+      });
+    },
+  });
+  const response = await handler({
+    method: "POST",
+    url: "https://example.test/.netlify/functions/publish-preflight-preview",
+    headers: new Headers({ origin: "https://example.test" }),
+    json: async () => ({ actorId: "actor-one", vibeIdx: 0 }),
+  }, {});
+  assert.equal(response.statusCode, 503);
+  assert.deepEqual(JSON.parse(response.body), {
+    error: "Preview publication is unavailable.",
+    reasonCode: "receipt_storage_unavailable",
+  });
+});

@@ -56,9 +56,20 @@ export function createPublishPreflightPreviewHandler({
       }
       const actor = actorPacks.find(item => item.id === actorId);
       if (!actor?.vibes?.[vibeIdx]) return json(404, { status: "unpublished" });
+      let store;
+      let eligibilityStore;
+      try {
+        store = getStore(PREFLIGHT_PREVIEW_STORE, context);
+        eligibilityStore = getStore(ELIGIBILITY_STORE, context);
+      } catch (cause) {
+        throw Object.assign(new Error("Preview storage could not be opened.", { cause }), {
+          status: 503,
+          reasonCode: "receipt_storage_unavailable",
+        });
+      }
       const receipt = await publishPreview({
-        store: getStore(PREFLIGHT_PREVIEW_STORE, context),
-        eligibilityStore: getStore(ELIGIBILITY_STORE, context),
+        store,
+        eligibilityStore,
         actor,
         vibeIdx,
         editorialCopy: input.editorialCopy || "",
@@ -75,9 +86,11 @@ export function createPublishPreflightPreviewHandler({
         error: status < 500 ? error.message : "Preview publication is unavailable.",
         ...(status >= 500
           && ["source_image_unavailable", "media_registration_unavailable"].includes(error?.reasonCode)
-          && Number.isInteger(error.cardPosition)
+          && Number.isInteger(error.cardPosition) && error.cardPosition >= 1 && error.cardPosition <= 3
           ? { reasonCode: error.reasonCode, cardPosition: error.cardPosition }
-          : {}),
+          : status >= 500 && ["approval_read_unavailable", "receipt_storage_unavailable"].includes(error?.reasonCode)
+            ? { reasonCode: error.reasonCode }
+            : {}),
       });
     }
   };

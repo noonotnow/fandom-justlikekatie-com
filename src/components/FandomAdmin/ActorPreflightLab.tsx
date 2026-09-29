@@ -336,6 +336,10 @@ export const ActorPreflightLab: React.FC = () => {
           ? `The approved source image for ${failedCard} could not be copied safely. Review the current board before retrying.`
           : result?.reasonCode === 'media_registration_unavailable'
             ? `The public media service could not store ${failedCard}. The preview was not published.`
+            : result?.reasonCode === 'approval_read_unavailable'
+              ? 'The current approval could not be read. The preview was not published.'
+              : result?.reasonCode === 'receipt_storage_unavailable'
+                ? 'Preview storage is unavailable. The preview was not published.'
             : null;
         throw new Error(safeFailure || result?.error || (result?.status === 'not-approved'
           ? 'This pairing no longer has a current preflight approval.'

@@ -257,6 +257,22 @@ test("a failed source or MEDIA copy never commits a public receipt and names onl
   }
 });
 
+test("approval and receipt storage failures are distinguished without publishing", async () => {
+  const state = setup();
+  await assert.rejects(publishPreflightPreview({
+    ...state, actor, vibeIdx: 0,
+    eligibilityReader: async () => { throw new Error("private approval storage details"); },
+  }), error => error.reasonCode === "approval_read_unavailable" && error.status === 503);
+  assert.equal(state.writeOptions.length, 0);
+
+  await assert.rejects(publishPreflightPreview({
+    ...state, actor, vibeIdx: 0,
+    eligibilityReader: async () => approval,
+    store: { get: async () => { throw new Error("private receipt storage details"); } },
+  }), error => error.reasonCode === "receipt_storage_unavailable" && error.status === 503);
+  assert.equal(state.writeOptions.length, 0);
+});
+
 test("directory includes only currently approved pairings with validated receipts", async () => {
   const state = setup();
   await publishPreflightPreview({
