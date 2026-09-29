@@ -382,6 +382,33 @@ test("historical release baseline uses immutable manifests and Archive, not just
   assert.equal((await sitemap()).headers["X-Public-Sitemap-Inventory"], "publication-history-mismatch");
 });
 
+test("stale Archive links do not certify legacy editions, but receipts still block missing manifests", async t => {
+  const store = await blobsTestStore(t, "release-baseline-legacy-links");
+  const legacyDate = "2026-07-31";
+  const releasedDate = "2026-09-03";
+  await store.setJSON(gridManifestKey(releasedDate),
+    storedPublicationManifest(releasedDate, "actor-a"));
+  await store.setJSON(publicationManifestCatalogKey(), {
+    schemaVersion: 1, catalogVersion: "v1",
+    kind: "vibe-atlas-publication-manifest-catalog", dates: [releasedDate],
+  });
+  const archive = [legacyDate, releasedDate].map(date => ({
+    date, actorName: "actor-a", vibeLabel: "氛围",
+    publicRecord: {
+      actorPath: "/vibe-atlas/actors/actor-a/",
+      editionPath: `/vibe-atlas/editions/${date}/actor-a/`,
+    },
+  }));
+  const history = await backfillPublicationReleaseDates(store, archive);
+  assert.equal(history.verifiedBaseline, true);
+  assert.deepEqual(history.dates, [releasedDate]);
+  await store.setJSON(publicationReleaseReceiptKey(legacyDate), {
+    schemaVersion: 1, kind: "vibe-atlas-release-receipt", date: legacyDate,
+  });
+  await assert.rejects(backfillPublicationReleaseDates(store, archive),
+    /publication evidence is missing for 2026-07-31/);
+});
+
 test("baseline refuses a shortened catalog or unverified Archive evidence", async t => {
   const store = await blobsTestStore(t, "release-baseline-refusal");
   const older = "2026-09-01";

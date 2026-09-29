@@ -166,11 +166,25 @@ export async function backfillPublicationReleaseDates(store, archiveEditions) {
   if (!isPublicationManifestCatalog(catalog)) {
     throw new Error("The publication catalog cannot be verified.");
   }
+  const priorHistory = await readPublicationReleaseDates(store);
   const listed = await readPublicationManifestKeys(store);
+  const receiptListing = await store.list({ prefix: PUBLICATION_RELEASE_RECEIPT_PREFIX });
+  if (!Array.isArray(receiptListing?.blobs)) {
+    throw new Error("The released-date receipts cannot be verified.");
+  }
+  const receiptDates = receiptListing.blobs.map(blob =>
+    blob?.key?.startsWith(PUBLICATION_RELEASE_RECEIPT_PREFIX)
+      ? blob.key.slice(PUBLICATION_RELEASE_RECEIPT_PREFIX.length) : null);
+  if (receiptDates.some(date => !isPublicationDate(date))
+    || new Set(receiptDates).size !== receiptDates.length) {
+    throw new Error("The released-date receipts are invalid.");
+  }
   const candidateDates = [...new Set([
     ...listed.map(key => key.slice(GRID_MANIFEST_PREFIX.length)),
     ...catalog.dates,
     ...archiveDates,
+    ...(priorHistory?.dates || []),
+    ...receiptDates,
   ])].sort();
   const verified = [];
   for (const date of candidateDates) {
@@ -178,8 +192,14 @@ export async function backfillPublicationReleaseDates(store, archiveEditions) {
       type: "json", consistency: "strong",
     });
     if (!manifest) {
+      // Legacy Archive link metadata can name a page that was never backed by
+      // a publication manifest. It is not release evidence by itself.
+      const receipt = await store.get(publicationReleaseReceiptKey(date), {
+        type: "json", consistency: "strong",
+      });
       if (catalog.dates.includes(date)
-        || archiveEditions.find(edition => edition.date === date)?.publicRecord) {
+        || priorHistory?.dates.includes(date)
+        || receipt) {
         throw new Error(`Archive publication evidence is missing for ${date}.`);
       }
       continue; // An older Archive cache entry need not have a publication manifest.
