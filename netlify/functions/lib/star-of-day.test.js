@@ -1427,7 +1427,9 @@ test("release-history backfill is private and requires a migrated, complete Arch
       throw Object.assign(new Error("Sign in is required."), { status: 401 });
     } },
   });
-  assert.equal((await denied({ method: "GET", url }, {})).status, 401);
+  const unauthenticated = await denied({ method: "GET", url }, {});
+  assert.equal(unauthenticated.status, 401);
+  assert.equal(unauthenticated.headers.get("cache-control"), "private, no-store");
   assert.equal(store.stats().setCalls, 0);
   const allowed = createStarOfDayHandler({
     getStore: () => store,
@@ -1456,6 +1458,7 @@ test("release-history backfill is private and requires a migrated, complete Arch
   assert.deepEqual((await response.json()).releaseHistoryBackfill,
     { verifiedBaseline: true, releaseCount: 2 });
   assert.equal(response.headers.get("cache-control"), "private, no-store");
+  assert.equal(response.headers.get("vary"), "Cookie");
 });
 
 test("the builder skips a failed approved pairing and preserves the public 3x3 payload contract", async () => {
