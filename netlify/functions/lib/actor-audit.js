@@ -394,6 +394,12 @@ export function createActorAuditHandler({
         const actorId = url.searchParams.get("actorId");
         const vibeKey = url.searchParams.get("vibeKey");
         if (!actorId && !vibeKey) {
+          if (url.searchParams.get("view") === "actors") {
+            return json(200, {
+              schemaVersion: 1,
+              actors: await listActors(store, actorPacks),
+            });
+          }
           const publicationStore = getPublicationStore(context);
           const [actors, releaseInventory, productionReadiness, releaseCatalogHealth] = await Promise.all([
             listActors(store, actorPacks),
