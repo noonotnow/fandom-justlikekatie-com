@@ -27,6 +27,11 @@ export const PUBLICATION_ACTOR_INDEX_KEY =
   `vibeAtlas:grid-manifest-actor-index:${PUBLICATION_ACTOR_INDEX_VERSION}:latest`;
 export const PUBLICATION_MANIFEST_CATALOG_KEY =
   `vibeAtlas:grid-manifest-catalog:${GRID_MANIFEST_VERSION}:dates`;
+export const PUBLICATION_RELEASE_DATES_KEY =
+  `vibeAtlas:grid-release-dates:${GRID_MANIFEST_VERSION}:all`;
+
+export const PUBLICATION_RELEASE_RECEIPT_PREFIX =
+  `vibeAtlas:grid-release-receipt:${GRID_MANIFEST_VERSION}:`;
 export const PUBLICATION_ACTOR_INDEX_REPAIR_KEY =
   `vibeAtlas:grid-manifest-actor-index-repair:${PUBLICATION_ACTOR_INDEX_VERSION}:latest`;
 
@@ -59,6 +64,189 @@ export const publicationActorIndexRepairRecoveryKey = receiptId =>
 export const publicationActorIndexRepairRecoveryCatalogKey = () =>
   PUBLICATION_ACTOR_INDEX_REPAIR_RECOVERY_CATALOG_KEY;
 export const publicationManifestCatalogKey = () => PUBLICATION_MANIFEST_CATALOG_KEY;
+
+function isPublicationReleaseDates(value) {
+  return value?.schemaVersion === 1
+    && value?.kind === "vibe-atlas-released-dates"
+    && typeof value.verifiedBaseline === "boolean"
+    && Array.isArray(value.dates)
+    && value.dates.every(isPublicationDate)
+    && value.dates.every((date, index) => index === 0 || value.dates[index - 1] < date);
+}
+
+function isPublicationReleaseReceipt(value, date) {
+  return value?.schemaVersion === 1
+    && value?.kind === "vibe-atlas-release-receipt"
+    && value.date === date;
+}
+export async function ensurePublicationReleaseDates(store, dates) {
+  for (let attempt = 0; attempt < 8; attempt += 1) {
+    const entry = typeof store.getWithMetadata === "function"
+      ? await getWithResolvedEtag(store, PUBLICATION_RELEASE_DATES_KEY, { type: "json" })
+      : null;
+    const current = entry?.data ?? await store.get(PUBLICATION_RELEASE_DATES_KEY, {
+      type: "json", consistency: "strong",
+    });
+    if (current && !isPublicationReleaseDates(current)) {
+      throw new Error("The released-date history is invalid.");
+    }
+    const nextDates = [...new Set([...(current?.dates || []), ...dates])].sort();
+    if (!nextDates.every(isPublicationDate)) throw new Error("The released-date history has an invalid date.");
+    if (current && nextDates.length === current.dates.length) {
+      await ensurePublicationReleaseReceipts(store, nextDates);
+      return current;
+    }
+    if (current && !entry?.etag) {
+      throw new Error("The released-date history cannot be updated without a revision tag.");
+    }
+    const next = {
+      schemaVersion: 1,
+      kind: "vibe-atlas-released-dates",
+      verifiedBaseline: current?.verifiedBaseline === true,
+      dates: nextDates,
+    };
+    const write = await store.setJSON(PUBLICATION_RELEASE_DATES_KEY, next,
+      entry?.etag ? { onlyIfMatch: entry.etag } : { onlyIfNew: true });
+    if (write?.modified === false) continue;
+    const authoritative = await store.get(PUBLICATION_RELEASE_DATES_KEY, {
+      type: "json", consistency: "strong",
+    });
+    if (isPublicationReleaseDates(authoritative)
+      && nextDates.every(date => authoritative.dates.includes(date))) {
+      await ensurePublicationReleaseReceipts(store, authoritative.dates);
+      return authoritative;
+    }
+  }
+  throw new Error("The released-date history could not be updated safely.");
+}
+
+export async function readPublicationReleaseDates(store) {
+  const history = await store.get(PUBLICATION_RELEASE_DATES_KEY, {
+    type: "json", consistency: "strong",
+  });
+  if (history && !isPublicationReleaseDates(history)) {
+    throw new Error("The released-date history is invalid.");
+  }
+  return history ?? null;
+}
+
+export async function verifyPublicationReleaseEvidence(store, history, catalogDates, manifests) {
+  if (!history?.verifiedBaseline) return false;
+  // The default list consumes every page; paginate: true returns an async iterator.
+  const listing = await store.list({ prefix: PUBLICATION_RELEASE_RECEIPT_PREFIX });
+  if (!Array.isArray(listing?.blobs)) return false;
+  const keys = listing.blobs.map(blob => blob?.key);
+  const dates = keys.map(key => key?.startsWith(PUBLICATION_RELEASE_RECEIPT_PREFIX)
+    ? key.slice(PUBLICATION_RELEASE_RECEIPT_PREFIX.length) : null);
+  if (dates.some(date => !isPublicationDate(date)) || new Set(dates).size !== dates.length) return false;
+  const expected = new Set(history.dates);
+  if (dates.some(date => !expected.has(date))
+    || catalogDates.some(date => !expected.has(date))
+    || manifests.some(manifest => !expected.has(manifest.publicationDate))) return false;
+  // Exact strong reads cover listing lag for dates still in the ledger.
+  const receipts = await Promise.all(history.dates.map(date =>
+    store.get(publicationReleaseReceiptKey(date), { type: "json", consistency: "strong" })));
+  return receipts.every((receipt, index) => isPublicationReleaseReceipt(receipt, history.dates[index]))
+    && catalogDates.length === history.dates.length
+    && history.dates.every(date => catalogDates.includes(date));
+}
+
+// Run only after the private Archive has been fully enumerated. A public
+// catalog alone is not evidence: it may already have lost an older date.
+export async function backfillPublicationReleaseDates(store, archiveEditions) {
+  if (!Array.isArray(archiveEditions) || archiveEditions.some(
+    edition => !isPublicationDate(edition?.date),
+  ) || new Set(archiveEditions.map(edition => edition.date)).size !== archiveEditions.length) {
+    throw new Error("The Archive release evidence is invalid.");
+  }
+  const archiveDates = new Set(archiveEditions.map(edition => edition.date));
+  const catalog = await store.get(publicationManifestCatalogKey(), {
+    type: "json", consistency: "strong",
+  });
+  if (!isPublicationManifestCatalog(catalog)) {
+    throw new Error("The publication catalog cannot be verified.");
+  }
+  const listed = await readPublicationManifestKeys(store);
+  const candidateDates = [...new Set([
+    ...listed.map(key => key.slice(GRID_MANIFEST_PREFIX.length)),
+    ...catalog.dates,
+    ...archiveDates,
+  ])].sort();
+  const verified = [];
+  for (const date of candidateDates) {
+    const manifest = await store.get(gridManifestKey(date), {
+      type: "json", consistency: "strong",
+    });
+    if (!manifest) {
+      if (catalog.dates.includes(date)
+        || archiveEditions.find(edition => edition.date === date)?.publicRecord) {
+        throw new Error(`Archive publication evidence is missing for ${date}.`);
+      }
+      continue; // An older Archive cache entry need not have a publication manifest.
+    }
+    if (!isGridManifest(manifest) || manifest.publicationDate !== date
+      || !archiveDates.has(date)) {
+      throw new Error(`Archive publication evidence disagrees for ${date}.`);
+    }
+    const archived = archiveEditions.find(edition => edition.date === date);
+    if (archived.actorName !== manifest.actor.name
+      || archived.vibeLabel !== manifest.vibe.label) {
+      throw new Error(`Archive publication identity disagrees for ${date}.`);
+    }
+    if (archived.publicRecord
+      && archived.publicRecord.editionPath !== publicEditionPath(manifest)) {
+      throw new Error(`Archive publication record disagrees for ${date}.`);
+    }
+    verified.push(date);
+  }
+  if (verified.length !== catalog.dates.length
+    || verified.some(date => !catalog.dates.includes(date))) {
+    throw new Error("The publication catalog is missing verified releases.");
+  }
+  // Re-read the catalog before writing: concurrent publication or repair
+  // invalidates this snapshot. History itself uses a conditional revision.
+  const latestCatalog = await store.get(publicationManifestCatalogKey(), {
+    type: "json", consistency: "strong",
+  });
+  if (JSON.stringify(latestCatalog) !== JSON.stringify(catalog)) {
+    throw new Error("The publication catalog changed during verification.");
+  }
+  for (let attempt = 0; attempt < 8; attempt += 1) {
+    const entry = await getWithResolvedEtag(store, PUBLICATION_RELEASE_DATES_KEY, {
+      type: "json",
+    });
+    const current = entry?.data ?? null;
+    if (current && !isPublicationReleaseDates(current)) {
+      throw new Error("The released-date history is invalid.");
+    }
+    if (current?.dates.some(date => !verified.includes(date))) {
+      throw new Error("The released-date history disagrees with the Archive.");
+    }
+    if (current?.verifiedBaseline && current.dates.length === verified.length) {
+      await ensurePublicationReleaseReceipts(store, verified);
+      return current;
+    }
+    if (current && !entry?.etag) {
+      throw new Error("The released-date history cannot be updated without a revision tag.");
+    }
+    const next = {
+      schemaVersion: 1,
+      kind: "vibe-atlas-released-dates",
+      verifiedBaseline: true,
+      dates: verified,
+    };
+    const write = await store.setJSON(PUBLICATION_RELEASE_DATES_KEY, next,
+      entry?.etag ? { onlyIfMatch: entry.etag } : { onlyIfNew: true });
+    if (write?.modified === false) continue;
+    const authoritative = await readPublicationReleaseDates(store);
+    if (authoritative?.verifiedBaseline
+      && verified.every(date => authoritative.dates.includes(date))) {
+      await ensurePublicationReleaseReceipts(store, verified);
+      return authoritative;
+    }
+  }
+  throw new Error("The released-date baseline could not be updated safely.");
+}
 
 export const PUBLIC_VIBE_ATLAS_ORIGIN = "https://fandom.justlikekatie.com";
 export const PUBLIC_ACTOR_PATH = "/vibe-atlas/actors";
@@ -221,6 +409,7 @@ export async function readPublicationManifests(store) {
   return {
     manifests: validManifests,
     invalidCatalogManifests,
+    catalogDates: validCatalog ? catalog.dates : [],
     inventory: {
       catalogValid: validCatalog,
       catalogDateCount: catalogKeys.length,
@@ -422,6 +611,7 @@ export async function repairPublicationManifestPublicRecords(
         break;
       }
       if (!catalogedDates.has(manifest.publicationDate)) {
+        await ensurePublicationReleaseDates(store, [manifest.publicationDate]);
         await ensurePublicationManifestCatalogDate(
           store,
           manifest.publicationDate,
@@ -1599,6 +1789,7 @@ async function materializePublicationManifestUnlocked({
       throw requestError("That publication date already contains a different immutable board.", 409);
     }
     const publicationCatalog = await ensurePublicationManifestCatalogDate(store, date, now);
+    await ensurePublicationReleaseDates(store, publicationCatalog.dates);
     await ensureArchiveAccessWindow(store, publicationCatalog.dates, now);
     await updatePublicationActorIndexSafely(store, existingManifest, now);
     return { manifest: existingManifest, payload: manifestPayload(existingManifest) };
@@ -1614,6 +1805,7 @@ async function materializePublicationManifestUnlocked({
       throw requestError("That publication date already contains a different immutable board.", 409);
     }
     const publicationCatalog = await ensurePublicationManifestCatalogDate(store, date, now);
+    await ensurePublicationReleaseDates(store, publicationCatalog.dates);
     await ensureArchiveAccessWindow(store, publicationCatalog.dates, now);
     await updatePublicationActorIndexSafely(store, racedManifest, now);
     return { manifest: racedManifest, payload: manifestPayload(racedManifest) };
@@ -1738,6 +1930,7 @@ async function materializePublicationManifestUnlocked({
     throw requestError("Another board won this publication date.", 409);
   }
   const publicationCatalog = await ensurePublicationManifestCatalogDate(store, date, now);
+  await ensurePublicationReleaseDates(store, publicationCatalog.dates);
   await ensureArchiveAccessWindow(store, publicationCatalog.dates, now);
   await updatePublicationActorIndexSafely(store, authoritative, now);
   try {
@@ -2180,4 +2373,23 @@ async function releasePublicationLock(store, date, lock) {
 
 async function writePending(store, key, value) {
   await store.setJSON(key, value);
+}
+
+export const publicationReleaseReceiptKey = date =>
+  `${PUBLICATION_RELEASE_RECEIPT_PREFIX}${date}`;
+
+async function ensurePublicationReleaseReceipts(store, dates) {
+  for (const date of dates) {
+    const key = publicationReleaseReceiptKey(date);
+    const receipt = {
+      schemaVersion: 1,
+      kind: "vibe-atlas-release-receipt",
+      date,
+    };
+    await store.setJSON(key, receipt, { onlyIfNew: true });
+    const saved = await store.get(key, { type: "json", consistency: "strong" });
+    if (!isPublicationReleaseReceipt(saved, date)) {
+      throw new Error("The immutable release receipt is missing or invalid.");
+    }
+  }
 }

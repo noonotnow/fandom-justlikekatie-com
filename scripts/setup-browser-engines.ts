@@ -11,7 +11,7 @@ const mode = process.argv[2];
 const require = createRequire(import.meta.url);
 const playwrightCli = join(dirname(require.resolve('playwright')), 'cli.js');
 
-if (mode === '--install' || mode === '--install-with-deps') {
+if (mode === '--install' || mode === '--install-with-deps' || mode === '--install-only') {
   const result = spawnSync(
     process.execPath,
     [
@@ -26,14 +26,14 @@ if (mode === '--install' || mode === '--install-with-deps') {
   if (result.status !== 0) process.exit(result.status ?? 1);
 } else if (mode !== '--check') {
   throw new Error(
-    'Usage: setup-browser-engines.ts --install|--install-with-deps|--check',
+    'Usage: setup-browser-engines.ts --install|--install-only|--install-with-deps|--check',
   );
 }
 
 assertBrowserEnginesInstalled();
-await assertBrowserEnginesLaunchable();
+if (mode !== '--install-only') await assertBrowserEnginesLaunchable();
 console.log(
-  `Playwright browser engine smoke check passed: ${
+  `Playwright browser engines ${mode === '--install-only' ? 'installed' : 'smoke check passed'}: ${
     BROWSER_ENGINES.map(engine => engine.name).join(', ')
   }`,
 );

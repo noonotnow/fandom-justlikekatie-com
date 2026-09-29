@@ -19,6 +19,7 @@ import {
 } from "./lib/actor-eligibility.js";
 import {
   GRID_MANIFEST_PREFIX,
+  backfillPublicationReleaseDates,
   boardHash as publicationBoardHash,
   diagnoseArchivedPublications,
   diagnosePublicationManifestCatalog,
@@ -959,6 +960,7 @@ export function createStarOfDayHandler({
   getDiagnosticsStore = context => getBlobStore("archive-access-operations", context),
   repairArchiveLinks = repairArchiveCatalogPublicRecords,
   repairPublicationLinks = repairPublicationManifestPublicRecords,
+  backfillReleaseHistory = backfillPublicationReleaseDates,
   today = getShanghaiDateString,
   now = () => new Date(),
 } = {}) {
@@ -972,6 +974,46 @@ export function createStarOfDayHandler({
     const eligibilityStore = getStore(ELIGIBILITY_STORE, context);
     const todayStr = today();
     const url = new URL(req.url || "https://fandom.local/.netlify/functions/star-of-day");
+
+    if (url.searchParams.get("releaseHistoryBackfill") === "1") {
+      try {
+        await auth.authenticateAdmin(req, context);
+      } catch (error) {
+        return jsonResponse(error?.status === 403 ? 403 : 401, {
+          error: error?.message || "Admin access is required.",
+        }, { "Cache-Control": "private, no-store" });
+      }
+      const marker = await store.get(ARCHIVE_CATALOG_MIGRATION_MARKER_KEY, {
+        type: "json", consistency: "strong",
+      });
+      if (marker?.schemaVersion !== 1 || marker.catalogVersion !== 2) {
+        throw new Error("The Archive catalog migration has not completed.");
+      }
+      const editions = [];
+      let cursor = null;
+      do {
+        const page = await listArchiveCatalogPage(store, {
+          cursor, limit: ARCHIVE_MAX_PAGE_SIZE, throughDate: todayStr,
+        });
+        editions.push(...page.editions);
+        if (!page.hasMore) {
+          if (editions.length !== page.total) {
+            throw new Error("The Archive catalog changed during release verification.");
+          }
+          break;
+        }
+        const next = page.editions.at(-1)?.date;
+        if (!next || next === cursor) throw new Error("The Archive catalog pagination is invalid.");
+        cursor = next;
+      } while (true);
+      const history = await backfillReleaseHistory(store, editions);
+      return jsonResponse(200, {
+        releaseHistoryBackfill: {
+          verifiedBaseline: history.verifiedBaseline,
+          releaseCount: history.dates.length,
+        },
+      }, { "Cache-Control": "private, no-store", Vary: "Cookie" });
+    }
 
     if (url.searchParams.get("readerLinkRepair") === "1") {
       try {

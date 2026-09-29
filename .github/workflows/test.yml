@@ -50,7 +50,7 @@ jobs:
   production-launchpad-preview:
     if: >-
       github.event_name == 'schedule' ||
-      github.event_name == 'workflow_dispatch' ||
+      (github.event_name == 'workflow_dispatch' && github.ref == 'refs/heads/main') ||
       (
         github.event_name == 'deployment_status' &&
         github.event.deployment_status.state == 'success' &&
@@ -247,7 +247,7 @@ jobs:
         run: node --test --test-name-pattern="applies every committed migration twice" scripts/check-migrations.test.js
 
   migration-next-major:
-    if: github.event_name == 'schedule' || github.event_name == 'workflow_dispatch'
+    if: github.event_name == 'schedule' || (github.event_name == 'workflow_dispatch' && github.ref == 'refs/heads/main')
     name: Migration candidate (PostgreSQL ${{ matrix.postgres }})
     runs-on: ubuntu-latest
     strategy:
@@ -293,7 +293,7 @@ jobs:
         run: node scripts/notify-migration-failure.js
 
   shared-stripe-audit-consistency:
-    if: github.event_name == 'schedule' || github.event_name == 'workflow_dispatch'
+    if: github.event_name == 'schedule' || (github.event_name == 'workflow_dispatch' && github.ref == 'refs/heads/main')
     name: Shared Stripe audit consistency check
     runs-on: ubuntu-latest
     timeout-minutes: 5

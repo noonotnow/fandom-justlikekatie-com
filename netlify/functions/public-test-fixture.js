@@ -71,9 +71,21 @@ export function completeCatalog(date = "2026-09-03") {
 }
 
 export function manifestStore(manifests) {
-  const catalog = completeCatalog(manifests[0]?.publicationDate);
+  const catalog = {
+    ...completeCatalog(manifests[0]?.publicationDate),
+    dates: [...new Set(manifests.map(manifest => manifest.publicationDate))].sort(),
+  };
+  const dates = [...catalog.dates].sort();
   const byKey = new Map([
     ["vibeAtlas:grid-manifest-catalog:v1:dates", catalog],
+    ["vibeAtlas:grid-release-dates:v1:all", {
+      schemaVersion: 1, kind: "vibe-atlas-released-dates",
+      verifiedBaseline: true,
+      dates,
+    }],
+    ...dates.map(date => [`vibeAtlas:grid-release-receipt:v1:${date}`, {
+      schemaVersion: 1, kind: "vibe-atlas-release-receipt", date,
+    }]),
     ...manifests.map(manifest => [
       `vibeAtlas:grid-manifest:v1:${manifest.publicationDate}`,
       manifest,
@@ -92,8 +104,17 @@ export function manifestStore(manifests) {
 }
 
 export function catalogStore(catalog, manifests = []) {
+  const dates = [...new Set(manifests.map(manifest => manifest.publicationDate))].sort();
   const byKey = new Map([
     ["vibeAtlas:grid-manifest-catalog:v1:dates", catalog],
+    ["vibeAtlas:grid-release-dates:v1:all", {
+      schemaVersion: 1, kind: "vibe-atlas-released-dates",
+      verifiedBaseline: true,
+      dates,
+    }],
+    ...dates.map(date => [`vibeAtlas:grid-release-receipt:v1:${date}`, {
+      schemaVersion: 1, kind: "vibe-atlas-release-receipt", date,
+    }]),
     ...manifests.map(manifest => [
       `vibeAtlas:grid-manifest:v1:${manifest.publicationDate}`,
       manifest,

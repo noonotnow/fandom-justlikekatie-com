@@ -102,6 +102,21 @@ script's check mode only reads sender-domain status; it does not invoke its
 email-sending mode. The notification steps in the extended workflow use the
 send-only `RESEND_API_KEY`, not `RESEND_DOMAIN_READ_API_KEY`.
 
+## Released default-branch key-scope check (September 28, 2026)
+
+At [GitHub `main` revision
+`f97b7a8144bb41c0016ef1bb379c9b1f19328dec`](https://github.com/noonotnow/fandom-justlikekatie-com/commit/f97b7a8144bb41c0016ef1bb379c9b1f19328dec),
+merged through [pull request #145](https://github.com/noonotnow/fandom-justlikekatie-com/pull/145),
+the released workflow contains all four notification steps: launchpad preview,
+Archive records, PostgreSQL candidate migration, and shared Stripe audit.
+Each notification step references the send-only `RESEND_API_KEY` and does not
+reference `RESEND_DOMAIN_READ_API_KEY`. The domain-read key appears only in
+`operator-alert-configuration`, which uses the
+`operator-sender-verification` environment and a `main`-ref guard. This is a
+check of the released workflow's key wiring, not a delivery test or proof of
+inbox receipt. No workflow was dispatched and no test email was sent for this
+check; no Resend secret values were accessed or recorded.
+
 ## Repeat safely
 
 1. Confirm the repository's **Settings → Secrets and variables → Actions**

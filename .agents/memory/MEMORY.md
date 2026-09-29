@@ -61,6 +61,7 @@
 - [Cross-browser fetch failures](cross-browser-fetch-failures.md) — network fetch rejections use engine-specific messages; classify TypeError rather than matching Chromium text.
 - [Native download test routing](native-download-test-routing.md) — Chromium/WebKit attachment navigations may bypass Playwright routes; serve download fixtures through test-server middleware.
 - [Browser-evaluated test helpers](browser-evaluated-test-helpers.md) — inline helpers in tsx-transformed page.evaluate callbacks can reference an unavailable __name runtime.
+- [WebKit storage wrapper identity](webkit-storage-wrapper-identity.md) — intercept storage writes by unique key, not localStorage reference equality, in cross-engine browser tests.
 - [Cleanup alias scope parity](cleanup-alias-scope-parity.md) — newly recognized resource bindings must be registered in lexical scope tracking before ownership analysis, including nonstandard binding sites.
 - [Resend sender checks](resend-sender-checks.md) — non-sending domain verification uses Resend's read API, which rejects sending-only keys.
 - [Released-pack reporting boundary](released-pack-reporting.md) — external Netlify analytics needs a verifiable live bundle and authorized aggregates before conversion claims.
@@ -72,3 +73,7 @@
 - [Clean main synchronization](clean-main-synchronization.md) — when local history contains tracked workspace copies, publish a reviewed clean snapshot from remote main and keep a backup ref.
 - [Protected workflow alert verification](protected-workflow-alert-verification.md) — isolate failure dispatches, preserve the original failed job, and require inbox confirmation beyond provider acceptance.
 - [Soundtrack source boundary](soundtrack-source-boundary.md) — fan OST lists are discovery leads; licensed catalog credits and named storefront listings still need separate verification.
+- [Published MEDIA hosts](published-media-hosts.md) — public edition thumbnails may use the XHS image delivery host rather than the MEDIA registration host.
+- [Release-history baseline](release-history-baseline.md) — certify historical release coverage only after immutable manifests agree with Archive; never seed from the mutable public catalog alone.
+- [Release receipt rollout](release-receipt-rollout.md) — never seed old per-release evidence from a mutable history on public reads; audit historical manifests first.
+- [Netlify Blobs list pagination](netlify-blobs-list-pagination.md) — paginate:true returns an async iterator, not a blobs array; test list-dependent checks against real Blobs.

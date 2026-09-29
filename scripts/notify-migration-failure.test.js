@@ -82,12 +82,12 @@ test("candidate failure notification rejects provider errors without exposing re
   );
 });
 
-test("only the scheduled candidate job notifies operators about candidate failures", async () => {
+test("only scheduled or main-dispatched candidate jobs notify operators about candidate failures", async () => {
   const workflow = await readFile(new URL("../.github/workflows/test.yml", import.meta.url), "utf8");
   const packageJson = JSON.parse(await readFile(new URL("../package.json", import.meta.url), "utf8"));
   const candidate = workflow.split("  migration-next-major:\n")[1].split("\n  shared-stripe-audit-consistency:")[0];
   const supported = workflow.split("  migration-retry:\n")[1].split("\n  migration-next-major:")[0];
-  assert.match(candidate, /if: github\.event_name == 'schedule' \|\| github\.event_name == 'workflow_dispatch'/);
+  assert.match(candidate, /if: github\.event_name == 'schedule' \|\| \(github\.event_name == 'workflow_dispatch' && github\.ref == 'refs\/heads\/main'\)/);
   assert.ok(candidate.includes(`postgres: ["${packageJson.postgresCompatibility.nextMajor}"]`));
   assert.match(candidate, /name: Apply every migration twice/);
   assert.match(candidate, /name: Notify operators about failed PostgreSQL candidate migration\n        if: failure\(\)/);

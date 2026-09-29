@@ -46,7 +46,7 @@ test("deployed record entrypoint uses V2 Blobs context for sitemap-listed actor 
     assert.match(body, new RegExp(expected));
     assert.match(body, new RegExp(`rel="canonical" href="https://fandom.justlikekatie.com${path}"`));
   }
-  assert.deepEqual(calls, ["star-of-day", "actor-audit", "star-of-day", "star-of-day", "star-of-day"]);
+  assert.deepEqual(calls, ["star-of-day", "actor-audit", "star-of-day", "star-of-day"]);
 });
 
 test("deployed record entrypoint keeps incomplete inventories unavailable", async () => {

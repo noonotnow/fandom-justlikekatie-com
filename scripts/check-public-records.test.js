@@ -14,12 +14,15 @@ const sitemap = (urls = [actor, edition]) =>
 const page = (url, robots = "index,follow,max-image-preview:large", canonical = url) =>
   `<!doctype html><html><head><meta name="robots" content="${robots}"><link rel="canonical" href="${canonical}"></head><body><h1>Public record</h1></body></html>`;
 
-function fixture({ xml = sitemap(), actorStatus = 200, editionHtml = page(edition), actorHtml = page(actor), headers = {}, additional = {} } = {}) {
+function fixture({ xml = sitemap(), inventory = "complete", actorStatus = 200, editionHtml = page(edition), actorHtml = page(actor), headers = {}, additional = {} } = {}) {
   const calls = [];
   const fetchImpl = async (url, options) => {
     calls.push([url, options]);
     if (url === `${PUBLIC_ORIGIN}/sitemap.xml`) {
-      return new Response(xml, { headers: { "Content-Type": "application/xml" } });
+      return new Response(xml, { headers: {
+        "Content-Type": "application/xml",
+        ...(inventory === null ? {} : { "X-Public-Sitemap-Inventory": inventory }),
+      } });
     }
     if (url === actor) {
       return new Response(actorHtml, {
@@ -54,6 +57,22 @@ test("checks every listed actor and edition without following redirects", async 
   await checkPublicRecords(fetchImpl);
   assert.deepEqual(calls.map(([url]) => url), [`${PUBLIC_ORIGIN}/sitemap.xml`, actor, secondActor, edition, secondEdition]);
   assert.ok(calls.every(([, options]) => options.redirect === "manual" && options.signal));
+});
+
+test("accepts a complete empty publication inventory without fetching records", async () => {
+  for (const xml of [sitemap([]), sitemap([`${PUBLIC_ORIGIN}/`, `${PUBLIC_ORIGIN}/vibe-atlas/`])]) {
+    const { calls, fetchImpl } = fixture({ xml });
+    await checkPublicRecords(fetchImpl);
+    assert.deepEqual(calls.map(([url]) => url), [`${PUBLIC_ORIGIN}/sitemap.xml`]);
+  }
+});
+
+test("rejects missing or incomplete sitemap inventory evidence even with no records", async () => {
+  for (const inventory of [null, "publication-incomplete", "release-catalog-incomplete", "unavailable", "unknown"]) {
+    const { calls, fetchImpl } = fixture({ xml: sitemap([]), inventory });
+    await assert.rejects(checkPublicRecords(fetchImpl), /inventory is missing or incomplete/);
+    assert.equal(calls.length, 1);
+  }
 });
 
 test("checks every listed released-pack actor and pack with the same indexability rules", async () => {
@@ -133,8 +152,16 @@ test("fails when a non-first actor or edition record is broken", async () => {
   }
 });
 
-test("fails when the sitemap has no listed edition", async () => {
-  await assert.rejects(checkPublicRecords(fixture({ xml: sitemap([actor]) }).fetchImpl), /no edition record/);
+test("fails on a one-sided actor or edition sitemap", async () => {
+  for (const urls of [[actor], [edition]]) {
+    await assert.rejects(checkPublicRecords(fixture({ xml: sitemap(urls) }).fetchImpl), /actors and editions inconsistently/);
+  }
+});
+
+test("fails when the sitemap is malformed rather than an empty urlset", async () => {
+  for (const xml of ["<not-a-urlset/>", "<urlset><unexpected/></urlset>", "<urlset><url><unexpected/></url></urlset>", "<urlset>"]) {
+    await assert.rejects(checkPublicRecords(fixture({ xml }).fetchImpl), /sitemap/);
+  }
 });
 
 test("fails instead of fetching a foreign sitemap location", async () => {

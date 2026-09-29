@@ -6,8 +6,10 @@ import { join } from "node:path";
 import test from "node:test";
 import { getStore } from "@netlify/blobs";
 import { BlobsServer } from "@netlify/blobs/server";
+import { createPublicSitemapHandler } from "../public-sitemap.js";
 import {
   acquireCorrectionPublicationLock,
+  backfillPublicationReleaseDates,
   boardHash,
   diagnoseArchivedPublications,
   diagnosePublicationManifestCatalog,
@@ -21,6 +23,10 @@ import {
   publicationActorIndexRepairKey,
   publicationActorIndexRepairRecoveryCatalogKey,
   publicationManifestCatalogKey,
+  PUBLICATION_RELEASE_DATES_KEY,
+  publicationReleaseReceiptKey,
+  ensurePublicationReleaseDates,
+  readPublicationReleaseDates,
   publicationJoinReceipt,
   readPublicationManifests,
   isIndexablePublicationManifest,
@@ -320,6 +326,196 @@ test("publication inventory requires every catalog date to resolve to its exact 
   await exactStore.setJSON(gridManifestKey(valid.publicationDate), valid);
   const exact = await readPublicationManifests(exactStore);
   assert.equal(exact.inventory.complete, true);
+});
+
+test("released-date history survives a valid empty catalog and refuses invalid or unsafe updates", async () => {
+  const store = memoryStore();
+  const date = "2026-09-03";
+  await ensurePublicationReleaseDates(store, [date]);
+  await store.setJSON(publicationManifestCatalogKey(), {
+    schemaVersion: 1, catalogVersion: "v1",
+    kind: "vibe-atlas-publication-manifest-catalog", dates: [],
+  });
+  assert.deepEqual(await readPublicationReleaseDates(store), {
+    schemaVersion: 1, kind: "vibe-atlas-released-dates",
+    verifiedBaseline: false, dates: [date],
+  });
+  await ensurePublicationReleaseDates(store, [date]);
+  assert.deepEqual((await readPublicationReleaseDates(store)).dates, [date]);
+  assert.deepEqual(await store.get(publicationReleaseReceiptKey(date)), {
+    schemaVersion: 1, kind: "vibe-atlas-release-receipt", date,
+  });
+  await assert.rejects(ensurePublicationReleaseDates(store, ["invalid"]), /invalid date/);
+  await store.setJSON(PUBLICATION_RELEASE_DATES_KEY, { dates: [] });
+  await assert.rejects(readPublicationReleaseDates(store), /invalid/);
+});
+
+test("historical release baseline uses immutable manifests and Archive, not just the current catalog", async t => {
+  const store = await blobsTestStore(t, "release-baseline");
+  const older = "2026-09-01";
+  const newer = "2026-09-03";
+  for (const date of [older, newer]) {
+    await store.setJSON(gridManifestKey(date), storedPublicationManifest(date, "actor-a"));
+  }
+  await store.setJSON(publicationManifestCatalogKey(), {
+    schemaVersion: 1, catalogVersion: "v1",
+    kind: "vibe-atlas-publication-manifest-catalog", dates: [older, newer],
+  });
+  const archive = [older, newer].map(date => ({
+    date, actorName: "actor-a", vibeLabel: "氛围",
+  }));
+  await ensurePublicationReleaseDates(store, [newer]);
+  const history = await backfillPublicationReleaseDates(store, archive);
+  assert.deepEqual(history.dates, [older, newer]);
+  assert.equal(history.verifiedBaseline, true);
+  assert.deepEqual(await backfillPublicationReleaseDates(store, archive), history);
+  const handler = createPublicSitemapHandler({
+    getStore: () => store,
+    buildReleaseCatalog: async () => ({ complete: true, packs: [] }),
+  });
+  const sitemap = () => handler(new Request("https://fandom.justlikekatie.com/sitemap.xml"), {});
+  assert.equal((await sitemap()).headers["X-Public-Sitemap-Inventory"], "complete");
+  await store.setJSON(publicationManifestCatalogKey(), {
+    schemaVersion: 1, catalogVersion: "v1",
+    kind: "vibe-atlas-publication-manifest-catalog", dates: [newer],
+  });
+  assert.equal((await sitemap()).headers["X-Public-Sitemap-Inventory"], "publication-history-mismatch");
+});
+
+test("baseline refuses a shortened catalog or unverified Archive evidence", async t => {
+  const store = await blobsTestStore(t, "release-baseline-refusal");
+  const older = "2026-09-01";
+  const newer = "2026-09-03";
+  for (const date of [older, newer]) {
+    await store.setJSON(gridManifestKey(date), storedPublicationManifest(date, "actor-a"));
+  }
+  await store.setJSON(publicationManifestCatalogKey(), {
+    schemaVersion: 1, catalogVersion: "v1",
+    kind: "vibe-atlas-publication-manifest-catalog", dates: [newer],
+  });
+  const archive = [older, newer].map(date => ({
+    date, actorName: "actor-a", vibeLabel: "氛围",
+  }));
+  await assert.rejects(backfillPublicationReleaseDates(store, archive),
+    /catalog is missing verified releases/);
+  await store.setJSON(publicationManifestCatalogKey(), {
+    schemaVersion: 1, catalogVersion: "v1",
+    kind: "vibe-atlas-publication-manifest-catalog", dates: [older, newer],
+  });
+  await assert.rejects(backfillPublicationReleaseDates(store, [archive[1]]),
+    /Archive publication evidence disagrees/);
+  await assert.rejects(backfillPublicationReleaseDates(store, [
+    { ...archive[0], actorName: "another actor" }, archive[1],
+  ]), /Archive publication identity disagrees/);
+  assert.equal(await readPublicationReleaseDates(store), null);
+});
+
+test("a shortened ledger and catalog cannot hide a previously receipted edition", async () => {
+  const store = memoryStore();
+  const first = "2026-09-02";
+  const second = "2026-09-03";
+  for (const date of [first, second]) {
+    await store.setJSON(gridManifestKey(date), storedPublicationManifest(date, "actor-a"));
+  }
+  await store.setJSON(publicationManifestCatalogKey(), {
+    schemaVersion: 1, catalogVersion: "v1",
+    kind: "vibe-atlas-publication-manifest-catalog", dates: [first, second],
+  });
+  await ensurePublicationReleaseDates(store, [first, second]);
+  await store.setJSON(PUBLICATION_RELEASE_DATES_KEY, {
+    ...(await readPublicationReleaseDates(store)), verifiedBaseline: true,
+  });
+  const handler = createPublicSitemapHandler({
+    getStore: () => store,
+    buildReleaseCatalog: async () => ({ complete: true, packs: [] }),
+  });
+  const sitemap = () => handler(new Request("https://fandom.justlikekatie.com/sitemap.xml"), {});
+  assert.equal((await sitemap()).headers["X-Public-Sitemap-Inventory"], "complete");
+
+  // Simulate a valid-looking replacement of both mutable indexes. Listing
+  // the independent receipt still exposes the erased date even when the
+  // manifest listing temporarily lags behind.
+  await store.setJSON(PUBLICATION_RELEASE_DATES_KEY, {
+    ...(await readPublicationReleaseDates(store)), dates: [second],
+  });
+  await store.setJSON(publicationManifestCatalogKey(), {
+    schemaVersion: 1, catalogVersion: "v1",
+    kind: "vibe-atlas-publication-manifest-catalog", dates: [second],
+  });
+  const laggedStore = {
+    ...store,
+    list: async ({ prefix, ...options }) => prefix === "vibeAtlas:grid-manifest:v1:"
+      ? { blobs: [{ key: gridManifestKey(second) }] }
+      : store.list({ prefix, ...options }),
+  };
+  const laggedSitemap = createPublicSitemapHandler({
+    getStore: () => laggedStore,
+    buildReleaseCatalog: async () => ({ complete: true, packs: [] }),
+  });
+  const result = await laggedSitemap(new Request("https://fandom.justlikekatie.com/sitemap.xml"), {});
+  assert.equal(result.headers["X-Public-Sitemap-Inventory"], "release-history-unavailable");
+  assert.doesNotMatch(result.body, /vibe-atlas\/editions\/2026-09-03/);
+
+  await store.setJSON(PUBLICATION_RELEASE_DATES_KEY, {
+    ...(await readPublicationReleaseDates(store)), dates: [],
+  });
+  await store.setJSON(publicationManifestCatalogKey(), {
+    schemaVersion: 1, catalogVersion: "v1",
+    kind: "vibe-atlas-publication-manifest-catalog", dates: [],
+  });
+  const emptyResult = await laggedSitemap(new Request("https://fandom.justlikekatie.com/sitemap.xml"), {});
+  assert.equal(emptyResult.headers["X-Public-Sitemap-Inventory"], "release-history-unavailable");
+});
+
+test("the sitemap refuses missing or invalid per-release evidence", async () => {
+  const store = memoryStore();
+  const date = "2026-09-03";
+  await store.setJSON(gridManifestKey(date), storedPublicationManifest(date, "actor-a"));
+  await store.setJSON(publicationManifestCatalogKey(), {
+    schemaVersion: 1, catalogVersion: "v1",
+    kind: "vibe-atlas-publication-manifest-catalog", dates: [date],
+  });
+  await ensurePublicationReleaseDates(store, [date]);
+  await store.setJSON(PUBLICATION_RELEASE_DATES_KEY, {
+    ...(await readPublicationReleaseDates(store)), verifiedBaseline: true,
+  });
+  const handler = createPublicSitemapHandler({
+    getStore: () => store,
+    buildReleaseCatalog: async () => ({ complete: true, packs: [] }),
+  });
+  const sitemap = () => handler(new Request("https://fandom.justlikekatie.com/sitemap.xml"), {});
+  await store.delete(publicationReleaseReceiptKey(date));
+  assert.equal((await sitemap()).headers["X-Public-Sitemap-Inventory"], "release-history-unavailable");
+  await store.setJSON(publicationReleaseReceiptKey(date), { date: "2026-09-04" });
+  assert.equal((await sitemap()).headers["X-Public-Sitemap-Inventory"], "release-history-unavailable");
+});
+
+test("the real Blobs listing verifies receipts across a live sitemap read", async t => {
+  const store = await blobsTestStore(t, "release-receipt-sitemap-contract");
+  const date = "2026-09-03";
+  await store.setJSON(gridManifestKey(date), storedPublicationManifest(date, "actor-a"));
+  await store.setJSON(publicationManifestCatalogKey(), {
+    schemaVersion: 1, catalogVersion: "v1",
+    kind: "vibe-atlas-publication-manifest-catalog", dates: [date],
+  });
+  await ensurePublicationReleaseDates(store, [date]);
+  await store.setJSON(PUBLICATION_RELEASE_DATES_KEY, {
+    ...(await readPublicationReleaseDates(store)), verifiedBaseline: true,
+  });
+  const handler = createPublicSitemapHandler({
+    getStore: () => store,
+    buildReleaseCatalog: async () => ({ complete: true, packs: [] }),
+  });
+  const sitemap = () => handler(new Request("https://fandom.justlikekatie.com/sitemap.xml"), {});
+  assert.equal((await sitemap()).headers["X-Public-Sitemap-Inventory"], "complete");
+  await store.setJSON(PUBLICATION_RELEASE_DATES_KEY, {
+    ...(await readPublicationReleaseDates(store)), dates: [],
+  });
+  await store.setJSON(publicationManifestCatalogKey(), {
+    schemaVersion: 1, catalogVersion: "v1",
+    kind: "vibe-atlas-publication-manifest-catalog", dates: [],
+  });
+  assert.notEqual((await sitemap()).headers["X-Public-Sitemap-Inventory"], "complete");
 });
 
 test("publication join receipt preserves matched, missing, ambiguous, and unavailable audit occurrences", () => {
@@ -652,6 +848,7 @@ test("materializes an immutable nine-card MEDIA manifest and reuses it idempoten
   assert.deepEqual(media.stats(), { sourceCalls: 9, mediaCalls: 9 });
   assert.equal(store.records.has(gridPendingKey(input.date)), false);
   assert.ok(store.records.has(gridManifestKey(input.date)));
+  assert.deepEqual((await readPublicationReleaseDates(store)).dates, [input.date]);
   assert.equal(
     store.records.get(publicationActorIndexKey()).actors["liu-xueyi"].latestPublicationDate,
     input.date,
@@ -667,7 +864,35 @@ test("materializes an immutable nine-card MEDIA manifest and reuses it idempoten
     fetchImpl: media.fetchImpl,
   });
   assert.equal(second.manifest.manifestId, first.manifest.manifestId);
+  assert.deepEqual((await readPublicationReleaseDates(store)).dates, [input.date]);
   assert.deepEqual(media.stats(), { sourceCalls: 9, mediaCalls: 9 });
+});
+
+test("a new publication cannot certify missing older releases without a verified baseline", async () => {
+  const store = memoryStore();
+  store.getWithMetadata = async key => store.records.has(key)
+    ? { data: await store.get(key), etag: "test-revision" } : null;
+  const oldDate = "2026-08-29";
+  await store.setJSON(gridManifestKey(oldDate), storedPublicationManifest(oldDate, "actor-a"));
+  await store.setJSON(publicationManifestCatalogKey(), {
+    schemaVersion: 1, catalogVersion: "v1",
+    kind: "vibe-atlas-publication-manifest-catalog", dates: [],
+  });
+  const media = mediaHarness();
+  const input = publicationInput();
+  await materializePublicationManifest({
+    store, ...input, env: ENV, fetchImpl: media.fetchImpl,
+    now: () => "2026-09-03T04:00:00.000Z",
+  });
+  const history = await readPublicationReleaseDates(store);
+  assert.deepEqual(history.dates, [input.date]);
+  assert.equal(history.verifiedBaseline, false);
+  const handler = createPublicSitemapHandler({
+    getStore: () => store,
+    buildReleaseCatalog: async () => ({ complete: true, packs: [] }),
+  });
+  const result = await handler(new Request("https://fandom.justlikekatie.com/sitemap.xml"), {});
+  assert.equal(result.headers["X-Public-Sitemap-Inventory"], "release-history-unavailable");
 });
 
 test("publication manifests reject malformed stored public reader links", () => {
@@ -724,6 +949,27 @@ test("publication reader-link repair fixes malformed paths and actor mismatches 
     manifestCount: 2,
     complete: true,
   });
+  assert.deepEqual((await readPublicationReleaseDates(store)).dates, [
+    "2026-09-02", "2026-09-03",
+  ]);
+  // A verified baseline must account for a repaired date before that date
+  // can disappear without producing a public inventory warning.
+  await store.setJSON(PUBLICATION_RELEASE_DATES_KEY, {
+    ...(await readPublicationReleaseDates(store)),
+    verifiedBaseline: true,
+  });
+  const handler = createPublicSitemapHandler({
+    getStore: () => store,
+    buildReleaseCatalog: async () => ({ complete: true, packs: [] }),
+  });
+  const sitemap = () => handler(new Request("https://fandom.justlikekatie.com/sitemap.xml"), {});
+  assert.equal((await sitemap()).headers["X-Public-Sitemap-Inventory"], "complete");
+  const catalog = await store.get(publicationManifestCatalogKey());
+  await store.setJSON(publicationManifestCatalogKey(), {
+    ...catalog, dates: ["2026-09-03"],
+  });
+  assert.equal((await sitemap()).headers["X-Public-Sitemap-Inventory"], "publication-history-mismatch");
+  await store.setJSON(publicationManifestCatalogKey(), catalog);
   const second = await repairPublicationManifestPublicRecords(store);
   assert.equal(second.repaired, 0);
   assert.equal(second.cataloged, 0);

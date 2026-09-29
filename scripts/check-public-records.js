@@ -35,9 +35,13 @@ export function assertIndexableRecord(response, html, url, kind) {
 
 function listedRecordUrls(xml, origin) {
   assert.equal(XMLValidator.validate(xml), true, "Production sitemap is not valid XML");
-  const entries = new XMLParser().parse(xml)?.urlset?.url;
-  assert.ok(entries, "Production sitemap does not list record URLs");
-  const urls = (Array.isArray(entries) ? entries : [entries]).map(entry => entry?.loc).filter(loc => typeof loc === "string").map(loc => {
+  const parsed = new XMLParser().parse(xml);
+  assert.ok(Object.hasOwn(parsed, "urlset"), "Production sitemap has no urlset");
+  const entries = parsed.urlset?.url;
+  assert.ok(entries !== undefined || parsed.urlset === "", "Production sitemap has no record URLs");
+  const urls = (entries === undefined ? [] : Array.isArray(entries) ? entries : [entries]).map(entry => {
+    const loc = entry?.loc;
+    assert.equal(typeof loc, "string", "Production sitemap has a URL without a location");
     const url = new URL(loc);
     // Never follow arbitrary locations supplied by a compromised or malformed sitemap.
     assert.equal(url.origin, origin, "Production sitemap lists a URL on another origin");
@@ -45,12 +49,15 @@ function listedRecordUrls(xml, origin) {
   });
   const recordsByKind = Object.fromEntries(Object.entries(ROUTES).map(([kind, pattern]) => {
     const records = urls.filter(item => pattern.test(item.pathname) && !item.search && !item.hash);
-    if (kind === "actor" || kind === "edition") {
-      assert.ok(records.length, `Production sitemap has no ${kind} record`);
-    }
     return [kind, [...new Map(records.map(url => [url.href, url])).values()]];
   }));
-  // The public sitemap derives both groups from the same indexable pack catalog.
+  // An empty publication inventory is valid; a one-sided actor/edition listing is not.
+  assert.equal(
+    recordsByKind.actor.length > 0,
+    recordsByKind.edition.length > 0,
+    "Production sitemap lists actors and editions inconsistently",
+  );
+  // The public sitemap derives both released-pack groups from the same indexable pack catalog.
   // An empty catalog is valid; a partial one is not.
   assert.equal(
     recordsByKind.releasedActor.length > 0,
@@ -83,6 +90,11 @@ export async function checkPublicRecords(fetchImpl = fetch, origin = PUBLIC_ORIG
   const sitemapUrl = `${origin}/sitemap.xml`;
   const sitemap = await get(sitemapUrl, fetchImpl);
   assert.match(sitemap.headers.get("content-type") ?? "", /^(?:application|text)\/xml\b/i, "Production sitemap is not XML");
+  assert.equal(
+    sitemap.headers.get("x-public-sitemap-inventory"),
+    "complete",
+    "Production sitemap inventory is missing or incomplete",
+  );
   const records = listedRecordUrls(await sitemap.text(), origin);
   const routes = Object.entries(records).flatMap(([kind, urls]) => urls.map(url => ({ kind, url })));
   let next = 0;

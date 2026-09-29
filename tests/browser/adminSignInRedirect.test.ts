@@ -115,6 +115,9 @@ for (const engine of BROWSER_ENGINES) {
       await page.getByRole('heading', { name: 'Release Desk' }).waitFor();
 
       stage = 'blocked notification isolation';
+      await page.waitForFunction(
+        () => Reflect.get(globalThis, '__notificationWriteRejected') === true,
+      );
       assert.equal(
         await page.evaluate(() => typeof BroadcastChannel),
         'undefined',
