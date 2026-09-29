@@ -410,7 +410,7 @@ test('the launchpad and guide present C-drama fandom as the editorial path into 
   assert.match(launchpadSource, /href="\/c-drama-fandom\/glossary\/"/);
   assert.match(launchpadSource, /href="\/c-drama-fandom\/archetypes\/"/);
   assert.match(launchpadSource, /href="\/c-drama-fandom\/watch-journal\/"/);
-  assert.match(launchpadSource, /href="\/c-drama-fandom\/vibing-now\/">Vibing Now/);
+  assert.match(launchpadSource, /href="\/c-drama-fandom\/vibing-now\/"[^\n]*>Vibing Now/);
   assert.match(launchpadSource, /<h2>Learning<\/h2>/);
   assert.match(launchpadSource, /<h2>Reading<\/h2>/);
 
