@@ -413,6 +413,8 @@ test("robots and sitemap expose only intended public surfaces", () => {
     "https://fandom.justlikekatie.com/c-drama-fandom/fandom-games/",
     "https://fandom.justlikekatie.com/c-drama-fandom/vibing-now/",
     "https://fandom.justlikekatie.com/c-drama-fandom/vibing-now/against-the-current-episode-21/",
+    "https://fandom.justlikekatie.com/c-drama-fandom/vibing-now/against-the-current-episodes-22-25/",
+    "https://fandom.justlikekatie.com/c-drama-fandom/vibing-now/against-the-current-episodes-26-30/",
     "https://fandom.justlikekatie.com/c-drama-fandom/where-to-watch/against-the-current/",
     "https://fandom.justlikekatie.com/c-drama-fandom/soundtrack/against-the-current/",
   ];
@@ -683,6 +685,36 @@ test("Against the Current stays within Episode 21 and uses registered static edi
   assert.match(read("netlify.toml"), /from = "\/c-drama-fandom\/vibing-now"\s+to = "\/c-drama-fandom\/vibing-now\/index\.html"/);
   assert.match(read("public/c-drama-fandom/index.html"), /Currently Vibing/);
   assert.match(read("public/c-drama-fandom/index.html"), /href="\/c-drama-fandom\/vibing-now\/"/);
+});
+
+test("Against the Current follow-ups keep their reviewed episode boundaries and public routes", () => {
+  const shelf = read("public/c-drama-fandom/vibing-now/index.html");
+  const netlify = read("netlify.toml");
+  const pages = [
+    { suffix: "episodes-22-25", boundary: 25, source: "drama-against-the-current-episodes-22-25" },
+    { suffix: "episodes-26-30", boundary: 30, source: "drama-against-the-current-episodes-26-30" },
+  ];
+  for (const { suffix, boundary, source } of pages) {
+    const path = `/c-drama-fandom/vibing-now/against-the-current-${suffix}/`;
+    const html = read(`public${path}index.html`);
+    const route = PUBLIC_STATIC_ROUTES.find((entry) => entry.path === path);
+    assert.ok(route, `${path} must be registered`);
+    assertCanonicalMatchesRoute(html, route);
+    assert.match(html, new RegExp(`data-source-page="${source}"`));
+    assert.match(html, new RegExp(`stops at the end of Episode ${boundary}`));
+    assert.match(html, /Source-reviewed September 28, 2026/);
+    assert.match(html, /<script defer src="\/c-drama-fandom\/editorial\.js"><\/script>/);
+    assert.doesNotMatch(html, /vibing-discussion\.js|data-discussion-id|X-Amz-|prod-files-secure|Draft release package/);
+    assert.match(shelf, new RegExp(`href="${path}"`));
+    assert.match(netlify, new RegExp(`from = "${path.slice(0, -1)}"\\s+to = "${path}index\\.html"`));
+    assert.equal(new Map(publicStaticPreviewRoutes()).get(path.slice(0, -1)), `${path}index.html`);
+  }
+  const first = read("public/c-drama-fandom/vibing-now/against-the-current-episodes-22-25/index.html");
+  const second = read("public/c-drama-fandom/vibing-now/against-the-current-episodes-26-30/index.html");
+  assert.doesNotMatch(first, /The state does not become just|Episode 26 also widens|music house|slaps him|drugging her/);
+  assert.match(second, /Zheng family’s downfall/);
+  assert.match(second, /He can move her body\. He cannot manufacture arrival\./);
+  assert.match(second, /It contains no arrival at the former Shen residence, Episode 31 material/);
 });
 
 test("the soundtrack pilot links only to verified licensed listings and stays separate from viewing data", () => {

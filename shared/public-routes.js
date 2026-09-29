@@ -58,6 +58,8 @@ export const PUBLIC_STATIC_ROUTES = Object.freeze([
   { ...editorial("/c-drama-fandom/fandom-games/", "0.9"), changefreq: "weekly" },
   { ...editorial("/c-drama-fandom/vibing-now/", "0.9"), changefreq: "weekly" },
   { ...editorial("/c-drama-fandom/vibing-now/against-the-current-episode-21/", "0.9"), changefreq: "weekly" },
+  { ...editorial("/c-drama-fandom/vibing-now/against-the-current-episodes-22-25/", "0.9"), changefreq: "weekly" },
+  { ...editorial("/c-drama-fandom/vibing-now/against-the-current-episodes-26-30/", "0.9"), changefreq: "weekly" },
   { ...editorial("/c-drama-fandom/where-to-watch/against-the-current/", "0.8"), changefreq: "weekly" },
   { ...editorial("/c-drama-fandom/soundtrack/against-the-current/", "0.8"), changefreq: "weekly" },
   editorial("/c-dramas/love-between-fairy-and-devil/", "0.9"),
