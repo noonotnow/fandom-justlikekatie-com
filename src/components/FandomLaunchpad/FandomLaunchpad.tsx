@@ -1,5 +1,6 @@
 import { PUBLIC_ROUTE_PATHS } from "../../../shared/public-routes.js";
 import { useEffect, useRef, useState } from "react";
+import { trackHomepageGuideMenuLinkSelected, trackHomepageGuideMenuOpened } from "../../utils/analytics";
 import styles from "./FandomLaunchpad.module.css";
 
 export function FandomLaunchpad() {
@@ -50,7 +51,10 @@ export function FandomLaunchpad() {
               type="button"
               aria-expanded={guidesOpen}
               aria-controls="fandom-guide-menu"
-              onClick={() => setGuidesOpen((open) => !open)}
+              onClick={() => {
+                if (!guidesOpen) trackHomepageGuideMenuOpened();
+                setGuidesOpen(!guidesOpen);
+              }}
             >
               More guides <span className={styles.menuChevron} aria-hidden="true">{guidesOpen ? "−" : "+"}</span>
             </button>
@@ -58,13 +62,13 @@ export function FandomLaunchpad() {
               <div className={styles.guideMenuPanel} id="fandom-guide-menu">
                 <div className={styles.guideMenuGroup}>
                   <h2>Learning</h2>
-                  <a href="/c-drama-fandom/glossary/">Glossary</a>
-                  <a href="/c-drama-fandom/archetypes/">Archetypes</a>
+                  <a href="/c-drama-fandom/glossary/" onClick={() => trackHomepageGuideMenuLinkSelected('glossary')}>Glossary</a>
+                  <a href="/c-drama-fandom/archetypes/" onClick={() => trackHomepageGuideMenuLinkSelected('archetypes')}>Archetypes</a>
                 </div>
                 <div className={styles.guideMenuGroup}>
                   <h2>Reading</h2>
-                  <a href="/c-drama-fandom/watch-journal/">Veteran journal</a>
-                  <a href="/c-drama-fandom/vibing-now/">Vibing Now</a>
+                  <a href="/c-drama-fandom/watch-journal/" onClick={() => trackHomepageGuideMenuLinkSelected('watch_journal')}>Veteran journal</a>
+                  <a href="/c-drama-fandom/vibing-now/" onClick={() => trackHomepageGuideMenuLinkSelected('vibing_now')}>Vibing Now</a>
                 </div>
               </div>
             )}
