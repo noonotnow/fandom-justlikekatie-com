@@ -2528,6 +2528,19 @@ test("the private actor register includes every pairing without exposing reports
   assert.equal(body.releaseInventory.actorPacks[0].releaseReadyPairingCount, 0);
 });
 
+test("the Lab actor list does not wait for unrelated release inventory", async () => {
+  const { handler } = harness();
+  const response = await handler(request("GET", undefined, "?view=actors"), {});
+  const body = await response.json();
+  assert.equal(response.status, 200, JSON.stringify(body));
+  assert.equal(body.schemaVersion, 1);
+  assert.equal(body.actors[0].canonicalName, "刘学义");
+  assert.deepEqual(body.actors[0].pairings.map(item => item.vibeKey), ["liu-xueyi:0"]);
+  assert.equal("releaseInventory" in body, false);
+  assert.equal("releaseCatalogHealth" in body, false);
+  assert.equal("productionReadiness" in body, false);
+});
+
 test("private catalog health attributes damaged publication media to its pairing without leaking public diagnostics", async () => {
   const publicationStore = memoryStore();
   const validDate = "2026-08-29";
