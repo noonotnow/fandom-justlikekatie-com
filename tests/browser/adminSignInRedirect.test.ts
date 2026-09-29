@@ -112,6 +112,9 @@ for (const engine of BROWSER_ENGINES) {
       await gotoTestPage(page, `${origin}/auth/verify#token=valid-admin-token&next=admin`);
 
       stage = 'blocked notification isolation';
+      await page.waitForFunction(
+        () => Reflect.get(globalThis, '__notificationWriteRejected') === true,
+      );
       assert.equal(
         await page.evaluate(() => typeof BroadcastChannel),
         'undefined',
