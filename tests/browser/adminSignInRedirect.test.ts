@@ -111,6 +111,9 @@ for (const engine of BROWSER_ENGINES) {
       stage = 'fragment parsing and token verification';
       await gotoTestPage(page, `${origin}/auth/verify#token=valid-admin-token&next=admin`);
 
+      stage = 'Operator Console rendering';
+      await page.getByRole('heading', { name: 'Release Desk' }).waitFor();
+
       stage = 'blocked notification isolation';
       assert.equal(
         await page.evaluate(() => typeof BroadcastChannel),
@@ -127,9 +130,6 @@ for (const engine of BROWSER_ENGINES) {
         null,
         'the rejected notification write must not be persisted',
       );
-
-      stage = 'Operator Console rendering';
-      await page.getByRole('heading', { name: 'Release Desk' }).waitFor();
 
       stage = 'history replacement';
       assert.equal(new URL(page.url()).pathname, '/vibe-atlas');
