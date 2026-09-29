@@ -32,20 +32,20 @@ export function evaluateWatchRecord(record, now = new Date()) {
     || now.getTime() - Date.parse(record.checkedAt) > MAX_AGE_DAYS * 86400000) issues.push("fresh dated review");
   if (!Array.isArray(record?.platforms) || !record.platforms.length) issues.push("official platform evidence");
   const expectedRegions = ["United States", "United Kingdom", "Australia", "Europe (country by country)", "Mainland China"];
-  if (!Array.isArray(record?.regionGuidance)
-    || record.regionGuidance.length !== expectedRegions.length
-    || expectedRegions.some((name) => record.regionGuidance.filter((region) => region.name === name).length !== 1)) {
+  const regionGuidance = Array.isArray(record?.regionGuidance) ? record.regionGuidance : [];
+  if (regionGuidance.length !== expectedRegions.length
+    || expectedRegions.some((name) => regionGuidance.filter((region) => region?.name === name).length !== 1)) {
     issues.push("requested reader regions");
   }
-  for (const [index, region] of (record?.regionGuidance || []).entries()) {
+  for (const [index, region] of regionGuidance.entries()) {
     const label = `region ${index + 1}`;
-    if (!["verified", "unverified"].includes(region.status) || !region.note
+    if (!region || !["verified", "unverified"].includes(region.status) || !region.note
       || !safeUrl(region.sourceUrl) || !validDate(region.checkedAt)
       || Date.parse(region.checkedAt) > now.getTime()
       || now.getTime() - Date.parse(region.checkedAt) > MAX_AGE_DAYS * 86400000) {
       issues.push(`${label}: dated official source and qualified status`);
     }
-    if (region.status === "verified" && region.name !== "United States") issues.push(`${label}: unsupported regional verification`);
+    if (region?.status === "verified" && region.name !== "United States") issues.push(`${label}: unsupported regional verification`);
   }
   for (const [index, item] of (record?.platforms || []).entries()) {
     const label = `platform ${index + 1}`;
