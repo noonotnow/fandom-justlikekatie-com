@@ -140,6 +140,8 @@
   display: block;
 }
 
+.fandom-atlas-nav button .fandom-atlas-nav__chevron { display: inline; }
+
 .fandom-atlas-nav button small,
 .fandom-atlas-admin-link small {
   margin-top: .18rem;

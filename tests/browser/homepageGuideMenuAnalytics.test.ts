@@ -14,6 +14,7 @@ test('homepage guide menu records opens and each selected destination without ad
   try {
     const page = await browser.newPage();
     page.setDefaultTimeout(8_000);
+    await page.route('https://www.googletagmanager.com/**', route => route.abort());
     await page.addInitScript(() => {
       (window as Window & { umami?: { track(name: string, data?: Record<string, string | number | boolean>): void } }).umami = {
         track(name, data) {
@@ -56,6 +57,7 @@ test('guide links still navigate without analytics and when the tracker throws',
     for (const trackerThrows of [false, true]) {
       const page = await browser.newPage();
       page.setDefaultTimeout(8_000);
+      await page.route('https://www.googletagmanager.com/**', route => route.abort());
       if (trackerThrows) {
         await page.addInitScript(() => {
           (window as Window & { umami?: { track(): void } }).umami = {
