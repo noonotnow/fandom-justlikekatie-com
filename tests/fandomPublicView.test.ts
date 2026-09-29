@@ -73,7 +73,8 @@ const previewHtml = await Promise.all(
 );
 
 test('Your Collection is the public Collection and Grid Builder workspace', () => {
-  assert.match(appSource, /<span>Your Collection<\/span><small>Saved Grids · Grid Builder<\/small>/);
+  assert.match(appSource, /aria-label="Your Collection · Saved Grids and Grid Builder"/);
+  assert.match(appSource, /<span>Your Collection<\/span>/);
   assert.match(collectionSource, /'Your Collection'/);
   assert.match(collectionSource, />\s*Grid Builder\s*<\/button>/);
   assert.doesNotMatch(appSource, /<span>Admin<\/span><small>Packets<\/small>/);
@@ -409,6 +410,9 @@ test('the launchpad and guide present C-drama fandom as the editorial path into 
   assert.match(launchpadSource, /href="\/c-drama-fandom\/glossary\/"/);
   assert.match(launchpadSource, /href="\/c-drama-fandom\/archetypes\/"/);
   assert.match(launchpadSource, /href="\/c-drama-fandom\/watch-journal\/"/);
+  assert.match(launchpadSource, /href="\/c-drama-fandom\/vibing-now\/">Vibing Now/);
+  assert.match(launchpadSource, /<h2>Learning<\/h2>/);
+  assert.match(launchpadSource, /<h2>Reading<\/h2>/);
 
   for (const silo of [
     'Fandom literacy',

@@ -1,7 +1,38 @@
 import { PUBLIC_ROUTE_PATHS } from "../../../shared/public-routes.js";
+import { useEffect, useRef, useState } from "react";
 import styles from "./FandomLaunchpad.module.css";
 
 export function FandomLaunchpad() {
+  const [guidesOpen, setGuidesOpen] = useState(false);
+  const menuRef = useRef<HTMLDivElement>(null);
+  const triggerRef = useRef<HTMLButtonElement>(null);
+
+  useEffect(() => {
+    if (!guidesOpen) return;
+
+    const dismissOutside = (event: PointerEvent) => {
+      if (!menuRef.current?.contains(event.target as Node)) setGuidesOpen(false);
+    };
+    const dismissOnFocusOutside = (event: FocusEvent) => {
+      if (!menuRef.current?.contains(event.target as Node)) setGuidesOpen(false);
+    };
+    const dismissOnEscape = (event: KeyboardEvent) => {
+      if (event.key === "Escape") {
+        setGuidesOpen(false);
+        triggerRef.current?.focus();
+      }
+    };
+
+    document.addEventListener("pointerdown", dismissOutside);
+    document.addEventListener("focusin", dismissOnFocusOutside);
+    document.addEventListener("keydown", dismissOnEscape);
+    return () => {
+      document.removeEventListener("pointerdown", dismissOutside);
+      document.removeEventListener("focusin", dismissOnFocusOutside);
+      document.removeEventListener("keydown", dismissOnEscape);
+    };
+  }, [guidesOpen]);
+
   return (
     <main className={styles.launchpad}>
       <header className={styles.header}>
@@ -10,11 +41,34 @@ export function FandomLaunchpad() {
         <h1>Build a world<br /><i>worth sharing.</i></h1>
         <p className={styles.intro}>Fandom Vibes is a creative universe by Katie Hendley, creator of Just Like Katie. Start with the language, genres, and story patterns of C-drama fandom—then take what you notice into Vibe Atlas.</p>
         <nav className={styles.editorialNav} aria-label="Explore C-drama fandom">
-          <a href="/c-drama-fandom/">Enter C-drama fandom</a>
-          <a href="/c-drama-fandom/getting-started/">Start here</a>
-          <a href="/c-drama-fandom/glossary/">Browse the glossary</a>
-          <a href="/c-drama-fandom/archetypes/">Decode archetypes</a>
-          <a href="/c-drama-fandom/watch-journal/">Veteran journal</a>
+          <a className={styles.primaryGuideLink} href="/c-drama-fandom/">Explore the C-drama guide <span aria-hidden="true">↗</span></a>
+          <a className={styles.startGuideLink} href="/c-drama-fandom/getting-started/">New to C-dramas? Start here <span aria-hidden="true">↗</span></a>
+          <div className={styles.guideMenu} ref={menuRef}>
+            <button
+              className={styles.guideMenuTrigger}
+              ref={triggerRef}
+              type="button"
+              aria-expanded={guidesOpen}
+              aria-controls="fandom-guide-menu"
+              onClick={() => setGuidesOpen((open) => !open)}
+            >
+              More guides <span className={styles.menuChevron} aria-hidden="true">{guidesOpen ? "−" : "+"}</span>
+            </button>
+            {guidesOpen && (
+              <div className={styles.guideMenuPanel} id="fandom-guide-menu">
+                <div className={styles.guideMenuGroup}>
+                  <h2>Learning</h2>
+                  <a href="/c-drama-fandom/glossary/">Glossary</a>
+                  <a href="/c-drama-fandom/archetypes/">Archetypes</a>
+                </div>
+                <div className={styles.guideMenuGroup}>
+                  <h2>Reading</h2>
+                  <a href="/c-drama-fandom/watch-journal/">Veteran journal</a>
+                  <a href="/c-drama-fandom/vibing-now/">Vibing Now</a>
+                </div>
+              </div>
+            )}
+          </div>
         </nav>
       </header>
       <section className={styles.editorialGateway} aria-labelledby="c-drama-gateway-title">
