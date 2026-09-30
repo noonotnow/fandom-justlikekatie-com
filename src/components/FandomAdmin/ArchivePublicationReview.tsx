@@ -41,6 +41,7 @@ export function ArchivePublicationReview() {
   const [records, setRecords] = useState<AuditRecord[]>([]);
   const [cursor, setCursor] = useState<string | null>(null);
   const [selectedDate, setSelectedDate] = useState('');
+  const [dateInput, setDateInput] = useState('');
   const [review, setReview] = useState<ArchiveReview | null>(null);
   const [loadingAudit, setLoadingAudit] = useState(true);
   const [loadingReview, setLoadingReview] = useState(false);
@@ -62,7 +63,10 @@ export function ArchivePublicationReview() {
       const nextCursor = result.nextCursor || null;
       cursorRef.current = nextCursor;
       setCursor(nextCursor);
-      if (incoming[0]) setSelectedDate(current => current || incoming[0].date);
+      if (incoming[0]) {
+        setSelectedDate(current => current || incoming[0].date);
+        setDateInput(current => current || incoming[0].date);
+      }
     } catch (loadError) {
       setError(loadError instanceof Error ? loadError.message : 'The archive audit could not be loaded.');
     } finally {
@@ -107,7 +111,7 @@ export function ArchivePublicationReview() {
       if (result.review) setReview(result.review);
       else if (result.mediaChecks) setReview({ ...review, mediaChecks: result.mediaChecks });
       else throw new Error('The media check returned no review record.');
-      setNotice('Media check finished. This check does not approve or publish the archive entry.');
+      setNotice(`Media check completed for ${selectedDate}. Read the nine-image result below; this does not publish the edition.`);
     } catch (checkError) {
       if (request === requestRef.current) {
         setError(checkError instanceof Error ? checkError.message : 'The media check could not be completed.');
@@ -120,6 +124,7 @@ export function ArchivePublicationReview() {
   function selectDate(date: string) {
     ++requestRef.current;
     setSelectedDate(date);
+    setDateInput(date);
     setReview(null);
     setLoadingReview(true);
     setChecking(false);
@@ -128,6 +133,12 @@ export function ArchivePublicationReview() {
   }
 
   const sortedCards = [...(review?.cards || [])].sort((a, b) => a.position - b.position);
+  const mediaResults = Array.from({ length: 9 }, (_, position) =>
+    review?.mediaChecks?.find(check => check.position === position));
+  const verifiedCount = mediaResults.filter(check => check?.status === 'verified').length;
+  const allVerified = review?.mediaChecks?.length === 9 && verifiedCount === 9;
+  const failedPositions = mediaResults.flatMap((check, position) =>
+    check?.status === 'verified' ? [] : [`${position + 1}: ${check?.status || 'no result'}`]);
 
   return (
     <section className={styles.review} id="archive-publication-review-panel" role="tabpanel" aria-labelledby="archive-publication-review-tab archive-publication-review-title">
@@ -149,6 +160,17 @@ export function ArchivePublicationReview() {
             <div><span className={styles.kicker}>Audit trail</span><h4>Archive dates</h4></div>
             <button type="button" className={styles.quietButton} onClick={() => void loadAudit()} disabled={loadingAudit}>Refresh</button>
           </div>
+          <form className={styles.dateJump} onSubmit={event => {
+            event.preventDefault();
+            if (dateInput && dateInput !== selectedDate) selectDate(dateInput);
+            else if (dateInput) void loadReview(dateInput);
+          }}>
+            <label htmlFor="archive-review-date">Review a specific date</label>
+            <div>
+              <input id="archive-review-date" type="date" required value={dateInput} onChange={event => setDateInput(event.target.value)} />
+              <button type="submit" className={styles.quietButton}>Open</button>
+            </div>
+          </form>
           {loadingAudit && records.length === 0 ? (
             <div className={styles.auditSkeleton} aria-label="Loading audit dates"><span /><span /><span /></div>
           ) : records.length === 0 && !error ? (
@@ -179,9 +201,12 @@ export function ArchivePublicationReview() {
             <>
               <div className={styles.detailTopline}>
                 <div><span className={styles.kicker}>Selected record</span><h4>{displayDate(review.date)}</h4></div>
-                <span className={styles.statusBadge}>{review.status}</span>
+                 <span className={styles.statusBadge}>{review.status === 'missing_manifest' ? 'No publication manifest' : review.status.replaceAll('_', ' ')}</span>
               </div>
-              <div className={styles.reviewMeta}>
+               {review.status === 'missing_manifest' || review.status === 'malformed_manifest' ? (
+                 <p className={styles.manifestWarning}>This Archive date has no valid publication manifest. Archive entries alone cannot verify nine permanent images or create a public edition.</p>
+               ) : <>
+               <div className={styles.reviewMeta}>
                 <div><span>Actor</span><strong>{review.actor?.nameEn || review.actor?.name || 'Not provided'}</strong>{review.actor?.nameEn && review.actor?.name && review.actor.name !== review.actor.nameEn && <small>{review.actor.name}</small>}</div>
                 <div><span>Vibe</span><strong>{review.vibe?.labelEn || 'Not provided'}</strong>{review.vibe?.subtitleEn && <small>{review.vibe.subtitleEn}</small>}</div>
                 <div><span>Indexable</span><strong>{review.indexable ? 'Yes' : 'No'}</strong></div>
@@ -192,6 +217,14 @@ export function ArchivePublicationReview() {
                    <div><h5 id="archive-review-media-title">Nine media positions</h5><p>Original titles and thumbnails in archive order. The media check downloads each full-size delivery and verifies its saved checksum.</p></div>
                   <button type="button" className={styles.checkButton} onClick={() => void runMediaCheck()} disabled={checking || sortedCards.length !== 9}>{checking ? 'Checking media…' : 'Run media check'}</button>
                 </div>
+                 <div className={`${styles.mediaSummary} ${review.mediaChecks ? (allVerified ? styles.mediaSuccess : styles.mediaFailure) : ''}`} role="status" aria-live="polite">
+                   <strong>{review.mediaChecks
+                     ? `${verifiedCount} of 9 full-size images verified for ${review.date}${allVerified ? ' — all passed' : ' — not cleared for release'}`
+                     : `Media not checked for ${review.date}`}</strong>
+                   <span>{review.mediaChecks
+                     ? allVerified ? 'Every position matched the saved size, type and SHA-256 checksum. This check does not publish the edition.' : `Positions needing attention: ${failedPositions.join('; ')}.`
+                     : 'Run media check for this date. A check on another date does not count.'}</span>
+                 </div>
                 <ol className={styles.cardGrid}>
                   {Array.from({ length: 9 }, (_, index) => {
                      const position = index;
@@ -210,8 +243,9 @@ export function ArchivePublicationReview() {
               </section>
               <footer className={styles.agentNote}>
                 <strong>Review handoff</strong>
-                <p>When copy is approved, report the date and exact approved text to Agent. This screen records no approval.</p>
+                 <p>The approved bilingual pack name and lines do not need rewriting. Report the checked date and the nine-image result to Agent. This screen does not publish an edition.</p>
               </footer>
+               </>}
             </>
           ) : !error && selectedDate ? (
             <div className={styles.emptyDetail}><span className={styles.emptyMark} aria-hidden="true">—</span><h4>Review unavailable</h4><p>Retry to fetch the original copy and media for this date.</p><button type="button" className={styles.quietButton} onClick={() => void loadReview(selectedDate)}>Retry review</button></div>

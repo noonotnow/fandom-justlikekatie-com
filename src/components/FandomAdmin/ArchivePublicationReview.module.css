@@ -30,6 +30,10 @@
 .auditPane { padding: 15px 12px 12px; }
 .auditHeading { display: flex; align-items: center; justify-content: space-between; gap: 8px; padding: 1px 3px 12px; border-bottom: 1px solid var(--review-line); }
 .auditHeading h4 { margin: 3px 0 0; font-size: 15px; }
+.dateJump { display: grid; gap: 7px; margin: 12px 3px; }
+.dateJump label { color: var(--review-muted); font-size: 11px; font-weight: 700; }
+.dateJump div { display: flex; gap: 6px; }
+.dateJump input { min-width: 0; flex: 1; padding: 5px; border: 1px solid var(--review-line); border-radius: 7px; background: Canvas; color: inherit; font: inherit; font-size: 11px; }
 .quietButton, .moreButton { min-height: 34px; border: 1px solid var(--review-line); border-radius: 7px; padding: 0 10px; background: transparent; color: inherit; font: inherit; font-size: 11px; cursor: pointer; }
 .quietButton:hover, .moreButton:hover { background: color-mix(in srgb, #c9a96e 12%, transparent); }
 .quietButton:disabled, .moreButton:disabled, .checkButton:disabled { cursor: wait; opacity: .6; }
@@ -59,12 +63,18 @@
 .reviewMeta small { color: var(--review-muted); font-size: 11px; }
 .copyPanel { padding: 14px 16px; border-left: 3px solid #c9a96e; border-radius: 0 8px 8px 0; background: color-mix(in srgb, #c9a96e 9%, transparent); }
 .copyPanel p { margin: 7px 0 0; font-family: Georgia, 'Times New Roman', serif; font-size: 16px; line-height: 1.55; white-space: pre-wrap; }
+.manifestWarning { margin: 18px 0; padding: 14px; border: 1px solid color-mix(in srgb, #ad8b4c 35%, transparent); border-radius: 8px; font-size: 13px; line-height: 1.5; }
 .mediaSection { margin-top: 22px; }
 .sectionHeading { display: flex; align-items: center; justify-content: space-between; gap: 16px; margin-bottom: 12px; }
 .sectionHeading h5 { margin: 0 0 4px; font-size: 15px; }
 .sectionHeading p { margin: 0; color: var(--review-muted); font-size: 11px; line-height: 1.45; }
 .checkButton { min-height: 38px; flex: 0 0 auto; border: 1px solid #ad8b4c; border-radius: 7px; padding: 0 13px; background: #c9a96e; color: #211c13; font: inherit; font-size: 11px; font-weight: 700; cursor: pointer; }
 .checkButton:hover { background: #d4b980; }
+.mediaSummary { display: grid; gap: 5px; margin: 0 0 14px; padding: 13px 15px; border: 1px solid var(--review-line); border-radius: 8px; font-size: 12px; line-height: 1.4; }
+.mediaSummary strong { font-size: 14px; }
+.mediaSummary span { color: var(--review-muted); }
+.mediaSuccess { border-color: #739177; background: color-mix(in srgb, #739177 17%, Canvas); }
+.mediaFailure { border-color: #b6534d; background: color-mix(in srgb, #b6534d 13%, Canvas); }
 .cardGrid { display: grid; grid-template-columns: repeat(3, minmax(0, 1fr)); gap: 10px; margin: 0; padding: 0; list-style: none; }
 .mediaCard { min-width: 0; overflow: hidden; border: 1px solid var(--review-line); border-radius: 8px; background: color-mix(in srgb, Canvas 85%, currentColor 3%); }
 .thumbnail { position: relative; display: grid; aspect-ratio: 16 / 10; place-items: center; overflow: hidden; background: color-mix(in srgb, #c9a96e 9%, Canvas); color: var(--review-muted); font-size: 10px; }
