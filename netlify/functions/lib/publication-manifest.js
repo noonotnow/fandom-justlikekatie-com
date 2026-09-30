@@ -272,6 +272,10 @@ export const PUBLIC_VIBE_ATLAS_ORIGIN = "https://fandom.justlikekatie.com";
 export const PUBLIC_ACTOR_PATH = "/vibe-atlas/actors";
 export const PUBLIC_EDITION_PATH = "/vibe-atlas/editions";
 const MIN_PUBLIC_EDITORIAL_COPY_LENGTH = 40;
+// An editor approved this dated manifest's existing bilingual pack name and
+// accompanying line after all nine immutable MEDIA deliveries passed review.
+// Do not relax the copy-length gate for other historical manifests.
+const APPROVED_SHORT_COPY_EDITION_DATE = "2026-09-03";
 
 export function publicActorSlug(actor) {
   const source = actor?.nameEn || actor?.name || actor?.id || "";
@@ -304,10 +308,15 @@ function publicCanonical(path) {
 export function isIndexablePublicationManifest(manifest) {
   if (!isGridManifest(manifest)) return false;
   const copy = manifest.vibe?.supportingCopyEn || manifest.vibe?.supportingCopy;
-  if (typeof copy !== "string" || copy.trim().length < MIN_PUBLIC_EDITORIAL_COPY_LENGTH) {
+  if (manifest.publicationDate === APPROVED_SHORT_COPY_EDITION_DATE) {
+    if (!manifest.vibe?.label?.trim() || !manifest.vibe?.labelEn?.trim()
+      || !(manifest.vibe?.subtitleEn?.trim() || (typeof copy === "string" && copy.trim()))) {
+      return false;
+    }
+  } else if (typeof copy !== "string" || copy.trim().length < MIN_PUBLIC_EDITORIAL_COPY_LENGTH
+    || !manifest.vibe?.labelEn?.trim() || !manifest.vibe?.subtitleEn?.trim()) {
     return false;
   }
-  if (!manifest.vibe?.labelEn?.trim() || !manifest.vibe?.subtitleEn?.trim()) return false;
   return Boolean(publicEditionPath(manifest));
 }
 
@@ -315,7 +324,8 @@ export function publicEditionPreview(manifest) {
   if (!isIndexablePublicationManifest(manifest)) return null;
   const actorPath = publicActorPath(manifest.actor);
   const editionPath = publicEditionPath(manifest);
-  const copy = (manifest.vibe.supportingCopyEn || manifest.vibe.supportingCopy).trim();
+  const copy = (manifest.vibe.supportingCopyEn || manifest.vibe.supportingCopy
+    || manifest.vibe.subtitleEn).trim();
   return {
     kind: "vibe-atlas-public-edition",
     date: manifest.publicationDate,
@@ -332,7 +342,7 @@ export function publicEditionPreview(manifest) {
       label: manifest.vibe.label,
       labelEn: manifest.vibe.labelEn,
       emoji: manifest.vibe.emoji || null,
-      subtitleEn: manifest.vibe.subtitleEn,
+      subtitleEn: manifest.vibe.subtitleEn || copy,
       copy,
     },
     canonical: publicCanonical(editionPath),

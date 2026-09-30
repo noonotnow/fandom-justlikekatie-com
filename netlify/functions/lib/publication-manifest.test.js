@@ -269,6 +269,27 @@ test("public indexability fails closed for incomplete editorial or MEDIA records
   assert.equal(manifestPayload(manifest), null);
 });
 
+test("only the reviewed September 3 manifest accepts its original short bilingual pack line", () => {
+  const approved = storedPublicationManifest("2026-09-03", "actor-a");
+  approved.vibe.label = "已批准的名称";
+  approved.vibe.labelEn = "Approved name";
+  approved.vibe.subtitleEn = "Approved line";
+  assert.equal(isIndexablePublicationManifest(approved), true);
+  assert.equal(publicEditionPreview(approved).vibe.copy, "Approved line");
+  assert.equal(publicEditionPreview(approved).vibe.subtitleEn, "Approved line");
+
+  const other = storedPublicationManifest("2026-09-02", "actor-a");
+  other.vibe = { ...approved.vibe };
+  assert.equal(isIndexablePublicationManifest(other), false);
+  assert.equal(publicEditionPreview(other), null);
+  const noLine = { ...approved, vibe: { ...approved.vibe, subtitleEn: "" } };
+  assert.equal(isIndexablePublicationManifest(noLine), false);
+  const noChineseName = { ...approved, vibe: { ...approved.vibe, label: "" } };
+  assert.equal(isIndexablePublicationManifest(noChineseName), false);
+  const missingMedia = { ...approved, cards: approved.cards.slice(0, 8) };
+  assert.equal(isIndexablePublicationManifest(missingMedia), false);
+});
+
 test("archive publication diagnosis separates missing, malformed, thin, and verified records", async () => {
   const store = memoryStore();
   const malformed = storedPublicationManifest("2026-09-02", "actor-a");
