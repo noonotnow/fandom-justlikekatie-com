@@ -228,6 +228,28 @@ test("operator-only card check bounds position and reports a single approved ima
   assert.equal((await denied({ method: "GET", url }, {})).statusCode, 403);
 });
 
+test("draft card checks use only an authenticated retained candidate, not a submitted source URL", async () => {
+  const handler = createPreflightPreviewCardHealthHandler({
+    actorPacks,
+    auth: { authenticateAdmin: async () => {} },
+    getStore: () => ({}),
+    inspectCandidate: async input => {
+      assert.equal(input.runId, "current-run");
+      assert.equal(input.candidateId, "candidate-2");
+      assert.equal(input.position, undefined);
+      return { status: "unavailable" };
+    },
+  });
+  const url = "https://example.test/.netlify/functions/preflight-preview-card-health?actorId=actor-one&vibeIdx=0&runId=current-run&candidateId=candidate-2";
+  const response = await handler({ method: "GET", url }, {});
+  assert.equal(response.statusCode, 200);
+  assert.deepEqual(JSON.parse(response.body), {
+    actorId: "actor-one", vibeIdx: 0, runId: "current-run",
+    candidateId: "candidate-2", status: "unavailable",
+  });
+  assert.equal((await handler({ method: "GET", url: url + "&sourceUrl=https://private.example" }, {})).statusCode, 200);
+});
+
 test("admin publication reports storage failure without upstream detail or a card number", async () => {
   const handler = createPublishPreflightPreviewHandler({
     actorPacks,

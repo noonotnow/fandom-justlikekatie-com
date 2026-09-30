@@ -1,5 +1,6 @@
 import { createHash } from "node:crypto";
 import {
+  auditHeadKey,
   auditRunKey,
   getEligibility,
   isReleaseReady,
@@ -108,6 +109,43 @@ export async function inspectApprovedPreflightCard({
     return { status: "healthy", runId: selected.approval.runId, boardHash: selected.boardHash };
   } catch {
     return { status: "unavailable", runId: selected.approval.runId, boardHash: selected.boardHash };
+  }
+}
+
+/** Checks a proposed rescue candidate only against the current retained run. */
+export async function inspectRetainedPreflightCandidate({
+  eligibilityStore,
+  actor,
+  vibeIdx,
+  runId,
+  candidateId,
+  imageFetcher = fetchPublicationImage,
+  fetchImpl = fetch,
+  resolveHost,
+}) {
+  if (!actor?.vibes?.[vibeIdx] || !runId || !candidateId) return null;
+  const head = await eligibilityStore.get(auditHeadKey(actor.id, vibeIdx), {
+    type: "json", consistency: "strong",
+  });
+  if (head?.currentRunId !== runId) return { status: "not-current" };
+  const run = await eligibilityStore.get(auditRunKey(actor.id, vibeIdx, runId), {
+    type: "json", consistency: "strong",
+  });
+  if (run?.runId !== runId) return { status: "not-current" };
+  const candidate = run.rawResults?.find(item => item.candidateId === candidateId);
+  const excluded = run.editorialFeedback?.flags?.some(item =>
+    item.candidateId === candidateId && item.disposition === "excluded");
+  const unavailable = run.curationReceipt?.rawCandidates?.some(item =>
+    item.candidateId === candidateId && item.dropReason === "image_load_failed")
+    || run.rejections?.some(item => item.candidateId === candidateId
+      && item.kind === "image" && item.reason === "image_load_failed");
+  if (!candidate || excluded || unavailable || typeof candidate.thumbnail !== "string"
+    || !candidate.thumbnail.startsWith("https://")) return { status: "not-current" };
+  try {
+    await imageFetcher(candidate.thumbnail, fetchImpl, resolveHost);
+    return { status: "healthy", runId, candidateId };
+  } catch {
+    return { status: "unavailable", runId, candidateId };
   }
 }
 

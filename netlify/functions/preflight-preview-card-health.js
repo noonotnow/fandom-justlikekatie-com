@@ -2,7 +2,7 @@ import { getBlobStore } from "./lib/blob-store.js";
 import { ACTOR_PACKS } from "./lib/actor-packs.js";
 import { ELIGIBILITY_STORE } from "./lib/actor-eligibility.js";
 import { createPublicAuth } from "./lib/public-auth.js";
-import { inspectApprovedPreflightCard } from "./lib/preflight-preview.js";
+import { inspectApprovedPreflightCard, inspectRetainedPreflightCandidate } from "./lib/preflight-preview.js";
 
 const json = (status, body) => ({
   statusCode: status,
@@ -15,6 +15,7 @@ export function createPreflightPreviewCardHealthHandler({
   actorPacks = ACTOR_PACKS,
   auth = createPublicAuth({ getStore }),
   inspectCard = inspectApprovedPreflightCard,
+  inspectCandidate = inspectRetainedPreflightCandidate,
 } = {}) {
   return async (request, context) => {
     if (request.method && request.method !== "GET") return json(405, { error: "Method not allowed." });
@@ -24,13 +25,22 @@ export function createPreflightPreviewCardHealthHandler({
       const actorId = query.get("actorId");
       const vibeIdx = Number(query.get("vibeIdx"));
       const position = Number(query.get("position"));
+      const runId = query.get("runId");
+      const candidateId = query.get("candidateId");
       if (!/^(0|[1-9]\d*)$/.test(query.get("vibeIdx") || "")
-        || !/^[0-8]$/.test(query.get("position") || "")) return json(400, { error: "Invalid pairing or position." });
+        || (runId || candidateId
+          ? !runId || !candidateId || runId.length > 160 || candidateId.length > 160
+          : !/^[0-8]$/.test(query.get("position") || "")))
+        return json(400, { error: "Invalid pairing or position." });
       const actor = actorPacks.find(item => item.id === actorId);
       if (!actor?.vibes?.[vibeIdx]) return json(404, { error: "Pairing not found." });
-      const result = await inspectCard({
-        eligibilityStore: getStore(ELIGIBILITY_STORE, context), actor, vibeIdx, position,
-      });
+      const eligibilityStore = getStore(ELIGIBILITY_STORE, context);
+      if (runId && candidateId) {
+        const result = await inspectCandidate({ eligibilityStore, actor, vibeIdx, runId, candidateId });
+        if (!result || result.status === "not-current") return json(409, { status: "not-current" });
+        return json(200, { actorId, vibeIdx, runId, candidateId, status: result.status });
+      }
+      const result = await inspectCard({ eligibilityStore, actor, vibeIdx, position });
       if (!result || result.status === "not-approved") return json(409, { status: "not-approved" });
       return json(200, {
         actorId, vibeIdx, position, status: result.status,
