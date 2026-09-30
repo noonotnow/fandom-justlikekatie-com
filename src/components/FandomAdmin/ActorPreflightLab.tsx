@@ -814,8 +814,8 @@ export const ActorPreflightLab: React.FC = () => {
               ? `Last publish failed: card ${attempt.cardPosition} MEDIA registration unavailable`
               : 'Last publish attempt failed; open this pairing to review'
           : '';
-        return <button type="button" key={item.vibeKey} className={styles.packHealthRow} data-selected={vibeKey===item.vibeKey} onClick={()=>setVibeKey(item.vibeKey)}>
-          <strong>{text(item.labels)}</strong><span>{approved?'Preflight marked approved':item.auditState==='needs_reapproval'?'Fresh review required':'Editorial review needed'}</span><span data-state={state || 'checking'}>{state==='live'?'Stable MEDIA teaser live':state==='unpublished'?'No public teaser':state==='unavailable'?'Public check unavailable':'Checking public teaser…'}</span>{failure&&<span className={styles.packHealthFailure}>{failure}{attempt.attemptedAt?` · ${date(attempt.attemptedAt)}`:''}</span>}
+        return <button type="button" key={item.vibeKey} className={styles.packHealthRow} data-selected={vibeKey===item.vibeKey} aria-label={`Open pack review ${item.vibeIdx+1}`} aria-describedby={`pack-health-label-${item.vibeKey}`} onClick={()=>setVibeKey(item.vibeKey)}>
+          <strong id={`pack-health-label-${item.vibeKey}`}>{text(item.labels)}</strong><span>{approved?'Preflight marked approved':item.auditState==='needs_reapproval'?'Fresh review required':'Editorial review needed'}</span><span data-state={state || 'checking'}>{state==='live'?'Stable MEDIA teaser live':state==='unpublished'?'No public teaser':state==='unavailable'?'Public check unavailable':'Checking public teaser…'}</span>{failure&&<span className={styles.packHealthFailure}>{failure}{attempt.attemptedAt?` · ${date(attempt.attemptedAt)}`:''}</span>}
         </button>;
       })}</div>{packAttemptsUnavailable&&<p className={styles.packHealthWarning}>Publication attempt history is unavailable; public teaser status is shown separately.</p>}
     </section>}
