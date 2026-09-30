@@ -48,6 +48,7 @@ export function ArchivePublicationReview() {
   const [error, setError] = useState('');
   const [notice, setNotice] = useState('');
   const cursorRef = useRef<string | null>(null);
+  const requestRef = useRef(0);
 
   const loadAudit = useCallback(async (next = false) => {
     setLoadingAudit(true);
@@ -71,19 +72,22 @@ export function ArchivePublicationReview() {
 
   const loadReview = useCallback(async (date: string) => {
     if (!date) return;
+    const request = ++requestRef.current;
     setLoadingReview(true);
+    setReview(null);
     setNotice('');
     setError('');
     try {
       const query = new URLSearchParams({ archivePublicationReview: '1', date });
       const result = await readJson<{ review?: ArchiveReview }>(`${ENDPOINT}?${query}`);
       if (!result.review) throw new Error('No review record was returned for this date.');
-      setReview(result.review);
+      if (request === requestRef.current) setReview(result.review);
     } catch (loadError) {
-      setReview(null);
-      setError(loadError instanceof Error ? loadError.message : 'The selected archive review could not be loaded.');
+      if (request === requestRef.current) {
+        setError(loadError instanceof Error ? loadError.message : 'The selected archive review could not be loaded.');
+      }
     } finally {
-      setLoadingReview(false);
+      if (request === requestRef.current) setLoadingReview(false);
     }
   }, []);
 
@@ -91,22 +95,36 @@ export function ArchivePublicationReview() {
   useEffect(() => { void loadReview(selectedDate); }, [loadReview, selectedDate]);
 
   async function runMediaCheck() {
-    if (!selectedDate || checking) return;
+    if (!selectedDate || review?.date !== selectedDate || checking || loadingReview) return;
+    const request = ++requestRef.current;
     setChecking(true);
     setError('');
     setNotice('');
     try {
       const query = new URLSearchParams({ archivePublicationReview: '1', date: selectedDate, checkMedia: '1' });
       const result = await readJson<{ review?: ArchiveReview; mediaChecks?: MediaCheck[] }>(`${ENDPOINT}?${query}`);
+      if (request !== requestRef.current) return;
       if (result.review) setReview(result.review);
-      else if (result.mediaChecks && review) setReview({ ...review, mediaChecks: result.mediaChecks });
-      else await loadReview(selectedDate);
+      else if (result.mediaChecks) setReview({ ...review, mediaChecks: result.mediaChecks });
+      else throw new Error('The media check returned no review record.');
       setNotice('Media check finished. This check does not approve or publish the archive entry.');
     } catch (checkError) {
-      setError(checkError instanceof Error ? checkError.message : 'The media check could not be completed.');
+      if (request === requestRef.current) {
+        setError(checkError instanceof Error ? checkError.message : 'The media check could not be completed.');
+      }
     } finally {
-      setChecking(false);
+      if (request === requestRef.current) setChecking(false);
     }
+  }
+
+  function selectDate(date: string) {
+    ++requestRef.current;
+    setSelectedDate(date);
+    setReview(null);
+    setLoadingReview(true);
+    setChecking(false);
+    setNotice('');
+    setError('');
   }
 
   const sortedCards = [...(review?.cards || [])].sort((a, b) => a.position - b.position);
@@ -139,7 +157,7 @@ export function ArchivePublicationReview() {
             <ul className={styles.dateList}>
               {records.map((record, index) => (
                 <li key={`${record.date}-${index}`}>
-                  <button type="button" className={styles.dateButton} aria-current={selectedDate === record.date ? 'date' : undefined} onClick={() => setSelectedDate(record.date)}>
+                  <button type="button" className={styles.dateButton} aria-current={selectedDate === record.date ? 'date' : undefined} onClick={() => selectDate(record.date)}>
                     <time dateTime={record.date}>{displayDate(record.date)}</time>
                     <span>{record.status}</span>
                   </button>
