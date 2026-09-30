@@ -1,6 +1,7 @@
 import assert from "node:assert/strict";
 import test from "node:test";
 import {
+  inspectApprovedPreflightCard,
   preflightPreviewDirectory,
   preflightPreviewKey,
   publishPreflightPreview,
@@ -75,6 +76,31 @@ function setup() {
   };
   return { data, store, eligibilityStore, readOptions, writeOptions };
 }
+
+test("operator scan checks only an exact approved card, without writing MEDIA or exposing the URL", async () => {
+  const state = setup();
+  const checked = [];
+  const options = {
+    ...state, actor, vibeIdx: 0,
+    eligibilityReader: async () => approval,
+    imageFetcher: async url => {
+      checked.push(url);
+      if (url.endsWith("approved-1.jpg")) throw new Error("private source address");
+      return { bytes: new Uint8Array([1]), contentType: "image/jpeg" };
+    },
+  };
+  for (let position = 0; position < 9; position += 1) {
+    const result = await inspectApprovedPreflightCard({ ...options, position });
+    assert.equal(result.status, position === 1 ? "unavailable" : "healthy");
+    assert.equal(result.runId, "preflight-run");
+    assert.equal(JSON.stringify(result).includes("images.example"), false);
+  }
+  assert.deepEqual(checked, candidates.map(candidate => candidate.thumbnail));
+  assert.equal(state.writeOptions.length, 0);
+  assert.deepEqual(await inspectApprovedPreflightCard({
+    ...options, position: 2, eligibilityReader: async () => null,
+  }), { status: "not-approved" });
+});
 
 test("operator publication freezes only three approved candidates behind MEDIA", async () => {
   const state = setup();

@@ -57,6 +57,13 @@
 .packHealthRow span[data-state=unpublished],.packHealthRow span[data-state=unavailable] { color:#e5b09a; }
 .packHealthRow .packHealthFailure,.packHealthWarning { color:#e5b09a; font-size:10px; line-height:1.4; }
 .packHealthWarning { margin:0; }
+.cardHealth { display:grid; gap:10px; padding:12px; border:1px solid var(--admin-border); border-radius:8px; }
+.cardHealth > div:first-child strong { color:#b8d2c6; font-size:12px; }
+.cardHealth .buttonSecondary { justify-self:start; }
+.cardHealthGrid { display:grid; grid-template-columns:repeat(auto-fit,minmax(135px,1fr)); gap:6px; }
+.cardHealthGrid span { padding:6px 8px; border:1px solid var(--admin-border); border-radius:5px; font-size:10px; }
+.cardHealthGrid span[data-state=healthy] { color:#b8d2c6; border-color:#6f8d83; }
+.cardHealthGrid span[data-state=unavailable],.cardHealthGrid span[data-state=error] { color:#e5b09a; border-color:#c98264; }
 
 .lab { display:grid; gap:16px; padding:8px 0 28px; color:inherit; }
 .masthead { display:flex; justify-content:space-between; gap:20px; align-items:flex-end; padding:22px; border:1px solid color-mix(in srgb,#c9a96e 34%,transparent); border-radius:14px; background:linear-gradient(115deg,color-mix(in srgb,#c9a96e 15%,transparent),color-mix(in srgb,#6f8d83 10%,transparent)); }

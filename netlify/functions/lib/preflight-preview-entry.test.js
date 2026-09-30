@@ -4,6 +4,7 @@ import { createPublicPreflightPreviewHandler } from "../public-preflight-preview
 import { createPublicPreflightPreviewDirectoryHandler } from "../public-preflight-preview-directory.js";
 import { createPublishPreflightPreviewHandler } from "../publish-preflight-preview.js";
 import { createPreflightPreviewHealthHandler } from "../preflight-preview-health.js";
+import { createPreflightPreviewCardHealthHandler } from "../preflight-preview-card-health.js";
 import { preflightPreviewHealthKey } from "./preflight-preview-health.js";
 
 const actorPacks = [{
@@ -197,6 +198,34 @@ test("private pack health retains only the bounded failed card and later success
   const second = JSON.parse((await health(healthRequest, {})).body);
   assert.equal(second.attempts[0].status, "published");
   assert.equal(second.attempts[0].reasonCode, undefined);
+});
+
+test("operator-only card check bounds position and reports a single approved image without source details", async () => {
+  const calls = [];
+  const handler = createPreflightPreviewCardHealthHandler({
+    actorPacks, auth: { authenticateAdmin: async () => {} },
+    getStore: () => ({ name: "eligibility" }),
+    inspectCard: async input => {
+      calls.push(input);
+      return { status: "unavailable", runId: "approved-run", boardHash: "digest" };
+    },
+  });
+  const url = "https://example.test/.netlify/functions/preflight-preview-card-health?actorId=actor-one&vibeIdx=0&position=1";
+  const result = await handler({ method: "GET", url }, {});
+  assert.equal(result.statusCode, 200);
+  assert.deepEqual(JSON.parse(result.body), {
+    actorId: "actor-one", vibeIdx: 0, position: 1,
+    status: "unavailable", runId: "approved-run", boardHash: "digest",
+  });
+  assert.equal(calls.length, 1);
+  assert.equal(calls[0].position, 1);
+  assert.equal((await handler({ method: "GET", url: url.replace("position=1", "position=9") }, {})).statusCode, 400);
+  assert.equal(calls.length, 1);
+  const denied = createPreflightPreviewCardHealthHandler({
+    actorPacks,
+    auth: { authenticateAdmin: async () => { throw Object.assign(new Error("denied"), { status: 403 }); } },
+  });
+  assert.equal((await denied({ method: "GET", url }, {})).statusCode, 403);
 });
 
 test("admin publication reports storage failure without upstream detail or a card number", async () => {

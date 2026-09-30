@@ -186,6 +186,9 @@ export const ActorPreflightLab: React.FC = () => {
   const [packAttemptsUnavailable,setPackAttemptsUnavailable] = useState(false);
   const [packHealthLoading,setPackHealthLoading] = useState(false);
   const [packHealthRefresh,setPackHealthRefresh] = useState(0);
+  const [cardHealth,setCardHealth] = useState<Record<number,'healthy'|'unavailable'|'error'>>({});
+  const [cardHealthBusy,setCardHealthBusy] = useState(false);
+  const cardHealthAbort=useRef<AbortController|null>(null);
   const [auditTo,setAuditTo] = useState(()=>new Date().toISOString().slice(0,10));
   const [auditFrom,setAuditFrom] = useState(()=>new Date(Date.now()-89*86_400_000).toISOString().slice(0,10));
   const [disagreementReasons,setDisagreementReasons] = useState<string[]>([]); const [editorialNote,setEditorialNote] = useState('');
@@ -226,6 +229,9 @@ export const ActorPreflightLab: React.FC = () => {
   },[actorId,packHealthKey,packHealthRefresh]);
   useEffect(()=>{
     previewSelectionToken.current += 1;
+    cardHealthAbort.current?.abort();
+    setCardHealth({});
+    setCardHealthBusy(false);
     setPreviewStatus('');
     setBusy(current=>current==='public-preview'||current==='check-preview'?'':current);
   },[actorId,vibeKey]);
@@ -363,6 +369,42 @@ export const ActorPreflightLab: React.FC = () => {
       : state === 'unpublished' ? 'No public three-card preview is live for this pairing.'
         : 'The public preview could not be verified right now. No publication was attempted.');
     setBusy('');
+  }
+  async function checkAllApprovedCards() {
+    const idx=pairing?.vibeIdx;
+    if(!actorId||!Number.isInteger(idx)||!currentRun?.runId)return;
+    const selection=previewSelectionToken.current;
+    const controller=new AbortController();
+    cardHealthAbort.current?.abort();
+    cardHealthAbort.current=controller;
+    setCardHealth({});
+    setCardHealthBusy(true);
+    let boardHash='';
+    try {
+      await Promise.all(Array.from({length:3},async(_,worker)=>{
+        for(let position=worker;position<9;position+=3) {
+          if(controller.signal.aborted)return;
+          let result:'healthy'|'unavailable'|'error'='error';
+          try {
+            const query=new URLSearchParams({actorId,vibeIdx:String(idx),position:String(position)});
+            const response=await fetch(`/.netlify/functions/preflight-preview-card-health?${query}`,{
+              credentials:'same-origin',cache:'no-store',signal:controller.signal,
+            });
+            const body=await response.json();
+            if(response.ok&&body.actorId===actorId&&body.vibeIdx===idx&&body.position===position
+              && body.runId===currentRun.runId&&typeof body.boardHash==='string'
+              && (body.status==='healthy'||body.status==='unavailable')) {
+              if(!boardHash)boardHash=body.boardHash;
+              if(boardHash===body.boardHash)result=body.status;
+            }
+          } catch { /* The individual check stays unknown, never healthy. */ }
+          if(selection!==previewSelectionToken.current||controller.signal.aborted)return;
+          setCardHealth(current=>({...current,[position]:result}));
+        }
+      }));
+    } finally {
+      if(selection===previewSelectionToken.current&&!controller.signal.aborted)setCardHealthBusy(false);
+    }
   }
   async function publishPublicPreflightPreview() {
     const customCopy = editorialCopy.trim();
@@ -858,7 +900,10 @@ export const ActorPreflightLab: React.FC = () => {
            </form> : selectedIsCurrent && requiresFreshAudit ? <p className={styles.historicalNotice}>{pairing?.auditState==='calibration_reaudit_required'?(calibrationProfile?.evidenceCount>0?'The active calibration receipt set changed. Run a fresh audit and reproduce a positive signal on evidence beyond the active saved boards before approval.':'All current calibration evidence is retired. Run a fresh sufficient audit to attest the empty active receipt set before approval.'):'This retained run is invalid under the current profile contract. Run a fresh audit before recording a scheduling verdict.'}</p> : selectedIsCurrent && review?.status === 'pending' ? <p className={styles.historicalNotice}>Make the blind board choice before scheduling this pairing.</p> : selectedIsCurrent && disagreementNeedsReasons ? <p className={styles.historicalNotice}>Capture why you disagreed before scheduling this pairing.</p> : run && !selectedIsCurrent ? <p className={styles.historicalNotice}>This is a frozen historical review. Return to the current run to revise scheduling eligibility.</p> : null}
            {selectedIsCurrent && run?.operatorVerdict?.verdict==='approved' && operatorPublication && <form className={styles.backfill} onSubmit={publishBackfill}><div><p className={styles.eyebrow}>Missed-edition backfill</p><h5>Publish this exact approved nine to a past date</h5><p>This is an explicit editorial exception for a blank Daily Drop day. It writes only this approved rescue board to the public archive; it does not alter eligibility or hidden audit evidence.</p></div><label className={styles.label}>Edition date<input className={styles.input} type="date" value={backfillDate} onChange={event=>setBackfillDate(event.target.value)} required /></label><button className={styles.buttonPrimary} disabled={busy==='backfill'||!backfillDate}>{busy==='backfill'?'Publishing backfill…':'Publish approved board as backfill'}</button></form>}
            {selectedIsCurrent && (pairing?.verdict==='approved'||pairing?.verdict==='approved_override') && pairing?.eligible===true && Number.isInteger(pairing.vibeIdx) && <section className={styles.preflightPreviewPublish} aria-label="Public three-card preview publication">
-             <div><p className={styles.eyebrow}>Public pack teaser</p><h5>Publish approved three-card preflight preview</h5><p>This publishes only the first three cards from this currently approved pairing as its public teaser. The Daily Drop board is unchanged.</p></div>
+              <div><p className={styles.eyebrow}>Public pack teaser</p><h5>Publish approved three-card preflight preview</h5><p>This publishes only the first three cards from this currently approved pairing as its public teaser. The Daily Drop board is unchanged.</p></div>
+              <div className={styles.cardHealth}><div><strong>Approved board image health · all nine</strong><p>Check every currently approved image before choosing a replacement board. This read-only check downloads no public MEDIA and does not change approval. A healthy result only reflects the time of the check.</p></div><button type="button" className={styles.buttonSecondary} disabled={cardHealthBusy} onClick={()=>void checkAllApprovedCards()}>{cardHealthBusy?'Checking images…':'Check all nine images'}</button>
+                <div className={styles.cardHealthGrid}>{Array.from({length:9},(_,position)=>{const state=cardHealth[position];return <span key={position} data-state={state||'unchecked'}>Card {position+1}: {state==='healthy'?'source reachable':state==='unavailable'?'source unavailable':state==='error'?'check unavailable':cardHealthBusy?'checking…':'not checked'}</span>})}</div>
+              </div>
              {builtInPreviewCopy&&<p className={styles.previewCopyCurrent}><strong>Existing pack copy (used automatically):</strong> {builtInPreviewCopy}</p>}
              <label className={styles.label}>Editorial copy{!builtInPreviewCopy?' (required; at least 40 characters)':' (optional override)'}<textarea className={`${styles.input} ${styles.textarea}`} value={editorialCopy} maxLength={500} minLength={!builtInPreviewCopy?40:undefined} required={!builtInPreviewCopy} onChange={event=>setEditorialCopy(event.target.value)} placeholder={builtInPreviewCopy?'Leave blank to use the existing pack copy.':'Write the editorial context shown with this three-card preview.'} /></label>
              <div className={styles.previewPublishActions}>

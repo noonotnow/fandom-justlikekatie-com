@@ -89,6 +89,28 @@ async function approvedBoard({
   return { approval, run, candidates, boardHash: digest };
 }
 
+/** Operator-only preflight; reads the approved nine without creating public MEDIA. */
+export async function inspectApprovedPreflightCard({
+  eligibilityStore,
+  actor,
+  vibeIdx,
+  position,
+  eligibilityReader = getEligibility,
+  imageFetcher = fetchPublicationImage,
+  fetchImpl = fetch,
+  resolveHost,
+}) {
+  if (!actor?.vibes?.[vibeIdx] || !Number.isInteger(position) || position < 0 || position > 8) return null;
+  const selected = await approvedBoard({ eligibilityStore, actor, vibeIdx, eligibilityReader });
+  if (!selected) return { status: "not-approved" };
+  try {
+    await imageFetcher(selected.candidates[position].thumbnail, fetchImpl, resolveHost);
+    return { status: "healthy", runId: selected.approval.runId, boardHash: selected.boardHash };
+  } catch {
+    return { status: "unavailable", runId: selected.approval.runId, boardHash: selected.boardHash };
+  }
+}
+
 function validReceipt(receipt, actorId, vibeIdx, runId, boardHash) {
   const id = associationId(actorId, vibeIdx, runId);
   return Boolean(
