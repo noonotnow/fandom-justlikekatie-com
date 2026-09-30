@@ -1,6 +1,6 @@
 import { PUBLIC_ROUTE_PATHS } from "../../../shared/public-routes.js";
 import { useEffect, useRef, useState } from "react";
-import { trackHomepageGuideMenuLinkSelected, trackHomepageGuideMenuOpened } from "../../utils/analytics";
+import { trackAgainstTheCurrentEntryClicked, trackHomepageGuideMenuLinkSelected, trackHomepageGuideMenuOpened } from "../../utils/analytics";
 import styles from "./FandomLaunchpad.module.css";
 
 export function FandomLaunchpad() {
@@ -80,12 +80,20 @@ export function FandomLaunchpad() {
           <p className={styles.kicker}>Editorial front door / C-drama fandom</p>
           <h2 id="c-drama-gateway-title">Understand the fandom.<br /><i>Then make it yours.</i></h2>
         </div>
-        <a className={styles.gatewayCard} href="/c-drama-fandom/">
-          <span className={styles.index}>Begin with the field guide</span>
-          <p>Learn the language fans use, tell xianxia from wuxia, recognize the archetypes, follow spoiler-aware story analysis, and enter the veteran first-watch journal.</p>
-          <span className={styles.gatewayPaths}>Getting started · Glossary · Genres · Archetypes · Drama deep dives · Veteran journal</span>
-          <span className={styles.enter}>Explore C-drama fandom →</span>
-        </a>
+        <div className={styles.gatewayLinks}>
+          <a className={styles.gatewayCard} href="/c-drama-fandom/">
+            <span className={styles.index}>Begin with the field guide</span>
+            <p>Learn the language fans use, tell xianxia from wuxia, recognize the archetypes, follow spoiler-aware story analysis, and enter the veteran first-watch journal.</p>
+            <span className={styles.gatewayPaths}>Getting started · Glossary · Genres · Archetypes · Drama deep dives · Veteran journal</span>
+            <span className={styles.enter}>Explore C-drama fandom →</span>
+          </a>
+          <a className={styles.seriesFeature} href="/c-drama-fandom/vibing-now/" onClick={trackAgainstTheCurrentEntryClicked}>
+            <span className={styles.index}>Featured reading / Vibing Now</span>
+            <strong>Against the Current</strong>
+            <span>Follow three spoiler-bounded C-drama readings. Choose your safe stopping point: Episode 21, Episodes 22–25, or Episodes 26–30.</span>
+            <span className={styles.enter}>Explore the Against the Current series →</span>
+          </a>
+        </div>
       </section>
       <section className={styles.workbenches} aria-label="Fandom workbenches">
         <a className={`${styles.workbench} ${styles.atlas}`} href={PUBLIC_ROUTE_PATHS.vibeAtlas}>

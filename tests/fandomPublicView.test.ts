@@ -427,6 +427,15 @@ test('the launchpad and guide present C-drama fandom as the editorial path into 
   assert.match(guideHtml, /Take what you notice into Vibe Atlas/);
 });
 
+test('the homepage features Against the Current beside the guide without displacing the daily drop', () => {
+  const feature = launchpadSource.indexOf('Explore the Against the Current series');
+  assert.ok(feature > launchpadSource.indexOf('Explore C-drama fandom'));
+  assert.ok(feature < launchpadSource.indexOf('C-drama Vibe Atlas'));
+  assert.match(launchpadSource, /href="\/c-drama-fandom\/vibing-now\/"[^>]*>[\s\S]*?Against the Current/);
+  assert.match(launchpadSource, /Episode 21, Episodes 22–25, or Episodes 26–30/);
+  assert.match(rootHtml, /<noscript>[\s\S]*?<a href="\/c-drama-fandom\/vibing-now\/">choose an Against the Current Vibing Now reading<\/a>/);
+});
+
 test('public Vibe Atlas copy names the daily card-drop promise', () => {
   assert.match(appSource, /A daily C-drama card drop/);
   assert.match(appSource, /'Vibe Atlas \| Daily C-Drama Collectible Cards \| Fandom Vibes'/);

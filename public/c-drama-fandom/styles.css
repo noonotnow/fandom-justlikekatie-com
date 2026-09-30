@@ -365,6 +365,7 @@ button { font: inherit; }
   padding: clamp(22px, 4vw, 30px);
 }
 .authority-card--wide { grid-column: 1 / -1; min-height: 0; }
+.authority-card--featured { background: linear-gradient(120deg, rgba(213, 172, 88, .16), rgba(16, 37, 55, .8)); border-color: rgba(213, 172, 88, .5); }
 .authority-card > span {
   color: var(--gold);
   font: 700 10px/1.4 ui-monospace, SFMono-Regular, Menlo, monospace;
