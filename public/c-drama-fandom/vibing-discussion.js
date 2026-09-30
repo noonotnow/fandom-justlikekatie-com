@@ -7,7 +7,8 @@
   const form = document.getElementById("discussion-form");
   const status = document.getElementById("discussion-form-status");
   const endpoint = "/api/vibing-discussion";
-  const boundary = 21;
+  const boundary = Number(section.dataset.safeThroughEpisode);
+  if (!Number.isInteger(boundary) || boundary < 1) return;
   async function api(url, options) {
     const response = await fetch(url, { credentials: "same-origin", ...options });
     const data = await response.json();

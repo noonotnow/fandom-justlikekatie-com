@@ -755,6 +755,10 @@ test("archive pages stay newest-first and keep global free badges across boundar
 });
 
 test("archive pages load only the year buckets and edition records needed for the page", async () => {
+  const archiveOnSeptember30 = createStarOfDayHandler({
+    getStore: () => store,
+    today: () => "2026-09-30",
+  });
   const editions = [
     "2099-01-01",
     "2026-09-20",
@@ -780,7 +784,7 @@ test("archive pages load only the year buckets and edition records needed for th
     },
   };
 
-  const response = await starOfDay(
+  const response = await archiveOnSeptember30(
     { method: "GET", url: "https://example.test/star-of-day?archive=1&limit=1" },
     contextFor(store),
   );
@@ -924,6 +928,10 @@ test("legacy counted indexes add newest-year metadata once before bounded page r
 });
 
 test("deep archive totals exclude future editions without reading the newest-year bucket", async () => {
+  const archiveOnSeptember30 = createStarOfDayHandler({
+    getStore: () => store,
+    today: () => "2026-09-30",
+  });
   const editions = [
     "2099-01-01",
     "2026-09-20",
@@ -950,7 +958,7 @@ test("deep archive totals exclude future editions without reading the newest-yea
     },
   };
 
-  const response = await starOfDay(
+  const response = await archiveOnSeptember30(
     {
       method: "GET",
       url: "https://example.test/star-of-day?archive=1&limit=2&cursor=2006-07-01",
