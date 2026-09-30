@@ -762,7 +762,9 @@ test("Against the Current follow-ups keep their reviewed episode boundaries and 
     assert.match(html, new RegExp(`stops at the end of Episode ${boundary}`));
     assert.match(html, /Source-reviewed September 28, 2026/);
     assert.match(html, /<script defer src="\/c-drama-fandom\/editorial\.js"><\/script>/);
-    assert.doesNotMatch(html, /vibing-discussion\.js|data-discussion-id|X-Amz-|prod-files-secure|Draft release package/);
+    assert.match(html, /<script defer src="\/c-drama-fandom\/vibing-discussion\.js"><\/script>/);
+    assert.match(html, new RegExp(`data-discussion-id="against-the-current-${suffix}" data-safe-through-episode="${boundary}"`));
+    assert.doesNotMatch(html, /X-Amz-|prod-files-secure|Draft release package/);
     assert.match(shelf, new RegExp(`href="${path}"`));
     assert.match(netlify, new RegExp(`from = "${path.slice(0, -1)}"\\s+to = "${path}index\\.html"`));
     assert.equal(new Map(publicStaticPreviewRoutes()).get(path.slice(0, -1)), `${path}index.html`);
