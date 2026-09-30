@@ -28,6 +28,7 @@ import {
   ensurePublicationReleaseDates,
   readPublicationReleaseDates,
   publicationJoinReceipt,
+  pinnedPublicLookup,
   readPublicationManifests,
   isIndexablePublicationManifest,
   publicActorDirectory,
@@ -215,6 +216,17 @@ test("catalogue repair retains stale pending MEDIA receipt for an eventual retry
   });
   assert.deepEqual(store.records.get(pendingKey), pending);
   assert.deepEqual(store.records.get(key).dates, []);
+});
+
+test("pinned HTTPS lookup returns the validated address in both Node callback shapes", () => {
+  const resolved = { address: "8.8.8.8", family: 4 };
+  const lookup = pinnedPublicLookup(resolved);
+  let all;
+  lookup("another.example", { all: true }, (...args) => { all = args; });
+  assert.deepEqual(all, [null, [resolved]]);
+  let single;
+  lookup("another.example", { all: false }, (...args) => { single = args; });
+  assert.deepEqual(single, [null, resolved.address, resolved.family]);
 });
 
 test("public projections are explicit allowlists with stable canonical paths", () => {

@@ -2270,8 +2270,7 @@ function pinnedHttpsFetch(url, resolved) {
   return new Promise((resolve, reject) => {
     const request = httpsGet(url, {
       headers: { Accept: "image/png,image/jpeg,image/webp" },
-      lookup: (_hostname, _options, callback) =>
-        callback(null, resolved.address, resolved.family),
+      lookup: pinnedPublicLookup(resolved),
     }, response => {
       const chunks = [];
       let size = 0;
@@ -2303,6 +2302,15 @@ function pinnedHttpsFetch(url, resolved) {
       request.destroy(requestError("The approved source image timed out.", 502)));
     request.on("error", reject);
   });
+}
+
+// Node requests an array when auto-selecting address families. Return only the
+// already-validated address in either callback shape; never re-resolve the host.
+export function pinnedPublicLookup(resolved) {
+  return (_hostname, options, callback) => {
+    if (options.all) callback(null, [resolved]);
+    else callback(null, resolved.address, resolved.family);
+  };
 }
 
 function isPrivateOrReservedIp(address) {
