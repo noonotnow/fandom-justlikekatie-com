@@ -1,11 +1,14 @@
 import assert from "node:assert/strict";
 import test from "node:test";
 import {
+  inspectApprovedPreflightCard,
+  inspectRetainedPreflightCandidate,
   preflightPreviewDirectory,
   preflightPreviewKey,
   publishPreflightPreview,
   resolvePublicPreflightPreview,
 } from "./preflight-preview.js";
+import { auditHeadKey, auditRunKey as storedRunKey } from "./actor-eligibility.js";
 
 const actor = {
   id: "actor-one",
@@ -75,6 +78,56 @@ function setup() {
   };
   return { data, store, eligibilityStore, readOptions, writeOptions };
 }
+
+test("operator scan checks only an exact approved card, without writing MEDIA or exposing the URL", async () => {
+  const state = setup();
+  const checked = [];
+  const options = {
+    ...state, actor, vibeIdx: 0,
+    eligibilityReader: async () => approval,
+    imageFetcher: async url => {
+      checked.push(url);
+      if (url.endsWith("approved-1.jpg")) throw new Error("private source address");
+      return { bytes: new Uint8Array([1]), contentType: "image/jpeg" };
+    },
+  };
+  for (let position = 0; position < 9; position += 1) {
+    const result = await inspectApprovedPreflightCard({ ...options, position });
+    assert.equal(result.status, position === 1 ? "unavailable" : "healthy");
+    assert.equal(result.runId, "preflight-run");
+    assert.equal(JSON.stringify(result).includes("images.example"), false);
+  }
+  assert.deepEqual(checked, candidates.map(candidate => candidate.thumbnail));
+  assert.equal(state.writeOptions.length, 0);
+  assert.deepEqual(await inspectApprovedPreflightCard({
+    ...options, position: 2, eligibilityReader: async () => null,
+  }), { status: "not-approved" });
+});
+
+test("a draft rescue image check accepts only retained evidence from the current run", async () => {
+  const retained = { runId: "preflight-run", rawResults: candidates,
+    editorialFeedback: { flags: [{ candidateId: "approved-3", disposition: "excluded" }] } };
+  let fetched = 0;
+  const eligibilityStore = {
+    get: async key => key === auditHeadKey(actor.id, 0) ? { currentRunId: "preflight-run" }
+      : key === storedRunKey(actor.id, 0, "preflight-run") ? retained : null,
+  };
+  const options = {
+    eligibilityStore, actor, vibeIdx: 0, runId: "preflight-run",
+    imageFetcher: async url => { fetched += 1; assert.match(url, /approved-2\.jpg$/); },
+  };
+  assert.deepEqual(await inspectRetainedPreflightCandidate({
+    ...options, candidateId: "approved-2",
+  }), { status: "healthy", runId: "preflight-run", candidateId: "approved-2" });
+  for (const candidateId of ["approved-3", "not-retained"]) {
+    assert.deepEqual(await inspectRetainedPreflightCandidate({ ...options, candidateId }),
+      { status: "not-current" });
+  }
+  assert.deepEqual(await inspectRetainedPreflightCandidate({
+    ...options, runId: "old-run", candidateId: "approved-2",
+  }), { status: "not-current" });
+  assert.equal(fetched, 1);
+});
 
 test("operator publication freezes only three approved candidates behind MEDIA", async () => {
   const state = setup();

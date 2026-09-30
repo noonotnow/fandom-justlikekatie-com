@@ -3,6 +3,9 @@ import test from "node:test";
 import { createPublicPreflightPreviewHandler } from "../public-preflight-preview.js";
 import { createPublicPreflightPreviewDirectoryHandler } from "../public-preflight-preview-directory.js";
 import { createPublishPreflightPreviewHandler } from "../publish-preflight-preview.js";
+import { createPreflightPreviewHealthHandler } from "../preflight-preview-health.js";
+import { createPreflightPreviewCardHealthHandler } from "../preflight-preview-card-health.js";
+import { preflightPreviewHealthKey } from "./preflight-preview-health.js";
 
 const actorPacks = [{
   id: "actor-one",
@@ -146,6 +149,105 @@ test("admin publication reports a bounded failure stage without exposing upstrea
     reasonCode: "source_image_unavailable",
     cardPosition: 2,
   });
+});
+
+test("private pack health retains only the bounded failed card and later success", async () => {
+  const saved = new Map();
+  const store = {
+    setJSON: async (key, value) => saved.set(key, value),
+    get: async key => saved.get(key) || null,
+  };
+  const getStore = () => store;
+  const auth = { authenticateAdmin: async () => {} };
+  const failure = createPublishPreflightPreviewHandler({
+    actorPacks, getStore, auth,
+    publishPreview: async () => {
+      throw Object.assign(new Error("private approved image address"), {
+        status: 503, reasonCode: "source_image_unavailable", cardPosition: 2,
+      });
+    },
+  });
+  const request = {
+    method: "POST",
+    url: "https://example.test/.netlify/functions/publish-preflight-preview",
+    headers: new Headers({ origin: "https://example.test" }),
+    json: async () => ({ actorId: "actor-one", vibeIdx: 0 }),
+  };
+  assert.equal((await failure(request, {})).statusCode, 503);
+  const health = createPreflightPreviewHealthHandler({ actorPacks, getStore, auth });
+  const healthRequest = { method: "GET",
+    url: "https://example.test/.netlify/functions/preflight-preview-health?actorId=actor-one" };
+  const first = JSON.parse((await health(healthRequest, {})).body);
+  assert.equal(first.actorId, "actor-one");
+  assert.equal(first.attempts[0].status, "failed");
+  assert.equal(first.attempts[0].cardPosition, 2);
+  assert.equal(first.attempts[0].reasonCode, "source_image_unavailable");
+  assert.equal(JSON.stringify(first).includes("private approved image address"), false);
+  assert.equal(saved.has(preflightPreviewHealthKey("actor-one", 0)), true);
+
+  const success = createPublishPreflightPreviewHandler({
+    actorPacks, getStore, auth,
+    publishPreview: async () => ({
+      kind: "vibe-atlas-preflight-three-card-preview",
+      vibeIdx: 0,
+      cards: [],
+      publishedAt: "2026-09-30",
+    }),
+  });
+  assert.equal((await success(request, {})).statusCode, 200);
+  const second = JSON.parse((await health(healthRequest, {})).body);
+  assert.equal(second.attempts[0].status, "published");
+  assert.equal(second.attempts[0].reasonCode, undefined);
+});
+
+test("operator-only card check bounds position and reports a single approved image without source details", async () => {
+  const calls = [];
+  const handler = createPreflightPreviewCardHealthHandler({
+    actorPacks, auth: { authenticateAdmin: async () => {} },
+    getStore: () => ({ name: "eligibility" }),
+    inspectCard: async input => {
+      calls.push(input);
+      return { status: "unavailable", runId: "approved-run", boardHash: "digest" };
+    },
+  });
+  const url = "https://example.test/.netlify/functions/preflight-preview-card-health?actorId=actor-one&vibeIdx=0&position=1";
+  const result = await handler({ method: "GET", url }, {});
+  assert.equal(result.statusCode, 200);
+  assert.deepEqual(JSON.parse(result.body), {
+    actorId: "actor-one", vibeIdx: 0, position: 1,
+    status: "unavailable", runId: "approved-run", boardHash: "digest",
+  });
+  assert.equal(calls.length, 1);
+  assert.equal(calls[0].position, 1);
+  assert.equal((await handler({ method: "GET", url: url.replace("position=1", "position=9") }, {})).statusCode, 400);
+  assert.equal(calls.length, 1);
+  const denied = createPreflightPreviewCardHealthHandler({
+    actorPacks,
+    auth: { authenticateAdmin: async () => { throw Object.assign(new Error("denied"), { status: 403 }); } },
+  });
+  assert.equal((await denied({ method: "GET", url }, {})).statusCode, 403);
+});
+
+test("draft card checks use only an authenticated retained candidate, not a submitted source URL", async () => {
+  const handler = createPreflightPreviewCardHealthHandler({
+    actorPacks,
+    auth: { authenticateAdmin: async () => {} },
+    getStore: () => ({}),
+    inspectCandidate: async input => {
+      assert.equal(input.runId, "current-run");
+      assert.equal(input.candidateId, "candidate-2");
+      assert.equal(input.position, undefined);
+      return { status: "unavailable" };
+    },
+  });
+  const url = "https://example.test/.netlify/functions/preflight-preview-card-health?actorId=actor-one&vibeIdx=0&runId=current-run&candidateId=candidate-2";
+  const response = await handler({ method: "GET", url }, {});
+  assert.equal(response.statusCode, 200);
+  assert.deepEqual(JSON.parse(response.body), {
+    actorId: "actor-one", vibeIdx: 0, runId: "current-run",
+    candidateId: "candidate-2", status: "unavailable",
+  });
+  assert.equal((await handler({ method: "GET", url: url + "&sourceUrl=https://private.example" }, {})).statusCode, 200);
 });
 
 test("admin publication reports storage failure without upstream detail or a card number", async () => {

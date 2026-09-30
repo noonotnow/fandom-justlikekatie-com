@@ -1,5 +1,5 @@
 import { useEffect, useMemo, useRef, useState } from 'react';
-import { fetchPublicPreviewState } from './preflightPreviewStatus';
+import { fetchPublicPreviewState, type PublicPreviewState } from './preflightPreviewStatus';
 import { PUBLIC_ROUTE_PATHS } from '../../../shared/public-routes.js';
 import {
   createMisprint,
@@ -181,6 +181,14 @@ export const ActorPreflightLab: React.FC = () => {
   const [editorialCopy,setEditorialCopy] = useState('');
   const [previewStatus,setPreviewStatus] = useState('');
   const previewSelectionToken=useRef(0);
+  const [packPreviewStates,setPackPreviewStates] = useState<Record<string,PublicPreviewState>>({});
+  const [packAttempts,setPackAttempts] = useState<Record<number,{ status:string; reasonCode?:string; cardPosition?:number; attemptedAt?:string }>>({});
+  const [packAttemptsUnavailable,setPackAttemptsUnavailable] = useState(false);
+  const [packHealthLoading,setPackHealthLoading] = useState(false);
+  const [packHealthRefresh,setPackHealthRefresh] = useState(0);
+  const [cardHealth,setCardHealth] = useState<Record<number,'healthy'|'unavailable'|'error'>>({});
+  const [cardHealthBusy,setCardHealthBusy] = useState(false);
+  const cardHealthAbort=useRef<AbortController|null>(null);
   const [auditTo,setAuditTo] = useState(()=>new Date().toISOString().slice(0,10));
   const [auditFrom,setAuditFrom] = useState(()=>new Date(Date.now()-89*86_400_000).toISOString().slice(0,10));
   const [disagreementReasons,setDisagreementReasons] = useState<string[]>([]); const [editorialNote,setEditorialNote] = useState('');
@@ -191,8 +199,39 @@ export const ActorPreflightLab: React.FC = () => {
   }
   useEffect(() => { let live=true; setLoading(true); api(undefined,{view:'actors'}).then(result => { if(live) { const next = result.actors ?? []; setActors(next); const requestedActor=next.find((item:Actor)=>item.actorId===handoff.actorId); const selectedActor=requestedActor??next[0]; if(selectedActor) { setActorId(selectedActor.actorId); setVibeKey(selectedActor.pairings?.some((item:AnyRecord)=>item.vibeKey===handoff.vibeKey)?handoff.vibeKey:selectedActor.pairings?.[0]?.vibeKey??''); } if(handoff.actorId&&!requestedActor)setNotice(`Actor ${handoff.actorId} from the retirement warning is no longer available.`); else setNotice(''); } }).catch(e=>live&&setNotice(e.message)).finally(()=>live&&setLoading(false)); return()=>{live=false}; },[handoff.actorId,handoff.vibeKey,reloadActors]);
   const actor = useMemo(()=>actors.find(item=>item.actorId===actorId),[actors,actorId]); const pairing = actor?.pairings?.find(item=>item.vibeKey===vibeKey);
+  const packHealthKey = actor?.pairings?.map(item=>`${item.vibeIdx}:${item.currentRunId}:${item.verdict}:${item.eligible}`).join('|') || '';
+  useEffect(()=>{
+    const pairings = actor?.pairings?.filter(item=>Number.isInteger(item.vibeIdx)) || [];
+    let live=true;
+    setPackPreviewStates({});
+    setPackAttempts({});
+    setPackAttemptsUnavailable(false);
+    if (!actorId || !pairings.length) {setPackHealthLoading(false);return}
+    setPackHealthLoading(true);
+    const attempts = fetch(`/.netlify/functions/preflight-preview-health?${new URLSearchParams({actorId})}`,{
+      credentials:'same-origin',cache:'no-store',
+    }).then(async response=>{
+      if(!response.ok) return null;
+      const body=await response.json();
+      return body.actorId===actorId&&Array.isArray(body.attempts)?body.attempts:null;
+    }).catch(()=>null);
+    void Promise.all([
+      Promise.all(pairings.map(async item=>[item.vibeKey,await fetchPublicPreviewState(actorId,item.vibeIdx)] as const)),
+      attempts,
+    ]).then(([results,history])=>{
+      if(!live)return;
+      setPackPreviewStates(Object.fromEntries(results));
+      setPackAttemptsUnavailable(!history);
+      if(history)setPackAttempts(Object.fromEntries(history.map((item:AnyRecord)=>[item.vibeIdx,item])));
+    })
+      .finally(()=>{if(live)setPackHealthLoading(false)});
+    return()=>{live=false};
+  },[actorId,packHealthKey,packHealthRefresh]);
   useEffect(()=>{
     previewSelectionToken.current += 1;
+    cardHealthAbort.current?.abort();
+    setCardHealth({});
+    setCardHealthBusy(false);
     setPreviewStatus('');
     setBusy(current=>current==='public-preview'||current==='check-preview'?'':current);
   },[actorId,vibeKey]);
@@ -325,10 +364,47 @@ export const ActorPreflightLab: React.FC = () => {
     setPreviewStatus('Checking the live public preview…');
     const state = await fetchPublicPreviewState(actorId, idx);
     if (selection !== previewSelectionToken.current) return;
+    setPackHealthRefresh(current=>current+1);
     setPreviewStatus(state === 'live' ? 'Live public preview confirmed: exactly three cards.'
       : state === 'unpublished' ? 'No public three-card preview is live for this pairing.'
         : 'The public preview could not be verified right now. No publication was attempted.');
     setBusy('');
+  }
+  async function checkAllApprovedCards() {
+    const idx=pairing?.vibeIdx;
+    if(!actorId||!Number.isInteger(idx)||!currentRun?.runId)return;
+    const selection=previewSelectionToken.current;
+    const controller=new AbortController();
+    cardHealthAbort.current?.abort();
+    cardHealthAbort.current=controller;
+    setCardHealth({});
+    setCardHealthBusy(true);
+    let boardHash='';
+    try {
+      await Promise.all(Array.from({length:3},async(_,worker)=>{
+        for(let position=worker;position<9;position+=3) {
+          if(controller.signal.aborted)return;
+          let result:'healthy'|'unavailable'|'error'='error';
+          try {
+            const query=new URLSearchParams({actorId,vibeIdx:String(idx),position:String(position)});
+            const response=await fetch(`/.netlify/functions/preflight-preview-card-health?${query}`,{
+              credentials:'same-origin',cache:'no-store',signal:controller.signal,
+            });
+            const body=await response.json();
+            if(response.ok&&body.actorId===actorId&&body.vibeIdx===idx&&body.position===position
+              && body.runId===currentRun.runId&&typeof body.boardHash==='string'
+              && (body.status==='healthy'||body.status==='unavailable')) {
+              if(!boardHash)boardHash=body.boardHash;
+              if(boardHash===body.boardHash)result=body.status;
+            }
+          } catch { /* The individual check stays unknown, never healthy. */ }
+          if(selection!==previewSelectionToken.current||controller.signal.aborted)return;
+          setCardHealth(current=>({...current,[position]:result}));
+        }
+      }));
+    } finally {
+      if(selection===previewSelectionToken.current&&!controller.signal.aborted)setCardHealthBusy(false);
+    }
   }
   async function publishPublicPreflightPreview() {
     const customCopy = editorialCopy.trim();
@@ -379,6 +455,7 @@ export const ActorPreflightLab: React.FC = () => {
       }
       const state = await fetchPublicPreviewState(actorId, pairing.vibeIdx);
       if (selection !== previewSelectionToken.current) return;
+      setPackHealthRefresh(current=>current+1);
       const confirmation = state === 'live'
         ? `Live public preview confirmed: three cards for ${actor?.canonicalName || actorId} · ${text(pairing.labels)}.`
         : state === 'unpublished'
@@ -388,6 +465,7 @@ export const ActorPreflightLab: React.FC = () => {
       setNotice(confirmation);
     } catch (error) {
       if (selection !== previewSelectionToken.current) return;
+      setPackHealthRefresh(current=>current+1);
       const message = error instanceof Error ? error.message : 'The public preflight preview could not be published.';
       setPreviewStatus(message);
       setNotice(message);
@@ -723,6 +801,24 @@ export const ActorPreflightLab: React.FC = () => {
   if(loading) return <div className={styles.empty}>Loading actor evidence desk…</div>;
   return <section className={styles.lab} aria-labelledby="actor-preflight-title">
     <header className={styles.masthead}><div><p className={styles.eyebrow}>Fandom Vibes / private calibration</p><h3 id="actor-preflight-title">Actor preflight lab</h3><p>Calibrate actor × Vibe Pack pairings against bounded evidence before they enter the Daily Drop rotation.</p></div><div className={styles.runbook}><span>Operator boundary</span><strong>One pairing at a time</strong><span>Every decision leaves a receipt.</span></div></header>
+    {actor&&<section className={styles.packHealth} aria-label={`Public pack health for ${actor.romanizedName || actor.canonicalName}`}>
+      <div className={styles.packHealthHead}><div><p className={styles.eyebrow}>Pack health / {actor.romanizedName || actor.canonicalName}</p><h4>Approval and stable public teasers</h4><p>Published three-card teasers use public MEDIA independently of future searches. They do not replace the Daily Drop grid or approve unreviewed fallback images. Select a pack to review its board and publish.</p></div><button type="button" className={styles.buttonSecondary} disabled={packHealthLoading} onClick={()=>setPackHealthRefresh(current=>current+1)}>{packHealthLoading?'Checking…':'Refresh pack health'}</button></div>
+      <div className={styles.packHealthList}>{(actor.pairings || []).map(item=>{
+        const approved=(item.verdict==='approved'||item.verdict==='approved_override')&&item.eligible===true;
+        const state=packPreviewStates[item.vibeKey];
+        const attempt=packAttempts[item.vibeIdx];
+        const failure=state==='unpublished'&&attempt?.status==='failed'
+          ? attempt.reasonCode==='source_image_unavailable'&&attempt.cardPosition
+            ? `Last publish failed: approved card ${attempt.cardPosition} source unavailable`
+            : attempt.reasonCode==='media_registration_unavailable'&&attempt.cardPosition
+              ? `Last publish failed: card ${attempt.cardPosition} MEDIA registration unavailable`
+              : 'Last publish attempt failed; open this pairing to review'
+          : '';
+        return <button type="button" key={item.vibeKey} className={styles.packHealthRow} data-selected={vibeKey===item.vibeKey} aria-label={`Open pack review ${item.vibeIdx+1}`} aria-describedby={`pack-health-label-${item.vibeKey}`} onClick={()=>setVibeKey(item.vibeKey)}>
+          <strong id={`pack-health-label-${item.vibeKey}`}>{text(item.labels)}</strong><span>{approved?'Preflight marked approved':item.auditState==='needs_reapproval'?'Fresh review required':'Editorial review needed'}</span><span data-state={state || 'checking'}>{state==='live'?'Stable MEDIA teaser live':state==='unpublished'?'No public teaser':state==='unavailable'?'Public check unavailable':'Checking public teaser…'}</span>{failure&&<span className={styles.packHealthFailure}>{failure}{attempt.attemptedAt?` · ${date(attempt.attemptedAt)}`:''}</span>}
+        </button>;
+      })}</div>{packAttemptsUnavailable&&<p className={styles.packHealthWarning}>Publication attempt history is unavailable; public teaser status is shown separately.</p>}
+    </section>}
     {notice&&<div className={styles.error} role="status">{notice}</div>}
     {!actors.length&&<button type="button" className={styles.buttonSecondary} onClick={()=>setReloadActors(count=>count+1)}>Retry actor register</button>}
     <section className={styles.panel} aria-label="Read-only calibration export"><div className={styles.detailHead}><div><p className={styles.eyebrow}>Operator diagnostics</p><h4>Cross-audit proxy review</h4><p>Download an editorial packet that compares complete, minimum-sample human-versus-proxy reviews across actors and Vibe pairings. Incomplete runs and judgment exceptions stay explicit but never enter rates.</p></div></div><div className={styles.controls}><label className={styles.label}>From<input className={styles.input} type="date" value={auditFrom} max={auditTo} onChange={event=>setAuditFrom(event.target.value)} /></label><label className={styles.label}>To<input className={styles.input} type="date" value={auditTo} min={auditFrom} onChange={event=>setAuditTo(event.target.value)} /></label><button type="button" className={styles.buttonSecondary} disabled={busy==='calibration-export'||!auditFrom||!auditTo} onClick={()=>void downloadCalibrationExport()}>{busy==='calibration-export'?'Preparing packet…':'Download editorial review packet'}</button><small>Repeated transitions require two included audits · stored evidence only · no ranking, eligibility, scoring, or publication changes</small></div></section>
@@ -771,6 +867,8 @@ export const ActorPreflightLab: React.FC = () => {
           <div className={styles.grid}>
             <InfoCard title="Identity profile" data={actor} keys={['commonCollisions','representativeWorks','knownContamination','productStockMeanings','trustedSourcePatterns','problematicSourcePatterns']} />
             <RunEvidence
+              actorId={actorId}
+              vibeIdx={pairing?.vibeIdx}
               run={run}
               currentRun={currentRun}
               priorRuns={priorRuns}
@@ -804,7 +902,10 @@ export const ActorPreflightLab: React.FC = () => {
            </form> : selectedIsCurrent && requiresFreshAudit ? <p className={styles.historicalNotice}>{pairing?.auditState==='calibration_reaudit_required'?(calibrationProfile?.evidenceCount>0?'The active calibration receipt set changed. Run a fresh audit and reproduce a positive signal on evidence beyond the active saved boards before approval.':'All current calibration evidence is retired. Run a fresh sufficient audit to attest the empty active receipt set before approval.'):'This retained run is invalid under the current profile contract. Run a fresh audit before recording a scheduling verdict.'}</p> : selectedIsCurrent && review?.status === 'pending' ? <p className={styles.historicalNotice}>Make the blind board choice before scheduling this pairing.</p> : selectedIsCurrent && disagreementNeedsReasons ? <p className={styles.historicalNotice}>Capture why you disagreed before scheduling this pairing.</p> : run && !selectedIsCurrent ? <p className={styles.historicalNotice}>This is a frozen historical review. Return to the current run to revise scheduling eligibility.</p> : null}
            {selectedIsCurrent && run?.operatorVerdict?.verdict==='approved' && operatorPublication && <form className={styles.backfill} onSubmit={publishBackfill}><div><p className={styles.eyebrow}>Missed-edition backfill</p><h5>Publish this exact approved nine to a past date</h5><p>This is an explicit editorial exception for a blank Daily Drop day. It writes only this approved rescue board to the public archive; it does not alter eligibility or hidden audit evidence.</p></div><label className={styles.label}>Edition date<input className={styles.input} type="date" value={backfillDate} onChange={event=>setBackfillDate(event.target.value)} required /></label><button className={styles.buttonPrimary} disabled={busy==='backfill'||!backfillDate}>{busy==='backfill'?'Publishing backfill…':'Publish approved board as backfill'}</button></form>}
            {selectedIsCurrent && (pairing?.verdict==='approved'||pairing?.verdict==='approved_override') && pairing?.eligible===true && Number.isInteger(pairing.vibeIdx) && <section className={styles.preflightPreviewPublish} aria-label="Public three-card preview publication">
-             <div><p className={styles.eyebrow}>Public pack teaser</p><h5>Publish approved three-card preflight preview</h5><p>This publishes only the first three cards from this currently approved pairing as its public teaser. The Daily Drop board is unchanged.</p></div>
+              <div><p className={styles.eyebrow}>Public pack teaser</p><h5>Publish approved three-card preflight preview</h5><p>This publishes only the first three cards from this currently approved pairing as its public teaser. The Daily Drop board is unchanged.</p></div>
+              <div className={styles.cardHealth}><div><strong>Approved board image health · all nine</strong><p>Check every currently approved image before choosing a replacement board. This read-only check downloads no public MEDIA and does not change approval. A healthy result only reflects the time of the check.</p></div><button type="button" className={styles.buttonSecondary} disabled={cardHealthBusy} onClick={()=>void checkAllApprovedCards()}>{cardHealthBusy?'Checking images…':'Check all nine images'}</button>
+                <div className={styles.cardHealthGrid}>{Array.from({length:9},(_,position)=>{const state=cardHealth[position];return <span key={position} data-state={state||'unchecked'}>Card {position+1}: {state==='healthy'?'source reachable':state==='unavailable'?'source unavailable':state==='error'?'check unavailable':cardHealthBusy?'checking…':'not checked'}</span>})}</div>
+              </div>
              {builtInPreviewCopy&&<p className={styles.previewCopyCurrent}><strong>Existing pack copy (used automatically):</strong> {builtInPreviewCopy}</p>}
              <label className={styles.label}>Editorial copy{!builtInPreviewCopy?' (required; at least 40 characters)':' (optional override)'}<textarea className={`${styles.input} ${styles.textarea}`} value={editorialCopy} maxLength={500} minLength={!builtInPreviewCopy?40:undefined} required={!builtInPreviewCopy} onChange={event=>setEditorialCopy(event.target.value)} placeholder={builtInPreviewCopy?'Leave blank to use the existing pack copy.':'Write the editorial context shown with this three-card preview.'} /></label>
              <div className={styles.previewPublishActions}>
@@ -853,8 +954,9 @@ function BlindEvidenceExclusions({profile,busy,onExclude}:{profile:AnyRecord;bus
   return <section className={styles.calibrationProfile} aria-label="Calibration evidence profile"><div><h5>Calibration evidence profile</h5><p>{profile.evidenceCount??0} active · {profile.retiredEvidenceCount??0} retired · {profile.totalConfirmedEvidenceCount??profile.evidenceCount??0} confirmed total</p></div><div className={styles.calibrationLedger}><strong>All current-contract evidence</strong>{evidence.map((item:any)=><article key={item.sourceRescueReceiptId} data-retired={item.status==='retired'}><span>{item.evidenceType==='blind_review_disagreement'?'Blind-review evidence':'Rescue receipt'} {String(item.sourceRescueReceiptId).slice(0,8)} · source audit {item.sourceRunId||'unknown'}</span><p>{item.evidenceType==='blind_review_disagreement'?'Derived from complete immutable judgments':'Confirmed'} {date(item.confirmedAt)} {item.evidenceType==='blind_review_disagreement'?'':`by ${item.confirmedBy||'operator'}`} · {item.status==='retired'?'retired and excluded':'active in future aggregate profiles'}</p>{item.blindReviewEvidence&&<details><summary>{item.blindReviewEvidence.disagreements?.length??0} classification disagreements · {item.blindReviewEvidence.reviewedCount??0}/{item.blindReviewEvidence.occurrenceCount??0} reviewed</summary><pre>{text(item.blindReviewEvidence.disagreements)}</pre></details>}{item.retirement?<small>{item.retirement.reason} · retired {date(item.retirement.retiredAt)} · immutable receipt {String(item.retirement.retirementId||'').slice(0,8)}</small>:item.evidenceType!=='blind_review_disagreement'&&<button type="button" className={styles.buttonDanger} disabled={Boolean(busy)} onClick={()=>{setRetiringReceiptId(item.sourceRescueReceiptId);setRetirementReason('')}}>Retire calibration evidence</button>}{retiringReceiptId===item.sourceRescueReceiptId&&!item.retirement&&<form className={styles.retirementForm} onSubmit={async event=>{event.preventDefault();if(!retirementReason.trim())return;const saved=await onRetireCalibration(item.sourceRescueReceiptId,retirementReason);if(saved){setRetiringReceiptId(null);setRetirementReason('')}}}><label className={styles.label}>Why should future audits ignore this evidence?<textarea className={`${styles.input} ${styles.textarea}`} value={retirementReason} maxLength={1000} required onChange={event=>setRetirementReason(event.target.value)} placeholder="Describe what made this calibration example misleading." /></label><p>The original calibration, rescue board, audit, verdict, and eligibility history remain unchanged.</p><div className={styles.rescueActions}><button type="submit" className={styles.buttonDanger} disabled={Boolean(busy)||!retirementReason.trim()}>{busy===`retirement:${item.sourceRescueReceiptId}`?'Retiring evidence…':'Create retirement receipt'}</button><button type="button" className={styles.buttonSecondary} disabled={Boolean(busy)} onClick={()=>{setRetiringReceiptId(null);setRetirementReason('')}}>Cancel</button></div></form>}</article>)}</div>{exclusions.length>0&&<div className={styles.calibrationExclusions}><strong>Excluded from future aggregate profiles</strong>{exclusions.map((item:any)=><article key={item.retirementId||item.sourceRescueReceiptId}><span>Receipt {String(item.sourceRescueReceiptId).slice(0,8)} · retired {date(item.retiredAt)} by {item.retiredBy||'operator'}</span><p>{item.reason}</p><small>Immutable retirement receipt {String(item.retirementId||'').slice(0,8)}</small></article>)}</div>}</section>;
 }
 function RunEvidence({
-  run,currentRun,priorRuns,selectedReadOnly,busy,disagreementReasons,editorialNote,onChoice,onReasonChange,onNoteChange,onSaveReasons,onFlag,onMisprint,onVisualJudgment,onSaveRescue,onExportRescue,onMarkCalibration,onRetireCalibration,onSelect,initialReceiptId,
+  actorId,vibeIdx,run,currentRun,priorRuns,selectedReadOnly,busy,disagreementReasons,editorialNote,onChoice,onReasonChange,onNoteChange,onSaveReasons,onFlag,onMisprint,onVisualJudgment,onSaveRescue,onExportRescue,onMarkCalibration,onRetireCalibration,onSelect,initialReceiptId,
 }:{
+  actorId:string;vibeIdx?:number;
   run:Run|null;currentRun:Run|null;priorRuns:Run[];selectedReadOnly:boolean;busy:string;disagreementReasons:string[];editorialNote:string;
   onChoice:(choice:'event'|'compiled'|'neither')=>void;onReasonChange:(reasons:string[])=>void;onNoteChange:(note:string)=>void;
   onSaveReasons:(event:React.FormEvent)=>void;onFlag:(candidateId:string,flagged:boolean,intent?:string,reasons?:string[])=>void;onMisprint:(candidate:AnyRecord,reason:MisprintReason,actualIdentity:string,note:string)=>void;onVisualJudgment:(occurrenceId:string,classification:string)=>void;onSaveRescue:(candidateIds:string[])=>void;onExportRescue:(receiptId:string)=>void;onMarkCalibration:(receiptId:string)=>void;onRetireCalibration:(receiptId:string,reason:string)=>Promise<boolean>;onSelect:(run:Run)=>void;initialReceiptId?:string;
@@ -909,7 +1011,7 @@ function RunEvidence({
         </form>}
         {disagreed && isCurrent && run.operatorVerdict && <p className={styles.historicalNotice}>The scheduling receipt is finalized, so its calibration reasons stay frozen. Image-level pins and exclusions below remain editable as separate review receipts.</p>}
       </section>}
-      {evidenceAvailable && <><BlindVisualJudgments run={run} isCurrent={isCurrent&&!isLegacy} busy={busy} onSave={onVisualJudgment}/><div className={styles.evidenceSummary}><strong>{displayableCount}</strong><span>displayable retained images</span><strong>{proposedCardCount}</strong><span>complete proposal cards</span><strong>{typeof run.displayCount === 'number' ? run.displayCount : 'Unavailable'}</strong><span>automatically publication-ready cards</span><strong>{typeof run.queryCount === 'number' ? run.queryCount : 'Unavailable'}</strong><span>queries audited</span><strong>{rawResultsAvailable ? rawResults.length : 'Unavailable'}</strong><span>retained results</span></div><CandidateFunnelSummary run={run}/><CalibrationLearningSummary run={run}/><RequestedGridReview run={run} isCurrent={isCurrent} busy={busy} onSave={onSaveRescue} onExport={onExportRescue} onMarkCalibration={onMarkCalibration} onRetireCalibration={onRetireCalibration} initialReceiptId={initialReceiptId}/><div className={styles.evidence} key={run.runId}>{sections.map(([label,field,value])=>{const unavailable=value===undefined||value===null;const recordedEmpty=Array.isArray(value)&&value.length===0;const unavailableReason=typeof run.evidenceUnavailableReasons?.[field]==='string'?run.evidenceUnavailableReasons[field].trim():'';return <details key={label}><summary>{label} <span className={styles.muted}>{label === 'Bounded raw results' ? `${isCurrent&&!isLegacy?'Current · writable':isLegacy&&isCurrent?'Legacy · annotations only':isLegacy?'Legacy · frozen read-only':'Retained · frozen read-only'} · ` : ''}{unavailable?'Unavailable':Array.isArray(value)?`${value.length} records`:''}</span></summary>{unavailable?<p className={styles.historicalNotice}>{unavailableReason?`Unavailable — ${unavailableReason}`:'Unavailable — this evidence was not recorded for this audit.'}</p>:recordedEmpty?<p className={styles.historicalNotice}>0 records were recorded for this audit.</p>:label === 'Bounded raw results' && rawResults.length > 0 ? <RawResultGrid run={run} isCurrent={isCurrent} isLegacy={isLegacy} busy={busy} onFlag={onFlag} onMisprint={onMisprint}/> : <pre>{text(value)}</pre>}</details>})}</div></>}
+      {evidenceAvailable && <><BlindVisualJudgments run={run} isCurrent={isCurrent&&!isLegacy} busy={busy} onSave={onVisualJudgment}/><div className={styles.evidenceSummary}><strong>{displayableCount}</strong><span>displayable retained images</span><strong>{proposedCardCount}</strong><span>complete proposal cards</span><strong>{typeof run.displayCount === 'number' ? run.displayCount : 'Unavailable'}</strong><span>automatically publication-ready cards</span><strong>{typeof run.queryCount === 'number' ? run.queryCount : 'Unavailable'}</strong><span>queries audited</span><strong>{rawResultsAvailable ? rawResults.length : 'Unavailable'}</strong><span>retained results</span></div><CandidateFunnelSummary run={run}/><CalibrationLearningSummary run={run}/><RequestedGridReview actorId={actorId} vibeIdx={vibeIdx} run={run} isCurrent={isCurrent} busy={busy} onSave={onSaveRescue} onExport={onExportRescue} onMarkCalibration={onMarkCalibration} onRetireCalibration={onRetireCalibration} initialReceiptId={initialReceiptId}/><div className={styles.evidence} key={run.runId}>{sections.map(([label,field,value])=>{const unavailable=value===undefined||value===null;const recordedEmpty=Array.isArray(value)&&value.length===0;const unavailableReason=typeof run.evidenceUnavailableReasons?.[field]==='string'?run.evidenceUnavailableReasons[field].trim():'';return <details key={label}><summary>{label} <span className={styles.muted}>{label === 'Bounded raw results' ? `${isCurrent&&!isLegacy?'Current · writable':isLegacy&&isCurrent?'Legacy · annotations only':isLegacy?'Legacy · frozen read-only':'Retained · frozen read-only'} · ` : ''}{unavailable?'Unavailable':Array.isArray(value)?`${value.length} records`:''}</span></summary>{unavailable?<p className={styles.historicalNotice}>{unavailableReason?`Unavailable — ${unavailableReason}`:'Unavailable — this evidence was not recorded for this audit.'}</p>:recordedEmpty?<p className={styles.historicalNotice}>0 records were recorded for this audit.</p>:label === 'Bounded raw results' && rawResults.length > 0 ? <RawResultGrid run={run} isCurrent={isCurrent} isLegacy={isLegacy} busy={busy} onFlag={onFlag} onMisprint={onMisprint}/> : <pre>{text(value)}</pre>}</details>})}</div></>}
     </> : <p className={styles.empty}>Run an audit to open a blinded Event versus Compiled comparison.</p>}
     {auditRunPicker}
   </article>;
@@ -981,7 +1083,7 @@ function RawResultGrid({run,isCurrent,isLegacy,busy,onFlag,onMisprint}:{run:Run;
   })}</div>;
 }
 
-function RequestedGridReview({run,isCurrent,busy,onSave,onExport,onMarkCalibration,onRetireCalibration,initialReceiptId}:{run:Run;isCurrent:boolean;busy:string;onSave:(candidateIds:string[])=>void;onExport:(receiptId:string)=>void;onMarkCalibration:(receiptId:string)=>void;onRetireCalibration:(receiptId:string,reason:string)=>Promise<boolean>;initialReceiptId?:string}) {
+function RequestedGridReview({actorId,vibeIdx,run,isCurrent,busy,onSave,onExport,onMarkCalibration,onRetireCalibration,initialReceiptId}:{actorId:string;vibeIdx?:number;run:Run;isCurrent:boolean;busy:string;onSave:(candidateIds:string[])=>void;onExport:(receiptId:string)=>void;onMarkCalibration:(receiptId:string)=>void;onRetireCalibration:(receiptId:string,reason:string)=>Promise<boolean>;initialReceiptId?:string}) {
   const feedback=run.editorialFeedback;
   const flags=feedback?.flags??EMPTY_RECORDS;
   const review=feedback?.requestedReview;
@@ -1020,6 +1122,47 @@ function RequestedGridReview({run,isCurrent,busy,onSave,onExport,onMarkCalibrati
     poolIds,
   ]);
   const [candidates,setCandidates]=useState<AnyRecord[]>(initialCandidates);
+  const [draftHealth,setDraftHealth]=useState<Record<string,'healthy'|'unavailable'|'error'>>({});
+  const [draftHealthBusy,setDraftHealthBusy]=useState(false);
+  const draftHealthAbort=useRef<AbortController|null>(null);
+  const draftSignature=candidates.map(item=>item.candidateId).join('|');
+  useEffect(()=>{
+    draftHealthAbort.current?.abort();
+    setDraftHealth({});
+    setDraftHealthBusy(false);
+    return()=>draftHealthAbort.current?.abort();
+  },[draftSignature,run.runId]);
+  async function checkDraftNine() {
+    if(!isCurrent||!actorId||!Number.isInteger(vibeIdx)||candidates.length!==9)return;
+    const controller=new AbortController();
+    draftHealthAbort.current?.abort();
+    draftHealthAbort.current=controller;
+    setDraftHealth({});
+    setDraftHealthBusy(true);
+    try {
+      await Promise.all(Array.from({length:3},async(_,worker)=>{
+        for(let position=worker;position<9;position+=3) {
+          if(controller.signal.aborted)return;
+          const candidateId=String(candidates[position].candidateId);
+          let state:'healthy'|'unavailable'|'error'='error';
+          try {
+            const query=new URLSearchParams({actorId,vibeIdx:String(vibeIdx),runId:run.runId??'',candidateId});
+            const response=await fetch(`/.netlify/functions/preflight-preview-card-health?${query}`,{
+              credentials:'same-origin',cache:'no-store',signal:controller.signal,
+            });
+            const body=await response.json();
+            if(response.ok&&body.actorId===actorId&&body.vibeIdx===vibeIdx
+              &&body.runId===run.runId&&body.candidateId===candidateId
+              &&(body.status==='healthy'||body.status==='unavailable'))state=body.status;
+          } catch { /* A failed probe is never marked healthy. */ }
+          if(controller.signal.aborted)return;
+          setDraftHealth(current=>({...current,[candidateId]:state}));
+        }
+      }));
+    } finally {
+      if(!controller.signal.aborted)setDraftHealthBusy(false);
+    }
+  }
   const draftContextKey=`${run.runId??''}:${feedback?.feedbackHash??''}`;
   const [draftContext,setDraftContext]=useState(draftContextKey);
   const [viewedReceiptId,setViewedReceiptId]=useState<string|null>(initialReceiptId||null);
@@ -1062,7 +1205,8 @@ function RequestedGridReview({run,isCurrent,busy,onSave,onExport,onMarkCalibrati
     <div className={styles.rescuePickerHeader}><strong>Choose your nine</strong><span>Click an image to {candidates.length===9?'remove it before choosing another':'add or remove it'}.</span></div>
     <div className={styles.rescuePicker}>{candidatePool.map(item=>{const selectedIndex=candidates.findIndex(candidate=>candidate.candidateId===item.candidateId);const selected=selectedIndex>=0;return <button type="button" className={selected?styles.rescuePickSelected:styles.rescuePick} aria-pressed={selected} disabled={!selected&&candidates.length>=9} onClick={()=>toggleCandidate(item)} key={item.candidateId}><img src={item.thumbnail} alt={item.title||'Retained rescue candidate'}/><span>{selected?`Chosen ${selectedIndex+1}`:'Add'}</span></button>;})}</div>
     {candidates.length>0?<div className={styles.rescueGrid} aria-label="Editable rescue board">{candidates.map((item,index)=><article className={styles.rescueTile} data-hero={index===4} key={item.candidateId}><a href={item.link||item.thumbnail||'#'} target="_blank" rel="noreferrer">{item.thumbnail?<img src={item.thumbnail} alt={item.title||`Rescue card ${index+1}`}/>:<span className={styles.resultPlaceholder}>No thumbnail</span>}<span>{index===4?'Hero · ':''}{item.title||`Card ${index+1}`}</span></a><div><button type="button" disabled={index===0} onClick={()=>move(index,-1)} aria-label={`Move card ${index+1} earlier`}>←</button><button type="button" disabled={candidates.length<5||index===4} onClick={()=>setHero(index)} aria-label={`Make card ${index+1} the hero`}>Hero</button><button type="button" disabled={index===candidates.length-1} onClick={()=>move(index,1)} aria-label={`Move card ${index+1} later`}>→</button></div></article>)}</div>:<p className={styles.boardEmpty}>Choose the first image for this rescue board.</p>}
-    <div className={styles.rescueActions}><button type="button" className={styles.buttonPrimary} disabled={!isCurrent||busy==='rescue-board'||candidates.length!==9} onClick={()=>onSave(candidates.map(item=>item.candidateId))}>{busy==='rescue-board'?'Saving board to Collection…':candidates.length===9?'Save my nine to Collection':'Choose nine to save'}</button><button type="button" className={styles.buttonSecondary} disabled={!candidates.length} onClick={()=>setCandidates([])}>Clear board</button>{savedMatchesCurrentFeedback&&saved&&<><button type="button" className={styles.buttonSecondary} disabled={!isCurrent||Boolean(busy)} onClick={()=>onExport(saved.receiptId)}>{busy==='export-rescue-board'?'Retrying Collection save…':'Retry Collection save'}</button><span>Last saved {date(saved.savedAt)} by {saved.savedBy}</span></>}</div>
+    <div className={styles.cardHealthGrid} aria-label="Editable board source health">{candidates.map((item,index)=><span key={item.candidateId} data-state={draftHealth[item.candidateId]||'unchecked'}>Card {index+1}: {draftHealth[item.candidateId]==='healthy'?'source reachable':draftHealth[item.candidateId]==='unavailable'?'source unavailable':draftHealth[item.candidateId]==='error'?'check unavailable':'not checked'}</span>)}</div>
+    <div className={styles.rescueActions}><button type="button" className={styles.buttonSecondary} disabled={!isCurrent||draftHealthBusy||candidates.length!==9} onClick={()=>void checkDraftNine()}>{draftHealthBusy?'Checking all nine…':'Check these nine sources'}</button><button type="button" className={styles.buttonPrimary} disabled={!isCurrent||busy==='rescue-board'||candidates.length!==9} onClick={()=>onSave(candidates.map(item=>item.candidateId))}>{busy==='rescue-board'?'Saving board to Collection…':candidates.length===9?'Save my nine to Collection':'Choose nine to save'}</button><button type="button" className={styles.buttonSecondary} disabled={!candidates.length} onClick={()=>setCandidates([])}>Clear board</button>{savedMatchesCurrentFeedback&&saved&&<><button type="button" className={styles.buttonSecondary} disabled={!isCurrent||Boolean(busy)} onClick={()=>onExport(saved.receiptId)}>{busy==='export-rescue-board'?'Retrying Collection save…':'Retry Collection save'}</button><span>Last saved {date(saved.savedAt)} by {saved.savedBy}</span></>}</div>
     {(review?.board||retainedProposal)&&<p className={styles.requestedSummary}>The suggested starting arrangement is editable. Your saved nine are the operator override.</p>}
     {blockedCount>0&&<div className={styles.blockedFlags}>{[...unavailableIds].map(candidateId=>{const item=rawResults.find(candidate=>candidate.candidateId===candidateId);return <span key={candidateId}><strong>{item?.title||candidateId}</strong> is unavailable because the audit could not load a usable image from its retained URL.</span>;})}</div>}
   </section>;
