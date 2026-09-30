@@ -1,5 +1,5 @@
 import { useEffect, useMemo, useRef, useState } from 'react';
-import { fetchPublicPreviewState } from './preflightPreviewStatus';
+import { fetchPublicPreviewState, type PublicPreviewState } from './preflightPreviewStatus';
 import { PUBLIC_ROUTE_PATHS } from '../../../shared/public-routes.js';
 import {
   createMisprint,
@@ -181,6 +181,11 @@ export const ActorPreflightLab: React.FC = () => {
   const [editorialCopy,setEditorialCopy] = useState('');
   const [previewStatus,setPreviewStatus] = useState('');
   const previewSelectionToken=useRef(0);
+  const [packPreviewStates,setPackPreviewStates] = useState<Record<string,PublicPreviewState>>({});
+  const [packAttempts,setPackAttempts] = useState<Record<number,{ status:string; reasonCode?:string; cardPosition?:number; attemptedAt?:string }>>({});
+  const [packAttemptsUnavailable,setPackAttemptsUnavailable] = useState(false);
+  const [packHealthLoading,setPackHealthLoading] = useState(false);
+  const [packHealthRefresh,setPackHealthRefresh] = useState(0);
   const [auditTo,setAuditTo] = useState(()=>new Date().toISOString().slice(0,10));
   const [auditFrom,setAuditFrom] = useState(()=>new Date(Date.now()-89*86_400_000).toISOString().slice(0,10));
   const [disagreementReasons,setDisagreementReasons] = useState<string[]>([]); const [editorialNote,setEditorialNote] = useState('');
@@ -191,6 +196,34 @@ export const ActorPreflightLab: React.FC = () => {
   }
   useEffect(() => { let live=true; setLoading(true); api(undefined,{view:'actors'}).then(result => { if(live) { const next = result.actors ?? []; setActors(next); const requestedActor=next.find((item:Actor)=>item.actorId===handoff.actorId); const selectedActor=requestedActor??next[0]; if(selectedActor) { setActorId(selectedActor.actorId); setVibeKey(selectedActor.pairings?.some((item:AnyRecord)=>item.vibeKey===handoff.vibeKey)?handoff.vibeKey:selectedActor.pairings?.[0]?.vibeKey??''); } if(handoff.actorId&&!requestedActor)setNotice(`Actor ${handoff.actorId} from the retirement warning is no longer available.`); else setNotice(''); } }).catch(e=>live&&setNotice(e.message)).finally(()=>live&&setLoading(false)); return()=>{live=false}; },[handoff.actorId,handoff.vibeKey,reloadActors]);
   const actor = useMemo(()=>actors.find(item=>item.actorId===actorId),[actors,actorId]); const pairing = actor?.pairings?.find(item=>item.vibeKey===vibeKey);
+  const packHealthKey = actor?.pairings?.map(item=>`${item.vibeIdx}:${item.currentRunId}:${item.verdict}:${item.eligible}`).join('|') || '';
+  useEffect(()=>{
+    const pairings = actor?.pairings?.filter(item=>Number.isInteger(item.vibeIdx)) || [];
+    let live=true;
+    setPackPreviewStates({});
+    setPackAttempts({});
+    setPackAttemptsUnavailable(false);
+    if (!actorId || !pairings.length) {setPackHealthLoading(false);return}
+    setPackHealthLoading(true);
+    const attempts = fetch(`/.netlify/functions/preflight-preview-health?${new URLSearchParams({actorId})}`,{
+      credentials:'same-origin',cache:'no-store',
+    }).then(async response=>{
+      if(!response.ok) return null;
+      const body=await response.json();
+      return body.actorId===actorId&&Array.isArray(body.attempts)?body.attempts:null;
+    }).catch(()=>null);
+    void Promise.all([
+      Promise.all(pairings.map(async item=>[item.vibeKey,await fetchPublicPreviewState(actorId,item.vibeIdx)] as const)),
+      attempts,
+    ]).then(([results,history])=>{
+      if(!live)return;
+      setPackPreviewStates(Object.fromEntries(results));
+      setPackAttemptsUnavailable(!history);
+      if(history)setPackAttempts(Object.fromEntries(history.map((item:AnyRecord)=>[item.vibeIdx,item])));
+    })
+      .finally(()=>{if(live)setPackHealthLoading(false)});
+    return()=>{live=false};
+  },[actorId,packHealthKey,packHealthRefresh]);
   useEffect(()=>{
     previewSelectionToken.current += 1;
     setPreviewStatus('');
@@ -325,6 +358,7 @@ export const ActorPreflightLab: React.FC = () => {
     setPreviewStatus('Checking the live public preview…');
     const state = await fetchPublicPreviewState(actorId, idx);
     if (selection !== previewSelectionToken.current) return;
+    setPackHealthRefresh(current=>current+1);
     setPreviewStatus(state === 'live' ? 'Live public preview confirmed: exactly three cards.'
       : state === 'unpublished' ? 'No public three-card preview is live for this pairing.'
         : 'The public preview could not be verified right now. No publication was attempted.');
@@ -379,6 +413,7 @@ export const ActorPreflightLab: React.FC = () => {
       }
       const state = await fetchPublicPreviewState(actorId, pairing.vibeIdx);
       if (selection !== previewSelectionToken.current) return;
+      setPackHealthRefresh(current=>current+1);
       const confirmation = state === 'live'
         ? `Live public preview confirmed: three cards for ${actor?.canonicalName || actorId} · ${text(pairing.labels)}.`
         : state === 'unpublished'
@@ -388,6 +423,7 @@ export const ActorPreflightLab: React.FC = () => {
       setNotice(confirmation);
     } catch (error) {
       if (selection !== previewSelectionToken.current) return;
+      setPackHealthRefresh(current=>current+1);
       const message = error instanceof Error ? error.message : 'The public preflight preview could not be published.';
       setPreviewStatus(message);
       setNotice(message);
@@ -723,6 +759,24 @@ export const ActorPreflightLab: React.FC = () => {
   if(loading) return <div className={styles.empty}>Loading actor evidence desk…</div>;
   return <section className={styles.lab} aria-labelledby="actor-preflight-title">
     <header className={styles.masthead}><div><p className={styles.eyebrow}>Fandom Vibes / private calibration</p><h3 id="actor-preflight-title">Actor preflight lab</h3><p>Calibrate actor × Vibe Pack pairings against bounded evidence before they enter the Daily Drop rotation.</p></div><div className={styles.runbook}><span>Operator boundary</span><strong>One pairing at a time</strong><span>Every decision leaves a receipt.</span></div></header>
+    {actor&&<section className={styles.packHealth} aria-label={`Public pack health for ${actor.romanizedName || actor.canonicalName}`}>
+      <div className={styles.packHealthHead}><div><p className={styles.eyebrow}>Pack health / {actor.romanizedName || actor.canonicalName}</p><h4>Approval and stable public teasers</h4><p>Published three-card teasers use public MEDIA independently of future searches. They do not replace the Daily Drop grid or approve unreviewed fallback images. Select a pack to review its board and publish.</p></div><button type="button" className={styles.buttonSecondary} disabled={packHealthLoading} onClick={()=>setPackHealthRefresh(current=>current+1)}>{packHealthLoading?'Checking…':'Refresh pack health'}</button></div>
+      <div className={styles.packHealthList}>{(actor.pairings || []).map(item=>{
+        const approved=(item.verdict==='approved'||item.verdict==='approved_override')&&item.eligible===true;
+        const state=packPreviewStates[item.vibeKey];
+        const attempt=packAttempts[item.vibeIdx];
+        const failure=state==='unpublished'&&attempt?.status==='failed'
+          ? attempt.reasonCode==='source_image_unavailable'&&attempt.cardPosition
+            ? `Last publish failed: approved card ${attempt.cardPosition} source unavailable`
+            : attempt.reasonCode==='media_registration_unavailable'&&attempt.cardPosition
+              ? `Last publish failed: card ${attempt.cardPosition} MEDIA registration unavailable`
+              : 'Last publish attempt failed; open this pairing to review'
+          : '';
+        return <button type="button" key={item.vibeKey} className={styles.packHealthRow} data-selected={vibeKey===item.vibeKey} onClick={()=>setVibeKey(item.vibeKey)}>
+          <strong>{text(item.labels)}</strong><span>{approved?'Preflight marked approved':item.auditState==='needs_reapproval'?'Fresh review required':'Editorial review needed'}</span><span data-state={state || 'checking'}>{state==='live'?'Stable MEDIA teaser live':state==='unpublished'?'No public teaser':state==='unavailable'?'Public check unavailable':'Checking public teaser…'}</span>{failure&&<span className={styles.packHealthFailure}>{failure}{attempt.attemptedAt?` · ${date(attempt.attemptedAt)}`:''}</span>}
+        </button>;
+      })}</div>{packAttemptsUnavailable&&<p className={styles.packHealthWarning}>Publication attempt history is unavailable; public teaser status is shown separately.</p>}
+    </section>}
     {notice&&<div className={styles.error} role="status">{notice}</div>}
     {!actors.length&&<button type="button" className={styles.buttonSecondary} onClick={()=>setReloadActors(count=>count+1)}>Retry actor register</button>}
     <section className={styles.panel} aria-label="Read-only calibration export"><div className={styles.detailHead}><div><p className={styles.eyebrow}>Operator diagnostics</p><h4>Cross-audit proxy review</h4><p>Download an editorial packet that compares complete, minimum-sample human-versus-proxy reviews across actors and Vibe pairings. Incomplete runs and judgment exceptions stay explicit but never enter rates.</p></div></div><div className={styles.controls}><label className={styles.label}>From<input className={styles.input} type="date" value={auditFrom} max={auditTo} onChange={event=>setAuditFrom(event.target.value)} /></label><label className={styles.label}>To<input className={styles.input} type="date" value={auditTo} min={auditFrom} onChange={event=>setAuditTo(event.target.value)} /></label><button type="button" className={styles.buttonSecondary} disabled={busy==='calibration-export'||!auditFrom||!auditTo} onClick={()=>void downloadCalibrationExport()}>{busy==='calibration-export'?'Preparing packet…':'Download editorial review packet'}</button><small>Repeated transitions require two included audits · stored evidence only · no ranking, eligibility, scoring, or publication changes</small></div></section>

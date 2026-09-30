@@ -7,6 +7,7 @@ import {
   publishPreflightPreview as publishPreflightPreviewReceipt,
   publicPreflightPreview,
 } from "./lib/preflight-preview.js";
+import { recordPreflightPreviewAttempt } from "./lib/preflight-preview-health.js";
 
 function json(status, body) {
   return {
@@ -34,6 +35,9 @@ export function createPublishPreflightPreviewHandler({
     if (request.method && request.method !== "POST") {
       return json(405, { error: "Method not allowed." });
     }
+    let healthStore;
+    let healthActorId;
+    let healthVibeIdx;
     try {
       requireSameOrigin(request);
       await auth.authenticateAdmin(request, context);
@@ -56,10 +60,13 @@ export function createPublishPreflightPreviewHandler({
       }
       const actor = actorPacks.find(item => item.id === actorId);
       if (!actor?.vibes?.[vibeIdx]) return json(404, { status: "unpublished" });
+      healthActorId = actorId;
+      healthVibeIdx = vibeIdx;
       let store;
       let eligibilityStore;
       try {
         store = getStore(PREFLIGHT_PREVIEW_STORE, context);
+        healthStore = store;
         eligibilityStore = getStore(ELIGIBILITY_STORE, context);
       } catch (cause) {
         throw Object.assign(new Error("Preview storage could not be opened.", { cause }), {
@@ -75,11 +82,23 @@ export function createPublishPreflightPreviewHandler({
         editorialCopy: input.editorialCopy || "",
       });
       if (!receipt) return json(409, { status: "not-approved" });
+      try {
+        await recordPreflightPreviewAttempt(healthStore, actorId, vibeIdx);
+      } catch (error) {
+        console.error("[publish-preflight-preview] attempt health write failed", error);
+      }
       return json(200, {
         status: "published",
         preview: publicPreflightPreview(receipt, actor, actor.vibes[vibeIdx]),
       });
     } catch (error) {
+      if (healthStore && healthActorId && Number.isInteger(healthVibeIdx) && error?.status >= 500) {
+        try {
+          await recordPreflightPreviewAttempt(healthStore, healthActorId, healthVibeIdx, error);
+        } catch (healthError) {
+          console.error("[publish-preflight-preview] attempt health write failed", healthError);
+        }
+      }
       const status = Number.isInteger(error?.status) ? error.status : 503;
       if (status >= 500) console.error("[publish-preflight-preview] publication failed", error);
       return json(status, {
