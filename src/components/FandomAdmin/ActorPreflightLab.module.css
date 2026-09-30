@@ -42,6 +42,8 @@
 .preflightPreviewPublish h5 { color:#b8d2c6; font-size:13px; }
 .preflightPreviewPublish p:not(.eyebrow) { max-width:720px; margin-top:4px; color:#b9bfbb; font-size:11px; line-height:1.5; }
 .preflightPreviewPublish .buttonPrimary { justify-self:start; }
+.previewPublishActions { display:flex; flex-wrap:wrap; gap:8px; align-items:center; }
+.previewPublishStatus { padding:10px 12px; border:1px solid var(--admin-border); border-radius:8px; font-size:12px; line-height:1.5; }
 
 .lab { display:grid; gap:16px; padding:8px 0 28px; color:inherit; }
 .masthead { display:flex; justify-content:space-between; gap:20px; align-items:flex-end; padding:22px; border:1px solid color-mix(in srgb,#c9a96e 34%,transparent); border-radius:14px; background:linear-gradient(115deg,color-mix(in srgb,#c9a96e 15%,transparent),color-mix(in srgb,#6f8d83 10%,transparent)); }
