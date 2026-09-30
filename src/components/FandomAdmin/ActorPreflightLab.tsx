@@ -440,6 +440,8 @@ export const ActorPreflightLab: React.FC = () => {
               ? 'The current approval could not be read. The preview was not published.'
               : result?.reasonCode === 'receipt_storage_unavailable'
                 ? 'Preview storage is unavailable. The preview was not published.'
+                : result?.reasonCode === 'preview_receipt_invalid'
+                  ? 'The public preview receipt could not be verified. Do not treat it as published.'
             : null;
         throw new Error(safeFailure || result?.error || (result?.status === 'not-approved'
           ? 'This pairing no longer has a current preflight approval.'
@@ -912,6 +914,7 @@ export const ActorPreflightLab: React.FC = () => {
                <button type="button" className={styles.buttonPrimary} disabled={Boolean(busy)||(!builtInPreviewCopy&&editorialCopy.trim().length<40)} onClick={()=>void publishPublicPreflightPreview()}>{busy==='public-preview'?'Publishing preview…':'Publish public three-card preview'}</button>
                <button type="button" className={styles.buttonSecondary} disabled={Boolean(busy)} onClick={()=>void checkPublicPreflightPreview()}>{busy==='check-preview'?'Checking live preview…':'Check live preview'}</button>
              </div>
+              {!builtInPreviewCopy&&editorialCopy.trim().length<40&&<p role="status">Publication is disabled until you enter at least 40 characters of editorial copy above. This does not mean the approval is missing.</p>}
              {previewStatus&&<div className={styles.previewPublishStatus} role="status" aria-live="polite">{previewStatus}</div>}
            </section>}
         </section></>}</main>

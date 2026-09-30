@@ -212,6 +212,20 @@ test("unapproved or malformed board cannot cause materialization", async () => {
   assert.equal(state.writeOptions.length, 0);
 });
 
+test("a conflicting stored preview is not mislabeled as missing approval or overwritten", async () => {
+  const state = setup();
+  state.data.set(preflightPreviewKey(actor.id, 0, approval.runId), { cards: [] });
+  let attempts = 0;
+  await assert.rejects(publishPreflightPreview({
+    ...state, actor, vibeIdx: 0,
+    eligibilityReader: async () => approval,
+    imageFetcher: async () => { attempts += 1; },
+  }), error => error.status === 409 && error.reasonCode === "preview_receipt_conflict");
+  assert.equal(attempts, 0);
+  assert.equal(state.writeOptions.length, 0);
+  assert.deepEqual(state.data.get(preflightPreviewKey(actor.id, 0, approval.runId)), { cards: [] });
+});
+
 test("publishing requires substantive built-in copy or an explicit safe editorial copy", async () => {
   const state = setup();
   const noCopyActor = {
@@ -219,13 +233,13 @@ test("publishing requires substantive built-in copy or an explicit safe editoria
     vibes: [{ label_en: "No copy", emoji: "✨" }],
   };
   let attempts = 0;
-  assert.equal(await publishPreflightPreview({
+  await assert.rejects(publishPreflightPreview({
     ...state,
     actor: noCopyActor,
     vibeIdx: 0,
     eligibilityReader: async () => approval,
     imageFetcher: async () => { attempts += 1; },
-  }), null);
+  }), error => error.status === 422 && error.reasonCode === "editorial_copy_required");
   assert.equal(attempts, 0);
 
   const copy = "This explicit editorial note describes the intended mood, lighting, and visual continuity without relying on external article context.";
