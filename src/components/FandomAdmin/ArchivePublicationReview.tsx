@@ -167,7 +167,10 @@ export function ArchivePublicationReview() {
           }}>
             <label htmlFor="archive-review-date">Review a specific date</label>
             <div>
-              <input id="archive-review-date" type="date" required value={dateInput} onChange={event => setDateInput(event.target.value)} />
+              <input id="archive-review-date" type="date" required value={dateInput} onChange={event => {
+                setDateInput(event.target.value);
+                if (event.target.value) selectDate(event.target.value);
+              }} />
               <button type="submit" className={styles.quietButton}>Open</button>
             </div>
           </form>
@@ -215,7 +218,7 @@ export function ArchivePublicationReview() {
               <section className={styles.mediaSection} aria-labelledby="archive-review-media-title">
                 <div className={styles.sectionHeading}>
                    <div><h5 id="archive-review-media-title">Nine media positions</h5><p>Original titles and thumbnails in archive order. The media check downloads each full-size delivery and verifies its saved checksum.</p></div>
-                  <button type="button" className={styles.checkButton} onClick={() => void runMediaCheck()} disabled={checking || sortedCards.length !== 9}>{checking ? 'Checking media…' : 'Run media check'}</button>
+                   <button type="button" className={styles.checkButton} onClick={() => void runMediaCheck()} disabled={checking || sortedCards.length !== 9}>{checking ? `Checking ${review.date}…` : `Run media check for ${review.date}`}</button>
                 </div>
                  <div className={`${styles.mediaSummary} ${review.mediaChecks ? (allVerified ? styles.mediaSuccess : styles.mediaFailure) : ''}`} role="status" aria-live="polite">
                    <strong>{review.mediaChecks

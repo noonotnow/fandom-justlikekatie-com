@@ -7,7 +7,7 @@ import { gridManifestKey } from "./publication-manifest.js";
 const date = "2026-08-28";
 const bytes = Buffer.from("fixed delivery bytes");
 const checksum = createHash("sha256").update(bytes).digest("hex");
-const delivery = `https://media.justlikekatie.com/images/sha256/${checksum}.jpg`;
+const delivery = `https://images.xhs.justlikekatie.com/images/sha256/${checksum.slice(0, 2)}/${checksum.slice(2, 4)}/${checksum}.jpg`;
 
 function manifest() {
   const sourceCandidateIds = Array.from({ length: 9 }, (_, i) => `candidate-${i}`);
@@ -90,4 +90,25 @@ test("untrusted host, redirects, damaged bytes and oversized responses fail clos
     }),
   });
   assert.ok(damaged.mediaChecks.every(check => check.status === "checksum_mismatch"));
+});
+
+test("both trusted MEDIA URL layouts work, but incorrect shard and hash paths never fetch", async () => {
+  const copy = manifest();
+  copy.cards[0].media.deliveryUrl =
+    `https://media.justlikekatie.com/images/sha256/${checksum}.jpg`;
+  copy.cards[1].media.deliveryUrl =
+    `https://images.xhs.justlikekatie.com/images/sha256/00/00/${checksum}.jpg`;
+  copy.cards[2].media.deliveryUrl =
+    `https://images.xhs.justlikekatie.com/images/sha256/${checksum.slice(0, 2)}/${checksum.slice(2, 4)}/${"f".repeat(64)}.jpg`;
+  const fetched = [];
+  const review = await reviewArchivedPublication(store(copy), date, {
+    checkMedia: true,
+    fetchImpl: async url => {
+      fetched.push(url);
+      return new Response(bytes, { headers: { "content-type": "image/jpeg" } });
+    },
+  });
+  assert.deepEqual(review.mediaChecks.slice(0, 3).map(check => check.status),
+    ["verified", "untrusted_delivery", "untrusted_delivery"]);
+  assert.equal(fetched.length, 7);
 });
