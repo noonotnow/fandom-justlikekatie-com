@@ -124,6 +124,39 @@ test("admin publish action calls authenticateAdmin and forwards explicit editori
   assert.equal(JSON.parse(response.body).preview.cards.length, 3);
 });
 
+test("publish action distinguishes missing approval, missing copy and conflicting storage", async () => {
+  const request = {
+    method: "POST",
+    url: "https://example.test/.netlify/functions/publish-preflight-preview",
+    headers: new Headers({ origin: "https://example.test" }),
+    json: async () => ({ actorId: "actor-one", vibeIdx: 0 }),
+  };
+  for (const [reasonCode, status, publishPreview] of [
+    ["approval_not_current", 409, async () => null],
+    ["editorial_copy_required", 422, async () => {
+      throw Object.assign(new Error("Enter safe editorial copy before publication."), {
+        status: 422, reasonCode: "editorial_copy_required",
+      });
+    }],
+    ["preview_receipt_conflict", 409, async () => {
+      throw Object.assign(new Error("The stored preview conflicts with the approved board."), {
+        status: 409, reasonCode: "preview_receipt_conflict",
+      });
+    }],
+  ]) {
+    const handler = createPublishPreflightPreviewHandler({
+      actorPacks, getStore: name => ({ name }),
+      auth: { authenticateAdmin: async () => {} }, publishPreview,
+    });
+    const response = await handler(request, {});
+    assert.equal(response.statusCode, status);
+    const body = JSON.parse(response.body);
+    assert.equal(body.reasonCode, reasonCode);
+    assert.equal(typeof body.error, "string");
+    assert.equal(body.status === "not-approved", reasonCode === "approval_not_current");
+  }
+});
+
 test("admin publication reports a bounded failure stage without exposing upstream errors", async () => {
   const handler = createPublishPreflightPreviewHandler({
     actorPacks,

@@ -46,6 +46,13 @@ async function publicationStage(reasonCode, operation) {
   }
 }
 
+function blockedPublication(reasonCode, message, status = 409) {
+  const error = new Error(message);
+  error.status = status;
+  error.reasonCode = reasonCode;
+  return error;
+}
+
 function safeEditorialCopy(vibe, explicitCopy = "") {
   const candidates = [explicitCopy, vibe?.supportingCopy_en, vibe?.supportingCopy, vibe?.subtitle_en, vibe?.subtitle];
   return candidates.map(value => typeof value === "string" ? value.trim() : "")
@@ -229,12 +236,13 @@ export async function publishPreflightPreview({
   const existing = await publicationStage("receipt_storage_unavailable",
     () => store.get(receiptKey, { type: "json", consistency: "strong" }));
   if (existing) {
-    return validReceipt(existing, actor.id, vibeIdx, approval.runId, boardHash)
-      ? existing
-      : null;
+    if (validReceipt(existing, actor.id, vibeIdx, approval.runId, boardHash)) return existing;
+    throw blockedPublication("preview_receipt_conflict",
+      "A stored preview does not match the current approved board. It was not overwritten. Ask an operator to review the preview receipt.");
   }
   const copy = safeEditorialCopy(vibe, editorialCopy);
-  if (!copy) return null;
+  if (!copy) throw blockedPublication("editorial_copy_required",
+    "This approved pairing needs editorial copy: enter 40–1000 characters without links or HTML, then retry publication.", 422);
 
   const id = associationId(actor.id, vibeIdx, approval.runId);
   // Each card has a distinct MEDIA association and idempotency key. Copying
@@ -301,14 +309,19 @@ export async function publishPreflightPreview({
     cards,
     publishedAt: now(),
   };
-  if (!validReceipt(receipt, actor.id, vibeIdx, approval.runId, boardHash)) return null;
+  if (!validReceipt(receipt, actor.id, vibeIdx, approval.runId, boardHash)) {
+    throw blockedPublication("preview_receipt_invalid",
+      "The preview media receipt could not be verified. The preview was not published.", 503);
+  }
   await publicationStage("receipt_storage_unavailable",
     () => store.setJSON(receiptKey, receipt, { onlyIfNew: true }));
   const authoritative = await publicationStage("receipt_storage_unavailable",
     () => store.get(receiptKey, { type: "json", consistency: "strong" }));
-  return validReceipt(authoritative, actor.id, vibeIdx, approval.runId, boardHash)
-    ? authoritative
-    : null;
+  if (!validReceipt(authoritative, actor.id, vibeIdx, approval.runId, boardHash)) {
+    throw blockedPublication("preview_receipt_invalid",
+      "The stored preview receipt could not be verified. Do not treat the preview as published.", 503);
+  }
+  return authoritative;
 }
 
 export async function resolvePublicPreflightPreview({

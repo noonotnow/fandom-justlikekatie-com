@@ -81,7 +81,11 @@ export function createPublishPreflightPreviewHandler({
         vibeIdx,
         editorialCopy: input.editorialCopy || "",
       });
-      if (!receipt) return json(409, { status: "not-approved" });
+      if (!receipt) return json(409, {
+        status: "not-approved",
+        reasonCode: "approval_not_current",
+        error: "No current release-ready approval was found for this exact board. Review the current audit, calibration changes, and editorial verdict before retrying. The preview was not published.",
+      });
       try {
         await recordPreflightPreviewAttempt(healthStore, actorId, vibeIdx);
       } catch (error) {
@@ -109,6 +113,8 @@ export function createPublishPreflightPreviewHandler({
           ? { reasonCode: error.reasonCode, cardPosition: error.cardPosition }
           : status >= 500 && ["approval_read_unavailable", "receipt_storage_unavailable"].includes(error?.reasonCode)
             ? { reasonCode: error.reasonCode }
+            : ["editorial_copy_required", "preview_receipt_conflict", "preview_receipt_invalid"].includes(error?.reasonCode)
+              ? { reasonCode: error.reasonCode }
             : {}),
       });
     }
