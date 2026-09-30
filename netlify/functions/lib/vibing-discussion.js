@@ -29,9 +29,7 @@ export const ACTIVE_DISCUSSIONS = Object.freeze({
   }),
 });
 const WINDOW = 15 * 60 * 1000;
-const RATE_SCAN_LIMIT = 200;
 const MAX_RECORDS = 2000;
-const CAPACITY_WARNING_AT = 1600;
 const DAY = 24 * 60 * 60 * 1000;
 const RETENTION = Object.freeze({ pending: 90 * DAY, rejected: 90 * DAY, hidden: 180 * DAY });
 
@@ -95,23 +93,6 @@ function retentionSummary(entries, timestamp) {
   return { total: entries.length, eligible };
 }
 
-export function capacitySummary(entries) {
-  const approved = entries.filter(entry => entry.status === "approved").length;
-  return {
-    total: entries.length,
-    approved,
-    limit: MAX_RECORDS,
-    warningAt: CAPACITY_WARNING_AT,
-  };
-}
-
-// Scheduled checks use the same validated, strong archive read as moderation.
-export async function readDiscussionCapacity(store, id) {
-  discussion(id);
-  const { entries } = await archive(store, id);
-  return capacitySummary(entries);
-}
-
 async function rate(store, identity, now, max) {
   const bucket = Math.floor(now.getTime() / WINDOW);
   const key = `rate/${createHash("sha256").update(identity).digest("hex")}/${bucket}`;
@@ -127,42 +108,6 @@ async function rate(store, identity, now, max) {
     if (result?.modified !== false) return;
   }
   throw problem(429, "Too many requests. Please try again later.");
-}
-
-// Sweep one hash shard per hourly run. Each invocation scans at most one listing
-// page and RATE_SCAN_LIMIT keys; deleted keys make room for the next pass. A
-// bucket key is never written again after its window closes, so deleting a
-// verified, elapsed bucket cannot reset a live counter.
-export async function pruneExpiredDiscussionRates(store, current = new Date(), shard = Math.floor(current.getTime() / (60 * 60 * 1000)) % 16) {
-  if (!Number.isFinite(current.getTime()) || !Number.isInteger(shard) || shard < 0 || shard > 15) {
-    throw new Error("Invalid discussion rate cleanup window.");
-  }
-  const prefix = `rate/${shard.toString(16)}`;
-  const listing = store.list({ prefix, paginate: true });
-  const pages = listing && typeof listing[Symbol.asyncIterator] === "function"
-    ? listing : (async function* () { yield await listing; })();
-  let scanned = 0;
-  let deleted = 0;
-  for await (const page of pages) {
-    for (const { key } of page.blobs || []) {
-      if (scanned++ >= RATE_SCAN_LIMIT) return { scanned: RATE_SCAN_LIMIT, deleted };
-      const match = /^rate\/([0-9a-f]{64})\/(0|[1-9]\d*)$/.exec(key);
-      if (!match || match[1][0] !== shard.toString(16)) continue;
-      const bucket = Number(match[2]);
-      const end = (bucket + 1) * WINDOW;
-      if (!Number.isSafeInteger(bucket) || !Number.isSafeInteger(end) || end > current.getTime()) continue;
-      // A listing may be stale; an exact strong read is required. Unparseable
-      // or inconsistent records remain untouched for investigation.
-      const entry = await store.get(key, { type: "json", consistency: "strong" });
-      if (!entry || entry.expiresAt !== new Date(end).toISOString()
-        || !Number.isSafeInteger(entry.count) || entry.count < 0) continue;
-      await store.delete(key);
-      deleted++;
-    }
-    // This invocation is limited to a single listing page, regardless of store size.
-    break;
-  }
-  return { scanned, deleted };
 }
 
 async function limit(store, actor, req, now, kind) {
@@ -198,7 +143,7 @@ export function createVibingDiscussionHandler({ auth, getStore, now = () => new 
         if (params.get("view") === "moderation") {
           await auth.authenticateAdmin(req, context);
           const { entries } = await archive(store, thread.id);
-          return json(200, { discussion: thread, entries, capacity: capacitySummary(entries) });
+          return json(200, { discussion: thread, entries });
         }
         if (params.get("view") === "retention") {
           await auth.authenticateAdmin(req, context);
@@ -254,7 +199,7 @@ export function createVibingDiscussionHandler({ auth, getStore, now = () => new 
         return json(202, { message: "If eligible, your request has been received." }, headers);
       }
       if (input.safeThroughEpisode !== thread.safeThroughEpisode) {
-         throw problem(400, `This discussion is through Episode ${thread.safeThroughEpisode} only.`);
+        throw problem(400, `This discussion is through Episode ${thread.safeThroughEpisode} only.`);
       }
       if (input.action === "submit") {
         const text = typeof input.text === "string" ? input.text.trim() : "";
@@ -263,9 +208,6 @@ export function createVibingDiscussionHandler({ auth, getStore, now = () => new 
           || input.acceptBoundary !== true) throw problem(400, "Write 10–800 characters and confirm the spoiler boundary.");
         await limit(store, actor, req, now(), "submit");
         await mutate(store, thread.id, entries => {
-          if (entries.filter(entry => entry.status === "approved").length >= MAX_RECORDS) {
-            throw problem(503, "This discussion is full of approved replies. New responses are paused until archive capacity is expanded.");
-          }
           if (entries.length >= MAX_RECORDS) throw problem(429, "This discussion is full.");
           return [...entries, {
             id: randomId(), text, status: "pending",
