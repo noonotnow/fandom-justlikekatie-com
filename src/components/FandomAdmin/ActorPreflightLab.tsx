@@ -1,4 +1,5 @@
 import { useEffect, useMemo, useRef, useState } from 'react';
+import { fetchPublicPreviewState } from './preflightPreviewStatus';
 import { PUBLIC_ROUTE_PATHS } from '../../../shared/public-routes.js';
 import {
   createMisprint,
@@ -179,6 +180,7 @@ export const ActorPreflightLab: React.FC = () => {
   const [backfillDate,setBackfillDate] = useState('');
   const [editorialCopy,setEditorialCopy] = useState('');
   const [previewStatus,setPreviewStatus] = useState('');
+  const previewSelectionToken=useRef(0);
   const [auditTo,setAuditTo] = useState(()=>new Date().toISOString().slice(0,10));
   const [auditFrom,setAuditFrom] = useState(()=>new Date(Date.now()-89*86_400_000).toISOString().slice(0,10));
   const [disagreementReasons,setDisagreementReasons] = useState<string[]>([]); const [editorialNote,setEditorialNote] = useState('');
@@ -189,7 +191,11 @@ export const ActorPreflightLab: React.FC = () => {
   }
   useEffect(() => { let live=true; setLoading(true); api(undefined,{view:'actors'}).then(result => { if(live) { const next = result.actors ?? []; setActors(next); const requestedActor=next.find((item:Actor)=>item.actorId===handoff.actorId); const selectedActor=requestedActor??next[0]; if(selectedActor) { setActorId(selectedActor.actorId); setVibeKey(selectedActor.pairings?.some((item:AnyRecord)=>item.vibeKey===handoff.vibeKey)?handoff.vibeKey:selectedActor.pairings?.[0]?.vibeKey??''); } if(handoff.actorId&&!requestedActor)setNotice(`Actor ${handoff.actorId} from the retirement warning is no longer available.`); else setNotice(''); } }).catch(e=>live&&setNotice(e.message)).finally(()=>live&&setLoading(false)); return()=>{live=false}; },[handoff.actorId,handoff.vibeKey,reloadActors]);
   const actor = useMemo(()=>actors.find(item=>item.actorId===actorId),[actors,actorId]); const pairing = actor?.pairings?.find(item=>item.vibeKey===vibeKey);
-  useEffect(()=>setPreviewStatus(''),[actorId,vibeKey]);
+  useEffect(()=>{
+    previewSelectionToken.current += 1;
+    setPreviewStatus('');
+    setBusy(current=>current==='public-preview'||current==='check-preview'?'':current);
+  },[actorId,vibeKey]);
   const packVibe: AnyRecord | undefined = ACTOR_PACKS.find((item: AnyRecord)=>item.id===actorId)?.vibes?.[Number(pairing?.vibeIdx)];
   const builtInPreviewCopy = [packVibe?.supportingCopy_en, packVibe?.supportingCopy, packVibe?.subtitle_en, packVibe?.subtitle]
     .find(value => typeof value === 'string' && value.trim().length >= 40
@@ -311,29 +317,14 @@ export const ActorPreflightLab: React.FC = () => {
   async function saveDisagreement(event:React.FormEvent) { event.preventDefault(); if(!currentRun?.runId||run?.runId!==currentRun.runId)return; setBusy('reasons'); setNotice(''); try { const result=await api({action:'blind_reasons',actorId,vibeKey,runId:currentRun.runId,reasonCodes:disagreementReasons,note:editorialNote}); applyRefresh(result); setRun(result.currentRun ?? null); setCurrentRun(result.currentRun ?? null); setPriorRuns(result.priorRuns ?? []); setDisagreementReasons(result.currentRun?.blindReview?.reasonCodes ?? disagreementReasons); setEditorialNote(result.currentRun?.blindReview?.note ?? editorialNote); setNotice('Editorial calibration notes saved.'); } catch(e:any){setNotice(e.message)} finally{setBusy('')} }
   async function saveVerdict(event:React.FormEvent) { event.preventDefault(); if(!currentRun?.runId||run?.runId!==currentRun.runId||!verdict)return; setBusy('verdict'); setNotice(''); try { const approved=verdict==='approved'; const operatorBoardRequired=currentRun.blindReview?.status==='unavailable'; const useRescueBoard=approved&&(operatorBoardRequired||rescuePreferred); const result=await api({action:'verdict',actorId,vibeKey,runId:currentRun.runId,verdict,notes,vibeConfirmed:approved&&vibeConfirmed,publishableConfirmed:approved&&publishableConfirmed,rescuePreferred:useRescueBoard,rescueReceiptId:useRescueBoard?preferredRescueReceiptId:undefined}); applyRefresh(result); const next=result.currentRun ?? currentRun; const preference=next?.operatorVerdict?.rescuePreference; const publicationSource=next?.operatorVerdict?.publicationSource; setRun(next); setCurrentRun(next); setVerdict(result.verdict ?? verdict); setNotes(result.notes ?? notes); setRescuePreferred(preference?.preferred === true); setPreferredRescueReceiptId(preference?.rescueReceiptId ?? ''); setNotice(approved?(publicationSource?.type==='operator_rescue'?'Exact nine-card retained-evidence board approved for publication with both human confirmations.':preference?.preferred?'Curator result approved as publishable. Your separate rescue preference was recorded.':'Curator result approved as publishable with both human confirmations.'):'Verdict saved to the curation ledger.'); } catch(e:any){setNotice(e.message)} finally{setBusy('')} }
   async function publishBackfill(event:React.FormEvent) { event.preventDefault(); if(!currentRun?.runId||run?.runId!==currentRun.runId||!backfillDate)return; setBusy('backfill'); setNotice(''); try { const receiptId=run?.operatorVerdict?.publicationSource?.type==='operator_rescue'?run.operatorVerdict.publicationSource.rescueReceiptId:preferredRescueReceiptId; const result=await api({action:'publish_backfill',actorId,vibeKey,runId:currentRun.runId,rescueReceiptId:receiptId,date:backfillDate}); setNotice(result.backfill?.status==='already_published'?`The ${backfillDate} edition was already published with this exact board.`:`The approved board is now published as the ${backfillDate} Daily Drop edition.`); } catch(e:any){setNotice(e.message)} finally{setBusy('')} }
-  async function publicPreviewState(id:string, idx:number):Promise<'live'|'unpublished'|'unavailable'> {
-    try {
-      const query = new URLSearchParams({ actorId: id, vibeIdx: String(idx) });
-      const response = await fetch(`/.netlify/functions/public-preflight-preview?${query}`, {
-        credentials: 'same-origin',
-        cache: 'no-store',
-      });
-      if (response.status === 404) return 'unpublished';
-      if (!response.ok) return 'unavailable';
-      const preview = await response.json();
-      return preview?.kind === 'vibe-atlas-preflight-three-card-preview'
-        && preview.vibeIdx === idx && Array.isArray(preview.cards) && preview.cards.length === 3
-        ? 'live' : 'unavailable';
-    } catch {
-      return 'unavailable';
-    }
-  }
   async function checkPublicPreflightPreview() {
     const idx = pairing?.vibeIdx;
     if (!actorId || typeof idx !== 'number' || !Number.isInteger(idx)) return;
+    const selection = previewSelectionToken.current;
     setBusy('check-preview');
     setPreviewStatus('Checking the live public preview…');
-    const state = await publicPreviewState(actorId, idx);
+    const state = await fetchPublicPreviewState(actorId, idx);
+    if (selection !== previewSelectionToken.current) return;
     setPreviewStatus(state === 'live' ? 'Live public preview confirmed: exactly three cards.'
       : state === 'unpublished' ? 'No public three-card preview is live for this pairing.'
         : 'The public preview could not be verified right now. No publication was attempted.');
@@ -344,6 +335,7 @@ export const ActorPreflightLab: React.FC = () => {
     const approvedVerdict = pairing?.verdict === 'approved' || pairing?.verdict === 'approved_override';
     if (!actorId || !Number.isInteger(pairing?.vibeIdx) || !approvedVerdict || pairing?.eligible !== true
       || (!builtInPreviewCopy && customCopy.length < 40)) return;
+    const selection = previewSelectionToken.current;
     setBusy('public-preview');
     setNotice('');
     setPreviewStatus('Publishing the approved three-card preview…');
@@ -360,6 +352,7 @@ export const ActorPreflightLab: React.FC = () => {
         }),
       });
       const result = await response.json().catch(() => null);
+      if (selection !== previewSelectionToken.current) return;
       if (!response.ok) {
         const failedCard = Number.isInteger(result?.cardPosition) && result.cardPosition >= 1 && result.cardPosition <= 3
           ? `card ${result.cardPosition}` : 'a preview card';
@@ -384,7 +377,8 @@ export const ActorPreflightLab: React.FC = () => {
         || !result.preview.vibe.copy.trim()) {
         throw new Error('The publish endpoint returned an invalid preview receipt.');
       }
-      const state = await publicPreviewState(actorId, pairing.vibeIdx);
+      const state = await fetchPublicPreviewState(actorId, pairing.vibeIdx);
+      if (selection !== previewSelectionToken.current) return;
       const confirmation = state === 'live'
         ? `Live public preview confirmed: three cards for ${actor?.canonicalName || actorId} · ${text(pairing.labels)}.`
         : state === 'unpublished'
@@ -393,11 +387,12 @@ export const ActorPreflightLab: React.FC = () => {
       setPreviewStatus(confirmation);
       setNotice(confirmation);
     } catch (error) {
+      if (selection !== previewSelectionToken.current) return;
       const message = error instanceof Error ? error.message : 'The public preflight preview could not be published.';
       setPreviewStatus(message);
       setNotice(message);
     } finally {
-      setBusy('');
+      if (selection === previewSelectionToken.current) setBusy('');
     }
   }
   async function saveCandidateFlag(candidateId:string,flagged:boolean,intent='pin',reasons:string[]=[] ) { if(!currentRun?.runId||run?.runId!==currentRun.runId)return; setBusy(`flag:${candidateId}`); setNotice(''); try { const result=await api({action:'flag_candidate',actorId,vibeKey,runId:currentRun.runId,candidateId,flagged,intent,reasons}); applyRefresh(result); const next=result.currentRun ?? currentRun; setRun(next); setCurrentRun(next); setPriorRuns(result.priorRuns ?? priorRuns); setNotice(flagged?'Image-level editorial intent saved. Safety gates still apply.':'Image annotation removed from the requested grid review.'); } catch(e:any){setNotice(e.message)} finally{setBusy('')} }
