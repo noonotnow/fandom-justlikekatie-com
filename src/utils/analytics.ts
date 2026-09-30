@@ -232,6 +232,10 @@ export function trackHomepageGuideMenuLinkSelected(destination: HomepageGuideMen
   trackEvent('homepage_guide_menu_link_selected', { destination });
 }
 
+export function trackAgainstTheCurrentEntryClicked(): void {
+  trackEvent('against_the_current_entry_clicked', { placement: 'homepage_feature' });
+}
+
 export function trackReleasedLibraryOpened(
   source: ReleasedLibrarySource,
   entitled: boolean,

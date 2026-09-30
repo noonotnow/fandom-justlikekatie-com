@@ -120,12 +120,14 @@
   }
 
   const track = (name, data) => {
-    if (typeof window.gtag === "function") {
-      window.gtag("event", name, data);
-      return;
-    }
-    if (Array.isArray(window.dataLayer)) {
-      window.dataLayer.push(["event", name, data]);
+    try {
+      if (typeof window.gtag === "function") {
+        window.gtag("event", name, data);
+      } else if (Array.isArray(window.dataLayer)) {
+        window.dataLayer.push(["event", name, data]);
+      }
+    } catch {
+      // Reporting is optional; it must not interrupt a reader's navigation.
     }
   };
 
@@ -138,6 +140,25 @@
   const baseData = { source_page: sourcePage, content_mode: contentMode };
 
   track("editorial_article_viewed", baseData);
+
+  if (sourcePage === "c-drama-fandom-hub") {
+    document.querySelectorAll('[data-series-entry="guide_feature"]').forEach((link) => {
+      link.addEventListener("click", () => {
+        track("against_the_current_entry_clicked", { placement: "guide_feature" });
+      });
+    });
+  }
+  if (sourcePage === "vibing-now-index") {
+    const installments = new Set(["episode_21", "episodes_22_25", "episodes_26_30"]);
+    document.querySelectorAll("[data-series-installment]").forEach((link) => {
+      link.addEventListener("click", () => {
+        const installment = link.dataset.seriesInstallment;
+        if (installments.has(installment)) {
+          track("against_the_current_installment_selected", { installment });
+        }
+      });
+    });
+  }
 
   const reachedDepths = new Set();
   const recordDepth = () => {
