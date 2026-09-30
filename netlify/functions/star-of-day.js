@@ -1,4 +1,5 @@
 import { getBlobStore } from "./lib/blob-store.js";
+import { reviewArchivedPublication } from "./lib/archive-publication-review.js";
 import { ACTOR_PACKS as actorPacks } from "./lib/actor-packs.js";
 import { searchOneQuery } from "./preview-search.js";
 import { evaluateCandidates, rankCandidates, RANKED_BATCH_LIMIT } from "./lib/ranking.js";
@@ -1072,6 +1073,28 @@ export function createStarOfDayHandler({
         nextCursor: page.hasMore ? page.editions.at(-1)?.date : null,
         publicationCatalog: await diagnosePublicationManifestCatalog(store),
       }, { "Cache-Control": "private, no-store", Vary: "Cookie" });
+    }
+
+    if (url.searchParams.get("archivePublicationReview") === "1") {
+      try {
+        await auth.authenticateAdmin(req, context);
+      } catch (error) {
+        return jsonResponse(error?.status === 403 ? 403 : 401, {
+          error: error?.message || "Admin access is required.",
+        }, { "Cache-Control": "private, no-store" });
+      }
+      const date = url.searchParams.get("date");
+      if (!date || !isUsableDate(date) || date > todayStr) {
+        return jsonResponse(400, { error: "Invalid archive date." }, {
+          "Cache-Control": "private, no-store", Vary: "Cookie",
+        });
+      }
+      const review = await reviewArchivedPublication(store, date, {
+        checkMedia: url.searchParams.get("checkMedia") === "1",
+      });
+      return jsonResponse(200, { review }, {
+        "Cache-Control": "private, no-store", Vary: "Cookie",
+      });
     }
 
     if (url.searchParams.get("publicationCatalogRepair") === "1") {

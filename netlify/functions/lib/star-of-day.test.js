@@ -1249,6 +1249,30 @@ test("archive publication audit is admin-only and reports bounded evidence statu
   assert.equal(result.headers.get("cache-control"), "private, no-store");
 });
 
+test("private archive review requires admin access and never publishes thin copy", async () => {
+  const date = "2026-08-28";
+  const candidate = publicationManifest(date);
+  candidate.vibe.supportingCopyEn = "Too short";
+  const store = makeStore({ [gridManifestKey(date)]: candidate });
+  const url = `https://example.test/star-of-day?archivePublicationReview=1&date=${date}`;
+  const denied = await createStarOfDayHandler({
+    getStore: () => store, today: () => "2026-09-20",
+    auth: { authenticateAdmin: async () => { throw Object.assign(new Error("Unauthorized"), { status: 401 }); } },
+  })({ method: "GET", url }, {});
+  assert.equal(denied.status, 401);
+  const response = await createStarOfDayHandler({
+    getStore: () => store, today: () => "2026-09-20",
+    auth: { authenticateAdmin: async () => ({ user: { accountId: "editor" } }) },
+  })({ method: "GET", url }, {});
+  assert.equal(response.status, 200);
+  assert.equal(response.headers.get("cache-control"), "private, no-store");
+  const { review } = await response.json();
+  assert.equal(review.status, "not_indexable");
+  assert.equal(review.cards.length, 9);
+  assert.equal(JSON.stringify(review).includes("sourceUrl"), false);
+  assert.equal(store.stats().setCalls, 0);
+});
+
 test("archive does not advertise a public record for a missing or non-indexable manifest", async () => {
   const validDate = "2026-08-29";
   const missingDate = "2026-08-28";
