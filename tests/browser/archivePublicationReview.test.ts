@@ -53,17 +53,15 @@ test('private Archive review separates dates and makes nine-image results explic
     await gotoTestPage(page, `${origin}/vibe-atlas/?admin=true&adminView=archive-review`);
     await page.getByRole('heading', { name: 'Publication review' }).waitFor();
     await page.getByLabel('Review a specific date').fill('2026-09-03');
-    await page.getByRole('button', { name: 'Open', exact: true }).click();
     await page.getByText('Media not checked for 2026-09-03').waitFor();
-    await page.getByRole('button', { name: 'Run media check' }).click();
+    await page.getByRole('button', { name: 'Run media check for 2026-09-03' }).click();
     await page.getByText('9 of 9 full-size images verified for 2026-09-03 — all passed').waitFor();
     assert.deepEqual(checkedDates, ['2026-09-03']);
 
     await page.getByLabel('Review a specific date').fill('2026-09-30');
-    await page.getByRole('button', { name: 'Open', exact: true }).click();
     await page.getByText('Media not checked for 2026-09-30').waitFor();
     assert.equal(await page.getByText('9 of 9 full-size images verified for 2026-09-03 — all passed').count(), 0);
-    await page.getByRole('button', { name: 'Run media check' }).click();
+    await page.getByRole('button', { name: 'Run media check for 2026-09-30' }).click();
     await page.getByText('8 of 9 full-size images verified for 2026-09-30 — not cleared for release').waitFor();
     await page.getByText('Positions needing attention: 4: checksum_mismatch.').waitFor();
     assert.deepEqual(checkedDates, ['2026-09-03', '2026-09-30']);

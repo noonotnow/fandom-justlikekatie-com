@@ -2,7 +2,12 @@ import { createHash } from "node:crypto";
 import { gridManifestKey, isGridManifest, isIndexablePublicationManifest } from "./publication-manifest.js";
 
 const MAX_IMAGE_BYTES = 8 * 1024 * 1024;
-const MEDIA_ORIGIN = "https://media.justlikekatie.com";
+// MEDIA registration uses media.justlikekatie.com; its immutable delivery CDN
+// also serves content-addressed images from images.xhs.justlikekatie.com.
+const MEDIA_ORIGINS = new Set([
+  "https://media.justlikekatie.com",
+  "https://images.xhs.justlikekatie.com",
+]);
 const TYPES = new Set(["image/jpeg", "image/png", "image/webp"]);
 
 /**
@@ -54,9 +59,14 @@ async function checkDelivery(card, fetchImpl) {
   let url;
   try {
     url = new URL(media.deliveryUrl);
-    if (url.origin !== MEDIA_ORIGIN || url.username || url.password
-      || url.search || url.hash
-      || !/^\/images\/sha256\/[a-f0-9]{64}\.(?:jpg|jpeg|png|webp)$/i.test(url.pathname)) {
+    const plain = /^\/images\/sha256\/([a-f0-9]{64})\.(?:jpg|jpeg|png|webp)$/i.exec(url.pathname);
+    const sharded = /^\/images\/sha256\/([a-f0-9]{2})\/([a-f0-9]{2})\/([a-f0-9]{64})\.(?:jpg|jpeg|png|webp)$/i.exec(url.pathname);
+    const pathChecksum = plain?.[1] || sharded?.[3];
+    if (!MEDIA_ORIGINS.has(url.origin) || url.username || url.password
+      || url.search || url.hash || !pathChecksum
+      || pathChecksum.toLowerCase() !== media.checksum.toLowerCase()
+      || (sharded && (sharded[1].toLowerCase() !== pathChecksum.slice(0, 2).toLowerCase()
+        || sharded[2].toLowerCase() !== pathChecksum.slice(2, 4).toLowerCase()))) {
       return result("untrusted_delivery");
     }
   } catch {
