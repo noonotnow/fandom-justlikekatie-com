@@ -1,0 +1,104 @@
+.review {
+  --review-ink: #282920;
+  --review-muted: #77786e;
+  --review-line: color-mix(in srgb, currentColor 14%, transparent);
+  --review-paper: color-mix(in srgb, Canvas 97%, #c9a96e 3%);
+  padding: 12px 0 30px;
+}
+
+.reviewHeader {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 24px;
+  padding: 22px 24px;
+  border: 1px solid color-mix(in srgb, #c9a96e 35%, transparent);
+  border-radius: 14px;
+  background: linear-gradient(115deg, color-mix(in srgb, #c9a96e 11%, transparent), var(--review-paper) 58%);
+}
+.reviewHeader h3 { margin: 3px 0 6px; color: #c9a96e; font-size: clamp(23px, 3vw, 31px); letter-spacing: -.025em; }
+.reviewHeader p:not(.kicker) { max-width: 610px; margin: 0; color: var(--review-muted); font-size: 13px; line-height: 1.55; }
+.kicker { display: block; color: #a7823f; font-size: 10px; font-weight: 750; letter-spacing: .12em; text-transform: uppercase; }
+.privacyStamp { display: flex; flex: 0 0 230px; align-items: flex-start; gap: 11px; padding: 12px 14px; border: 1px solid var(--review-line); border-radius: 10px; background: color-mix(in srgb, Canvas 80%, #c9a96e 20%); }
+.privacyStamp strong, .privacyStamp span:not(.stampDot) { display: block; }
+.privacyStamp strong { margin-bottom: 3px; font-size: 12px; }
+.privacyStamp div span { color: var(--review-muted); font-size: 11px; line-height: 1.4; }
+.stampDot { width: 9px; height: 9px; flex: 0 0 9px; margin-top: 3px; border-radius: 50%; background: #739177; }
+
+.reviewLayout { display: grid; grid-template-columns: 235px minmax(0, 1fr); gap: 18px; margin-top: 18px; align-items: start; }
+.auditPane, .detailPane { min-width: 0; border: 1px solid var(--review-line); border-radius: 12px; background: var(--review-paper); }
+.auditPane { padding: 15px 12px 12px; }
+.auditHeading { display: flex; align-items: center; justify-content: space-between; gap: 8px; padding: 1px 3px 12px; border-bottom: 1px solid var(--review-line); }
+.auditHeading h4 { margin: 3px 0 0; font-size: 15px; }
+.quietButton, .moreButton { min-height: 34px; border: 1px solid var(--review-line); border-radius: 7px; padding: 0 10px; background: transparent; color: inherit; font: inherit; font-size: 11px; cursor: pointer; }
+.quietButton:hover, .moreButton:hover { background: color-mix(in srgb, #c9a96e 12%, transparent); }
+.quietButton:disabled, .moreButton:disabled, .checkButton:disabled { cursor: wait; opacity: .6; }
+.dateList { display: grid; gap: 4px; max-height: 560px; overflow: auto; margin: 10px 0; padding: 0; list-style: none; }
+.dateButton { display: grid; width: 100%; gap: 4px; padding: 10px 9px; border: 1px solid transparent; border-radius: 8px; background: transparent; color: inherit; text-align: left; cursor: pointer; }
+.dateButton time { font-size: 12px; font-weight: 650; }
+.dateButton span { overflow: hidden; color: var(--review-muted); font-size: 10px; text-overflow: ellipsis; text-transform: capitalize; white-space: nowrap; }
+.dateButton:hover { background: color-mix(in srgb, #c9a96e 9%, transparent); }
+.dateButton[aria-current="date"] { border-color: color-mix(in srgb, #c9a96e 50%, transparent); background: color-mix(in srgb, #c9a96e 14%, transparent); }
+.dateButton[aria-current="date"] time { color: #947339; }
+.moreButton { width: 100%; }
+.empty { margin: 14px 4px; color: var(--review-muted); font-size: 12px; line-height: 1.5; }
+.auditSkeleton { display: grid; gap: 9px; padding: 15px 4px; }
+.auditSkeleton span, .detailSkeleton span { display: block; height: 39px; border-radius: 7px; background: color-mix(in srgb, currentColor 7%, transparent); animation: reviewPulse 1.4s ease-in-out infinite; }
+.detailSkeleton { display: grid; gap: 14px; padding: 25px; }
+.detailSkeleton span { height: 48px; }
+@keyframes reviewPulse { 50% { opacity: .45; } }
+
+.detailPane { min-height: 410px; padding: 21px; }
+.detailTopline { display: flex; align-items: center; justify-content: space-between; gap: 12px; padding-bottom: 16px; border-bottom: 1px solid var(--review-line); }
+.detailTopline h4 { margin: 3px 0 0; font-size: 22px; }
+.statusBadge { max-width: 45%; padding: 6px 10px; border: 1px solid var(--review-line); border-radius: 999px; color: var(--review-muted); font-size: 10px; text-transform: capitalize; }
+.reviewMeta { display: grid; grid-template-columns: repeat(3, minmax(0, 1fr)); gap: 12px; padding: 15px 0; }
+.reviewMeta div { display: grid; align-content: start; gap: 4px; min-width: 0; }
+.reviewMeta div > span { color: var(--review-muted); font-size: 10px; font-weight: 700; letter-spacing: .07em; text-transform: uppercase; }
+.reviewMeta strong { overflow-wrap: anywhere; font-size: 13px; }
+.reviewMeta small { color: var(--review-muted); font-size: 11px; }
+.copyPanel { padding: 14px 16px; border-left: 3px solid #c9a96e; border-radius: 0 8px 8px 0; background: color-mix(in srgb, #c9a96e 9%, transparent); }
+.copyPanel p { margin: 7px 0 0; font-family: Georgia, 'Times New Roman', serif; font-size: 16px; line-height: 1.55; white-space: pre-wrap; }
+.mediaSection { margin-top: 22px; }
+.sectionHeading { display: flex; align-items: center; justify-content: space-between; gap: 16px; margin-bottom: 12px; }
+.sectionHeading h5 { margin: 0 0 4px; font-size: 15px; }
+.sectionHeading p { margin: 0; color: var(--review-muted); font-size: 11px; line-height: 1.45; }
+.checkButton { min-height: 38px; flex: 0 0 auto; border: 1px solid #ad8b4c; border-radius: 7px; padding: 0 13px; background: #c9a96e; color: #211c13; font: inherit; font-size: 11px; font-weight: 700; cursor: pointer; }
+.checkButton:hover { background: #d4b980; }
+.cardGrid { display: grid; grid-template-columns: repeat(3, minmax(0, 1fr)); gap: 10px; margin: 0; padding: 0; list-style: none; }
+.mediaCard { min-width: 0; overflow: hidden; border: 1px solid var(--review-line); border-radius: 8px; background: color-mix(in srgb, Canvas 85%, currentColor 3%); }
+.thumbnail { position: relative; display: grid; aspect-ratio: 16 / 10; place-items: center; overflow: hidden; background: color-mix(in srgb, #c9a96e 9%, Canvas); color: var(--review-muted); font-size: 10px; }
+.thumbnail img { width: 100%; height: 100%; object-fit: cover; }
+.thumbnail b { position: absolute; top: 6px; left: 6px; padding: 3px 5px; border-radius: 4px; background: color-mix(in srgb, Canvas 86%, transparent); color: var(--review-ink); font-family: ui-monospace, monospace; font-size: 9px; }
+.cardInfo { display: grid; gap: 5px; padding: 9px; }
+.cardInfo strong { display: -webkit-box; overflow: hidden; min-height: 30px; font-size: 11px; line-height: 1.35; overflow-wrap: anywhere; -webkit-box-orient: vertical; -webkit-line-clamp: 2; }
+.cardInfo span { color: var(--review-muted); font-size: 9px; }
+.agentNote { margin-top: 18px; padding: 13px 15px; border: 1px dashed color-mix(in srgb, #a7823f 45%, transparent); border-radius: 9px; background: color-mix(in srgb, #c9a96e 7%, transparent); }
+.agentNote strong { font-size: 12px; }
+.agentNote p { margin: 4px 0 0; color: var(--review-muted); font-size: 11px; line-height: 1.5; }
+.notice, .error { display: flex; align-items: center; justify-content: space-between; gap: 12px; margin: 0 0 12px; padding: 10px 12px; border: 1px solid var(--review-line); border-radius: 8px; font-size: 12px; line-height: 1.45; }
+.notice { background: color-mix(in srgb, #739177 10%, transparent); }
+.error { border-color: color-mix(in srgb, #b6534d 35%, transparent); background: color-mix(in srgb, #b6534d 8%, transparent); }
+.error button { border: 0; background: transparent; color: inherit; font: inherit; font-weight: 700; text-decoration: underline; cursor: pointer; }
+.emptyDetail { display: grid; min-height: 340px; align-content: center; justify-items: center; text-align: center; }
+.emptyMark { display: grid; width: 40px; height: 40px; place-items: center; border: 1px solid var(--review-line); border-radius: 50%; color: #a7823f; font-family: Georgia, serif; font-size: 25px; }
+.emptyDetail h4 { margin: 12px 0 4px; font-size: 16px; }
+.emptyDetail p { margin: 0 0 12px; color: var(--review-muted); font-size: 12px; }
+
+@media (max-width: 760px) {
+  .reviewHeader { align-items: stretch; flex-direction: column; padding: 18px; }
+  .privacyStamp { flex-basis: auto; }
+  .reviewLayout { grid-template-columns: 1fr; }
+  .auditPane { padding: 12px; }
+  .dateList { display: flex; max-height: none; overflow-x: auto; padding-bottom: 3px; }
+  .dateList li { flex: 0 0 150px; }
+  .detailPane { padding: 17px; }
+}
+@media (max-width: 480px) {
+  .reviewMeta { grid-template-columns: 1fr 1fr; }
+  .reviewMeta div:last-child { grid-column: 1 / -1; }
+  .sectionHeading { align-items: stretch; flex-direction: column; }
+  .checkButton { align-self: flex-start; }
+  .cardGrid { grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 8px; }
+  .detailTopline { align-items: start; flex-direction: column; }
+}
