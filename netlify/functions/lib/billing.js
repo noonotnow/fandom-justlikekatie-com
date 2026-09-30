@@ -59,9 +59,18 @@ export function createBillingServices({
     }
   };
   const processWebhook = async (body, signature, context) => {
-    const { webhookSecret } = await getStripeCredentials({ env });
-    const stripe = await stripeClient({ env });
-    let event = stripe.webhooks.constructEvent(body, signature, webhookSecret);
+    const atWebhookStage = async (stage, operation) => {
+      try {
+        return await operation();
+      } catch (error) {
+        if (error && typeof error === "object") error.billingStage ||= stage;
+        throw error;
+      }
+    };
+    const { webhookSecret } = await atWebhookStage("webhook-credentials", () => getStripeCredentials({ env }));
+    const stripe = await atWebhookStage("webhook-client", () => stripeClient({ env }));
+    let event = await atWebhookStage("webhook-signature", () =>
+      stripe.webhooks.constructEvent(body, signature, webhookSecret));
     if (!useBlobBilling) {
       const sync = await initialize(context);
       const repo = repository(context);
@@ -77,11 +86,13 @@ export function createBillingServices({
       return;
     }
     if (event.type.startsWith("customer.subscription.") && event.type !== "customer.subscription.deleted") {
-      const current = await stripe.subscriptions.retrieve(event.data.object.id);
+      const current = await atWebhookStage("webhook-subscription", () =>
+        stripe.subscriptions.retrieve(event.data.object.id));
       event = { ...event, data: { ...event.data, object: current } };
     }
-    const repo = repository(context);
-    const result = await applyBlobBillingEvent({ event, repository: repo, env });
+    const repo = await atWebhookStage("webhook-storage", () => repository(context));
+    const result = await atWebhookStage("webhook-storage", () =>
+      applyBlobBillingEvent({ event, repository: repo, env }));
     if (result?.reason === "stripe_identity_conflict") {
       logger.warn("[billing] membership update rejected", {
         type: result.operation.type,

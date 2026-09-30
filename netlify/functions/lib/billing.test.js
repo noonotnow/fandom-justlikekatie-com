@@ -312,6 +312,60 @@ test("webhook delegates the exact raw body and signature to Stripe sync", async 
   assert.equal(processed.signature, "t=1,v1=signed");
 });
 
+test("webhook failures identify their safe stage without logging event data or secrets", async () => {
+  const body = Buffer.from('{"private":"invoice-and-customer"}');
+  const missingCredentials = createBillingServices({ env: { NETLIFY: "true" } });
+  await assert.rejects(
+    missingCredentials.processWebhook(body, "signature", {}),
+    error => error.billingStage === "webhook-credentials",
+  );
+
+  const env = {
+    NETLIFY: "true",
+    STRIPE_SECRET_KEY: "sk_test_private",
+    STRIPE_WEBHOOK_SECRET: "whsec_private",
+  };
+  const badSignature = createBillingServices({
+    env,
+    stripeClient: async () => ({
+      webhooks: { constructEvent: () => { throw new Error("private signature details"); } },
+    }),
+  });
+  let logged;
+  const originalError = console.error;
+  console.error = (...args) => { logged = args; };
+  try {
+    const handler = createBillingHandlers({ billing: badSignature }).webhook;
+    const response = await handler(request("/api/billing/webhook", {
+      body: body.toString(),
+      headers: { "stripe-signature": "t=1,v1=private" },
+    }), {});
+    assert.equal(response.status, 503);
+  } finally {
+    console.error = originalError;
+  }
+  assert.deepEqual(logged, ["[billing] request failed", {
+    name: "Error", stage: "webhook-signature",
+  }]);
+
+  const storageFailure = createBillingServices({
+    env,
+    stripeClient: async () => ({
+      webhooks: {
+        constructEvent: () => ({
+          id: "evt_private", created: 1790770000, type: "invoice.paid",
+          data: { object: { amount_paid: 900, billing_reason: "subscription_create", lines: { data: [] } } },
+        }),
+      },
+    }),
+    getStore: () => { throw new Error("private storage details"); },
+  });
+  await assert.rejects(
+    storageFailure.processWebhook(body, "signature", {}),
+    error => error.billingStage === "webhook-storage",
+  );
+});
+
 test("grid export enforcement is injected and can reject inactive accounts", async () => {
   const checker = createEntitlementChecker({
     billing: {
