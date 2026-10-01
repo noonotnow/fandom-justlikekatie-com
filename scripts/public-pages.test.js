@@ -774,7 +774,25 @@ test("Against the Current follow-ups keep their reviewed episode boundaries and 
   assert.doesNotMatch(first, /The state does not become just|Episode 26 also widens|music house|slaps him|drugging her/);
   assert.match(second, /Zheng family’s downfall/);
   assert.match(second, /He can move her body\. He cannot manufacture arrival\./);
-  assert.match(second, /It contains no arrival at the former Shen residence, Episode 31 material/);
+});
+
+test("episode boundary notices use the approved event-free copy", () => {
+  for (const { range, boundary } of [
+    { range: "22–25", boundary: 25 },
+    { range: "26–30", boundary: 30 },
+  ]) {
+    const html = read(`public/c-drama-fandom/vibing-now/against-the-current-episodes-${range.replace("–", "-")}/index.html`);
+    const notices = [...html.matchAll(/<p><strong>Spoiler boundary:<\/strong> ([^<]+)<\/p>/g)]
+      .map(([, copy]) => copy);
+    assert.deepEqual(notices, [
+      `This installment stops at the end of Episode ${boundary}. No previews, later episodes, novel material, or endgame information.`,
+      `This installment discusses Episodes ${range} and includes spoilers through the end of Episode ${boundary}. No later episodes, previews, novel material, or endgame information.`,
+    ], `Episodes ${range} must retain the opening notice and approved closing copy`);
+    for (const notice of notices) {
+      assert.doesNotMatch(notice, /wedding|punishment|Shen|bath|arrival/i,
+        "A boundary notice must not reveal events, even by saying they are excluded");
+    }
+  }
 });
 
 test("the soundtrack pilot links only to verified licensed listings and stays separate from viewing data", () => {
