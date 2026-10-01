@@ -1,6 +1,7 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
 import { readFile } from 'node:fs/promises';
+import { shouldFallbackToLegacyArchiveEdition } from '../src/hooks/useStarOfDay';
 
 const appSource = await readFile(new URL('../src/App.tsx', import.meta.url), 'utf8');
 const hookSource = await readFile(new URL('../src/hooks/useStarOfDay.ts', import.meta.url), 'utf8');
@@ -8,12 +9,25 @@ const hookSource = await readFile(new URL('../src/hooks/useStarOfDay.ts', import
 test('daily archive selection reuses the daily payload renderer and keeps today as the default', () => {
   assert.match(hookSource, /useStarOfDay = \(editionDate: string \| null \| undefined = null\)/);
   assert.match(hookSource, /star-of-day\$\{query\}/);
-  assert.match(appSource, /useStarOfDay\(archivePage && !activeEditionDate \? undefined : activeEditionDate\)/);
+  assert.match(hookSource, /public-archive-inventory\?\$\{query\.toString\(\)\}/);
+  assert.match(hookSource, /shouldFallbackToLegacyArchiveEdition\(response\.status, body\)/);
+  assert.match(
+    appSource,
+    /useStarOfDay\(\s*\(archivePage && !activeEditionDate\)\s*\|\|\s*\(view === 'collection' && \(builderSource === 'archive' \|\| builderSource === 'edition'\)\)\s*\?\s*undefined\s*:\s*activeEditionDate,\s*\)/,
+  );
   assert.match(appSource, /isVibeAtlasArchiveLocation/);
   assert.match(appSource, /`\$\{PUBLIC_ROUTE_PATHS\.vibeAtlas\}\?date=\$\{encodeURIComponent\(edition\.date\)\}`/);
   assert.match(appSource, /selectedEditionDate \? `Archived card drop/);
   assert.match(appSource, /initialVibeAtlasEditionDate\(window\.location\.search\)/);
   assert.match(appSource, /params\.set\('date', date\)/);
+});
+
+test('dated edition loading only falls back for an explicit unverified-legacy 404', () => {
+  const legacyFallback = { fallback: 'legacy_unverified_edition' };
+  assert.equal(shouldFallbackToLegacyArchiveEdition(404, legacyFallback), true);
+  assert.equal(shouldFallbackToLegacyArchiveEdition(404, { error: 'not found' }), false);
+  assert.equal(shouldFallbackToLegacyArchiveEdition(503, legacyFallback), false);
+  assert.equal(shouldFallbackToLegacyArchiveEdition(500, legacyFallback), false);
 });
 
 test('every return to today clears per-image edition state', () => {

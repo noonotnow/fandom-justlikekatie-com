@@ -1465,6 +1465,62 @@ test("grid sync preserves artifact identity across devices", async () => {
   assert.equal(second.items[0].artifactId, item.id);
 });
 
+test("grid sync preserves validated per-image public Archive edition provenance", async () => {
+  const store = memoryStore();
+  const archiveSource = {
+    date: "2026-09-19",
+    publicRecord: {
+      actorPath: "/vibe-atlas/actors/archive-actor",
+      editionPath: "/vibe-atlas/editions/2026-09-19/archive-actor",
+    },
+  };
+  const item = {
+    kind: "grid",
+    id: "archive-grid-1",
+    schemaVersion: 1,
+    rendererVersion: "vibe-atlas-v1",
+    images: [{
+      resultId: "archive-image-1",
+      imageUrl: "https://images.example/archive.jpg",
+      archiveSource,
+    }],
+  };
+  const response = await syncCollection(store, "usr_test", {
+    schemaVersion: 1,
+    clientId: "archive-builder",
+    cursor: 0,
+    operations: [{
+      type: "upsert",
+      mutationId: "archive-grid-mutation",
+      localId: "archive-grid-local",
+      item,
+    }],
+  });
+
+  assert.deepEqual(response.items[0].images[0].archiveSource, archiveSource);
+  await assert.rejects(() => syncCollection(store, "usr_test", {
+    schemaVersion: 1,
+    clientId: "archive-builder",
+    cursor: response.cursor,
+    operations: [{
+      type: "upsert",
+      mutationId: "invalid-archive-grid-mutation",
+      localId: "invalid-archive-grid-local",
+      item: {
+        ...item,
+        id: "invalid-archive-grid",
+        images: [{
+          ...item.images[0],
+          archiveSource: {
+            ...archiveSource,
+            publicRecord: { ...archiveSource.publicRecord, editionPath: "/outside/2026-09-19" },
+          },
+        }],
+      },
+    }],
+  }), /Collection grid is invalid/);
+});
+
 test("CREATE collection reads require the dedicated GET-only HMAC scope", async () => {
   const store = memoryStore();
   const env = {

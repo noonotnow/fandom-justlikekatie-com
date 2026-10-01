@@ -1,5 +1,6 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
+import { PUBLIC_ROUTE_PATHS } from '../shared/public-routes.js';
 import {
   hasMalformedGridBuilderSource,
   hasInvalidVibeAtlasEditionDate,
@@ -13,6 +14,10 @@ import {
   isValidVibeAtlasEditionDate,
   resolveFandomProductRoute,
 } from '../src/utils/fandomRoutes.ts';
+
+test('runtime public route paths expose the canonical Vibe Atlas packs prefix', () => {
+  assert.equal(PUBLIC_ROUTE_PATHS.vibeAtlasPacks, '/vibe-atlas/packs');
+});
 
 test('resolves the three Fandom product routes and keeps magic-link verification in Vibe Atlas', () => {
   assert.equal(resolveFandomProductRoute('/'), 'launchpad');
@@ -62,18 +67,21 @@ test('collection links open the requested Vibe Atlas tool', () => {
   assert.equal(initialCollectionType(''), 'grids');
 });
 
-test('grid builder links keep Daily Drop and validated edition inventory separate from My Collection', () => {
+test('grid builder links keep public Archive, Daily Drop, editions, and My Collection separate', () => {
   assert.equal(initialGridBuilderSource('?view=builder&source=daily'), 'daily');
   assert.equal(initialGridBuilderSource('?view=builder&source=edition&date=2026-09-19'), 'edition');
-  assert.equal(initialGridBuilderSource('?view=builder&source=edition&date=2026-02-29'), 'collection');
-  assert.equal(initialGridBuilderSource('?view=builder&source=edition'), 'collection');
-  assert.equal(initialGridBuilderSource('?view=builder'), 'collection');
-  assert.equal(initialGridBuilderSource('?view=builder&source=unknown'), 'collection');
+  assert.equal(initialGridBuilderSource('?view=builder&source=edition&date=2026-02-29'), 'archive');
+  assert.equal(initialGridBuilderSource('?view=builder&source=edition'), 'archive');
+  assert.equal(initialGridBuilderSource('?view=builder'), 'archive');
+  assert.equal(initialGridBuilderSource('?view=builder&source=archive'), 'archive');
+  assert.equal(initialGridBuilderSource('?view=builder&source=unknown'), 'archive');
+  assert.equal(initialGridBuilderSource('?view=builder&source=collection'), 'collection');
   assert.equal(initialGridBuilderSource('?view=collection&source=daily'), 'collection');
   assert.equal(hasMalformedGridBuilderSource('?view=builder&source=unknown'), true);
   assert.equal(hasMalformedGridBuilderSource('?view=builder&source=edition&date=2026-02-29'), true);
   assert.equal(hasMalformedGridBuilderSource('?view=builder&source=edition&date=2026-09-19'), false);
   assert.equal(hasMalformedGridBuilderSource('?view=builder&source=daily'), false);
+  assert.equal(hasMalformedGridBuilderSource('?view=builder&source=archive'), false);
   assert.equal(hasMalformedGridBuilderSource('?view=builder&source=collection'), false);
   assert.equal(hasMalformedGridBuilderSource('?view=builder'), false);
   assert.equal(hasMalformedGridBuilderSource('?view=collection&source=unknown'), false);

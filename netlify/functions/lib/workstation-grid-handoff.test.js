@@ -146,6 +146,7 @@ function sourceFor(savedGrid = grid(), platforms = ["rednote"]) {
         familyId: image.familyId,
         familyLabel: image.familyLabel,
         familyEvidence: image.familyEvidence,
+        ...(image.archiveSource ? { archiveSource: image.archiveSource } : {}),
       })),
   };
 }
@@ -249,7 +250,18 @@ function directHandler({
 }
 
 test("emits the exact direct live_grid contract and replays its durable receipt", async () => {
-  const savedGrid = grid();
+  const savedGrid = grid({
+    images: grid().images.map(image => ({
+      ...image,
+      archiveSource: {
+        date: "2026-08-30",
+        publicRecord: {
+          actorPath: "/vibe-atlas/actors/actor",
+          editionPath: "/vibe-atlas/editions/2026-08-30/actor",
+        },
+      },
+    })),
+  });
   const collection = memoryStore({
     schemaVersion: 1,
     accountId: "account-1",
@@ -318,6 +330,13 @@ test("emits the exact direct live_grid contract and replays its durable receipt"
       familyId: "family-1",
       familyLabel: "Soft light",
       familyEvidence: "batch",
+      archiveSource: {
+        date: "2026-08-30",
+        publicRecord: {
+          actorPath: "/vibe-atlas/actors/actor",
+          editionPath: "/vibe-atlas/editions/2026-08-30/actor",
+        },
+      },
     }),
     media: savedGrid.images[0].media,
   });

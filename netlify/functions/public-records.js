@@ -1,4 +1,5 @@
 import { getBlobStore } from "./lib/blob-store.js";
+import { PUBLIC_ROUTE_PATHS } from "../../shared/public-routes.js";
 import {
   PUBLIC_VIBE_ATLAS_ORIGIN,
   publicActorDirectory,
@@ -60,10 +61,11 @@ function renderEdition(edition, query) {
   const title = `${edition.actor.nameEn || edition.actor.name} · ${edition.vibe.labelEn} | Vibe Atlas`;
   const description = edition.vibe.copy;
   const hero = edition.previews[edition.heroPosition]?.deliveryUrl || edition.previews[0]?.deliveryUrl;
+  const publicEditionUrl = `${PUBLIC_ROUTE_PATHS.vibeAtlas}?date=${encodeURIComponent(edition.date)}`;
   const cards = edition.previews.map(card => (
     `<figure><img src="${escapeHtml(card.thumbnailUrl)}" data-media-delivery-url="${escapeHtml(card.deliveryUrl)}" alt="${escapeHtml(card.title)}" loading="lazy"><figcaption>${escapeHtml(card.title)}</figcaption></figure>`
   )).join("");
-  const body = `<a href="${escapeHtml(edition.actor.path)}">All ${escapeHtml(edition.actor.nameEn || edition.actor.name)} records</a><h1>${escapeHtml(title)}</h1><p>${escapeHtml(edition.vibe.subtitleEn)}</p><p>${escapeHtml(description)}</p><section aria-label="Approved preview grid">${cards}</section>`;
+  const body = `<a href="${escapeHtml(edition.actor.path)}">All ${escapeHtml(edition.actor.nameEn || edition.actor.name)} records</a><h1>${escapeHtml(title)}</h1><p>${escapeHtml(edition.vibe.subtitleEn)}</p><p>${escapeHtml(description)}</p><section aria-label="Approved preview grid">${cards}</section><section aria-label="Open the full public edition"><h2>Browse the full public edition</h2><p>Every published edition is free to browse, build from, and export. Individual-card saves are free for editions no more than three days old; verified saves from older published editions require Collector.</p><a href="${escapeHtml(publicEditionUrl)}">Open all cards and save or build from this edition</a></section>`;
   return response(200, page({
     title, description, canonical: edition.canonical, image: hero,
     robots: noindex ? "noindex,follow" : "index,follow,max-image-preview:large",

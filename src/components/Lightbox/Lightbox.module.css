@@ -94,6 +94,30 @@
   padding: 4px 0;
 }
 
+.saveNotice {
+  display: grid;
+  gap: 4px;
+  max-width: min(320px, calc(100vw - 40px));
+  color: #f3f3f5;
+  font-size: 12px;
+  line-height: 1.4;
+  text-align: center;
+}
+
+.saveNotice a,
+.saveNotice button {
+  align-self: center;
+  border: 0;
+  padding: 0;
+  background: none;
+  color: #f4d38c;
+  font: inherit;
+  text-decoration: underline;
+  cursor: pointer;
+}
+
+.saveNotice button:disabled { opacity: .6; cursor: wait; }
+
 .tierControls {
   display: flex;
   justify-content: center;

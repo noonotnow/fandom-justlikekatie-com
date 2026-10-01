@@ -21,6 +21,39 @@
 .saveButton:active { transform: scale(0.95); }
 .saveButton:disabled { opacity: 0.5; cursor: not-allowed; }
 
+.saveNotice {
+  position: absolute;
+  top: 44px;
+  right: 8px;
+  z-index: 11;
+  display: grid;
+  gap: 6px;
+  width: min(240px, calc(100vw - 40px));
+  padding: 9px 11px;
+  border: 1px solid rgba(201, 169, 110, .45);
+  border-radius: 8px;
+  background: rgba(24, 24, 29, .96);
+  color: #f3f3f5;
+  font-size: 12px;
+  line-height: 1.4;
+  text-align: left;
+  box-shadow: 0 5px 18px rgba(0, 0, 0, .28);
+}
+
+.saveNotice a,
+.saveNotice button {
+  justify-self: start;
+  border: 0;
+  padding: 0;
+  background: none;
+  color: #f4d38c;
+  font: inherit;
+  text-decoration: underline;
+  cursor: pointer;
+}
+
+.saveNotice button:disabled { opacity: .6; cursor: wait; }
+
 .saveButton svg {
   width: 18px;
   height: 18px;

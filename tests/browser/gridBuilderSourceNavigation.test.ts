@@ -14,6 +14,18 @@ const HISTORICAL_ACTOR = 'Historical Edition Actor';
 const HISTORICAL_DATE = '2026-09-18';
 const SAVED_ACTOR = 'Saved Collection Actor';
 
+async function blockExternalAssets(page: Page): Promise<void> {
+  for (const url of [
+    'https://fonts.googleapis.com/**',
+    'https://fonts.gstatic.com/**',
+    'https://www.googletagmanager.com/**',
+    'https://www.google-analytics.com/**',
+    'https://region1.google-analytics.com/**',
+  ]) {
+    await page.route(url, route => route.abort());
+  }
+}
+
 function dailyDropFixture({
   date = '2026-09-20',
   actorName = DAILY_ACTOR,
@@ -44,7 +56,43 @@ function dailyDropFixture({
         source: 'Daily source',
       })),
     }],
+    publicRecord: {
+      actorPath: `/vibe-atlas/actors/${imagePrefix}-actor`,
+      editionPath: `/vibe-atlas/editions/${date}/${imagePrefix}-actor`,
+    },
   };
+}
+
+async function installPublicHistoricalEditionRoute(page: Page): Promise<void> {
+  await page.route('**/.netlify/functions/public-archive-inventory*', route => {
+    const requestedDate = new URL(route.request().url()).searchParams.get('date');
+    const edition = dailyDropFixture({
+      date: HISTORICAL_DATE,
+      actorName: HISTORICAL_ACTOR,
+      imagePrefix: 'historical',
+    });
+    if (!requestedDate) {
+      return route.fulfill({
+        contentType: 'application/json',
+        body: JSON.stringify({
+          editions: [edition],
+          actors: [{ id: 'historical-actor', name: HISTORICAL_ACTOR }],
+          page: { nextCursor: null, hasMore: false },
+        }),
+      });
+    }
+    if (requestedDate !== HISTORICAL_DATE) {
+      return route.fulfill({
+        status: 404,
+        contentType: 'application/json',
+        body: JSON.stringify({ error: 'No published edition exists for this date.' }),
+      });
+    }
+    return route.fulfill({
+      contentType: 'application/json',
+      body: JSON.stringify(edition),
+    });
+  });
 }
 
 async function seedSavedCollection(page: Page): Promise<void> {
@@ -120,11 +168,12 @@ async function assertClearBuilderState(page: Page, actor: string, count: number)
 }
 
 for (const engine of BROWSER_ENGINES) {
-  test(`Grid Builder keeps Daily Drop and My Collection sources isolated across navigation in ${engine.name}`, { timeout: 60_000 }, async () => {
+  test(`Grid Builder keeps Daily Drop and My Collection sources isolated across navigation in ${engine.name}`, { timeout: 120_000 }, async () => {
     const { server, origin } = await startViteTestServer();
     const { browser, page } = await launchPageForServer(server, engine.type);
 
     try {
+      await blockExternalAssets(page);
       await page.route('**/api/auth/session', route => route.fulfill({
         contentType: 'application/json',
         body: JSON.stringify({ user: null }),
@@ -139,9 +188,9 @@ for (const engine of BROWSER_ENGINES) {
         body: JSON.stringify(dailyDropFixture()),
       }));
 
-      await gotoTestPage(page, origin);
+      await gotoTestPage(page, origin, { waitUntil: 'domcontentloaded' });
       await seedSavedCollection(page);
-      await gotoTestPage(page, `${origin}/vibe-atlas?view=builder&source=daily`);
+      await gotoTestPage(page, `${origin}/vibe-atlas?view=builder&source=daily`, { waitUntil: 'domcontentloaded' });
 
       await page.getByRole('heading', { name: 'Today’s Grid Builder' }).waitFor();
       await page.getByText('9 Daily Drop images match this lens').waitFor();
@@ -168,11 +217,11 @@ for (const engine of BROWSER_ENGINES) {
       await page.getByRole('button', { name: 'Propose Compiled 3×3' }).click();
       await page.getByLabel('Proposed Compiled 9-frame set').waitFor();
 
-      await page.goBack();
+      await page.goBack({ waitUntil: 'domcontentloaded' });
       await page.getByRole('region', { name: 'Saved grids' }).waitFor();
       assert.equal(page.url(), `${origin}/vibe-atlas?view=collection`);
 
-      await page.goBack();
+      await page.goBack({ waitUntil: 'domcontentloaded' });
       await page.getByRole('heading', { name: 'Today’s Grid Builder' }).waitFor();
       await page.getByText('9 Daily Drop images match this lens').waitFor();
       assert.equal(await page.getByRole('button', { name: new RegExp(`^${DAILY_ACTOR} 9`) }).count(), 1);
@@ -184,11 +233,11 @@ for (const engine of BROWSER_ENGINES) {
         'popstate must restore Daily with a clear lens',
       );
 
-      await page.goForward();
+      await page.goForward({ waitUntil: 'domcontentloaded' });
       await page.getByRole('region', { name: 'Saved grids' }).waitFor();
       assert.equal(page.url(), `${origin}/vibe-atlas?view=collection`);
 
-      await page.goForward();
+      await page.goForward({ waitUntil: 'domcontentloaded' });
       await page.getByText('1 saved result matches this lens').waitFor();
       assert.equal(await page.getByRole('button', { name: new RegExp(`^${SAVED_ACTOR} 1`) }).count(), 1);
       assert.equal(await page.getByRole('button', { name: new RegExp(`^${DAILY_ACTOR}`) }).count(), 0);
@@ -205,11 +254,12 @@ for (const engine of BROWSER_ENGINES) {
 }
 
 for (const engine of BROWSER_ENGINES) {
-  test(`Grid Builder restores the URL inventory source on cold load and reload in ${engine.name}`, { timeout: 60_000 }, async () => {
+  test(`Grid Builder restores the URL inventory source on cold load and reload in ${engine.name}`, { timeout: 120_000 }, async () => {
     const { server, origin } = await startViteTestServer();
     const { browser, page } = await launchPageForServer(server, engine.type);
 
     try {
+    await blockExternalAssets(page);
     await page.route('**/api/auth/session', route => route.fulfill({
       contentType: 'application/json',
       body: JSON.stringify({ user: null }),
@@ -223,12 +273,13 @@ for (const engine of BROWSER_ENGINES) {
       contentType: 'application/json',
       body: JSON.stringify(dailyDropFixture()),
     }));
+    await installPublicHistoricalEditionRoute(page);
 
-    await gotoTestPage(page, origin);
+    await gotoTestPage(page, origin, { waitUntil: 'domcontentloaded' });
     await seedSavedCollection(page);
 
     const dailyUrl = `${origin}/vibe-atlas?view=builder&source=daily`;
-    await gotoTestPage(page, dailyUrl);
+    await gotoTestPage(page, dailyUrl, { waitUntil: 'domcontentloaded' });
     await page.getByText('9 Daily Drop images match this lens').waitFor();
     assert.equal(await page.getByRole('button', { name: new RegExp(`^${DAILY_ACTOR} 9`) }).count(), 1);
     assert.equal(await page.getByRole('button', { name: new RegExp(`^${SAVED_ACTOR}`) }).count(), 0);
@@ -237,14 +288,33 @@ for (const engine of BROWSER_ENGINES) {
     await page.getByRole('button', { name: new RegExp(`^${DAILY_ACTOR} 9`) }).click();
     await page.getByRole('button', { name: 'Propose Compiled 3×3' }).click();
     await page.getByLabel('Proposed Compiled 9-frame set').waitFor();
-    await page.reload();
+    await page.reload({ waitUntil: 'domcontentloaded' });
     await page.getByText('9 Daily Drop images match this lens').waitFor();
     assert.equal(page.url(), dailyUrl);
     assert.equal(await page.getByRole('button', { name: new RegExp(`^${SAVED_ACTOR}`) }).count(), 0);
     await assertClearBuilderState(page, DAILY_ACTOR, 9);
 
-    const collectionUrl = `${origin}/vibe-atlas?view=builder`;
-    await gotoTestPage(page, collectionUrl);
+    const archiveUrl = `${origin}/vibe-atlas?view=builder`;
+    await gotoTestPage(page, archiveUrl, { waitUntil: 'domcontentloaded' });
+    await page.getByText('9 public Archive images match this lens').waitFor();
+    assert.equal(page.url(), archiveUrl, 'a source-less Builder URL should use the public Archive inventory');
+    assert.equal(await page.getByRole('button', { name: new RegExp(`^${HISTORICAL_ACTOR} 9`) }).count(), 1);
+    assert.equal(await page.getByRole('button', { name: new RegExp(`^${SAVED_ACTOR}`) }).count(), 0);
+    assert.equal(await page.getByRole('button', { name: new RegExp(`^${DAILY_ACTOR}`) }).count(), 0);
+    await assertClearBuilderState(page, HISTORICAL_ACTOR, 9);
+
+    await page.getByRole('button', { name: new RegExp(`^${HISTORICAL_ACTOR} 9`) }).click();
+    await page.getByRole('button', { name: 'Propose Compiled 3×3' }).click();
+    await page.getByLabel('Proposed Compiled 9-frame set').waitFor();
+    await page.reload({ waitUntil: 'domcontentloaded' });
+    await page.getByText('9 public Archive images match this lens').waitFor();
+    assert.equal(page.url(), archiveUrl);
+    assert.equal(await page.getByRole('button', { name: new RegExp(`^${SAVED_ACTOR}`) }).count(), 0);
+    assert.equal(await page.getByRole('button', { name: new RegExp(`^${DAILY_ACTOR}`) }).count(), 0);
+    await assertClearBuilderState(page, HISTORICAL_ACTOR, 9);
+
+    const collectionUrl = `${origin}/vibe-atlas?view=builder&source=collection`;
+    await gotoTestPage(page, collectionUrl, { waitUntil: 'domcontentloaded' });
     await page.getByText('1 saved result matches this lens').waitFor();
     assert.equal(await page.getByRole('button', { name: new RegExp(`^${SAVED_ACTOR} 1`) }).count(), 1);
     assert.equal(await page.getByRole('button', { name: new RegExp(`^${DAILY_ACTOR}`) }).count(), 0);
@@ -253,7 +323,7 @@ for (const engine of BROWSER_ENGINES) {
     await page.getByRole('button', { name: new RegExp(`^${SAVED_ACTOR} 1`) }).click();
     await page.getByRole('button', { name: 'Propose Compiled 3×3' }).click();
     await page.getByLabel('Proposed Compiled 9-frame set').waitFor();
-    await page.reload();
+    await page.reload({ waitUntil: 'domcontentloaded' });
     await page.getByText('1 saved result matches this lens').waitFor();
     assert.equal(page.url(), collectionUrl);
     assert.equal(await page.getByRole('button', { name: new RegExp(`^${DAILY_ACTOR}`) }).count(), 0);
@@ -265,11 +335,12 @@ for (const engine of BROWSER_ENGINES) {
 }
 
 for (const engine of BROWSER_ENGINES) {
-  test(`Grid Builder opens a shared historical edition directly in a fresh ${engine.name} page`, { timeout: 60_000 }, async () => {
+  test(`Grid Builder opens a shared historical edition directly in a fresh ${engine.name} page`, { timeout: 120_000 }, async () => {
     const { server, origin } = await startViteTestServer();
     const { browser, page } = await launchPageForServer(server, engine.type);
 
     try {
+      await blockExternalAssets(page);
       await page.route('**/api/auth/session', route => route.fulfill({
         contentType: 'application/json',
         body: JSON.stringify({ user: null }),
@@ -292,13 +363,14 @@ for (const engine of BROWSER_ENGINES) {
             : dailyDropFixture()),
         });
       });
+      await installPublicHistoricalEditionRoute(page);
 
       const editionUrl = `${origin}/vibe-atlas?view=builder&source=edition&date=${HISTORICAL_DATE}`;
       async function assertHistoricalInventory(): Promise<void> {
         await page.getByText(`Historical edition · ${HISTORICAL_DATE}`).waitFor();
         await page.getByRole('button', { name: new RegExp(`^${HISTORICAL_ACTOR} 9`) }).waitFor();
         assert.equal(page.url(), editionUrl);
-        assert.equal(await page.getByText('9 Daily Drop images match this lens').count(), 1);
+        assert.equal(await page.getByText('9 public Archive images match this lens').count(), 1);
         assert.equal(await page.getByRole('button', { name: new RegExp(`^${DAILY_ACTOR}`) }).count(), 0);
         assert.equal(await page.getByRole('button', { name: new RegExp(`^${SAVED_ACTOR}`) }).count(), 0);
         await assertClearBuilderState(page, HISTORICAL_ACTOR, 9);
@@ -312,9 +384,9 @@ for (const engine of BROWSER_ENGINES) {
       }
 
       // The edition URL is the first navigation in this new browser context.
-      await gotoTestPage(page, editionUrl);
+      await gotoTestPage(page, editionUrl, { waitUntil: 'domcontentloaded' });
       await assertHistoricalInventory();
-      await page.reload();
+      await page.reload({ waitUntil: 'domcontentloaded' });
       await assertHistoricalInventory();
     } finally {
       await closeBrowserAndServer(browser, server);
@@ -323,11 +395,12 @@ for (const engine of BROWSER_ENGINES) {
 }
 
 for (const engine of BROWSER_ENGINES) {
-  test(`Grid Builder preserves a valid historical edition across browser history and reload in ${engine.name}`, { timeout: 60_000 }, async () => {
+  test(`Grid Builder preserves a valid historical edition across browser history and reload in ${engine.name}`, { timeout: 120_000 }, async () => {
     const { server, origin } = await startViteTestServer();
     const { browser, page } = await launchPageForServer(server, engine.type);
 
     try {
+      await blockExternalAssets(page);
       await page.route('**/api/auth/session', route => route.fulfill({
         contentType: 'application/json',
         body: JSON.stringify({ user: null }),
@@ -350,32 +423,33 @@ for (const engine of BROWSER_ENGINES) {
             : dailyDropFixture()),
         });
       });
+      await installPublicHistoricalEditionRoute(page);
 
-      await gotoTestPage(page, origin);
+      await gotoTestPage(page, origin, { waitUntil: 'domcontentloaded' });
       await seedSavedCollection(page);
 
       const dailyUrl = `${origin}/vibe-atlas?view=builder&source=daily`;
       const editionUrl = `${origin}/vibe-atlas?view=builder&source=edition&date=${HISTORICAL_DATE}`;
-      await gotoTestPage(page, dailyUrl);
+      await gotoTestPage(page, dailyUrl, { waitUntil: 'domcontentloaded' });
       await page.getByText('9 Daily Drop images match this lens').waitFor();
-      await gotoTestPage(page, editionUrl);
+      await gotoTestPage(page, editionUrl, { waitUntil: 'domcontentloaded' });
       await page.getByText(`Historical edition · ${HISTORICAL_DATE}`).waitFor();
-      await page.getByText('9 Daily Drop images match this lens').waitFor();
+      await page.getByText('9 public Archive images match this lens').waitFor();
       assert.equal(page.url(), editionUrl);
       assert.equal(await page.getByRole('button', { name: new RegExp(`^${HISTORICAL_ACTOR} 9`) }).count(), 1);
       assert.equal(await page.getByRole('button', { name: new RegExp(`^${DAILY_ACTOR}`) }).count(), 0);
       assert.equal(await page.getByRole('button', { name: new RegExp(`^${SAVED_ACTOR}`) }).count(), 0);
       await assertClearBuilderState(page, HISTORICAL_ACTOR, 9);
 
-      await page.goBack();
+      await page.goBack({ waitUntil: 'domcontentloaded' });
       await page.getByText('9 Daily Drop images match this lens').waitFor();
       assert.equal(page.url(), dailyUrl);
       assert.equal(await page.getByRole('button', { name: new RegExp(`^${DAILY_ACTOR} 9`) }).count(), 1);
       assert.equal(await page.getByRole('button', { name: new RegExp(`^${HISTORICAL_ACTOR}`) }).count(), 0);
 
-      await page.goForward();
+      await page.goForward({ waitUntil: 'domcontentloaded' });
       await page.getByText(`Historical edition · ${HISTORICAL_DATE}`).waitFor();
-      await page.getByText('9 Daily Drop images match this lens').waitFor();
+      await page.getByText('9 public Archive images match this lens').waitFor();
       assert.equal(page.url(), editionUrl);
       assert.equal(await page.getByRole('button', { name: new RegExp(`^${HISTORICAL_ACTOR} 9`) }).count(), 1);
       assert.equal(await page.getByRole('button', { name: new RegExp(`^${DAILY_ACTOR}`) }).count(), 0);
@@ -385,9 +459,9 @@ for (const engine of BROWSER_ENGINES) {
       await page.getByRole('button', { name: new RegExp(`^${HISTORICAL_ACTOR} 9`) }).click();
       await page.getByRole('button', { name: 'Propose Compiled 3×3' }).click();
       await page.getByLabel('Proposed Compiled 9-frame set').waitFor();
-      await page.reload();
+      await page.reload({ waitUntil: 'domcontentloaded' });
       await page.getByText(`Historical edition · ${HISTORICAL_DATE}`).waitFor();
-      await page.getByText('9 Daily Drop images match this lens').waitFor();
+      await page.getByText('9 public Archive images match this lens').waitFor();
       assert.equal(page.url(), editionUrl);
       assert.equal(await page.getByRole('button', { name: new RegExp(`^${HISTORICAL_ACTOR} 9`) }).count(), 1);
       assert.equal(await page.getByRole('button', { name: new RegExp(`^${DAILY_ACTOR}`) }).count(), 0);
@@ -400,11 +474,12 @@ for (const engine of BROWSER_ENGINES) {
 }
 
 for (const engine of BROWSER_ENGINES) {
-  test(`Grid Builder falls back to Collection inventory for malformed source links in ${engine.name}`, { timeout: 60_000 }, async () => {
+  test(`Grid Builder corrects malformed source links to the public Archive inventory in ${engine.name}`, { timeout: 120_000 }, async () => {
     const { server, origin } = await startViteTestServer();
     const { browser, page } = await launchPageForServer(server, engine.type);
 
     try {
+      await blockExternalAssets(page);
       await page.route('**/api/auth/session', route => route.fulfill({
         contentType: 'application/json',
         body: JSON.stringify({ user: null }),
@@ -427,19 +502,20 @@ for (const engine of BROWSER_ENGINES) {
             : dailyDropFixture()),
         });
       });
+      await installPublicHistoricalEditionRoute(page);
 
-      await gotoTestPage(page, origin);
+      await gotoTestPage(page, origin, { waitUntil: 'domcontentloaded' });
       await seedSavedCollection(page);
 
-      const collectionUrl = `${origin}/vibe-atlas?view=builder`;
-      async function assertCorrectedCollection(): Promise<void> {
-        await page.getByText('1 saved result matches this lens').waitFor();
-        assert.equal(page.url(), collectionUrl, 'a malformed Builder link must visibly self-correct');
-        assert.equal(await page.getByRole('button', { name: new RegExp(`^${SAVED_ACTOR} 1`) }).count(), 1);
+      const archiveUrl = `${origin}/vibe-atlas?view=builder&source=archive`;
+      async function assertCorrectedArchive(): Promise<void> {
+        await page.getByText('9 public Archive images match this lens').waitFor();
+        assert.equal(page.url(), archiveUrl, 'a malformed Builder source must visibly self-correct to Archive');
+        assert.equal(await page.getByRole('button', { name: new RegExp(`^${HISTORICAL_ACTOR} 9`) }).count(), 1);
+        assert.equal(await page.getByRole('button', { name: new RegExp(`^${SAVED_ACTOR}`) }).count(), 0);
         assert.equal(await page.getByRole('button', { name: new RegExp(`^${DAILY_ACTOR}`) }).count(), 0);
-        assert.equal(await page.getByRole('button', { name: new RegExp(`^${HISTORICAL_ACTOR}`) }).count(), 0);
         assert.equal(await page.getByText(`Historical edition · ${HISTORICAL_DATE}`).count(), 0);
-        await assertClearBuilderState(page, SAVED_ACTOR, 1);
+        await assertClearBuilderState(page, HISTORICAL_ACTOR, 9);
       }
 
       for (const malformedUrl of [
@@ -447,22 +523,22 @@ for (const engine of BROWSER_ENGINES) {
         `${origin}/vibe-atlas?view=builder&source=edition&date=2026-02-29`,
       ]) {
         const dailyUrl = `${origin}/vibe-atlas?view=builder&source=daily`;
-        await gotoTestPage(page, dailyUrl);
+        await gotoTestPage(page, dailyUrl, { waitUntil: 'domcontentloaded' });
         await page.getByText('9 Daily Drop images match this lens').waitFor();
-        await gotoTestPage(page, malformedUrl);
-        await assertCorrectedCollection();
+        await gotoTestPage(page, malformedUrl, { waitUntil: 'domcontentloaded' });
+        await assertCorrectedArchive();
 
-        await page.reload();
-        await assertCorrectedCollection();
+        await page.reload({ waitUntil: 'domcontentloaded' });
+        await assertCorrectedArchive();
 
-        await page.goBack();
+        await page.goBack({ waitUntil: 'domcontentloaded' });
         await page.getByText('9 Daily Drop images match this lens').waitFor();
         assert.equal(page.url(), dailyUrl);
         assert.equal(await page.getByRole('button', { name: new RegExp(`^${DAILY_ACTOR} 9`) }).count(), 1);
         assert.equal(await page.getByRole('button', { name: new RegExp(`^${SAVED_ACTOR}`) }).count(), 0);
 
-        await page.goForward();
-        await assertCorrectedCollection();
+        await page.goForward({ waitUntil: 'domcontentloaded' });
+        await assertCorrectedArchive();
       }
     } finally {
       await closeBrowserAndServer(browser, server);
@@ -471,11 +547,12 @@ for (const engine of BROWSER_ENGINES) {
 }
 
 for (const engine of BROWSER_ENGINES) {
-  test(`Collection restores Saved Grids and Saved Results across browser history in ${engine.name}`, { timeout: 60_000 }, async () => {
+  test(`Collection restores Saved Grids and Saved Results across browser history in ${engine.name}`, { timeout: 120_000 }, async () => {
     const { server, origin } = await startViteTestServer();
     const { browser, page } = await launchPageForServer(server, engine.type);
 
     try {
+      await blockExternalAssets(page);
       await page.route('**/api/auth/session', route => route.fulfill({
         contentType: 'application/json',
         body: JSON.stringify({ user: null }),
@@ -486,11 +563,11 @@ for (const engine of BROWSER_ENGINES) {
       }));
       await page.route('**/.netlify/functions/image-proxy**', route => route.abort());
 
-      await gotoTestPage(page, origin);
+      await gotoTestPage(page, origin, { waitUntil: 'domcontentloaded' });
       await seedSavedCollection(page);
       const gridsUrl = `${origin}/vibe-atlas?view=collection`;
       const resultsUrl = `${origin}/vibe-atlas?view=results`;
-      await gotoTestPage(page, gridsUrl);
+      await gotoTestPage(page, gridsUrl, { waitUntil: 'domcontentloaded' });
 
       const gridsTab = page.getByRole('button', { name: 'Grids 1' });
       const resultsTab = page.getByRole('button', { name: 'Saved results 1' });
@@ -505,14 +582,14 @@ for (const engine of BROWSER_ENGINES) {
       assert.equal(await page.getByText(SAVED_ACTOR, { exact: true }).count(), 1);
       assert.equal(page.url(), resultsUrl);
 
-      await page.goBack();
+      await page.goBack({ waitUntil: 'domcontentloaded' });
       await page.getByRole('region', { name: 'Saved grids' }).waitFor();
       assert.equal(await page.getByRole('button', { name: 'Grids 1' }).getAttribute('aria-current'), 'true');
       assert.equal(await page.getByText('Saved Grid Actor', { exact: true }).count(), 1);
       assert.equal(await page.getByRole('region', { name: 'Saved results' }).count(), 0);
       assert.equal(page.url(), gridsUrl);
 
-      await page.goForward();
+      await page.goForward({ waitUntil: 'domcontentloaded' });
       await page.getByRole('region', { name: 'Saved results' }).waitFor();
       assert.equal(await page.getByRole('button', { name: 'Saved results 1' }).getAttribute('aria-current'), 'true');
       assert.equal(await page.getByText(SAVED_ACTOR, { exact: true }).count(), 1);

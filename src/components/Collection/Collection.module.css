@@ -234,6 +234,8 @@
   text-underline-offset: 3px;
 }
 .zoomEditionSource { display: block; margin-top: 6px; }
+.zoomArchiveSources { display: flex; flex-wrap: wrap; gap: 6px 12px; margin-top: 8px; }
+.zoomArchiveSources a { color: #9b762e; font-size: .75rem; text-underline-offset: 3px; }
 .provenance { margin: 16px 0 0; color: color-mix(in srgb, currentColor 50%, transparent); font-size: .72rem; }
 .mediaRecovery {
   display: grid;

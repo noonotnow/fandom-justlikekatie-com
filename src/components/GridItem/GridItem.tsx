@@ -9,6 +9,8 @@ interface GridItemProps {
   thumbnail: string;
   publisher?: string;
   url: string;
+  archiveDate?: string;
+  archiveImageId?: string;
   onImageClick?: () => void;
   onSaveChange?: (saved: boolean) => void;
   tier?: ImageTier;
@@ -19,6 +21,8 @@ export const GridItem: React.FC<GridItemProps> = ({
   title,
   thumbnail,
   publisher,
+  archiveDate,
+  archiveImageId,
   onImageClick,
   onSaveChange,
   tier,
@@ -49,7 +53,7 @@ export const GridItem: React.FC<GridItemProps> = ({
           {tier === 'legendary' ? '🔥 传说' : '🫠 错版'}
         </span>
       )}
-      <SaveButton itemId={id} onSaveChange={onSaveChange} />
+      <SaveButton itemId={id} archiveDate={archiveDate} archiveImageId={archiveImageId} onSaveChange={onSaveChange} />
       <h3 className={styles.title}>{title}</h3>
       {publisher && <p className={styles.publisher}>{publisher}</p>}
     </div>

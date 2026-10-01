@@ -5,6 +5,7 @@ import {
 } from "../../../src/contracts/publicArchiveRecord.js";
 
 export const ARCHIVE_FREE_EDITION_COUNT = 4;
+export const ARCHIVE_IMAGE_FREE_SAVE_AGE_DAYS = 3;
 export const ARCHIVE_ACCESS_WINDOW_VERSION = 1;
 export const ARCHIVE_ACCESS_WINDOW_KEY =
   `vibeAtlas:archive-access-window:v${ARCHIVE_ACCESS_WINDOW_VERSION}:latest`;
@@ -33,6 +34,36 @@ export function freeArchiveDates(editions, count = ARCHIVE_FREE_EDITION_COUNT) {
       .sort((left, right) => right.localeCompare(left))
       .slice(0, count),
   );
+}
+
+/**
+ * Individual archive-image acquisition has a calendar-age policy, distinct
+ * from the four-edition window used for opening complete historical boards.
+ */
+export function archiveImageSaveDecision({
+  publicationDate,
+  today,
+  hasCollectorAccess = false,
+}) {
+  const isDate = value => {
+    if (!/^\d{4}-\d{2}-\d{2}$/.test(value || "")) return false;
+    const parsed = new Date(`${value}T00:00:00.000Z`);
+    return Number.isFinite(parsed.getTime()) && parsed.toISOString().slice(0, 10) === value;
+  };
+  if (!isDate(publicationDate) || !isDate(today)) {
+    return { allowed: false, reason: "invalid_date" };
+  }
+  if (publicationDate > today) return { allowed: false, reason: "future_edition" };
+  const ageDays = Math.floor(
+    (Date.parse(`${today}T00:00:00.000Z`) - Date.parse(`${publicationDate}T00:00:00.000Z`))
+    / 86_400_000,
+  );
+  if (ageDays <= ARCHIVE_IMAGE_FREE_SAVE_AGE_DAYS) {
+    return { allowed: true, access: "free", ageDays };
+  }
+  return hasCollectorAccess
+    ? { allowed: true, access: "member", ageDays }
+    : { allowed: false, reason: "collector_required", ageDays };
 }
 
 export function archiveAccessWindowDates(value, count = ARCHIVE_FREE_EDITION_COUNT) {

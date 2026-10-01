@@ -37,6 +37,7 @@ import {
   applyLens,
   actorPackIdForLens,
   buildVibeAtlasPool,
+  buildPublicArchivePool,
   gridRecordFromProposal,
   lensOptions,
   manualGridRationale,
@@ -48,6 +49,7 @@ import {
   type EditorialMode,
   type GridProposal,
 } from '../../utils/gridBuilder';
+import { usePublicArchiveInventory } from '../../hooks/usePublicArchiveInventory';
 import styles from './GridBuilder.module.css';
 
 interface ActorPackSourceVibe {
@@ -79,10 +81,21 @@ interface Props {
   hasCollectorAccess?: boolean;
   onUpgrade?: () => void;
   onCollectionChanged?: () => Promise<void>;
-  /** Explicit inventory boundary. Daily Drop and edition cards never fall back to My Collection. */
-  sourceKind?: 'collection' | 'daily' | 'edition';
+  /** Explicit inventory boundary. Public Archive, edition, and Daily Drop cards never fall back to Collection. */
+  sourceKind?: 'collection' | 'daily' | 'edition' | 'archive';
   sourceEditionDate?: string;
   sourcePool?: BuilderCard[];
+}
+
+function gridSourceProvenance(
+  sourceKind: 'collection' | 'daily' | 'edition' | 'archive',
+  sourceEditionDate?: string,
+): GridRecord['sourceProvenance'] | undefined {
+  if (sourceKind === 'archive') return undefined;
+  if (sourceKind === 'edition') {
+    return sourceEditionDate ? { kind: 'edition', editionDate: sourceEditionDate } : undefined;
+  }
+  return { kind: sourceKind };
 }
 
 /**
@@ -100,7 +113,16 @@ export const GridBuilder: React.FC<Props> = ({
   sourcePool = [],
 }) => {
   const isCollectionSource = sourceKind === 'collection';
-  const externalSourcePool = isCollectionSource ? null : sourcePool;
+  const isPublicArchiveSource = sourceKind === 'archive' || sourceKind === 'edition';
+  const externalSourcePool = isCollectionSource || isPublicArchiveSource ? null : sourcePool;
+  const publicArchive = usePublicArchiveInventory({
+    date: sourceKind === 'edition' ? sourceEditionDate : undefined,
+    enabled: isPublicArchiveSource,
+  });
+  const publicArchivePool = useMemo(
+    () => isPublicArchiveSource ? buildPublicArchivePool(publicArchive.editions) : [],
+    [isPublicArchiveSource, publicArchive.editions],
+  );
   const benefits = collectorBenefits(hasCollectorAccess);
   const [pool, setPool] = useState<BuilderCard[] | null>(null);
   const [sourceRecords, setSourceRecords] = useState<{ cards: CardRecord[] } | null>(null);
@@ -161,7 +183,10 @@ export const GridBuilder: React.FC<Props> = ({
 
   useEffect(() => {
     let cancelled = false;
-    setPool(null);
+    // Public inventory belongs to the source, not to the resolving account.
+    // Its own effect updates it on source/page changes. Clearing it here
+    // would strand an already loaded Archive when the session arrives.
+    if (!isPublicArchiveSource) setPool(null);
     setLoadError('');
     setLens({});
     setProposal(null);
@@ -175,7 +200,11 @@ export const GridBuilder: React.FC<Props> = ({
         ]);
         if (!cancelled) {
           setSourceRecords(isCollectionSource ? { cards } : null);
-          setPool(isCollectionSource ? buildVibeAtlasPool(cards, 'standard') : externalSourcePool || []);
+          if (!isPublicArchiveSource) {
+            setPool(isCollectionSource
+              ? buildVibeAtlasPool(cards, 'standard')
+              : externalSourcePool || []);
+          }
           setSavedCanvasCount(grids.length);
         }
       } catch (caught) {
@@ -183,11 +212,17 @@ export const GridBuilder: React.FC<Props> = ({
           ? caught.message
           : isCollectionSource
             ? 'Saved collection could not be loaded.'
-            : 'Today’s Daily Drop inventory could not be loaded.');
+            : isPublicArchiveSource
+              ? 'Public Archive inventory metadata could not be loaded.'
+              : 'Today’s Daily Drop inventory could not be loaded.');
       }
     })();
     return () => { cancelled = true; };
-  }, [accountId, externalSourcePool, isCollectionSource]);
+  }, [accountId, externalSourcePool, isCollectionSource, isPublicArchiveSource, sourceEditionDate]);
+
+  useEffect(() => {
+    if (isPublicArchiveSource) setPool(publicArchivePool);
+  }, [isPublicArchiveSource, publicArchivePool]);
 
   const savedOptions = useMemo(() => (pool ? lensOptions(pool) : null), [pool]);
   const smartOptionPool = useMemo(
@@ -479,10 +514,7 @@ export const GridBuilder: React.FC<Props> = ({
         proposal.rationale,
         new Date(),
         palette ? { paletteId: palette.id, atmosphereId: palette.id } : undefined,
-        {
-          kind: sourceKind,
-          ...(sourceKind === 'edition' && sourceEditionDate ? { editionDate: sourceEditionDate } : {}),
-        },
+        gridSourceProvenance(sourceKind, sourceEditionDate),
       );
       // If the user edited slots after a previous save, the slot hash changed
       // and this is a brand-new id.  Remove the orphaned prior record first so
@@ -562,9 +594,13 @@ export const GridBuilder: React.FC<Props> = ({
     setNotice('正在生成分享卡……');
     setShowSaveNudge(false);
     try {
-      const grid = gridRecordFromProposal(proposal.slots, proposal.rationale, new Date(), palette
-        ? { paletteId: palette.id, atmosphereId: palette.id }
-        : undefined);
+      const grid = gridRecordFromProposal(
+        proposal.slots,
+        proposal.rationale,
+        new Date(),
+        palette ? { paletteId: palette.id, atmosphereId: palette.id } : undefined,
+        gridSourceProvenance(sourceKind, sourceEditionDate),
+      );
       let exportGridRecord: GridRecord = grid;
       let exportManifest: ExportManifest | undefined;
       if (hasCollectorAccess) {
@@ -657,13 +693,25 @@ export const GridBuilder: React.FC<Props> = ({
   }
 
   if (loadError) return <div className={styles.notice} role="alert">{loadError}</div>;
+  if (isPublicArchiveSource && publicArchive.loading && publicArchive.editions.length === 0) {
+    return <div className={styles.loading} aria-label={
+      sourceKind === 'edition' ? 'Loading public historical edition inventory' : 'Loading public Archive inventory'
+    }><span /><span /><span /></div>;
+  }
+  if (isPublicArchiveSource && publicArchive.error && (!pool || pool.length === 0)) {
+    return <div className={styles.notice} role="alert">
+      <strong>Public Archive inventory unavailable.</strong> {publicArchive.error}
+    </div>;
+  }
   if (!pool || !savedOptions || !smartOptions) {
     return <div className={styles.loading} aria-label={
       isCollectionSource
         ? 'Loading saved collection'
         : sourceKind === 'edition'
-          ? 'Loading historical edition inventory'
-          : 'Loading Daily Drop inventory'
+          ? 'Loading public historical edition inventory'
+          : sourceKind === 'archive'
+            ? 'Loading public Archive inventory'
+            : 'Loading Daily Drop inventory'
     }><span /><span /><span /></div>;
   }
   if (pool.length === 0) {
@@ -671,14 +719,30 @@ export const GridBuilder: React.FC<Props> = ({
       <div className={styles.empty}>
         <strong>{isCollectionSource
           ? 'The shelf is empty.'
-          : sourceKind === 'edition'
-            ? 'This edition’s inventory could not be loaded.'
+          : isPublicArchiveSource
+            ? sourceKind === 'edition'
+              ? `No public inventory is available for ${sourceEditionDate || 'this edition'}.`
+              : 'No public Archive inventory is available yet.'
             : 'Today’s inventory is not ready yet.'}</strong>
         <span>{isCollectionSource
           ? 'Save cards or grids first — the Grid Builder assembles editorial sets from saved material.'
-          : sourceKind === 'edition'
-            ? 'Return to the archived edition and try again.'
+          : isPublicArchiveSource
+            ? sourceKind === 'edition'
+              ? 'This edition is not available in the public inventory. No Collection images were substituted.'
+              : 'There are no publicly verified editions to build from. No Collection images were substituted.'
             : 'Return to today’s drop while its approved images finish loading.'}</span>
+        {isPublicArchiveSource && publicArchive.notices.map(message => (
+          <span role="status" key={message}>{message}</span>
+        ))}
+        {sourceKind === 'archive' && publicArchive.hasMore && (
+          <button
+            type="button"
+            onClick={() => void publicArchive.loadMore()}
+            disabled={publicArchive.loadingMore}
+          >
+            {publicArchive.loadingMore ? 'Loading editions…' : 'Load more editions'}
+          </button>
+        )}
       </div>
     );
   }
@@ -692,10 +756,38 @@ export const GridBuilder: React.FC<Props> = ({
         </div>
         <span>
           {builderMode === 'manual'
-            ? `${countLabel(manualCandidates.length, isCollectionSource ? 'saved result' : 'Daily Drop image')} for this star`
-            : `${countLabel(lensedCount, isCollectionSource ? 'saved result' : 'Daily Drop image')} ${lensedCount === 1 ? 'matches' : 'match'} this lens`}
+            ? `${countLabel(manualCandidates.length, isCollectionSource ? 'saved result' : isPublicArchiveSource ? 'public Archive image' : 'Daily Drop image')} for this star`
+            : `${countLabel(lensedCount, isCollectionSource ? 'saved result' : isPublicArchiveSource ? 'public Archive image' : 'Daily Drop image')} ${lensedCount === 1 ? 'matches' : 'match'} this lens`}
         </span>
       </header>
+
+      {isPublicArchiveSource && (
+        <section className={styles.archiveInventory} aria-label="Public Archive inventory">
+          <div>
+            <strong>{sourceKind === 'edition' ? `Public edition · ${sourceEditionDate}` : 'Public Vibe Atlas Archive'}</strong>
+            {sourceKind === 'archive' && (
+              <span>{publicArchive.editions.length} editions loaded · {publicArchive.actors.length} stars in loaded editions</span>
+            )}
+          </div>
+          {publicArchive.error && <p role="alert">{publicArchive.error}</p>}
+          {publicArchive.notices.map(message => (
+            <p role="status" key={message}>{message}</p>
+          ))}
+          {sourceKind === 'archive' && publicArchive.hasMore && (
+            <button
+              type="button"
+              onClick={() => void publicArchive.loadMore()}
+              disabled={publicArchive.loadingMore}
+            >
+              {publicArchive.loadingMore
+                ? 'Loading editions…'
+                : publicArchive.error
+                  ? 'Retry loading editions'
+                  : 'Load more editions'}
+            </button>
+          )}
+        </section>
+      )}
 
       <div className={styles.benefitBar} role="note">
         {hasCollectorAccess ? (
@@ -878,25 +970,35 @@ export const GridBuilder: React.FC<Props> = ({
             <strong>{lens.actor ? `${proposal?.slots.length || 0} of 9 selected` : 'Choose a star to begin'}</strong>
             <span>{isCollectionSource
               ? 'Only saved images for the selected actor appear here. Select a placed image to duplicate it intentionally.'
+              : isPublicArchiveSource
+                ? 'Only publicly verified Archive images for the selected star appear here. Each image links to its permanent edition record.'
               : 'Only images from today’s Daily Drop appear here. Select a placed image to duplicate it intentionally.'}</span>
           </div>
           {lens.actor && manualCandidates.length === 0 ? (
-            <div className={styles.notice}>Save at least one image for {lens.actor} to begin a custom grid.</div>
+            <div className={styles.notice}>{isPublicArchiveSource
+              ? `No loaded public Archive images are available for ${lens.actor}. Load another page or choose another star.`
+              : `Save at least one image for ${lens.actor} to begin a custom grid.`}</div>
           ) : lens.actor ? (
             <div className={styles.candidateGrid}>
               {manualCandidates.map(card => {
                 const selectedIndex = proposal?.slots.findIndex(item => item.key === card.key) ?? -1;
                 return (
-                  <button
-                    key={card.key}
-                    type="button"
-                    aria-pressed={selectedIndex >= 0}
-                    aria-label={`${selectedIndex >= 0 ? `Remove position ${selectedIndex + 1}` : 'Select'} ${card.title}`}
-                    onClick={() => toggleManualCard(card)}
-                  >
-                    <img src={card.imageUrl} alt="" loading="lazy" />
-                    {selectedIndex >= 0 && <span>{selectedIndex + 1}</span>}
-                  </button>
+                  <div className={styles.candidateItem} key={card.key}>
+                    <button
+                      type="button"
+                      aria-pressed={selectedIndex >= 0}
+                      aria-label={`${selectedIndex >= 0 ? `Remove position ${selectedIndex + 1}` : 'Select'} ${card.title}`}
+                      onClick={() => toggleManualCard(card)}
+                    >
+                      <img src={card.imageUrl} alt="" loading="lazy" />
+                      {selectedIndex >= 0 && <span>{selectedIndex + 1}</span>}
+                    </button>
+                    {card.archiveSource && (
+                      <a href={card.archiveSource.publicRecord.editionPath}>
+                        Edition record ↗
+                      </a>
+                    )}
+                  </div>
                 );
               })}
             </div>
@@ -915,20 +1017,30 @@ export const GridBuilder: React.FC<Props> = ({
                 : `Proposed ${proposal.rationale.editorialMode === 'event' ? 'Event' : 'Compiled'} ${proposalTargetSize}-frame set`}
             >
               {proposal.slots.map((card, index) => (
-                <button
-                  key={`${card.key}-${index}`}
-                  type="button"
-                  className={styles.slot}
-                  aria-pressed={swapSlot === index}
-                  title={proposal.rationale.slotReasons[index]}
-                  onClick={() => {
-                    if (builderMode === 'manual' && swapSlot !== null) swapManualSlots(swapSlot, index);
-                    else setSwapSlot(current => (current === index ? null : index));
-                  }}
-                >
-                  <img src={card.imageUrl} alt={card.title} loading="lazy" />
-                  <span>{proposal.rationale.slotReasons[index]}</span>
-                </button>
+                <div className={styles.slotCell} key={`${card.key}-${index}`}>
+                  <button
+                    type="button"
+                    className={styles.slot}
+                    aria-pressed={swapSlot === index}
+                    title={proposal.rationale.slotReasons[index]}
+                    onClick={() => {
+                      if (builderMode === 'manual' && swapSlot !== null) swapManualSlots(swapSlot, index);
+                      else setSwapSlot(current => (current === index ? null : index));
+                    }}
+                  >
+                    <img src={card.imageUrl} alt={card.title} loading="lazy" />
+                    <span>{proposal.rationale.slotReasons[index]}</span>
+                  </button>
+                  {card.archiveSource && (
+                    <a
+                      className={styles.slotEditionLink}
+                      href={card.archiveSource.publicRecord.editionPath}
+                      aria-label={`Open public edition record for ${card.title}`}
+                    >
+                      Edition ↗
+                    </a>
+                  )}
+                </div>
               ))}
               {builderMode === 'manual' && Array.from({ length: Math.max(0, 9 - proposal.slots.length) }).map((_, index) => (
                 <div className={styles.emptySlot} key={`empty-${index}`}>{proposal.slots.length + index + 1}</div>
@@ -953,11 +1065,16 @@ export const GridBuilder: React.FC<Props> = ({
                 {proposal.alternates.length === 0 ? (
                   <span className={styles.noAlternates}>No other cards match this lens.</span>
                 ) : (
-                  <div className={styles.alternateStrip}>
+                    <div className={styles.alternateStrip}>
                     {proposal.alternates.map(card => (
-                      <button key={card.key} type="button" onClick={() => swapInto(swapSlot, card)} title={card.familyLabel}>
-                        <img src={card.imageUrl} alt={card.title} loading="lazy" />
-                      </button>
+                      <div className={styles.alternateItem} key={card.key}>
+                        <button type="button" onClick={() => swapInto(swapSlot, card)} title={card.familyLabel}>
+                          <img src={card.imageUrl} alt={card.title} loading="lazy" />
+                        </button>
+                        {card.archiveSource && (
+                          <a href={card.archiveSource.publicRecord.editionPath}>Edition record ↗</a>
+                        )}
+                      </div>
                     ))}
                   </div>
                 )}

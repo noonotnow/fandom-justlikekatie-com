@@ -36,7 +36,7 @@
 - [Capability-link analytics](capability-link-analytics.md) — remove public capability values from browser URLs before trackers initialize; canonicalize pageview and event locations.
 - [Vibe Atlas public positioning](vibe-atlas-public-positioning.md) — daily-drop messaging is funnel-wide; audit crawlable guides and regenerate derived previews when it changes.
 - [Daily Drop grid curation contract](grid-curation-contract.md) — Event is a bounded, evidence-backed exception that must beat a competitive Compiled board on scored evidence.
-- [Star of the Day collection loop](star-of-day-collection-loop.md) — today’s collection fuels free grids; Collectors can build from missed drops and deeper actor packs without losing public archive browsing.
+- [Star of the Day collection loop](star-of-day-collection-loop.md) — public archive building is free; individual saves use a Shanghai three-day cutoff; Collection stays deliberately saved-only.
 - [Released pairing semantics](released-pairing-semantics.md) — approval graduates an actor/vibe search recipe for Collector grids, not every resulting image or a dated Daily Drop manifest.
 - [Preflight preview publishing](preflight-preview-publishing.md) — a current approved preflight board can supply non-daily teasers, but only a bounded MEDIA-backed receipt is public.
 - [Grid proposal quotas](grid-proposal-quotas.md) — future multi-grid proposals may use a configurable daily free quota; edits, exports, and failed attempts must not consume it.

@@ -1,22 +1,31 @@
 import React from 'react';
 import { useSaveItem } from '../../hooks/useSaveItem';
+import { vibeAtlasPath } from '../../utils/fandomRoutes';
 import { Toast } from '../Toast/Toast';
 import styles from './SaveButton.module.css';
 
 interface SaveButtonProps {
   itemId: string;
+  archiveDate?: string;
+  archiveImageId?: string;
   onClick?: (e: React.MouseEvent) => void;
   onSaveChange?: (saved: boolean) => void;
 }
 
-export const SaveButton: React.FC<SaveButtonProps> = ({ itemId, onClick, onSaveChange }) => {
-  const { isSaved, isLoading, toggleSave, showToast, toastMessage, hideToast } = useSaveItem(itemId);
+export const SaveButton: React.FC<SaveButtonProps> = ({ itemId, archiveDate, archiveImageId, onClick, onSaveChange }) => {
+  const { isSaved, isLoading, toggleSave, showToast, toastMessage, hideToast, archiveSaveFailure } = useSaveItem(itemId, archiveDate, archiveImageId);
 
   const handleClick = async (e: React.MouseEvent) => {
     e.stopPropagation();
     const saved = await toggleSave();
     if (saved !== undefined) onSaveChange?.(saved);
     onClick?.(e);
+  };
+
+  const retrySave = async (e: React.MouseEvent) => {
+    e.stopPropagation();
+    const saved = await toggleSave();
+    if (saved !== undefined) onSaveChange?.(saved);
   };
 
   return (
@@ -40,6 +49,24 @@ export const SaveButton: React.FC<SaveButtonProps> = ({ itemId, onClick, onSaveC
           <path d="M19 21l-7-5-7 5V5a2 2 0 0 1 2-2h10a2 2 0 0 1 2 2z" />
         </svg>
       </button>
+      {archiveSaveFailure && (
+        <div className={styles.saveNotice} role="alert">
+          <span>
+            {archiveSaveFailure === 'sign_in'
+              ? 'Sign in before saving this edition’s cards.'
+              : archiveSaveFailure === 'upgrade'
+                ? 'Older edition card saves are a Collector benefit.'
+                : 'We could not verify this card. Your save was not changed.'}
+          </span>
+          {archiveSaveFailure === 'retry' ? (
+            <button type="button" onClick={retrySave} disabled={isLoading}>Try again</button>
+          ) : (
+            <a href={vibeAtlasPath({ view: 'membership' })} onClick={e => e.stopPropagation()}>
+              {archiveSaveFailure === 'sign_in' ? 'Sign in' : 'See Collector options'}
+            </a>
+          )}
+        </div>
+      )}
       {showToast && <Toast message={toastMessage} onClose={hideToast} />}
     </>
   );

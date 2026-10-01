@@ -1,21 +1,21 @@
 ---
 name: Star of the Day collection loop
-description: Free daily acquisition, public archive browsing, and Collector remix access for Vibe Atlas grids.
+description: Public archive building, calendar-age acquisition, and deliberate Collection source isolation.
 ---
 
-The Star of the Day collection is a server-owned published edition inventory for the public, nonmember edition. It is not displayed or synchronized wholesale as part of My Collection. While an edition is the active Daily Drop, everyone can use its complete inventory in the free grid builder, download any individual image, save selected images to My Collection, and export or share the resulting standard grid. Current and historical Daily Drop editorial records remain publicly browsable.
+Public creation and individual acquisition are intentionally separate product concepts; the current access rules are documented in `replit.md`.
 
-Collectors can reach back into prior Star of the Day collections to add material they missed and build new grids. Deeper actor packs add broader member-only choices, so Collector collections and compositions naturally diverge from the canonical Daily Drops rather than simply reproducing them.
+**Why:** The creator explicitly superseded the earlier paid-only historical-building boundary. Membership should distinguish official acquisition of individual older cards, not the act of composing publicly delivered images into a grid. Browser-level copying cannot be protected by an app save gate.
+
+**How to apply:** When evaluating new acquisition or export paths, preserve this separation rather than restoring the retired paid-building assumption.
 
 Every actor with a released pack should have a permanent, indexable, always-free actor page that introduces the actor and every released pack with a substantive visual teaser and limited provenance. Articles should use these stable public destinations, not a membership gate or an active-day URL. The active Actor of the Day spotlights the selected nine-card Daily Drop in full for everyone and promotes the actor's other released packs through their free teasers; it does not unlock every full pack. Collector membership unlocks complete fresh grids from any approved released actor × vibe pairing at any time, plus saving and reopening generated runs. Unreleased candidates remain editorial mentions, not released packs. This member browsing exposes curated pack material, not raw searches, diagnostics, rejected results, or unpublished candidates.
 
-The homepage builder and My Collection builder are separate source contexts. The homepage builder uses the active Star of the Day inventory and supports discovery, download, and explicit saves. The My Collection builder uses only images the user explicitly saved; it must never inject Daily Drop inventory, historical editions, actor-pack suggestions, or other unsaved images. Historical edition or actor-pack views may offer explicit Save actions or launch their own clearly labeled builder context, but they do not silently expand My Collection.
+The public builder is discovery-oriented; My Collection is deliberately authored from the reader's own saves.
 
-This separation is user-confirmed: the homepage is where someone discovers a strong image they do not yet have, while the My Collection builder must feel entirely authored from their own deliberate saves.
+**Why:** The creator confirmed that the homepage is where someone discovers a strong image they do not yet have, while the My Collection builder must feel entirely authored from their own deliberate saves. Stable public teasers support discovery without turning a personal collection into a catalog.
 
-**Why:** A useful daily collection gives free visitors a complete creation loop and a reason to return. Stable visual teasers let articles and search visitors discover the actor's catalog without a surprise paywall, while paid archive utility and fresh grids from other released packs offer deeper Collector value. Star of the Day is a public spotlight, not a restriction on which released actors Collectors can choose.
-
-**How to apply:** Separate active-day access from historical reconstruction and keep every builder’s source boundary explicit. Permanent teaser pages should be useful even when the actor is not today's star, with real approved visuals where available; never imply an unpublished pairing or an unavailable preview is released. During the active window, an explicit Save action may materialize one selected image in My Collection for anyone, and individual downloads are allowed; never bulk-copy the edition. The homepage builder reads the active edition inventory. The My Collection builder reads only explicit user saves. After the window closes, previously saved images remain usable, but reopening a missed edition in its own builder context, reconstructing or remixing that day, and acquiring missed historical images require Collector access. Gate that historical utility and full non-daily grids, not the public teaser page. Preserve provenance from Daily Drop or actor pack through saves, grids, exports, and publishing handoffs.
+**How to apply:** Keep builder source boundaries explicit in future navigation and onboarding changes. Do not equate public visibility with a personal save, or a dated spotlight with release of an actor's entire pack catalog.
 
 An active free nine-card drop can exist without a qualifying historical public pack record. Its actor/vibe identity alone must not create a signed-out historical-record deep link. The actor's other approved, runnable packs should instead offer bounded search-result contrast previews alongside today's free full grid; those preview runs do not change the published Daily Drop's fixed composition.
 

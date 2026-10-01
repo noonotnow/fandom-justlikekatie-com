@@ -9,6 +9,9 @@ lerna-debug.log*
 
 node_modules
 .cache/
+# Local CLI state may contain credentials; never include it in checkpoints.
+.config/netlify/
+.config/configstore/
 .netlify
 dist
 dist-ssr

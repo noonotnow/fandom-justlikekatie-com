@@ -69,13 +69,18 @@ export function isPublishingHandoffPreview(hostname: string, search: string): bo
   return isDeployPreview && new URLSearchParams(search).get('handoff-preview') === '1';
 }
 
-export type GridBuilderSource = 'collection' | 'daily' | 'edition';
+export type GridBuilderSource = 'collection' | 'daily' | 'edition' | 'archive';
 
 export function hasMalformedGridBuilderSource(search: string): boolean {
   const params = new URLSearchParams(search);
   if (params.get('view') !== 'builder') return false;
   const source = params.get('source');
-  if (source === null || source === 'collection' || source === 'daily') return false;
+  if (
+    source === null
+    || source === 'collection'
+    || source === 'daily'
+    || source === 'archive'
+  ) return false;
   return source !== 'edition' || !isValidVibeAtlasEditionDate(params.get('date') || '');
 }
 
@@ -83,7 +88,10 @@ export function initialGridBuilderSource(search: string): GridBuilderSource {
   const params = new URLSearchParams(search);
   if (params.get('view') !== 'builder') return 'collection';
   if (params.get('source') === 'daily') return 'daily';
-  return params.get('source') === 'edition' && isValidVibeAtlasEditionDate(params.get('date') || '')
-    ? 'edition'
-    : 'collection';
+  if (params.get('source') === 'collection') return 'collection';
+  if (params.get('source') === 'edition' && isValidVibeAtlasEditionDate(params.get('date') || '')) return 'edition';
+  // A directly opened Builder is a public Archive workspace. Collection
+  // navigation writes source=collection explicitly to keep saved inventory
+  // isolated from a public archive link.
+  return 'archive';
 }

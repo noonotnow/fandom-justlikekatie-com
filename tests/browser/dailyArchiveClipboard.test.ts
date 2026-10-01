@@ -156,6 +156,17 @@ function starOfDay(date: string, includePublicRecord = false) {
   };
 }
 
+async function routeLegacyArchiveFallback(page: Page): Promise<void> {
+  await page.route('**/.netlify/functions/public-archive-inventory**', route => route.fulfill({
+    status: 404,
+    contentType: 'application/json',
+    body: JSON.stringify({
+      error: 'That public Archive edition is not available.',
+      fallback: 'legacy_unverified_edition',
+    }),
+  }));
+}
+
 function archiveEditions() {
   return [
     {
@@ -219,6 +230,7 @@ for (const engine of BROWSER_ENGINES) {
     const [{ server, origin }, browser] = await launchBrowserWithServer(startApp(), engine.type);
     try {
     const page = await browser.newPage();
+    const legacyEditionRequests: string[] = [];
     await installClipboardHarness(page);
     await page.route('https://www.googletagmanager.com/**', route => route.abort());
     await page.route('**/api/auth/session', route => route.fulfill({
@@ -231,8 +243,28 @@ for (const engine of BROWSER_ENGINES) {
       body: JSON.stringify({ error: 'Sign in is required.' }),
     }));
     await page.route('**/.netlify/functions/image-proxy**', route => route.abort());
+    await page.route('**/.netlify/functions/public-archive-inventory**', async route => {
+      const date = new URL(route.request().url()).searchParams.get('date');
+      if (date === ARCHIVED_DATE) {
+        await route.fulfill({
+          contentType: 'application/json',
+          body: JSON.stringify(starOfDay(ARCHIVED_DATE, true)),
+        });
+        return;
+      }
+      await route.fulfill({
+        status: 404,
+        contentType: 'application/json',
+        body: JSON.stringify({
+          error: 'That public Archive edition is not available.',
+          fallback: 'legacy_unverified_edition',
+        }),
+      });
+    });
     await page.route('**/.netlify/functions/star-of-day**', async route => {
       const url = new URL(route.request().url());
+        const requestedDate = url.searchParams.get('date');
+        if (requestedDate) legacyEditionRequests.push(requestedDate);
         const response = url.searchParams.get('archive') === '1'
           ? {
               editions: [{
@@ -262,6 +294,11 @@ for (const engine of BROWSER_ENGINES) {
 
       await gotoTestPage(page, `${origin}/vibe-atlas?date=${ARCHIVED_DATE}`, { waitUntil: 'domcontentloaded' });
       await page.getByText('Archived card drop · Aug 31, 2026').waitFor();
+      assert.deepEqual(
+        legacyEditionRequests,
+        [],
+        'a verified dated public edition must not be routed through the legacy member gate',
+      );
 
       await page.getByRole('button', { name: 'Copy archived edition link' }).click();
       await page.getByText('Copied link for Aug 31, 2026.', { exact: true }).waitFor();
@@ -432,6 +469,7 @@ test('partial public-record metadata stays fail-closed across today, the locked 
       body: JSON.stringify({ error: 'Sign in is required.' }),
     }));
     await page.route('**/.netlify/functions/image-proxy**', route => route.abort());
+    await routeLegacyArchiveFallback(page);
     await page.route('**/.netlify/functions/star-of-day**', async route => {
       const url = new URL(route.request().url());
       if (url.searchParams.get('archive') === '1') {
@@ -520,6 +558,7 @@ test('complete-looking public-record metadata with unapproved paths stays fail-c
         body: JSON.stringify({ error: 'Sign in is required.' }),
       }));
       await page.route('**/.netlify/functions/image-proxy**', route => route.abort());
+      await routeLegacyArchiveFallback(page);
       await page.route('**/.netlify/functions/star-of-day**', async route => {
         const url = new URL(route.request().url());
         if (url.searchParams.get('archive') === '1') {
@@ -614,6 +653,7 @@ test('an older direct archive URL renders only the Founding Member preview gate'
       body: JSON.stringify({ error: 'Sign in is required.' }),
     }));
     await page.route('**/.netlify/functions/image-proxy**', route => route.abort());
+    await routeLegacyArchiveFallback(page);
     await page.route('**/.netlify/functions/star-of-day**', async route => {
       const url = new URL(route.request().url());
       if (url.searchParams.get('archive') === '1') {

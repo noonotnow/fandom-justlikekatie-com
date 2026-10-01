@@ -13,6 +13,13 @@ Curated 3×3 image grids of CDRAMA actors filtered by "vibe spells" (aesthetic s
 - Grid Builder is a core MVP product flow, not an admin-only or later feature
 - Public grid history
 
+## Public Archive creation and saves
+- The public Grid Builder uses verified published Star of the Day editions across dates. Browsing, composing, and standard grid exports are free regardless of edition age.
+- Individual app saves are free through three calendar days after the edition date, measured in Asia/Shanghai; older individual saves require verified Collector membership. Missing publication days do not extend that window.
+- The Collection builder uses only explicitly saved images. Archive browsing, proposals, exports, and finished-grid saves must never import constituent cards automatically.
+- Existing saved images remain usable after aging or membership expiry. Finished-grid canvas limits, deeper released actor packs, treatments, and Master Export restrictions remain separate.
+- Public image delivery is not browser-copy protection. Never republish unverified historical editions to fill inventory gaps.
+
 ## Stack
 - **Frontend:** React 19, TypeScript, Vite, Tailwind CSS v4
 - **Backend:** Netlify Functions (`netlify/functions/`)

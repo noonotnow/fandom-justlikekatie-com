@@ -8,12 +8,17 @@
  */
 import type { GridItemData } from '../types';
 import {
+  assertPublicArchiveRecord,
+  type PublicArchiveRecord,
+} from '../contracts/publicArchiveRecord.js';
+import {
   collectionScopeForCard,
   type CardRecord,
   type GridRecord,
   type LegendaryMisprint,
 } from './collectionDB';
 import { detectEditorialSets } from './editorialDetection';
+import type { StarOfDayData, StarOfDayResult } from '../hooks/useStarOfDay';
 
 /** A normalized saved result in the builder pool. */
 export interface BuilderCard {
@@ -38,16 +43,21 @@ export interface BuilderCard {
   resultId: string;
   /** Stable content checksum when the image has been registered in MEDIA. */
   mediaChecksum?: string;
-  origin: 'saved-card' | 'saved-grid' | 'daily-drop';
+  origin: 'saved-card' | 'saved-grid' | 'daily-drop' | 'public-archive';
   sourceGridId?: string;
   /** Visual family id assigned during pool build (editorial set or batch). */
   familyId: string;
   familyLabel: string;
   familyEvidence?: 'persisted-event' | 'batch' | 'publisher' | 'fallback';
   legendaryMisprint?: LegendaryMisprint;
+  archiveSource?: {
+    date: string;
+    publicRecord: PublicArchiveRecord;
+  };
 }
 
 interface DailyDropBuilderResult {
+  imageId?: string;
   title?: string;
   thumbnail: string;
   link?: string;
@@ -55,6 +65,10 @@ interface DailyDropBuilderResult {
   familyId?: string;
   familyLabel?: string;
   familyEvidence?: 'persisted-event' | 'batch' | 'publisher' | 'fallback';
+  archiveSource?: {
+    date: string;
+    publicRecord: PublicArchiveRecord;
+  };
 }
 
 interface DailyDropBuilderBatch {
@@ -73,6 +87,10 @@ export interface DailyDropBuilderInput {
   vibeSubtitle: string;
   vibeSubtitleEn: string;
   date: string;
+  publicRecord?: {
+    actorPath: string;
+    editionPath: string;
+  };
   rankedBatches: DailyDropBuilderBatch[];
   displayResults?: DailyDropBuilderResult[];
 }
@@ -201,6 +219,18 @@ function slugify(value: string): string {
 
 /** Normalize the immutable active Daily Drop inventory for the shared builder UI. */
 export function buildDailyDropPool(data: DailyDropBuilderInput): BuilderCard[] {
+  const dailyArchiveSource = data.publicRecord
+    ? (() => {
+      try {
+        return {
+          date: data.date,
+          publicRecord: assertPublicArchiveRecord(data.publicRecord, { expectedDate: data.date }),
+        };
+      } catch {
+        return undefined;
+      }
+    })()
+    : undefined;
   const seen = new Set<string>();
   const batches = data.displayResults?.length
     ? [{
@@ -218,6 +248,21 @@ export function buildDailyDropPool(data: DailyDropBuilderInput): BuilderCard[] {
       const familyId = result.familyId
         || (batchKey ? `batch-${slugify(batchKey)}` : `vibe-${slugify(data.vibeLabelEn || data.vibeLabel)}`);
       const familyLabel = result.familyLabel || batchKey || data.vibeLabelEn || data.vibeLabel;
+      const resultArchiveSource = result.archiveSource?.date === data.date
+        ? (() => {
+          try {
+            return {
+              date: data.date,
+              publicRecord: assertPublicArchiveRecord(result.archiveSource!.publicRecord, {
+                expectedDate: data.date,
+              }),
+            };
+          } catch {
+            return undefined;
+          }
+        })()
+        : undefined;
+      const archiveSource = resultArchiveSource || dailyArchiveSource;
       cards.push({
         key: `daily:${data.date}:${result.thumbnail}`,
         imageUrl: `/.netlify/functions/image-proxy?url=${encodeURIComponent(result.thumbnail)}`,
@@ -235,15 +280,81 @@ export function buildDailyDropPool(data: DailyDropBuilderInput): BuilderCard[] {
         vibeSubtitleEn: data.vibeSubtitleEn,
         ...(batchKey ? { batchKey } : {}),
         capturedDate: data.date,
-        resultId: result.thumbnail,
+        resultId: result.imageId || result.thumbnail,
         origin: 'daily-drop',
         familyId,
         familyLabel,
         familyEvidence: result.familyEvidence || (batchKey ? 'batch' : 'fallback'),
+        ...(archiveSource ? { archiveSource } : {}),
       });
     }
   }
 
+  return cards;
+}
+
+/**
+ * Build inventory cards from publicly verified Archive editions. Keys derive
+ * from the immutable edition date and result identity, never attribution links.
+ */
+export function buildPublicArchivePool(editions: StarOfDayData[]): BuilderCard[] {
+  const cards: BuilderCard[] = [];
+  const seen = new Set<string>();
+
+  for (const data of editions) {
+    const archiveSource = {
+      date: data.date,
+      publicRecord: assertPublicArchiveRecord(data.publicRecord, { expectedDate: data.date }),
+    };
+    const batches = data.displayResults?.length
+      ? [{
+        query: data.rankedBatches[0]?.query || 'public-archive-edition',
+        results: data.displayResults,
+      }]
+      : data.rankedBatches;
+
+    for (const batch of batches) {
+      for (const result of batch.results as StarOfDayResult[]) {
+        if (!result.thumbnail) continue;
+        const imageIdentity = result.imageId || result.thumbnail;
+        const key = `archive:${data.date}:${imageIdentity}`;
+        if (seen.has(key)) continue;
+        seen.add(key);
+        const batchKey = editorialBatchKey(
+          'batchKey' in result && typeof result.batchKey === 'string'
+            ? result.batchKey
+            : batch.query,
+        );
+        const familyId = result.familyId
+          || (batchKey ? `batch-${slugify(batchKey)}` : `vibe-${slugify(data.vibeLabelEn || data.vibeLabel)}`);
+        const familyLabel = result.familyLabel || batchKey || data.vibeLabelEn || data.vibeLabel;
+        cards.push({
+          key,
+          imageUrl: `/.netlify/functions/image-proxy?url=${encodeURIComponent(result.thumbnail)}`,
+          sourceUrl: result.link || result.thumbnail,
+          title: result.title || `${data.actorName} · ${data.vibeLabel}`,
+          ...(result.source ? { publisher: result.source } : {}),
+          actor: data.actorName,
+          actorEn: data.actorShortNameEn,
+          actorId: data.actorId,
+          actorAccentColor: data.actorAccentColor,
+          vibe: data.vibeLabel,
+          vibeEn: data.vibeLabelEn,
+          vibeEmoji: data.vibeEmoji,
+          vibeSubtitle: data.vibeSubtitle,
+          vibeSubtitleEn: data.vibeSubtitleEn,
+          ...(batchKey ? { batchKey } : {}),
+          capturedDate: data.date,
+          resultId: imageIdentity,
+          origin: 'public-archive',
+          familyId,
+          familyLabel,
+          familyEvidence: result.familyEvidence || (batchKey ? 'batch' : 'fallback'),
+          archiveSource,
+        });
+      }
+    }
+  }
   return cards;
 }
 
@@ -671,6 +782,7 @@ export function gridRecordFromProposal(
       ...(card.familyId ? { familyId: card.familyId } : {}),
       ...(card.familyLabel ? { familyLabel: card.familyLabel } : {}),
       ...(card.familyEvidence ? { familyEvidence: card.familyEvidence } : {}),
+      ...(card.archiveSource ? { archiveSource: card.archiveSource } : {}),
       ...(card.legendaryMisprint ? { legendaryMisprint: card.legendaryMisprint } : {}),
       gridPosition,
     })),

@@ -1641,12 +1641,14 @@ function calendarDateOffset(dateString, days) {
   return date.toISOString().slice(0, 10);
 }
 
-function isPublicationManifestCatalog(value) {
+export function isPublicationManifestCatalog(value) {
   return value?.schemaVersion === 1
     && value.catalogVersion === GRID_MANIFEST_VERSION
     && value.kind === "vibe-atlas-publication-manifest-catalog"
     && Array.isArray(value.dates)
-    && value.dates.every(isPublicationDate);
+    && value.dates.every((date, index, dates) =>
+      isPublicationDate(date)
+      && (index === 0 || dates[index - 1] < date));
 }
 async function ensurePublicationManifestCatalogDate(store, date, now) {
   for (let attempt = 0; attempt < 8; attempt += 1) {

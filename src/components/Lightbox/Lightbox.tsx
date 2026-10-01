@@ -5,6 +5,8 @@ import { ExportCardButton, type ExportCardMetadata } from '../ExportCardButton/E
 import { dbSaveCard, dbRemoveCard, dbIsCardSaved } from '../../utils/collectionDB';
 import { storage } from '../../utils/storage';
 import { schedulePublicCollectionSync } from '../../utils/publicAccount';
+import { ArchiveImageSaveError, authorizeArchiveImageSave } from '../../utils/archiveImageSave';
+import { vibeAtlasPath } from '../../utils/fandomRoutes';
 import styles from './Lightbox.module.css';
 
 const SWIPE_THRESHOLD = 50;
@@ -148,8 +150,11 @@ export const Lightbox: React.FC<LightboxProps> = ({
 
   const [isSaved, setIsSaved] = useState(false);
   const [isLegacySaved, setIsLegacySaved] = useState(false);
+  const [saveBusy, setSaveBusy] = useState(false);
+  const [saveFailure, setSaveFailure] = useState<'sign_in' | 'upgrade' | 'retry' | 'local' | null>(null);
+  const saveInFlight = useRef(false);
 
-      useEffect(() => {
+  useEffect(() => {
     if (!current) return;
     let cancelled = false;
     dbIsCardSaved(current.thumbnail).then((inDB) => {
@@ -167,8 +172,11 @@ export const Lightbox: React.FC<LightboxProps> = ({
   }, [current]);
 
 
-    async function handleSave() {
-    if (!current) return;
+  async function handleSave() {
+    if (!current || saveInFlight.current) return;
+    saveInFlight.current = true;
+    setSaveBusy(true);
+    setSaveFailure(null);
 
     const cardPayload = {
       imageUrl: current.thumbnail,
@@ -192,22 +200,33 @@ export const Lightbox: React.FC<LightboxProps> = ({
       },
     };
 
-    if (isLegacySaved) {
-      // Migrate: promote localStorage bookmark → IndexedDB with full metadata
-      await dbSaveCard(cardPayload);
-      storage.removeItem(current.id);
-      setIsLegacySaved(false);
-      setIsSaved(true);
-      if (navigator.vibrate) navigator.vibrate(50);
-    } else if (isSaved) {
-      await dbRemoveCard(current.thumbnail);
-      setIsSaved(false);
-    } else {
-      await dbSaveCard(cardPayload);
-      setIsSaved(true);
-      if (navigator.vibrate) navigator.vibrate(50);
+    try {
+      if (isLegacySaved) {
+        // Keep the old bookmark unless the server authorizes and promotion
+        // succeeds. current.id is the raw published result identity.
+        if (planData?.date) await authorizeArchiveImageSave(planData.date, current.archiveImageId || current.id);
+        await dbSaveCard(cardPayload);
+        storage.removeItem(current.id);
+        setIsLegacySaved(false);
+        setIsSaved(true);
+        if (navigator.vibrate) navigator.vibrate(50);
+      } else if (isSaved) {
+        // A removal never depends on the current age or membership boundary.
+        await dbRemoveCard(current.thumbnail);
+        setIsSaved(false);
+      } else {
+        if (planData?.date) await authorizeArchiveImageSave(planData.date, current.archiveImageId || current.id);
+        await dbSaveCard(cardPayload);
+        setIsSaved(true);
+        if (navigator.vibrate) navigator.vibrate(50);
+      }
+      schedulePublicCollectionSync();
+    } catch (error) {
+      setSaveFailure(error instanceof ArchiveImageSaveError ? error.failure : 'local');
+    } finally {
+      saveInFlight.current = false;
+      setSaveBusy(false);
     }
-    schedulePublicCollectionSync();
   }
 
   if (!current) return null;
@@ -300,6 +319,7 @@ export const Lightbox: React.FC<LightboxProps> = ({
               <div style={{ display: 'flex', flexDirection: 'column', alignItems: 'center', gap: '2px' }}>
                 <button
                   onClick={handleSave}
+                  disabled={saveBusy}
                   title={isLegacySaved ? 'Add to Collection' : isSaved ? 'Remove from collection' : 'Save to collection'}
                   aria-label={isLegacySaved ? 'Add to Collection' : isSaved ? 'Unsave' : 'Save to collection'}
                   style={{
@@ -318,6 +338,17 @@ export const Lightbox: React.FC<LightboxProps> = ({
                 {isLegacySaved && (
                   <span style={{ fontSize: '0.6rem', color: '#888888', whiteSpace: 'nowrap' }}>
                     之前已收藏 · 点击加入收藏
+                  </span>
+                )}
+                {saveFailure && (
+                  <span className={styles.saveNotice} role="alert">
+                    {saveFailure === 'sign_in'
+                      ? <>Sign in before saving this edition’s cards. <a href={vibeAtlasPath({ view: 'membership' })}>Sign in</a></>
+                      : saveFailure === 'upgrade'
+                        ? <>Older edition card saves are a Collector benefit. <a href={vibeAtlasPath({ view: 'membership' })}>See Collector options</a></>
+                        : saveFailure === 'retry'
+                          ? <>We could not verify this card; your save was not changed. <button type="button" onClick={() => void handleSave()} disabled={saveBusy}>Try again</button></>
+                          : <>Could not update this save; please try again. <button type="button" onClick={() => void handleSave()} disabled={saveBusy}>Try again</button></>}
                   </span>
                 )}
               </div>

@@ -1,4 +1,6 @@
 import { PUBLIC_ROUTE_PATHS } from '../../shared/public-routes.js';
+import { assertPublicArchiveRecord } from '../contracts/publicArchiveRecord.js';
+import type { PublicArchiveRecord } from '../contracts/publicArchiveRecord.js';
 import { dbSaveGrid, type GridRecord } from './collectionDB';
 import { persistGridImagesToMedia, type CollectionGridMediaFailure } from './collectionMedia';
 import { completeWorkstationHandoff, type WorkstationReceipt } from './workstationHandoffClient';
@@ -46,6 +48,10 @@ export interface CreatorDraftSource {
     familyId?: string;
     familyLabel?: string;
     familyEvidence?: 'persisted-event' | 'batch' | 'publisher' | 'fallback';
+    archiveSource?: {
+      date: string;
+      publicRecord: PublicArchiveRecord;
+    };
   }>;
 }
 
@@ -116,6 +122,14 @@ export async function creatorDraftSourceFromGrid(
         ...(image.familyId ? { familyId: image.familyId } : {}),
         ...(image.familyLabel ? { familyLabel: image.familyLabel } : {}),
         ...(image.familyEvidence ? { familyEvidence: image.familyEvidence } : {}),
+        ...(image.archiveSource ? {
+          archiveSource: {
+            date: image.archiveSource.date,
+            publicRecord: assertPublicArchiveRecord(image.archiveSource.publicRecord, {
+              expectedDate: image.archiveSource.date,
+            }),
+          },
+        } : {}),
       })),
   };
 }
@@ -192,6 +206,7 @@ function sourceVersionMaterial(grid: GridRecord) {
       familyId: image.familyId || '',
       familyLabel: image.familyLabel || '',
       familyEvidence: image.familyEvidence || '',
+      archiveSource: image.archiveSource || null,
       batchRank: image.batchRank ?? null,
       mediaRecoverySourceUrl: image.mediaRecovery?.sourceUrl || '',
       media: image.media || null,
