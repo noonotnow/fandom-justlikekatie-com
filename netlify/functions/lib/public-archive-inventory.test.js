@@ -417,6 +417,102 @@ test("free archive image saves require no sign-in and authorize only the exact p
   ]);
 });
 
+test("all nine immutable daily cards can be acquired without an indexable editorial page", async () => {
+  const date = "2026-10-02";
+  const daily = manifest(date, "liu-yuning");
+  delete daily.vibe.supportingCopyEn;
+  delete daily.publicRecord;
+  const store = memoryStore({ [gridManifestKey(date)]: daily });
+  const handler = saveHandler(store, { clock: new Date("2026-10-01T18:00:00Z") });
+  assert.equal(publicArchiveGrid(daily), null);
+  assert.equal((await inventoryRequest(inventoryHandler(store, new Date("2026-10-01T18:00:00Z")), `?date=${date}`)).statusCode, 404);
+  for (const card of daily.cards) {
+    for (const imageId of [
+      `archive:${date}:card-${card.position}`,
+      card.candidateId,
+      card.media.thumbnailUrl,
+      card.media.deliveryUrl,
+    ]) {
+      const response = await handler(saveRequest({ date, imageId }), {});
+      assert.equal(response.statusCode, 200);
+      const body = responseJson(response);
+      assert.equal(body.imageId, `archive:${date}:card-${card.position}`);
+      assert.equal(body.thumbnailUrl, card.media.thumbnailUrl);
+      assert.equal(body.archiveEditionPath, undefined);
+    }
+  }
+  assert.equal((await handler(saveRequest({ date, imageId: "unrelated-card" }), {})).statusCode, 404);
+  assert.equal((await handler(saveRequest({
+    date, imageId: daily.cards[0].sourceUrl,
+  }), {})).statusCode, 404, "transient provenance URLs are not delivered card identities");
+  assert.equal((await handler(saveRequest({
+    date, imageId: `/.netlify/functions/image-proxy?url=${encodeURIComponent(daily.cards[0].media.thumbnailUrl)}`,
+  }), {})).statusCode, 404, "a client proxy URL cannot grant acquisition");
+  assert.ok(store.reads.every(read => read.key === gridManifestKey(date)
+    && read.options.consistency === "strong"));
+});
+
+test("missing, private and changed invalid daily evidence never falls back to caches or writes", async () => {
+  const date = today;
+  for (const alter of [
+    () => null,
+    daily => ({ ...daily, kind: "private-audit-board" }),
+    daily => ({ ...daily, publicationDate: "2026-08-09" }),
+    daily => ({ ...daily, cards: daily.cards.slice(0, 8) }),
+    daily => {
+      daily.cards[0].candidateId = "changed-unapproved-candidate";
+      return daily;
+    },
+    daily => {
+      daily.cards[0].media.association.id = "private-pack";
+      return daily;
+    },
+    daily => {
+      daily.cards[0].media.checksum = "invalid";
+      return daily;
+    },
+  ]) {
+    const original = manifest(date);
+    const records = {
+      [gridManifestKey(date)]: alter(structuredClone(original)),
+      [`starOfDay:v10:${date}`]: original,
+      "private-audit": original,
+    };
+    const store = memoryStore(records);
+    const before = structuredClone([...store.records]);
+    const handler = saveHandler(store);
+    const response = await handler(saveRequest({
+      date, imageId: original.cards[0].media.thumbnailUrl,
+    }), {});
+    assert.equal(response.statusCode, 404);
+    assert.deepEqual([...store.records], before);
+    assert.deepEqual(store.reads.map(read => read.key), [gridManifestKey(date)]);
+  }
+});
+
+test("daily acquisition uses Shanghai rollover and preserves the three/four-day membership boundary", async () => {
+  const date = "2026-10-02";
+  const daily = manifest(date);
+  delete daily.vibe.supportingCopyEn;
+  const store = memoryStore({ [gridManifestKey(date)]: daily });
+  const request = () => saveRequest({ date, imageId: daily.cards[4].media.thumbnailUrl });
+  for (const [clock, expected] of [
+    ["2026-10-01T15:59:59Z", 404],
+    ["2026-10-01T16:00:00Z", 200],
+    ["2026-10-04T16:00:00Z", 200],
+    ["2026-10-05T15:59:59Z", 200],
+    ["2026-10-05T16:00:00Z", 401],
+  ]) {
+    assert.equal((await saveHandler(store, { clock: new Date(clock) })(request(), {})).statusCode, expected, clock);
+  }
+  const member = saveHandler(store, {
+    clock: new Date("2026-10-05T16:00:00Z"),
+    authenticate: async () => ({ user: { accountId: "collector" } }),
+    membership: { status: "active", product: "fandom_collector" },
+  });
+  assert.equal((await member(request(), {})).statusCode, 200);
+});
+
 test("older image saves require sign-in, verified Collector membership, and report billing delays", async () => {
   const date = "2026-08-06";
   const published = manifest(date);

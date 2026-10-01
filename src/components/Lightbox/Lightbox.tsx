@@ -7,6 +7,7 @@ import { storage } from '../../utils/storage';
 import { schedulePublicCollectionSync } from '../../utils/publicAccount';
 import { ArchiveImageSaveError, authorizeArchiveImageSave } from '../../utils/archiveImageSave';
 import { vibeAtlasPath } from '../../utils/fandomRoutes';
+import { notifySavedItemChanged } from '../../hooks/useSaveItem';
 import styles from './Lightbox.module.css';
 
 const SWIPE_THRESHOLD = 50;
@@ -188,7 +189,7 @@ export const Lightbox: React.FC<LightboxProps> = ({
       publisher: current.publisher,
       searchQuery: current.batchKey,
       actor: cardMetadata?.actorName ?? 'Unknown',
-      actorEn: cardMetadata?.actorName ?? 'Unknown',
+      actorEn: planData?.actorShortNameEn ?? cardMetadata?.actorName ?? 'Unknown',
       vibe: cardMetadata?.vibeLabel ?? 'Unknown',
       vibeEn: cardMetadata?.vibeLabelEn ?? 'Unknown',
       vibeEmoji: cardMetadata?.vibeEmoji ?? '✨',
@@ -204,7 +205,13 @@ export const Lightbox: React.FC<LightboxProps> = ({
       if (isLegacySaved) {
         // Keep the old bookmark unless the server authorizes and promotion
         // succeeds. current.id is the raw published result identity.
-        if (planData?.date) await authorizeArchiveImageSave(planData.date, current.archiveImageId || current.id);
+        if (planData?.date) {
+          await authorizeArchiveImageSave(
+            planData.date,
+            current.archiveImageId || current.id,
+            current.gridPosition ?? currentIndex,
+          );
+        }
         await dbSaveCard(cardPayload);
         storage.removeItem(current.id);
         setIsLegacySaved(false);
@@ -213,13 +220,21 @@ export const Lightbox: React.FC<LightboxProps> = ({
       } else if (isSaved) {
         // A removal never depends on the current age or membership boundary.
         await dbRemoveCard(current.thumbnail);
+        storage.removeItem(current.id);
         setIsSaved(false);
       } else {
-        if (planData?.date) await authorizeArchiveImageSave(planData.date, current.archiveImageId || current.id);
+        if (planData?.date) {
+          await authorizeArchiveImageSave(
+            planData.date,
+            current.archiveImageId || current.id,
+            current.gridPosition ?? currentIndex,
+          );
+        }
         await dbSaveCard(cardPayload);
         setIsSaved(true);
         if (navigator.vibrate) navigator.vibrate(50);
       }
+      notifySavedItemChanged(current.thumbnail);
       schedulePublicCollectionSync();
     } catch (error) {
       setSaveFailure(error instanceof ArchiveImageSaveError ? error.failure : 'local');

@@ -18,6 +18,7 @@ import { applyWholeCardTierOverride, boardIdentity } from './utils/wholeCardTier
 import { useDarkMode } from './hooks/useDarkMode';
 import { useStarOfDay, type StarOfDayArchiveEntry } from './hooks/useStarOfDay';
 import { useWholeCardTier } from './hooks/useWholeCardTier';
+import type { SaveItemMetadata } from './hooks/useSaveItem';
 import { consumeMagicLinkFromLocation, requestMagicLink } from './utils/publicAccount';
 import {
   createMembershipCheckout,
@@ -783,6 +784,15 @@ function VibeAtlasApp({ archiveEntry = false }: { archiveEntry?: boolean }) {
    */
   const renderGridItems = () => {
     const elements: React.ReactNode[] = [];
+    const saveMetadata: SaveItemMetadata | undefined = rawData && meta ? {
+      actorId: rawData.actorId,
+      actorName: meta.actorName,
+      actorNameEn: rawData.actorShortNameEn,
+      vibeLabel: meta.vibeLabel,
+      vibeLabelEn: meta.vibeLabelEn,
+      vibeEmoji: meta.vibeEmoji,
+      date: rawData.date,
+    } : undefined;
 
     for (let i = 0; i < gridImages.length; i++) {
       const item = gridImages[i];
@@ -793,6 +803,7 @@ function VibeAtlasApp({ archiveEntry = false }: { archiveEntry?: boolean }) {
           key={item.id}
           {...item}
           tier={imageTiers[item.id] ?? null}
+          saveMetadata={saveMetadata}
           onImageClick={() => handleItemClick(item.id)}
           onSaveChange={(saved) => handleCardSaveChange(i, saved)}
         />,
@@ -812,7 +823,12 @@ function VibeAtlasApp({ archiveEntry = false }: { archiveEntry?: boolean }) {
             key={`preview-${expandedInThisRow.id}`}
             item={expandedInThisRow}
             isOpen={true}
+            saveMetadata={saveMetadata}
             onClose={() => setExpandedId(null)}
+            onSaveChange={saved => handleCardSaveChange(
+              gridImages.findIndex(gridItem => gridItem.id === expandedInThisRow.id),
+              saved,
+            )}
             onViewFull={() => {
               const idx = gridImages.findIndex((g) => g.id === expandedInThisRow.id);
               handleViewFull(idx);

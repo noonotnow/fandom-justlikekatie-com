@@ -19,11 +19,15 @@ export class ArchiveImageSaveError extends Error {
 }
 
 /**
- * Ask the server to authorize one individual card save before touching local
- * storage. The identity is the raw thumbnail/result identity, never its
- * image-proxy URL.
+ * Ask the server to authorize one individual card save before touching the
+ * Collection or legacy bookmark. The request identity is raw, never its
+ * image-proxy URL; accept only its echo or the matching date/position identity.
  */
-export async function authorizeArchiveImageSave(date: string, imageId: string): Promise<void> {
+export async function authorizeArchiveImageSave(
+  date: string,
+  imageId: string,
+  position?: number,
+): Promise<void> {
   if (!isValidVibeAtlasEditionDate(date) || !imageId.trim()) {
     throw new ArchiveImageSaveError('retry');
   }
@@ -57,6 +61,11 @@ export async function authorizeArchiveImageSave(date: string, imageId: string): 
   if (access === 'upgrade') {
     throw new ArchiveImageSaveError('upgrade');
   }
+  const canonicalImageId = Number.isInteger(position)
+    && position! >= 0
+    && position! <= 8
+    ? `archive:${date}:card-${position}`
+    : '';
   if (
     response.ok
     && response.headers.get('content-type')?.toLowerCase().includes('application/json')
@@ -64,6 +73,10 @@ export async function authorizeArchiveImageSave(date: string, imageId: string): 
     && body.date === date
     && typeof body.imageId === 'string'
     && body.imageId.trim().length > 0
+    && (
+      body.imageId === imageId
+      || body.imageId === canonicalImageId
+    )
   ) return;
   throw new ArchiveImageSaveError('retry');
 }
