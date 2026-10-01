@@ -11,6 +11,7 @@ export const PUBLIC_ROUTE_PATHS: Readonly<{
   launchpad: "/";
   vibeAtlas: "/vibe-atlas";
   vibeAtlasArchive: "/vibe-atlas/archive";
+  vibeAtlasPacks: "/vibe-atlas/packs";
   vibeAtlasActors: "/vibe-atlas/actors";
   vibeAtlasEditions: "/vibe-atlas/editions";
   vibeAtlasVeteranJournal: "/vibe-atlas/veteran-journal";

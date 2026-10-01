@@ -3,6 +3,7 @@ import { isIP } from "node:net";
 import { renderCanonicalOutput } from "./canonical-render.js";
 import { validateGridEditorialContract } from "./grid-editorial-contract.js";
 import { MAX_MEDIA_BYTES } from "./media-asset.js";
+import { assertPublicArchiveRecord } from "../../../src/contracts/publicArchiveRecord.js";
 import {
   BOARD_CLASSIFICATIONS,
   approvedBoardAuthorityKey,
@@ -286,15 +287,32 @@ function validateSource(source) {
       || (image.familyLabel !== undefined && typeof image.familyLabel !== "string")
       || (image.familyEvidence !== undefined
         && !["persisted-event", "batch", "publisher", "fallback"].includes(image.familyEvidence))
+      || (image.archiveSource !== undefined && !isValidArchiveSource(image.archiveSource))
       || Object.keys(image).some(key => ![
         "position", "resultId", "sourceUrl", "title", "publisher", "batchKey",
-        "familyId", "familyLabel", "familyEvidence",
+        "familyId", "familyLabel", "familyEvidence", "archiveSource",
       ].includes(key))
     ) throw requestError("Creator Draft ordered images are invalid.", 400);
     positions.add(image.position);
   }
   if (![...positions].sort((a, b) => a - b).every((position, index) => position === index)) {
     throw requestError("Creator Draft image positions must start at zero and be contiguous.", 400);
+  }
+}
+
+function isValidArchiveSource(value) {
+  if (!isRecord(value)
+    || typeof value.date !== "string"
+    || !isRecord(value.publicRecord)
+    || Object.keys(value).some(key => !["date", "publicRecord"].includes(key))
+    || Object.keys(value.publicRecord).some(key => !["actorPath", "editionPath"].includes(key))) {
+    return false;
+  }
+  try {
+    assertPublicArchiveRecord(value.publicRecord, { expectedDate: value.date });
+    return true;
+  } catch {
+    return false;
   }
 }
 
@@ -384,6 +402,7 @@ async function validateSourceAgainstGrid(source, grid, fetchImpl, env) {
       ...(image.familyId ? { familyId: image.familyId } : {}),
       ...(image.familyLabel ? { familyLabel: image.familyLabel } : {}),
       ...(image.familyEvidence ? { familyEvidence: image.familyEvidence } : {}),
+      ...(image.archiveSource ? { archiveSource: image.archiveSource } : {}),
     })),
   };
   if (JSON.stringify(source) !== JSON.stringify(expected)) {
@@ -522,6 +541,7 @@ function sourceVersionMaterial(grid) {
       familyId: image.familyId || "",
       familyLabel: image.familyLabel || "",
       familyEvidence: image.familyEvidence || "",
+      archiveSource: image.archiveSource || null,
       batchRank: image.batchRank ?? null,
       mediaRecoverySourceUrl: image.mediaRecovery?.sourceUrl || "",
       media: image.media || null,
@@ -756,6 +776,7 @@ function buildWorkstationEnvelope(
         ...(image.familyId ? { familyId: image.familyId } : {}),
         ...(image.familyLabel ? { familyLabel: image.familyLabel } : {}),
         ...(image.familyEvidence ? { familyEvidence: image.familyEvidence } : {}),
+        ...(image.archiveSource ? { archiveSource: image.archiveSource } : {}),
       }),
       media: canonicalMediaReference(image.media),
     })),

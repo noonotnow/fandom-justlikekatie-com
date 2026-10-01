@@ -14,6 +14,10 @@ export interface GridItemData {
   batchKey?: string;
   gridPosition?: number;
   tier?: ImageTier;
+  /** Authoritative edition date for server-gated individual-card saves. */
+  archiveDate?: string;
+  /** The manifest image identity used by the archive-save authorization API. */
+  archiveImageId?: string;
 }
 
 export interface SaveState {

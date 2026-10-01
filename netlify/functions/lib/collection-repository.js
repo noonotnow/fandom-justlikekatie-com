@@ -2,6 +2,7 @@ import { randomUUID } from "node:crypto";
 import { getWithResolvedEtag } from "./blob-store.js";
 import { validateGridEditorialContract } from "./grid-editorial-contract.js";
 import { isReleaseCandidateProvenance } from "./approved-board-provenance.js";
+import { assertPublicArchiveRecord } from "../../../src/contracts/publicArchiveRecord.js";
 
 const MAX_OPERATIONS = 100;
 
@@ -161,6 +162,7 @@ function validateItem(item) {
         || typeof image.imageUrl !== "string"
         || image.resultId.length > 4096
         || image.imageUrl.length > 4096
+        || (image.archiveSource !== undefined && !isValidArchiveSource(image.archiveSource))
       ))
     ) throw new TypeError("Collection grid is invalid.");
     if (item.media !== undefined) validateCollectionMedia(item.media);
@@ -208,6 +210,26 @@ function validateItem(item) {
   if (item.misprint !== undefined) validateMisprint(item.misprint);
   if (item.legendaryMisprint !== undefined) validateLegendaryMisprint(item.legendaryMisprint);
   if (item.memeRework !== undefined) validateMemeRework(item.memeRework);
+}
+
+function isValidArchiveSource(value) {
+  if (!value
+    || typeof value !== "object"
+    || Array.isArray(value)
+    || typeof value.date !== "string"
+    || !value.publicRecord
+    || typeof value.publicRecord !== "object"
+    || Array.isArray(value.publicRecord)
+    || Object.keys(value).some(key => !["date", "publicRecord"].includes(key))
+    || Object.keys(value.publicRecord).some(key => !["actorPath", "editionPath"].includes(key))) {
+    return false;
+  }
+  try {
+    assertPublicArchiveRecord(value.publicRecord, { expectedDate: value.date });
+    return true;
+  } catch {
+    return false;
+  }
 }
 
 function validateGridPresentation(presentation) {

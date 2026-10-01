@@ -87,7 +87,7 @@ interface Props {
   isMember?: boolean;
   onUpgrade?: () => void;
   onTypeChange?: (type: 'grids' | 'results' | 'builder') => void;
-  builderSourceKind?: 'collection' | 'daily' | 'edition';
+  builderSourceKind?: 'collection' | 'daily' | 'edition' | 'archive';
   builderSourceEditionDate?: string;
   builderSourcePool?: BuilderCard[];
 }
@@ -160,6 +160,7 @@ export const Collection: React.FC<Props> = ({
   );
   const isExternalBuilder = !isMiddleEarth && activeType === 'builder' && builderSourceKind !== 'collection';
   const isEditionBuilder = isExternalBuilder && builderSourceKind === 'edition';
+  const isArchiveBuilder = isExternalBuilder && builderSourceKind === 'archive';
   const [filterActor, setFilterActor] = useState<string | null>(null);
   const [user, setUser] = useState<PublicUser | null>(null);
   const [email, setEmail] = useState('');
@@ -893,14 +894,17 @@ export const Collection: React.FC<Props> = ({
           <h2>{isMiddleEarth
             ? 'Middle-earth Collection'
             : isExternalBuilder
-              ? isEditionBuilder ? 'Archive Edition Grid Builder' : 'Today’s Grid Builder'
+              ? isEditionBuilder ? 'Archive Edition Grid Builder'
+                : builderSourceKind === 'archive' ? 'Public Archive Grid Builder' : 'Today’s Grid Builder'
               : 'Your Collection'}</h2>
           <p>{isMiddleEarth
             ? 'Your separate MemeForge shelf for finished Middle-earth memes.'
             : isExternalBuilder
               ? isEditionBuilder
                 ? 'Rebuild or remix this immutable historical edition. Its images are not added to My Collection.'
-                : 'Build only with the active Star of the Day inventory. Nothing from My Collection is added here.'
+                : builderSourceKind === 'archive'
+                  ? 'Browse published Star of the Day images across dates and build for free. Individual saves stay separate from your grids and Collection.'
+                  : 'Build only with the active Star of the Day inventory. Nothing from My Collection is added here.'
               : 'Collect individual finds, keep finished worlds, and compose Event or Compiled editorial sets.'}</p>
         </div>
         {!isExternalBuilder && <div className={styles.heroActions}>
@@ -954,14 +958,21 @@ export const Collection: React.FC<Props> = ({
           <strong>
             {isEditionBuilder
               ? `Historical edition${builderSourceEditionDate ? ` · ${builderSourceEditionDate}` : ''}`
-              : 'Active Daily Drop inventory'}
+              : isArchiveBuilder
+                ? 'Public Archive inventory'
+                : 'Active Daily Drop inventory'}
           </strong>
           <div className={styles.collectionScopeActions}>
-            <a href={isEditionBuilder && builderSourceEditionDate
-              ? `${PUBLIC_ROUTE_PATHS.vibeAtlas}?date=${encodeURIComponent(builderSourceEditionDate)}`
-              : PUBLIC_ROUTE_PATHS.vibeAtlas}>
-              {isEditionBuilder ? 'Back to this edition' : 'Back to today’s drop'}
+            <a href={isArchiveBuilder
+              ? PUBLIC_ROUTE_PATHS.vibeAtlasArchive
+              : isEditionBuilder && builderSourceEditionDate
+                ? `${PUBLIC_ROUTE_PATHS.vibeAtlas}?date=${encodeURIComponent(builderSourceEditionDate)}`
+                : PUBLIC_ROUTE_PATHS.vibeAtlas}>
+              {isArchiveBuilder ? 'Back to the public Archive' : isEditionBuilder ? 'Back to this edition' : 'Back to today’s drop'}
             </a>
+            {isEditionBuilder && (
+              <a href={PUBLIC_ROUTE_PATHS.vibeAtlasArchive}>Back to the public Archive</a>
+            )}
           </div>
         </div>
       ) : isMiddleEarth ? (
@@ -1394,6 +1405,13 @@ export const Collection: React.FC<Props> = ({
           footer={(() => {
             const grid = expandedArtifact.record;
             const editionHref = historicalEditionHref(grid);
+            const archiveSourceLinks = grid.images.flatMap((image, index) => image.archiveSource
+              ? [{
+                index,
+                date: image.archiveSource.date,
+                href: image.archiveSource.publicRecord.editionPath,
+              }]
+              : []);
             const details = grid.legacyCompositeUrl
               ? 'Legacy saved share card'
               : `${grid.images.length} source results · ${grid.editorial
@@ -1401,15 +1419,26 @@ export const Collection: React.FC<Props> = ({
                 : ''}${grid.rendererVersion}${grid.legendaryMisprint || grid.intent === 'legendary-misprint'
                 ? ` · Intentional Legendary Misprint · unexpected ${grid.legendaryMisprint?.unexpectedActor.name || grid.misprintMetadata?.unexpectedImageIdentities.join(', ') || 'identity recorded in provenance'}`
                 : ''}`;
-            return editionHref ? (
+            return (
               <>
                 <span>{details}</span>
-                <span className={styles.zoomEditionSource}>
-                  Historical Daily Drop ·{' '}
-                  <a href={editionHref}>{formatDate(grid.sourceProvenance!.editionDate!)}</a>
-                </span>
+                {editionHref && (
+                  <span className={styles.zoomEditionSource}>
+                    Historical Daily Drop ·{' '}
+                    <a href={editionHref}>{formatDate(grid.sourceProvenance!.editionDate!)}</a>
+                  </span>
+                )}
+                {archiveSourceLinks.length > 0 && (
+                  <nav className={styles.zoomArchiveSources} aria-label="Public Archive source editions">
+                    {archiveSourceLinks.map(source => (
+                      <a key={`${source.date}:${source.index}`} href={source.href}>
+                        Image {source.index + 1} · edition {formatDate(source.date)}
+                      </a>
+                    ))}
+                  </nav>
+                )}
               </>
-            ) : details;
+            );
           })()}
           onClose={() => setExpandedArtifact(null)}
         />

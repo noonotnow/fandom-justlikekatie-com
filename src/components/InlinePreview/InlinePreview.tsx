@@ -99,7 +99,7 @@ export const InlinePreview: React.FC<InlinePreviewProps> = ({
             <button className={styles.viewBtn} onClick={onViewFull}>
               View Full Screen
             </button>
-            <SaveButton itemId={item.id} />
+            <SaveButton itemId={item.id} archiveDate={item.archiveDate} archiveImageId={item.archiveImageId} />
           </div>
         </div>
       </div>

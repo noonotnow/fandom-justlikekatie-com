@@ -1,8 +1,11 @@
 import { useState, useEffect, useCallback, useRef } from 'react';
 import type { GridItemData } from '../types';
 import { publicArchiveRecord } from '../contracts/publicArchiveRecord.js';
+import type { PublicArchiveRecord } from '../contracts/publicArchiveRecord.js';
+import { normalizePublicArchiveEdition } from './usePublicArchiveInventory';
 
 export interface StarOfDayResult {
+  imageId?: string;
   title: string;
   thumbnail: string;
   link: string;
@@ -10,6 +13,10 @@ export interface StarOfDayResult {
   familyId?: string;
   familyLabel?: string;
   familyEvidence?: 'persisted-event' | 'batch' | 'publisher' | 'fallback';
+  archiveSource?: {
+    date: string;
+    publicRecord: PublicArchiveRecord;
+  };
 }
 
 export interface RankedBatch {
@@ -99,6 +106,13 @@ export interface ArchiveGate {
   edition: StarOfDayArchiveEntry;
 }
 
+export function shouldFallbackToLegacyArchiveEdition(status: number, body: unknown): boolean {
+  return status === 404
+    && Boolean(body && typeof body === 'object'
+      && 'fallback' in body
+      && body.fallback === 'legacy_unverified_edition');
+}
+
 function proxyUrl(url: string): string {
   return `/.netlify/functions/image-proxy?url=${encodeURIComponent(url)}`;
 }
@@ -124,6 +138,8 @@ function mapToGridItems(data: StarOfDayData): GridItemData[] {
         publisher: `${data.actorShortNameEn} · ${result.source}`,
         url: result.link || '#',
         tags: [data.vibeLabel, data.vibeLabelEn],
+        archiveDate: data.date,
+        archiveImageId: result.imageId || result.thumbnail,
         batchKey: 'batchKey' in result && typeof result.batchKey === 'string'
           ? result.batchKey
           : batch.query,
@@ -196,37 +212,61 @@ export const useStarOfDay = (editionDate: string | null | undefined = null): Use
       return () => { cancelled = true; };
     }
 
+    async function fetchLegacyStarOfDay(): Promise<StarOfDayData | null> {
+      const query = editionDate ? `?date=${encodeURIComponent(editionDate)}` : '';
+      const res = await fetch(`/.netlify/functions/star-of-day${query}`);
+      if (!res.ok) {
+        const body = await res.json().catch(() => null) as {
+          access?: ArchiveGate['reason'];
+          edition?: StarOfDayArchiveEntry;
+          error?: string;
+        } | null;
+        if (
+          (res.status === 401 || res.status === 403 || res.status === 503)
+          && body?.edition
+          && ['sign_in', 'upgrade', 'billing_delay'].includes(body.access || '')
+        ) {
+          setGate({
+            reason: body.access as ArchiveGate['reason'],
+            edition: projectPublicRecord(body.edition),
+          });
+          setLoading(false);
+          return null;
+        }
+        throw new Error(body?.error || `API error: ${res.status}`);
+      }
+      if (!res.headers.get('content-type')?.includes('application/json')) {
+        throw new Error('Today’s Vibe Atlas data service is unavailable in this preview.');
+      }
+      return projectPublicRecord(await res.json() as StarOfDayData);
+    }
+
     async function fetchStarOfDay() {
       try {
-        const query = editionDate ? `?date=${encodeURIComponent(editionDate)}` : '';
-        const res = await fetch(`/.netlify/functions/star-of-day${query}`);
-        if (!res.ok) {
-          const body = await res.json().catch(() => null) as {
-            access?: ArchiveGate['reason'];
-            edition?: StarOfDayArchiveEntry;
-            error?: string;
-          } | null;
-          if (
-            (res.status === 401 || res.status === 403 || res.status === 503)
-            && body?.edition
-            && ['sign_in', 'upgrade', 'billing_delay'].includes(body.access || '')
-          ) {
-            setGate({
-              reason: body.access as ArchiveGate['reason'],
-              edition: projectPublicRecord(body.edition),
-            });
-            setLoading(false);
-            return;
+        let data: StarOfDayData | null;
+        if (!editionDate) {
+          data = await fetchLegacyStarOfDay();
+        } else {
+          const query = new URLSearchParams({ date: editionDate });
+          const response = await fetch(`/.netlify/functions/public-archive-inventory?${query.toString()}`);
+          const body: unknown = await response.json().catch(() => null);
+          if (shouldFallbackToLegacyArchiveEdition(response.status, body)) {
+            data = await fetchLegacyStarOfDay();
+          } else if (!response.ok) {
+            const message = body && typeof body === 'object' && 'error' in body
+              && typeof body.error === 'string'
+              ? body.error
+              : `The public Archive edition could not be loaded (HTTP ${response.status}).`;
+            throw new Error(message);
+          } else {
+            if (!response.headers.get('content-type')?.toLowerCase().includes('application/json')) {
+              throw new Error('The public Archive returned a response that was not JSON.');
+            }
+            data = normalizePublicArchiveEdition(body, editionDate);
           }
-          throw new Error(body?.error || `API error: ${res.status}`);
-        }
-        if (!res.headers.get('content-type')?.includes('application/json')) {
-          throw new Error('Today’s Vibe Atlas data service is unavailable in this preview.');
         }
 
-        const data = projectPublicRecord(await res.json() as StarOfDayData);
-
-        if (cancelled) return;
+        if (cancelled || !data) return;
 
         if (data.building) {
           setError('Today\'s grid is still being built — check back in a moment!');

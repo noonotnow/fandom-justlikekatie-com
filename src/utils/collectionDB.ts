@@ -1,4 +1,8 @@
 import { PUBLIC_ROUTE_PATHS } from '../../shared/public-routes.js';
+import {
+  assertPublicArchiveRecord,
+  type PublicArchiveRecord,
+} from '../contracts/publicArchiveRecord.js';
 /** IndexedDB persistence for saved cards */
 import type {
   CollectionMediaRecovery,
@@ -155,6 +159,10 @@ export interface GridMediaSnapshot {
   familyId?: string;
   familyLabel?: string;
   familyEvidence?: 'persisted-event' | 'batch' | 'publisher' | 'fallback';
+  archiveSource?: {
+    date: string;
+    publicRecord: PublicArchiveRecord;
+  };
   gridPosition: number;
   media?: MediaReference;
   mediaRecovery?: CollectionMediaRecovery;
@@ -1291,7 +1299,9 @@ function normalizeGridSourceProvenance(value: unknown): GridRecord['sourceProven
 }
 
 export function normalizeGridRecord(grid: Partial<GridRecord>): GridRecord {
-  const images = Array.isArray(grid.images) ? grid.images : [];
+  const images = Array.isArray(grid.images)
+    ? grid.images.map(normalizeGridImageSnapshot)
+    : [];
   const normalizedSourceProvenance = normalizeGridSourceProvenance(grid.sourceProvenance);
   return {
     kind: 'grid',
@@ -1342,6 +1352,25 @@ export function normalizeGridRecord(grid: Partial<GridRecord>): GridRecord {
       ? { releaseCandidateProvenance: grid.releaseCandidateProvenance }
       : {}),
   };
+}
+
+function normalizeGridImageSnapshot(image: GridMediaSnapshot): GridMediaSnapshot {
+  if (!image || typeof image !== 'object') return image;
+  const { archiveSource, ...snapshot } = image;
+  if (!archiveSource || typeof archiveSource.date !== 'string') return snapshot;
+  try {
+    return {
+      ...snapshot,
+      archiveSource: {
+        date: archiveSource.date,
+        publicRecord: assertPublicArchiveRecord(archiveSource.publicRecord, {
+          expectedDate: archiveSource.date,
+        }),
+      },
+    };
+  } catch {
+    return snapshot;
+  }
 }
 
 export async function dbGetVisibleGrids(accountId?: string): Promise<GridRecord[]> {

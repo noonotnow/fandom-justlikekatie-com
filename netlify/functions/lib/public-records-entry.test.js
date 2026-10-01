@@ -115,6 +115,10 @@ test("approved actor and edition pages render indexable allowlisted records", as
   assert.match(edition.body, /https:\/\/media\.example\/thumbs\/liu-xueyi-2026-09-03-0\.jpg/);
   assert.match(edition.body, /property="og:image" content="https:\/\/media\.example\/assets\/liu-xueyi-2026-09-03-4\.jpg"/);
   assert.match(edition.body, /\/vibe-atlas\/actors\/liu-xueyi\//);
+  assert.match(edition.body, /aria-label="Open the full public edition"/);
+  assert.match(edition.body, /Every published edition is free to browse, build from, and export/);
+  assert.match(edition.body, /href="\/vibe-atlas\?date=2026-09-03"/);
+  assert.match(edition.body, /Open all cards and save or build from this edition/);
 });
 
 test("public record routes fail closed and no-store when catalog coverage is missing or malformed", async () => {

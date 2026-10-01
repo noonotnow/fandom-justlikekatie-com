@@ -102,6 +102,7 @@ export function legacyGridFromPlan(record: PlanRecord): GridRecord | null {
 
 export function starDataFromCollectionGrid(grid: GridRecord): StarOfDayData {
   const results = grid.images.map(image => ({
+    imageId: image.resultId,
     title: image.title,
     thumbnail: sourceThumbnail(image.resultId, image.imageUrl),
     link: image.sourceUrl,
@@ -109,6 +110,7 @@ export function starDataFromCollectionGrid(grid: GridRecord): StarOfDayData {
     ...(image.familyId ? { familyId: image.familyId } : {}),
     ...(image.familyLabel ? { familyLabel: image.familyLabel } : {}),
     ...(image.familyEvidence ? { familyEvidence: image.familyEvidence } : {}),
+    ...(image.archiveSource ? { archiveSource: image.archiveSource } : {}),
   }));
   return {
     actorId: grid.actorId,

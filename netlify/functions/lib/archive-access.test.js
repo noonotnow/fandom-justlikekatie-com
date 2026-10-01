@@ -7,7 +7,9 @@ import {
   ARCHIVE_CATALOG_INDEX_KEY,
   ARCHIVE_CATALOG_YEAR_PREFIX,
   ARCHIVE_FREE_EDITION_COUNT,
+  ARCHIVE_IMAGE_FREE_SAVE_AGE_DAYS,
   ARCHIVE_SAFE_UPDATE_UNAVAILABLE,
+  archiveImageSaveDecision,
   archiveAccessDecision,
   archiveAccessWindowDates,
   archiveReaderLinkDiagnostic,
@@ -39,6 +41,36 @@ test("the free archive window follows the four latest published editions, not ca
     "2026-09-17",
     "2026-09-12",
   ]);
+});
+
+test("individual-image saves use Shanghai calendar age, independently of the four-edition board window", () => {
+  assert.equal(ARCHIVE_IMAGE_FREE_SAVE_AGE_DAYS, 3);
+  assert.deepEqual(archiveImageSaveDecision({
+    publicationDate: "2026-08-07",
+    today: "2026-08-10",
+  }), { allowed: true, access: "free", ageDays: 3 });
+  assert.deepEqual(archiveImageSaveDecision({
+    publicationDate: "2026-08-06",
+    today: "2026-08-10",
+  }), { allowed: false, reason: "collector_required", ageDays: 4 });
+  assert.deepEqual(archiveImageSaveDecision({
+    publicationDate: "2026-08-06",
+    today: "2026-08-10",
+    hasCollectorAccess: true,
+  }), { allowed: true, access: "member", ageDays: 4 });
+  assert.deepEqual(archiveImageSaveDecision({
+    publicationDate: "2026-08-10",
+    today: "2026-08-10",
+  }), { allowed: true, access: "free", ageDays: 0 });
+  assert.deepEqual(archiveImageSaveDecision({
+    publicationDate: "2026-08-11",
+    today: "2026-08-10",
+    hasCollectorAccess: true,
+  }), { allowed: false, reason: "future_edition" });
+  assert.deepEqual(archiveImageSaveDecision({
+    publicationDate: "2026-02-30",
+    today: "2026-03-01",
+  }), { allowed: false, reason: "invalid_date" });
 });
 
 test("the compact archive access window validates strictly and fails closed", () => {

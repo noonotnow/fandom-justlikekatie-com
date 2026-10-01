@@ -75,8 +75,8 @@ export function Membership({ status }: Props) {
     <main className="membership">
       <header className="membership__hero">
         <p className="membership__label">Vibe Atlas Collector Membership</p>
-        <h1>Today’s drop is free.<br /><em>The whole Atlas is for collectors.</em></h1>
-        <p>Browse today’s edition, save the cards that catch you, and build a grid that feels like yours. Collector Membership opens the back catalog and gives you more ways to style, save, and export what you make.</p>
+        <h1>Today’s drop is free.<br /><em>Keep recent cards. Go deeper with Collector.</em></h1>
+        <p>Browse, build, and export from every published Archive edition for free. Save individual cards from editions no more than three days old; Collector unlocks verified saves from older published editions, plus more ways to style and export what you make.</p>
       </header>
       {(returnNotice || notice) && <p className="membership__notice" role="status">{returnNotice || notice}</p>}
       <section className="membership__journey" aria-label="How Vibe Atlas grows with you">
@@ -88,7 +88,7 @@ export function Membership({ status }: Props) {
         <article>
           <span>Collect</span>
           <h2>Missed one? Go back for it.</h2>
-          <p>Collector membership opens past editions, actor collections, and the vibes you weren’t ready to let go.</p>
+          <p>Collector membership unlocks verified saves for older published cards, actor collections, and the vibes you weren’t ready to let go. Every published historical board stays free to browse, build from, and export.</p>
         </article>
         <article>
           <span>Create</span>
@@ -100,13 +100,13 @@ export function Membership({ status }: Props) {
         <article>
           <p className="membership__label">Free</p>
           <h2>Catch today’s vibe</h2>
-          <ul><li>Today’s complete card drop</li><li>Recent free editions</li><li>Individual card saves and a basic Canvas</li><li>Standard share export</li><li>Collection sync after sign-in and device merge</li></ul>
+          <ul><li>Today’s complete card drop</li><li>Browse every published historical edition board</li><li>Build and export grids from the public Archive</li><li>Individual card saves from editions no more than three days old</li><li>A basic Canvas and standard share export</li><li>Collection sync after sign-in and device merge</li></ul>
         </article>
         <article className="membership__featured">
           <p className="membership__label">Vibe Atlas Collector</p>
           <h2>$9 <small>/ month</small></h2>
-          <ul><li>Complete historical edition archive</li><li>Released actor × vibe pack library</li><li>Expanded actor and vibe collections</li><li>Premium Canvas layouts and treatments</li><li>Persistent grids and saved versions</li><li>Collector-quality exports</li><li>Early access to new Fandom studio features</li></ul>
-          <p className="membership__rollout">Archive and Canvas access will expand in stages. Founding members keep access as these benefits roll out.</p>
+          <ul><li>Verified individual-card saves from older published editions</li><li>Released actor × vibe pack library</li><li>Expanded actor and vibe collections</li><li>Premium Canvas layouts and treatments</li><li>Persistent grids and saved versions</li><li>Collector-quality exports</li><li>Early access to new Fandom studio features</li></ul>
+          <p className="membership__rollout">Additional Collector and Canvas tools will expand in stages. Founding members keep access as these benefits roll out.</p>
           {!user ? (
             <form onSubmit={sendLink} className="membership__sign-in">
               <label htmlFor="membership-email">Sign in to join</label>

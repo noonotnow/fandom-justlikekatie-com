@@ -91,6 +91,31 @@ test('Creator Draft source carries stable ordered provenance and creative contex
   assert.match(first.creativeContext.brief, /Build Your Own/);
 });
 
+test('Creator Draft source preserves validated per-image Archive edition provenance', async () => {
+  const slots = [1, 2, 3, 4, 5, 6, 7, 8, 9].map((position, index) => ({
+    ...card(position),
+    ...(index === 0 ? {
+      archiveSource: {
+        date: '2026-08-30',
+        publicRecord: {
+          actorPath: '/vibe-atlas/actors/zhao-lusi',
+          editionPath: '/vibe-atlas/editions/2026-08-30/zhao-lusi',
+        },
+      },
+    } : {}),
+  }));
+  const grid = gridRecordFromProposal(
+    slots,
+    manualGridRationale(slots, '赵露思'),
+    new Date('2026-08-30T12:00:00.000Z'),
+  );
+  const source = await creatorDraftSourceFromGrid(grid);
+
+  assert.deepEqual(source.orderedImages[0].archiveSource, slots[0].archiveSource);
+  assert.equal(source.orderedImages[1].archiveSource, undefined);
+  assert.equal(source.sourceVersion, sourceVersionForGrid(grid));
+});
+
 test('approved board provenance distinguishes exact, derived, and unverified grids', async () => {
   const slots = [1, 2, 3, 4, 5, 6, 7, 8, 9].map(card);
   const base = gridRecordFromProposal(

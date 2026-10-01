@@ -256,7 +256,12 @@ function VibeAtlasApp({ archiveEntry = false }: { archiveEntry?: boolean }) {
     loading,
     error,
     gate,
-  } = useStarOfDay(archivePage && !activeEditionDate ? undefined : activeEditionDate);
+  } = useStarOfDay(
+    (archivePage && !activeEditionDate)
+    || (view === 'collection' && (builderSource === 'archive' || builderSource === 'edition'))
+      ? undefined
+      : activeEditionDate,
+  );
   const dailyPairKey = rawData ? `${rawData.date}:${rawData.actorId}:${rawData.vibeIdx}` : '';
   const [dailyPackPublication, setDailyPackPublication] = useState<DailyPackPublication>({ pairKey: '', status: 'checking' });
   const visibleDailyPublication: DailyPackPublication = dailyPackPublication.pairKey === dailyPairKey
@@ -290,7 +295,7 @@ function VibeAtlasApp({ archiveEntry = false }: { archiveEntry?: boolean }) {
           preview?: { cards?: { thumbnailUrl?: string; title?: string }[] };
         };
         const published = result.kind === 'vibe-atlas-released-pack'
-          && result.canonical?.startsWith(`${PUBLIC_ORIGIN}/vibe-atlas/packs/`);
+          && result.canonical?.startsWith(`${PUBLIC_ORIGIN}${PUBLIC_ROUTE_PATHS.vibeAtlasPacks}/`);
         const snapshot = result.kind === 'vibe-atlas-daily-pack-snapshot'
           && result.date === rawData.date
           && result.actorId === rawData.actorId
@@ -449,7 +454,7 @@ function VibeAtlasApp({ archiveEntry = false }: { archiveEntry?: boolean }) {
 
   useEffect(() => {
     if (!hasMalformedGridBuilderSource(window.location.search)) return;
-    window.history.replaceState({}, '', `${PUBLIC_ROUTE_PATHS.vibeAtlas}?view=builder`);
+    window.history.replaceState({}, '', `${PUBLIC_ROUTE_PATHS.vibeAtlas}?view=builder&source=archive`);
   }, []);
 
   useEffect(() => {
@@ -643,7 +648,10 @@ function VibeAtlasApp({ archiveEntry = false }: { archiveEntry?: boolean }) {
         ? vibeAtlasPath({ view: 'membership' })
         : destination === 'released'
           ? vibeAtlasPath({ view: 'released' })
-          : vibeAtlasPath({ view: tab === 'grids' ? 'collection' : tab });
+          : vibeAtlasPath({
+            view: tab === 'grids' ? 'collection' : tab,
+            ...(tab === 'builder' ? { source: 'collection' } : {}),
+          });
     window.history.pushState({}, '', nextPath);
     setArchivePage(false);
     setCollectionTab(tab);
@@ -684,7 +692,7 @@ function VibeAtlasApp({ archiveEntry = false }: { archiveEntry?: boolean }) {
         : null;
       setSelectedEditionDate(restoredEditionDate);
       if (malformedBuilderSource) {
-        window.history.replaceState({}, '', `${PUBLIC_ROUTE_PATHS.vibeAtlas}?view=builder`);
+        window.history.replaceState({}, '', `${PUBLIC_ROUTE_PATHS.vibeAtlas}?view=builder&source=archive`);
       }
       if (restoredView === 'daily' && !restoredArchivePage && invalidEditionDate) {
         syncVibeAtlasEditionUrl(null, true);
@@ -1103,17 +1111,6 @@ function VibeAtlasApp({ archiveEntry = false }: { archiveEntry?: boolean }) {
         />
       )}
         </>
-      ) : view === 'collection' && builderSource === 'edition' && gate && activeEditionDate ? (
-        <ArchiveLockedEdition
-          gate={gate}
-          email={archiveGateEmail}
-          busy={archiveGateBusy}
-          notice={archiveGateNotice}
-          onEmailChange={setArchiveGateEmail}
-          onSignIn={sendArchiveSignIn}
-          onCheckout={startArchiveCheckout}
-          onIntent={() => trackArchiveAccess('gated_intent', activeEditionDate, gate.reason)}
-        />
       ) : view === 'collection' ? (
         <Collection
           key={collectionTab}
@@ -1121,7 +1118,7 @@ function VibeAtlasApp({ archiveEntry = false }: { archiveEntry?: boolean }) {
           hasCollectorAccess={canUsePremiumTools}
           membershipResolved={membershipResolved}
           builderSourceKind={builderSource}
-          builderSourcePool={builderSource === 'collection' ? [] : dailyBuilderPool}
+          builderSourcePool={builderSource === 'daily' ? dailyBuilderPool : []}
           builderSourceEditionDate={builderSource === 'edition' ? activeEditionDate ?? undefined : undefined}
           onUpgrade={() => {
             trackUpgradeStarted('grid_builder');
@@ -1129,7 +1126,8 @@ function VibeAtlasApp({ archiveEntry = false }: { archiveEntry?: boolean }) {
           }}
           onTypeChange={(type) => {
             const viewParam = type === 'grids' ? 'collection' : type;
-            window.history.pushState({}, '', `${PUBLIC_ROUTE_PATHS.vibeAtlas}?view=${viewParam}`);
+            const sourceParam = type === 'builder' ? '&source=collection' : '';
+            window.history.pushState({}, '', `${PUBLIC_ROUTE_PATHS.vibeAtlas}?view=${viewParam}${sourceParam}`);
             setCollectionTab(type);
             if (type === 'builder') setBuilderSource('collection');
           }}

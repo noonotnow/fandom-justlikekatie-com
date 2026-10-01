@@ -280,7 +280,10 @@ export async function assertBrowserEnginesLaunchable(
 export async function startViteTestServer(
   config: InlineConfig = {
     configFile: 'vite.config.ts',
-    server: { host: '127.0.0.1', port: 5000, strictPort: false },
+    // Vite's config-file merge discards null overrides, so watch:null here
+    // still creates a watcher. A predicate survives that merge and keeps
+    // fixture-only tests isolated from concurrent workspace edits.
+    server: { host: '127.0.0.1', port: 0, watch: { ignored: () => true } },
   },
   createTestServer: (config: InlineConfig) => Promise<ViteDevServer> = createServer,
   probe: ServerProbe = defaultServerProbe,

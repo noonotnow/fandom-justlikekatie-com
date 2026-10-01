@@ -3,6 +3,7 @@ import assert from 'node:assert/strict';
 import {
   applyLens,
   buildDailyDropPool,
+  buildPublicArchivePool,
   buildVibeAtlasPool,
   gridRecordFromProposal,
   proposeGrid,
@@ -15,7 +16,8 @@ import {
   type GridRecord,
 } from '../src/utils/collectionDB';
 import { starDataFromCollectionGrid } from '../src/utils/collectionHistoryModel';
-import { classifyEditionTier } from '../src/utils/exportCanvas';
+import { buildExportPayload, classifyEditionTier } from '../src/utils/exportCanvas';
+import type { StarOfDayData } from '../src/hooks/useStarOfDay';
 
 test('Daily Drop inventory stays a distinct builder source rather than a saved Collection', () => {
   const pool = buildDailyDropPool({
@@ -29,9 +31,14 @@ test('Daily Drop inventory stays a distinct builder source rather than a saved C
     vibeSubtitle: '今天',
     vibeSubtitleEn: 'Today',
     date: '2026-09-20',
+    publicRecord: {
+      actorPath: '/vibe-atlas/actors/star-today',
+      editionPath: '/vibe-atlas/editions/2026-09-20/star-today',
+    },
     rankedBatches: [{
       query: 'approved daily family',
       results: [{
+        imageId: 'daily-image-1',
         title: 'Approved image',
         thumbnail: 'https://images.example.test/a.jpg',
         link: 'https://source.example.test/a',
@@ -44,6 +51,8 @@ test('Daily Drop inventory stays a distinct builder source rather than a saved C
   assert.equal(pool[0].origin, 'daily-drop');
   assert.equal(pool[0].capturedDate, '2026-09-20');
   assert.equal(pool[0].sourceUrl, 'https://source.example.test/a');
+  assert.equal(pool[0].resultId, 'daily-image-1');
+  assert.equal(pool[0].archiveSource?.publicRecord.editionPath, '/vibe-atlas/editions/2026-09-20/star-today');
   assert.match(pool[0].imageUrl, /^\/\.netlify\/functions\/image-proxy\?url=/);
 });
 
@@ -84,6 +93,59 @@ test('saved grids preserve historical edition provenance without copying edition
   assert.equal(historicalEditionHref(record), '/vibe-atlas?date=2026-09-19');
   assert.equal(record.images.length, 9);
   assert.ok(record.images.every(image => image.resultId.includes('/archive-')));
+});
+
+test('public Archive cards use edition-scoped identities and retain verified edition links through grid exports', () => {
+  const edition = (date: string, actorId: string, actorName: string, recordSlug: string): StarOfDayData => ({
+    date,
+    actorId,
+    actorName,
+    actorShortNameEn: actorName,
+    actorAccentColor: '#654321',
+    vibeEmoji: '🌙',
+    vibeLabel: 'Archive mood',
+    vibeLabelEn: 'Archive mood',
+    vibeSubtitle: 'Archive edition',
+    vibeSubtitleEn: 'Archive edition',
+    publicRecord: {
+      actorPath: `/vibe-atlas/actors/${recordSlug}`,
+      editionPath: `/vibe-atlas/editions/${date}/${recordSlug}`,
+    },
+    rankedBatches: [{
+      query: `${actorName} editorial`,
+      results: Array.from({ length: 9 }, (_, index) => ({
+        imageId: `image-${index + 1}`,
+        title: `${actorName} archive image ${index + 1}`,
+        thumbnail: `https://images.example/${date}-${index + 1}.jpg`,
+        link: `https://source.example/${date}-${index + 1}`,
+        source: 'Original image publisher',
+        familyId: 'shared-appearance',
+        familyLabel: 'Shared appearance',
+        familyEvidence: 'batch' as const,
+      })),
+    }],
+  });
+  const firstEdition = edition('2026-09-19', 'archive-actor', 'Archive Actor', 'archive-actor');
+  const secondEdition = edition('2026-09-18', 'archive-actor', 'Archive Actor', 'archive-actor');
+  const pool = buildPublicArchivePool([firstEdition, secondEdition]);
+
+  assert.equal(pool.length, 18);
+  assert.equal(pool[0].key, 'archive:2026-09-19:image-1');
+  assert.equal(pool[9].key, 'archive:2026-09-18:image-1');
+  assert.equal(pool[0].resultId, 'image-1');
+  assert.equal(pool[0].sourceUrl, 'https://source.example/2026-09-19-1');
+  assert.equal(pool[0].archiveSource?.date, '2026-09-19');
+  assert.equal(pool[0].archiveSource?.publicRecord.editionPath, '/vibe-atlas/editions/2026-09-19/archive-actor');
+  assert.equal(applyLens(pool, { actor: 'Archive Actor' }).length, 18);
+
+  const proposal = proposeGrid(pool.slice(0, 9), {}, 'compiled');
+  const grid = normalizeGridRecord(gridRecordFromProposal(proposal.slots, proposal.rationale));
+  assert.ok(grid.images.every(image => image.archiveSource?.date === '2026-09-19'));
+  const exportData = starDataFromCollectionGrid(grid);
+  const exportedResults = buildExportPayload(exportData).chosen.results;
+  assert.ok(exportedResults.every(result => result.archiveSource?.date === '2026-09-19'));
+  assert.ok(exportedResults.every(result =>
+    result.archiveSource?.publicRecord.editionPath === '/vibe-atlas/editions/2026-09-19/archive-actor'));
 });
 
 test('older grids without valid historical provenance render without an archive link', () => {

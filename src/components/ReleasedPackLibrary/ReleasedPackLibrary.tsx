@@ -836,7 +836,7 @@ export function ReleasedPackLibrary({
                   <p>The full Vibe Pack is included with Collector membership.</p>
                   <p>{publicPreviewFreeToday ? 'Free today: this release is the current Star of the Day Vibe Pack on the Vibe Atlas homepage.' : 'This release unlocks publicly when it is the Star of the Day, using the existing daily unlock flow.'}</p>
                   <div className="released-library__teaser-actions">
-                    {publicPreviewFreeToday && <a href="/vibe-atlas#todays-released-pack">Open today’s free pack</a>}
+                    {publicPreviewFreeToday && <a href={`${PUBLIC_ROUTE_PATHS.vibeAtlas}#todays-released-pack`}>Open today’s free pack</a>}
                     <a href={PUBLIC_ROUTE_PATHS.vibeAtlas}>Browse today’s Vibe Atlas homepage</a>
                   </div>
                 </div>
@@ -862,7 +862,7 @@ export function ReleasedPackLibrary({
                   <p>The full Vibe Pack is included with Collector membership.</p>
                   <p>{publicPreviewFreeToday ? 'Free today: this release is the current Star of the Day Vibe Pack on the Vibe Atlas homepage.' : 'This release unlocks publicly when it is the Star of the Day, using the existing daily unlock flow.'}</p>
                   <div className="released-library__teaser-actions">
-                    {publicPreviewFreeToday && <a href="/vibe-atlas#todays-released-pack">Open today’s free pack</a>}
+                    {publicPreviewFreeToday && <a href={`${PUBLIC_ROUTE_PATHS.vibeAtlas}#todays-released-pack`}>Open today’s free pack</a>}
                     <a href={PUBLIC_ROUTE_PATHS.vibeAtlas}>Browse today’s Vibe Atlas homepage</a>
                   </div>
                 </div>
