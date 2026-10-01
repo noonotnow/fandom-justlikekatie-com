@@ -96,13 +96,31 @@ const ONE_PIXEL_PNG = Buffer.from(
   'base64',
 );
 
+interface SessionUserFixture {
+  accountId: string;
+  email: string;
+}
+
 async function installPublicArchiveRoutes(page: Page, options: {
   inventoryError?: boolean;
   inventoryEmpty?: boolean;
   legacyEditionGateDenied?: boolean;
-} = {}): Promise<{ publicInventoryDates: string[]; legacyGateDates: string[] }> {
+  sessionGate?: Promise<void>;
+  shouldDeferSession?: () => boolean;
+  authenticatedUser?: SessionUserFixture;
+  collectorMembership?: boolean;
+} = {}): Promise<{
+  publicInventoryDates: string[];
+  legacyGateDates: string[];
+  sessionRequests: number[];
+  deferredSessionRequests: number[];
+  completedSessionRequests: number[];
+}> {
   const publicInventoryDates: string[] = [];
   const legacyGateDates: string[] = [];
+  const sessionRequests: number[] = [];
+  const deferredSessionRequests: number[] = [];
+  const completedSessionRequests: number[] = [];
   for (const url of [
     'https://fonts.googleapis.com/**',
     'https://fonts.gstatic.com/**',
@@ -112,13 +130,25 @@ async function installPublicArchiveRoutes(page: Page, options: {
   ]) {
     await page.route(url, route => route.abort());
   }
-  await page.route('**/api/auth/session', route => route.fulfill({
-    contentType: 'application/json',
-    body: JSON.stringify({ user: null }),
-  }));
+  await page.route('**/api/auth/session', async route => {
+    const requestId = sessionRequests.length + 1;
+    sessionRequests.push(requestId);
+    const shouldDefer = Boolean(options.sessionGate && (options.shouldDeferSession?.() ?? true));
+    if (shouldDefer) {
+      deferredSessionRequests.push(requestId);
+      await options.sessionGate;
+    }
+    await route.fulfill({
+      contentType: 'application/json',
+      body: JSON.stringify({ user: shouldDefer ? options.authenticatedUser ?? null : null }),
+    });
+    completedSessionRequests.push(requestId);
+  });
   await page.route('**/api/membership/status', route => route.fulfill({
     contentType: 'application/json',
-    body: JSON.stringify({ state: 'inactive', capabilities: [] }),
+    body: JSON.stringify(options.collectorMembership
+      ? { state: 'active', isMember: true, capabilities: ['fandom_collector'] }
+      : { state: 'inactive', capabilities: [] }),
   }));
   await page.route('**/.netlify/functions/image-proxy**', route => route.fulfill({
     status: 200,
@@ -197,7 +227,13 @@ async function installPublicArchiveRoutes(page: Page, options: {
       }),
     });
   });
-  return { publicInventoryDates, legacyGateDates };
+  return {
+    publicInventoryDates,
+    legacyGateDates,
+    sessionRequests,
+    deferredSessionRequests,
+    completedSessionRequests,
+  };
 }
 
 async function seedSavedCollection(page: Page): Promise<void> {
@@ -271,6 +307,46 @@ async function getSavedGrid(page: Page): Promise<{
   });
   assert.equal(result.gridCount, 1, 'exactly one finished grid should be saved');
   return result.images;
+}
+
+function createPromiseGate(): { promise: Promise<void>; release: () => void } {
+  let release!: () => void;
+  const promise = new Promise<void>(resolve => { release = resolve; });
+  return { promise, release };
+}
+
+async function waitForCondition(
+  condition: () => boolean | Promise<boolean>,
+  message: string,
+  timeoutMs = 10_000,
+): Promise<void> {
+  const deadline = Date.now() + timeoutMs;
+  while (Date.now() < deadline) {
+    if (await condition()) return;
+    await new Promise(resolve => setTimeout(resolve, 25));
+  }
+  throw new Error(message);
+}
+
+async function readActiveAccountId(page: Page): Promise<string | null> {
+  return page.evaluate(async () => {
+    const request = indexedDB.open('vibe-atlas-collection', 3);
+    const db = await new Promise<IDBDatabase>((resolve, reject) => {
+      request.onsuccess = () => resolve(request.result);
+      request.onerror = () => reject(request.error);
+    });
+    try {
+      const state = await new Promise<{ activeAccountId?: string } | undefined>((resolve, reject) => {
+        const transaction = db.transaction('sync', 'readonly');
+        const stateRequest = transaction.objectStore('sync').get('state');
+        stateRequest.onsuccess = () => resolve(stateRequest.result);
+        stateRequest.onerror = () => reject(stateRequest.error);
+      });
+      return state?.activeAccountId || null;
+    } finally {
+      db.close();
+    }
+  });
 }
 
 for (const engine of BROWSER_ENGINES) {
@@ -369,6 +445,124 @@ for (const engine of BROWSER_ENGINES) {
           db.close();
         }
       }), 0, 'building, exporting, and saving a finished grid must not copy its images into Saved results');
+    } finally {
+      await closeBrowserAndServer(browser, server);
+    }
+  });
+
+  test(`public Archive and edition builders retain loaded inventory when Collector identity resolves in ${engine.name}`, { timeout: 150_000 }, async () => {
+    const { server, origin } = await startViteTestServer();
+    const { browser, page } = await launchPageForServer(server, engine.type);
+    const accountId = 'collector-account-after-public-inventory';
+    const user = { accountId, email: 'collector@example.test' };
+
+    try {
+      const sources = [
+        {
+          page,
+          url: `${origin}/vibe-atlas?view=builder&source=archive`,
+          expectedCount: '18 public Archive images match this lens',
+        },
+        {
+          page: await browser.newPage(),
+          url: `${origin}/vibe-atlas?view=builder&source=edition&date=${FIRST_DATE}`,
+          expectedCount: '9 public Archive images match this lens',
+        },
+      ];
+      for (const source of sources) {
+        const gate = createPromiseGate();
+        let deferSession = false;
+        const requests = await installPublicArchiveRoutes(source.page, {
+          sessionGate: gate.promise,
+          shouldDeferSession: () => deferSession,
+          authenticatedUser: user,
+          collectorMembership: true,
+        });
+
+        try {
+          await gotoTestPage(source.page, source.url, { waitUntil: 'domcontentloaded' });
+          await source.page.getByText(source.expectedCount).waitFor();
+          await seedSavedCollection(source.page);
+          assert.equal(await source.page.getByRole('button', { name: /^Collection-Only Actor/ }).count(), 0);
+          assert.equal(await source.page.getByText('Collection-Only Actor', { exact: true }).count(), 0);
+
+          const alphaLens = source.page.getByRole('button', { name: /^Public Archive Alpha 9$/ });
+          await alphaLens.waitFor();
+          await alphaLens.click();
+          assert.equal(await alphaLens.getAttribute('aria-pressed'), 'true');
+          await source.page.getByRole('button', { name: 'Propose Compiled 3×3' }).click();
+          const proposal = source.page.getByRole('group', { name: 'Proposed Compiled 9-frame set' });
+          await proposal.waitFor();
+          assert.equal(await proposal.getByRole('button').count(), 9);
+
+          await waitForCondition(
+            () => requests.completedSessionRequests.length >= 2,
+            'the anonymous session lookups should settle before the delayed authenticated refresh',
+          );
+          deferSession = true;
+          await source.page.evaluate(async () => {
+            const channel = new BroadcastChannel('fandom-collection');
+            channel.postMessage({ type: 'session-changed' });
+            await new Promise(resolve => setTimeout(resolve, 10));
+            channel.close();
+          });
+          await waitForCondition(
+            () => requests.deferredSessionRequests.length >= 2,
+            'all session consumers should join the shared authenticated-session gate',
+          );
+          const heldRequestIds = [...requests.deferredSessionRequests];
+          assert.equal(
+            heldRequestIds.filter(id => requests.completedSessionRequests.includes(id)).length,
+            0,
+            'the authenticated session must remain held until every consumer has requested it',
+          );
+          gate.release();
+          await waitForCondition(
+            () => heldRequestIds.every(id => requests.completedSessionRequests.includes(id)),
+            'every held session request should receive the same authenticated Collector response',
+          );
+          await waitForCondition(
+            () => requests.completedSessionRequests.length === requests.sessionRequests.length,
+            'all session route calls should finish after the shared gate is released',
+          );
+          await waitForCondition(
+            async () => await readActiveAccountId(source.page) === accountId,
+            'the resolved Collector account should be applied to the collection database',
+          );
+          await source.page.getByText('Fandom Collector', { exact: true }).waitFor();
+          await waitForCondition(
+            async () => await alphaLens.count() === 1 && await alphaLens.getAttribute('aria-pressed') === 'false',
+            'the accountId-dependent Builder initialization should run without dropping the public actor lens controls',
+          );
+          assert.equal(source.page.url(), source.url);
+          assert.equal(await source.page.getByRole('button', { name: /^Collection-Only Actor/ }).count(), 0);
+
+          await alphaLens.click();
+          assert.equal(await alphaLens.getAttribute('aria-pressed'), 'true', 'public actor filtering should still work after sign-in');
+          await source.page.getByRole('button', { name: 'Propose Compiled 3×3' }).click();
+          await proposal.waitFor();
+          assert.equal(await proposal.getByRole('button').count(), 9, 'the loaded public pool should support a fresh proposal after sign-in');
+
+          await source.page.getByRole('tab', { name: 'Build Your Own' }).click();
+          const picker = source.page.getByRole('region', { name: 'Choose nine saved images' });
+          await picker.getByRole('button', { name: /^Select Public Archive Alpha/ }).first().waitFor();
+          assert.equal(await picker.getByRole('button', { name: /^Select Collection-Only Actor/ }).count(), 0);
+          for (let index = 0; index < 9; index += 1) {
+            await picker.getByRole('button', { name: /^Select Public Archive Alpha/ }).first().click();
+          }
+          const manualGrid = source.page.getByRole('group', { name: 'Custom 3×3 grid' });
+          await manualGrid.waitFor();
+          assert.equal(await manualGrid.getByRole('button').count(), 9, 'manual image selection should retain its public source pool');
+
+          await source.page.getByRole('button', { name: 'Handoff Publishing Grid' }).click();
+          // Collector downloads use the separate Master Export authorization
+          // service. Here we exercise the account/source ordering; actual free
+          // standard downloads are covered by the paginated inventory test.
+          assert.equal(await source.page.getByRole('button', { name: 'Download PNG' }).isEnabled(), true);
+        } finally {
+          gate.release();
+        }
+      }
     } finally {
       await closeBrowserAndServer(browser, server);
     }

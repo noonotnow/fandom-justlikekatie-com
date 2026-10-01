@@ -15,4 +15,4 @@ Fixture-only browser checks should not depend on live hot reload or external fon
 
 **Why:** Concurrent edits repeatedly regenerated Tailwind CSS during Archive browser checks, producing slow navigation and whole-test timeouts despite successful server probes. Increasing the test deadline alone did not remove the interference.
 
-**How to apply:** Disable file watching for isolated fixture servers when hot reload is not under test. Vite 8.3 discards inline `watch: null` while merging a config file; use an ignored predicate that survives the merge instead. Wait for DOM readiness plus actual UI assertions rather than unrelated external-resource load completion, and mock external fonts/trackers where irrelevant.
+**How to apply:** Isolate fixture servers from file changes when hot reload is not under test, and verify the resolved server configuration actually disables watching. Wait for DOM readiness plus actual UI assertions rather than unrelated external-resource load completion, and mock external fonts/trackers where irrelevant.

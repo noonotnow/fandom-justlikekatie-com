@@ -183,7 +183,10 @@ export const GridBuilder: React.FC<Props> = ({
 
   useEffect(() => {
     let cancelled = false;
-    setPool(null);
+    // Public inventory belongs to the source, not to the resolving account.
+    // Its own effect updates it on source/page changes. Clearing it here
+    // would strand an already loaded Archive when the session arrives.
+    if (!isPublicArchiveSource) setPool(null);
     setLoadError('');
     setLens({});
     setProposal(null);
