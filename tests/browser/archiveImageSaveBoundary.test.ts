@@ -31,7 +31,7 @@ function edition(date: string) {
     actorShortNameEn: ACTOR_NAME,
     actorAccentColor: '#c9a96e',
     vibeEmoji: '🗂️',
-    vibeLabel: 'Saved Archive',
+    vibeLabel: 'Archive label',
     vibeLabelEn: 'Saved Archive',
     vibeSubtitle: 'A published edition for save-boundary coverage.',
     vibeSubtitleEn: 'A published edition for save-boundary coverage.',
@@ -72,6 +72,8 @@ async function installEditionRoutes(
   page: import('@playwright/test').Page,
   options: {
     isCollector?: boolean;
+    nonIndexableDaily?: boolean;
+    inventoryRequests?: string[];
     authorize?: (date: string, imageId: string) => { status: number; body: unknown };
   } = {},
 ): Promise<Array<{ date: string; imageId: string }>> {
@@ -105,14 +107,22 @@ async function installEditionRoutes(
   await page.route('**/.netlify/functions/star-of-day*', route => {
     const requested = new URL(route.request().url()).searchParams.get('date');
     const date = requested && dates.includes(requested) ? requested : dates[0];
+    const data = edition(date);
+    if (!requested && options.nonIndexableDaily) {
+      return route.fulfill({
+        contentType: 'application/json',
+        body: JSON.stringify({ ...data, publicRecord: undefined }),
+      });
+    }
     return route.fulfill({
       contentType: 'application/json',
-      body: JSON.stringify(edition(date)),
+      body: JSON.stringify(data),
     });
   });
   await page.route('**/.netlify/functions/public-archive-inventory*', route => {
     const requested = new URL(route.request().url()).searchParams.get('date');
     const date = requested && dates.includes(requested) ? requested : dates[0];
+    if (requested) options.inventoryRequests?.push(requested);
     return route.fulfill({
       contentType: 'application/json',
       body: JSON.stringify(edition(date)),
@@ -125,7 +135,11 @@ async function installEditionRoutes(
       ? options.authorize(payload.date, payload.imageId)
       : {
         status: 200,
-        body: { allowed: true, date: payload.date, imageId: `archive:${payload.date}:card-1` },
+        body: {
+          allowed: true,
+          date: payload.date,
+          imageId: `archive:${payload.date}:card-${Number(/card-(\d)\.jpg$/.exec(payload.imageId)?.[1] || 1) - 1}`,
+        },
       };
     await route.fulfill({
       status: result.status,
@@ -159,11 +173,149 @@ async function localRecordCount(
   }, store);
 }
 
+async function localCards(page: import('@playwright/test').Page): Promise<Record<string, unknown>[]> {
+  return page.evaluate(async () => {
+    const db = await new Promise<IDBDatabase>((resolve, reject) => {
+      const request = indexedDB.open('vibe-atlas-collection', 3);
+      request.onsuccess = () => resolve(request.result);
+      request.onerror = () => reject(request.error);
+    });
+    try {
+      return await new Promise<Record<string, unknown>[]>((resolve, reject) => {
+        const transaction = db.transaction('cards', 'readonly');
+        const request = transaction.objectStore('cards').getAll();
+        request.onsuccess = () => resolve(request.result);
+        request.onerror = () => reject(request.error);
+      });
+    } finally {
+      db.close();
+    }
+  });
+}
+
 async function savedBookmarks(page: import('@playwright/test').Page): Promise<Record<string, boolean>> {
   return page.evaluate(() => JSON.parse(localStorage.getItem('vibe-atlas-saved-items') || '{}'));
 }
 
 for (const engine of BROWSER_ENGINES) {
+  test(`all nine Daily Drop cards save to Collection and survive refresh in ${engine.name}`, { timeout: 120_000 }, async () => {
+    const recentDate = shanghaiDateOffset(-1);
+    const historicalDate = shanghaiDateOffset(-10);
+    const { server, origin } = await startViteTestServer();
+    const { browser, page } = await launchPageForServer(server, engine.type);
+
+    try {
+      await seedBrowserState(page);
+      const inventoryRequests: string[] = [];
+      const saveRequests = await installEditionRoutes(page, {
+        nonIndexableDaily: true,
+        inventoryRequests,
+      });
+      await gotoTestPage(page, `${origin}/vibe-atlas`, { waitUntil: 'domcontentloaded' });
+      await page.getByRole('button', { name: /^Save item$/ }).first().waitFor();
+
+      assert.equal(await localRecordCount(page, 'cards'), 0, 'showing the Daily Drop must not import cards into Collection');
+      for (let index = 0; index < 9; index += 1) {
+        const card = page.getByRole('button', { name: new RegExp(`^View Archive boundary card ${index + 1}`) });
+        await card.getByRole('button', { name: 'Save item', exact: true }).click();
+        await card.getByRole('button', { name: 'Remove from saved', exact: true }).waitFor();
+      }
+
+      assert.equal(await localRecordCount(page, 'cards'), 9);
+      assert.equal(await localRecordCount(page, 'grids'), 0, 'individual card saves must not unpack or create saved grids');
+      assert.equal(saveRequests.length, 9);
+      assert.deepEqual(inventoryRequests, [], 'the live Daily Drop fixture has no indexable editorial inventory record');
+      assert.deepEqual(
+        saveRequests.map(request => request.imageId),
+        Array.from({ length: 9 }, (_, index) => `https://images.archive-save.test/${recentDate}/card-${index + 1}.jpg`),
+        'each exact image identity must be individually authorized',
+      );
+      const cards = await localCards(page);
+      assert.deepEqual(cards.map(card => card.resultId), saveRequests.map(request => request.imageId));
+      assert.deepEqual(cards.map(card => card.capturedDate), Array(9).fill(recentDate));
+      assert.deepEqual(cards.map(card => (card.gridContext as { position: number }).position), [0, 1, 2, 3, 4, 5, 6, 7, 8]);
+      assert.ok(cards.every(card => (
+        card.actor === ACTOR_NAME
+        && card.actorEn === ACTOR_NAME
+        && card.actorId === ACTOR_ID
+        && card.vibe === 'Archive label'
+        && card.vibeEn === 'Saved Archive'
+        && card.collectionScope === 'vibe-atlas'
+        && card.searchQuery === 'archive-save-boundary'
+        && card.sourceRoute === undefined
+      )), 'Collection records should keep the approved card provenance without inventing an editorial link');
+      assert.deepEqual(
+        cards.map(card => card.title),
+        Array.from({ length: 9 }, (_, index) => `Archive boundary card ${index + 1}`),
+      );
+      assert.deepEqual(
+        cards.map(card => card.sourceUrl),
+        Array.from({ length: 9 }, (_, index) => `https://sources.archive-save.test/${recentDate}/card-${index + 1}`),
+      );
+      assert.deepEqual(
+        cards.map(card => (card.gridContext as { batchKey: string }).batchKey),
+        Array(9).fill('archive-save-boundary'),
+      );
+
+      await page.getByRole('button', { name: /Your Collection/ }).click();
+      await page.getByRole('button', { name: /Saved results/ }).click();
+      const savedResult = page.getByRole('button', { name: `View ${ACTOR_NAME} Archive label result larger` });
+      await savedResult.first().waitFor();
+      assert.equal(await savedResult.count(), 9);
+
+      await page.reload({ waitUntil: 'domcontentloaded' });
+      await page.getByRole('button', { name: /Saved results/ }).click();
+      await savedResult.first().waitFor();
+      assert.equal(await savedResult.count(), 9);
+      assert.equal(await localRecordCount(page, 'cards'), 9, 'refresh must retain all individually saved Collection cards');
+
+      await gotoTestPage(page, `${origin}/vibe-atlas?date=${historicalDate}`, { waitUntil: 'domcontentloaded' });
+      await page.getByRole('button', { name: /^View Archive boundary card 1/ }).waitFor();
+      assert.ok(inventoryRequests.length > 0, 'an explicit historical edition requests public Archive inventory');
+      assert.deepEqual([...new Set(inventoryRequests)], [historicalDate], 'historical requests stay on the selected edition, including development StrictMode retries');
+    } finally {
+      await closeBrowserAndServer(browser, server);
+    }
+  });
+
+  test(`card, expanded preview, and Lightbox removals delete durable saves without reauthorization in ${engine.name}`, { timeout: 120_000 }, async () => {
+    const recentDate = shanghaiDateOffset(-1);
+    const { server, origin } = await startViteTestServer();
+    const { browser, page } = await launchPageForServer(server, engine.type);
+
+    try {
+      await seedBrowserState(page);
+      const saveRequests = await installEditionRoutes(page);
+      await gotoTestPage(page, `${origin}/vibe-atlas?date=${recentDate}`, { waitUntil: 'domcontentloaded' });
+
+      const gridSaveButton = page.getByRole('button', { name: /^Save item$/ }).first();
+      await gridSaveButton.click();
+      await page.getByRole('button', { name: 'Remove from saved' }).first().waitFor();
+      await page.getByRole('button', { name: 'Remove from saved' }).first().click();
+      assert.equal(await localRecordCount(page, 'cards'), 0, 'the grid card control must remove its durable record');
+
+      await page.getByRole('button', { name: /^View Archive boundary card 1/ }).click();
+      const preview = page.getByRole('region', { name: 'Preview of Archive boundary card 1' });
+      await preview.getByRole('button', { name: /^Save item$/ }).click();
+      await preview.getByRole('button', { name: 'Remove from saved' }).waitFor();
+      await preview.getByRole('button', { name: 'Remove from saved' }).click();
+      assert.equal(await localRecordCount(page, 'cards'), 0, 'the expanded preview must remove its durable record');
+
+      await preview.getByRole('button', { name: 'View Full Screen' }).click();
+      const lightbox = page.getByRole('dialog', { name: /Image viewer/ });
+      const lightboxSaveButton = lightbox.getByRole('button', { name: 'Save to collection' });
+      await lightboxSaveButton.waitFor();
+      await lightboxSaveButton.click();
+      await lightbox.getByRole('button', { name: 'Unsave' }).waitFor();
+      await lightbox.getByRole('button', { name: 'Unsave' }).click();
+      await lightbox.getByRole('button', { name: 'Save to collection' }).waitFor();
+      assert.equal(await localRecordCount(page, 'cards'), 0, 'the Lightbox must remove its durable record');
+      assert.equal(saveRequests.length, 3, 'removing a saved card must not call authorization again');
+    } finally {
+      await closeBrowserAndServer(browser, server);
+    }
+  });
+
   test(`individual public-edition saves fail closed before local writes in ${engine.name}`, { timeout: 120_000 }, async () => {
     const recentDate = shanghaiDateOffset(-1);
     const imageId = `https://images.archive-save.test/${recentDate}/card-1.jpg`;
@@ -184,6 +336,63 @@ for (const engine of BROWSER_ENGINES) {
       assert.deepEqual(saveRequests, [{ date: recentDate, imageId }]);
       assert.deepEqual(await savedBookmarks(page), {}, 'a denied save must not add a legacy bookmark');
       assert.equal(await localRecordCount(page, 'cards'), 0, 'a denied card save must not create a local Collection record');
+      assert.equal(await localRecordCount(page, 'grids'), 0, 'a denied card save must not create a grid record');
+    } finally {
+      await closeBrowserAndServer(browser, server);
+    }
+  });
+
+  test(`authorized cards stay in local Collection when signed-in account sync fails in ${engine.name}`, { timeout: 120_000 }, async () => {
+    const recentDate = shanghaiDateOffset(-1);
+    const { server, origin } = await startViteTestServer();
+    const { browser, page } = await launchPageForServer(server, engine.type);
+    const syncRequests: unknown[] = [];
+
+    try {
+      await seedBrowserState(page);
+      const saveRequests = await installEditionRoutes(page);
+      await page.route('**/api/auth/session', route => route.fulfill({
+        contentType: 'application/json',
+        body: JSON.stringify({ user: { accountId: 'archive-save-sync-user', email: 'reader@example.test' } }),
+      }));
+      await page.route('**/api/collection/sync', async route => {
+        syncRequests.push(route.request().postDataJSON());
+        await route.fulfill({
+          status: 503,
+          contentType: 'application/json',
+          body: JSON.stringify({ error: 'Collection sync unavailable.' }),
+        });
+      });
+      await gotoTestPage(page, `${origin}/vibe-atlas?date=${recentDate}`, { waitUntil: 'domcontentloaded' });
+      await page.getByRole('button', { name: /^Save item$/ }).first().waitFor();
+      await page.evaluate(async accountId => {
+        const request = indexedDB.open('vibe-atlas-collection', 3);
+        const db = await new Promise<IDBDatabase>((resolve, reject) => {
+          request.onsuccess = () => resolve(request.result);
+          request.onerror = () => reject(request.error);
+        });
+        try {
+          const transaction = db.transaction('sync', 'readwrite');
+          transaction.objectStore('sync').put({ key: 'state', mergeDecisions: { [accountId]: true } });
+          await new Promise<void>((resolve, reject) => {
+            transaction.oncomplete = () => resolve();
+            transaction.onerror = () => reject(transaction.error);
+          });
+        } finally {
+          db.close();
+        }
+      }, 'archive-save-sync-user');
+
+      await page.getByRole('button', { name: /^Save item$/ }).first().click();
+      await page.getByRole('button', { name: 'Remove from saved' }).first().waitFor();
+      assert.equal(await localRecordCount(page, 'cards'), 1, 'authorized local save must complete before cloud sync');
+      await page.getByRole('button', { name: /Your Collection/ }).click();
+      await page.getByRole('button', { name: /Saved results/ }).click();
+      await page.getByRole('button', { name: `View ${ACTOR_NAME} Archive label result larger` }).waitFor();
+      await page.getByRole('status').filter({ hasText: 'account sync failed' }).waitFor();
+      assert.ok(syncRequests.length > 0, 'the signed-in account sync attempt must be observable');
+      assert.deepEqual(saveRequests, [{ date: recentDate, imageId: `https://images.archive-save.test/${recentDate}/card-1.jpg` }]);
+      assert.equal(await localRecordCount(page, 'cards'), 1);
     } finally {
       await closeBrowserAndServer(browser, server);
     }
@@ -204,10 +413,11 @@ for (const engine of BROWSER_ENGINES) {
       await page.getByRole('button', { name: /^View Archive boundary card 1/ }).click();
       await page.getByRole('button', { name: 'View Full Screen', exact: true }).click();
 
-      await page.getByRole('dialog', { name: /Image viewer/ }).waitFor();
-      await page.getByRole('button', { name: 'Add to Collection' }).click();
-      await page.getByRole('alert').getByText('Older edition card saves are a Collector benefit.').waitFor();
-      const collectorLink = page.getByRole('alert').getByRole('link', { name: 'See Collector options' });
+      const lightbox = page.getByRole('dialog', { name: /Image viewer/ });
+      await lightbox.waitFor();
+      await lightbox.getByRole('button', { name: 'Add to Collection' }).click();
+      await lightbox.getByRole('alert').getByText('Older edition card saves are a Collector benefit.').waitFor();
+      const collectorLink = lightbox.getByRole('alert').getByRole('link', { name: 'See Collector options' });
       assert.equal(await collectorLink.getAttribute('href'), '/vibe-atlas?view=membership');
       assert.deepEqual(saveRequests, [{ date: oldDate, imageId: legacyImageId }]);
       assert.equal(await localRecordCount(page, 'cards'), 0, 'a denied legacy promotion must not create a local Collection record');
@@ -235,7 +445,7 @@ for (const engine of BROWSER_ENGINES) {
         authorize: date => {
           authorizationCalls += 1;
           return authorizationCalls === 1
-            ? { status: 200, body: { allowed: true, date, imageId: `archive:${date}:card-1` } }
+            ? { status: 200, body: { allowed: true, date, imageId: `archive:${date}:card-0` } }
             : { status: 403, body: { access: 'upgrade', error: 'Collector required.' } };
         },
       });
@@ -246,7 +456,7 @@ for (const engine of BROWSER_ENGINES) {
       await saveButton.click();
       await page.getByRole('button', { name: 'Remove from saved' }).waitFor();
       assert.deepEqual(saveRequests, [{ date: oldDate, imageId }]);
-      assert.deepEqual(await savedBookmarks(page), { [imageId]: true }, 'authorized individual save should be marked saved');
+      assert.deepEqual(await savedBookmarks(page), {}, 'a durable Collection save must not be copied to the legacy bookmark store');
 
       await page.getByRole('button', { name: 'Remove from saved' }).click();
       await page.getByRole('button', { name: /^Save item$/ }).first().waitFor();

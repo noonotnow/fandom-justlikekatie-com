@@ -4,10 +4,10 @@ import { createPublicAuth } from "./lib/public-auth.js";
 import { getBillingServices } from "./lib/billing.js";
 import { capabilitiesForMembership } from "./lib/capabilities.js";
 import { getShanghaiDateString } from "./lib/date-seed.js";
+import { readDailyAcquisitionManifest } from "./lib/daily-card-acquisition.js";
 import {
   isValidArchiveImageIdentity,
   publicArchiveImageId,
-  readPublicManifestForDate,
 } from "./lib/public-archive-inventory.js";
 
 const MAX_BODY_BYTES = 8 * 1024;
@@ -101,7 +101,7 @@ export function createArchiveImageSaveHandler({
     } catch {
       return jsonResponse(503, { error: "The public Archive image could not be verified." });
     }
-    const found = await readPublicManifestForDate(store, body.date);
+    const found = await readDailyAcquisitionManifest(store, body.date);
     if (found.status === "unavailable") {
       return jsonResponse(503, { error: "The public Archive image could not be verified." });
     }
@@ -194,7 +194,9 @@ export function createArchiveImageSaveHandler({
       imageId: publicArchiveImageId(found.manifest, card),
       thumbnailUrl: card.media.thumbnailUrl,
       deliveryUrl: card.media.deliveryUrl,
-      archiveEditionPath: found.edition.publicRecord.editionPath,
+      ...(found.edition ? {
+        archiveEditionPath: found.edition.publicRecord.editionPath,
+      } : {}),
     });
   };
 }

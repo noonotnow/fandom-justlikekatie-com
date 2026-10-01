@@ -1,5 +1,6 @@
 import React, { useEffect, useRef } from 'react';
 import { SaveButton } from '../SaveButton/SaveButton';
+import type { SaveItemMetadata } from '../../hooks/useSaveItem';
 import type { GridItemData } from '../../types';
 import styles from './InlinePreview.module.css';
 
@@ -8,6 +9,8 @@ interface InlinePreviewProps {
   isOpen: boolean;
   onClose: () => void;
   onViewFull: () => void;
+  saveMetadata?: SaveItemMetadata;
+  onSaveChange?: (saved: boolean) => void;
 }
 
 /**
@@ -19,6 +22,8 @@ export const InlinePreview: React.FC<InlinePreviewProps> = ({
   isOpen,
   onClose,
   onViewFull,
+  saveMetadata,
+  onSaveChange,
 }) => {
   const rowRef = useRef<HTMLDivElement>(null);
 
@@ -99,7 +104,14 @@ export const InlinePreview: React.FC<InlinePreviewProps> = ({
             <button className={styles.viewBtn} onClick={onViewFull}>
               View Full Screen
             </button>
-            <SaveButton itemId={item.id} archiveDate={item.archiveDate} archiveImageId={item.archiveImageId} />
+            <SaveButton
+              itemId={item.id}
+              archiveDate={item.archiveDate}
+              archiveImageId={item.archiveImageId}
+              item={item}
+              metadata={saveMetadata}
+              onSaveChange={onSaveChange}
+            />
           </div>
         </div>
       </div>

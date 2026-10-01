@@ -28,11 +28,11 @@ test('archive individual save authorization sends the edition and raw image iden
     return Response.json({
       allowed: true,
       date: '2026-05-16',
-      imageId: 'archive:2026-05-16:card-3',
+      imageId: 'archive:2026-05-16:card-2',
     });
   }) as typeof fetch;
   try {
-    await authorizeArchiveImageSave('2026-05-16', 'https://images.example.test/raw-result.jpg');
+    await authorizeArchiveImageSave('2026-05-16', 'https://images.example.test/raw-result.jpg', 2);
     assert.equal(request?.url, '/.netlify/functions/archive-image-save');
     assert.equal(request?.init?.method, 'POST');
     assert.equal(request?.init?.credentials, 'same-origin');
@@ -58,6 +58,8 @@ test('archive individual save authorization classifies sign-in, upgrade, and ret
     { response: Response.json({ date: '2026-05-16', imageId: 'archive:2026-05-16:card-3' }), failure: 'retry' },
     { response: Response.json({ allowed: true, date: '2026-05-17', imageId: 'archive:2026-05-16:card-3' }), failure: 'retry' },
     { response: Response.json({ allowed: true, date: '2026-05-16', imageId: ' ' }), failure: 'retry' },
+    { response: Response.json({ allowed: true, date: '2026-05-16', imageId: 'archive:2026-05-16:card-3' }), failure: 'retry' },
+    { response: Response.json({ allowed: true, date: '2026-05-16', imageId: 'archive:2026-05-16:card-9' }), failure: 'retry' },
   ] as const;
   try {
     for (const item of responses) {
@@ -67,6 +69,34 @@ test('archive individual save authorization classifies sign-in, upgrade, and ret
         error => error instanceof ArchiveImageSaveError && error.failure === item.failure,
       );
     }
+  } finally {
+    globalThis.fetch = originalFetch;
+  }
+});
+
+test('daily card authorization accepts only the same raw identity or its exact in-board canonical identity', async () => {
+  const originalFetch = globalThis.fetch;
+  try {
+    globalThis.fetch = (async () => Response.json({
+      allowed: true,
+      date: '2026-05-16',
+      imageId: 'archive:2026-05-16:card-2',
+    })) as typeof fetch;
+    await authorizeArchiveImageSave('2026-05-16', 'https://images.example.test/card-3.jpg', 2);
+
+    for (const position of [1, 9, -1]) {
+      await assert.rejects(
+        authorizeArchiveImageSave('2026-05-16', 'https://images.example.test/card-3.jpg', position),
+        (error: unknown) => error instanceof ArchiveImageSaveError && error.failure === 'retry',
+      );
+    }
+
+    globalThis.fetch = (async () => Response.json({
+      allowed: true,
+      date: '2026-05-16',
+      imageId: 'https://images.example.test/card-3.jpg',
+    })) as typeof fetch;
+    await authorizeArchiveImageSave('2026-05-16', 'https://images.example.test/card-3.jpg');
   } finally {
     globalThis.fetch = originalFetch;
   }
@@ -148,11 +178,11 @@ test('a malformed successful archive response never writes local storage', async
 test('daily and historical save controls retain the server-issued date and raw image identity', () => {
   assert.match(routeSource, /archiveDate: data\.date/);
   assert.match(routeSource, /archiveImageId: result\.imageId \|\| result\.thumbnail/);
-  assert.match(itemSource, /<SaveButton itemId=\{id\} archiveDate=\{archiveDate\} archiveImageId=\{archiveImageId\}/);
-  assert.match(inlineSource, /<SaveButton itemId=\{item\.id\} archiveDate=\{item\.archiveDate\} archiveImageId=\{item\.archiveImageId\}/);
-  assert.match(lightboxSource, /authorizeArchiveImageSave\(planData\.date, current\.archiveImageId \|\| current\.id\)/);
-  assert.match(lightboxSource, /if \(planData\?\.date\) await authorizeArchiveImageSave/);
-  assert.match(lightboxSource, /if \(planData\?\.date\) await authorizeArchiveImageSave\([\s\S]*?\);\s*await dbSaveCard\(cardPayload\)/);
+  assert.match(itemSource, /<SaveButton[\s\S]*?itemId=\{id\}[\s\S]*?archiveDate=\{archiveDate\}[\s\S]*?archiveImageId=\{archiveImageId\}[\s\S]*?item=\{item\}/);
+  assert.match(inlineSource, /<SaveButton[\s\S]*?itemId=\{item\.id\}[\s\S]*?archiveDate=\{item\.archiveDate\}[\s\S]*?archiveImageId=\{item\.archiveImageId\}[\s\S]*?item=\{item\}/);
+  assert.match(lightboxSource, /authorizeArchiveImageSave\([\s\S]*?current\.archiveImageId \|\| current\.id,[\s\S]*?current\.gridPosition \?\? currentIndex/);
+  assert.match(lightboxSource, /if \(planData\?\.date\) \{\s*await authorizeArchiveImageSave/);
+  assert.match(lightboxSource, /if \(planData\?\.date\) \{\s*await authorizeArchiveImageSave\([\s\S]*?\);\s*\}\s*await dbSaveCard\(cardPayload\)/);
   assert.match(lightboxSource, /else if \(isSaved\) \{\s*\/\/ A removal never depends[\s\S]*?await dbRemoveCard\(current\.thumbnail\)/);
   assert.match(saveButtonSource, /archiveSaveFailure === 'sign_in'/);
   assert.match(saveButtonSource, /archiveSaveFailure === 'upgrade'/);
@@ -160,7 +190,9 @@ test('daily and historical save controls retain the server-issued date and raw i
   assert.match(saveButtonSource, /href=\{vibeAtlasPath\(\{ view: 'membership' \}\)\}/);
   assert.match(lightboxSource, /href=\{vibeAtlasPath\(\{ view: 'membership' \}\)\}/);
   assert.equal(vibeAtlasPath({ view: 'membership' }), '/vibe-atlas?view=membership');
-  assert.match(saveHookSource, /if \(newSavedState\) \{[\s\S]*?authorizeArchiveImageSave\(archiveDate, archiveImageId \|\| itemId\)[\s\S]*?storage\.saveItem\(itemId\)[\s\S]*?\} else \{[\s\S]*?storage\.removeItem\(itemId\)/);
+  assert.match(saveHookSource, /if \(newSavedState\) \{[\s\S]*?authorizeArchiveImageSave\([\s\S]*?archiveImageId \|\| itemId,[\s\S]*?item\?\.gridPosition[\s\S]*?dbSaveCard\(card\)[\s\S]*?storage\.removeItem\(itemId\)/);
+  assert.doesNotMatch(saveHookSource, /storage\.saveItem\(itemId\)/, 'new Collection saves must not be duplicated as legacy bookmarks');
+  assert.match(saveHookSource, /startingVersion !== saveItemStateVersion\(imageKey\)/);
 });
 
 test('membership copy keeps complete public boards free and puts only older individual-card saves in Collector', () => {

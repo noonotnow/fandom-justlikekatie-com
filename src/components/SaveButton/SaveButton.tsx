@@ -1,5 +1,6 @@
 import React from 'react';
-import { useSaveItem } from '../../hooks/useSaveItem';
+import type { GridItemData } from '../../types';
+import { useSaveItem, type SaveItemMetadata } from '../../hooks/useSaveItem';
 import { vibeAtlasPath } from '../../utils/fandomRoutes';
 import { Toast } from '../Toast/Toast';
 import styles from './SaveButton.module.css';
@@ -8,12 +9,32 @@ interface SaveButtonProps {
   itemId: string;
   archiveDate?: string;
   archiveImageId?: string;
+  item?: GridItemData;
+  metadata?: SaveItemMetadata;
   onClick?: (e: React.MouseEvent) => void;
   onSaveChange?: (saved: boolean) => void;
 }
 
-export const SaveButton: React.FC<SaveButtonProps> = ({ itemId, archiveDate, archiveImageId, onClick, onSaveChange }) => {
-  const { isSaved, isLoading, toggleSave, showToast, toastMessage, hideToast, archiveSaveFailure } = useSaveItem(itemId, archiveDate, archiveImageId);
+export const SaveButton: React.FC<SaveButtonProps> = ({
+  itemId,
+  archiveDate,
+  archiveImageId,
+  item,
+  metadata,
+  onClick,
+  onSaveChange,
+}) => {
+  const {
+    isSaved,
+    isLegacySaved,
+    isSavedStateLoading,
+    isLoading,
+    toggleSave,
+    showToast,
+    toastMessage,
+    hideToast,
+    archiveSaveFailure,
+  } = useSaveItem(itemId, archiveDate, archiveImageId, item, metadata);
 
   const handleClick = async (e: React.MouseEvent) => {
     e.stopPropagation();
@@ -33,14 +54,15 @@ export const SaveButton: React.FC<SaveButtonProps> = ({ itemId, archiveDate, arc
       <button
         className={`${styles.saveButton} ${isSaved ? styles.saved : ''}`}
         onClick={handleClick}
-        disabled={isLoading}
-        aria-label={isSaved ? 'Remove from saved' : 'Save item'}
+        disabled={isLoading || isSavedStateLoading}
+        aria-label={isLegacySaved ? 'Add to Collection' : isSaved ? 'Remove from saved' : 'Save item'}
         aria-pressed={isSaved}
+        title={isLegacySaved ? 'Add to Collection' : isSaved ? 'Remove from saved' : 'Save item'}
       >
         <svg
           xmlns="http://www.w3.org/2000/svg"
           viewBox="0 0 24 24"
-          fill={isSaved ? 'currentColor' : 'none'}
+          fill={isSaved && !isLegacySaved ? 'currentColor' : 'none'}
           stroke="currentColor"
           strokeWidth="2"
           strokeLinecap="round"
