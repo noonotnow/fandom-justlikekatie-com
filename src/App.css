@@ -1371,7 +1371,7 @@ button:hover {
 .membership__journey h2 { margin: .7rem 0 .6rem; color: #263e40; font: 600 clamp(1.25rem, 2vw, 1.75rem)/1.05 "Fraunces", serif; letter-spacing: -.03em; }
 .membership__journey p { margin: 0; color: #687371; font-size: .88rem; line-height: 1.55; }
 .membership__plans { display: grid; grid-template-columns: 1fr 1.12fr; gap: 1rem; margin-top: 2.5rem; }
-.membership__plans article { padding: clamp(1.4rem, 4vw, 2.4rem); border: 1px solid rgba(36,45,52,.16); border-radius: 3px; background: rgba(255,255,255,.32); }
+.membership__plans article { min-width: 0; padding: clamp(1.4rem, 4vw, 2.4rem); border: 1px solid rgba(36,45,52,.16); border-radius: 3px; background: rgba(255,255,255,.32); }
 .membership__plans .membership__featured { border: 2px solid #c96d54; box-shadow: 10px 10px 0 rgba(201,109,84,.12); }
 .membership__plans h2 { margin: 0; color: #263e40; font: 600 clamp(1.7rem, 3vw, 2.4rem) "Fraunces", serif; letter-spacing: -.04em; }
 .membership__plans h2 small { color: #77807b; font: 500 .85rem "Manrope", sans-serif; letter-spacing: 0; }
@@ -1379,7 +1379,7 @@ button:hover {
 .membership__plans li::before { content: "✦"; margin-right: .65rem; color: #b35f49; }
 .membership__sign-in label { display: block; margin-bottom: .45rem; color: #65706d; font-size: .78rem; font-weight: 700; }
 .membership__sign-in div { display: flex; gap: .5rem; }
-.membership input { min-width: 0; flex: 1; padding: .72rem .8rem; border: 1px solid #aab0aa; border-radius: 6px; background: transparent; color: inherit; }
+.membership input { min-width: 0; max-width: 100%; flex: 1; padding: .72rem .8rem; border: 1px solid #aab0aa; border-radius: 6px; background: transparent; color: inherit; }
 .membership button { padding: .72rem 1rem; background: #263e40; color: #f8f3eb; font-size: .82rem; }
 .membership__join, .membership__member { display: flex; align-items: flex-start; gap: .8rem; flex-wrap: wrap; color: #65706d; font-size: .78rem; }
 .membership__join span, .membership__member span { flex-basis: 100%; }
