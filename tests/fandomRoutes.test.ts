@@ -130,4 +130,10 @@ test('the centralized language selector is limited to core localized routes', ()
   assert.equal(isLocaleSwitcherRoute('/memeforge/middle-earth'), false);
   assert.equal(isLocaleSwitcherRoute('/c-drama-fandom/glossary/'), false);
   assert.equal(isLocaleSwitcherRoute('/vibe-atlas/veteran-journal'), false);
+  assert.equal(isLocaleSwitcherRoute('/vibe-atlas', '?admin=true&tab=actor-audit&receiptId=receipt-7'), false);
+  assert.equal(isLocaleSwitcherRoute('/zh-cn/vibe-atlas', '?admin=true'), false);
+  assert.equal(isLocaleSwitcherRoute('/vibe-atlas', '?view=admin'), false);
+  assert.equal(isLocaleSwitcherRoute('/vibe-atlas', '?view=plan'), false);
+  assert.equal(isLocaleSwitcherRoute('/', '?admin=true'), false);
+  assert.equal(isLocaleSwitcherRoute('/vibe-atlas', '?view=collection'), true);
 });

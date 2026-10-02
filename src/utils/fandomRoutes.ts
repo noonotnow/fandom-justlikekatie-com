@@ -34,7 +34,9 @@ export function isVibeAtlasArchiveLocation(pathname: string): boolean {
   return normalized === PUBLIC_ROUTE_PATHS.vibeAtlasArchive;
 }
 
-export function isLocaleSwitcherRoute(pathname: string): boolean {
+export function isLocaleSwitcherRoute(pathname: string, search = '', hash = ''): boolean {
+  if (isAdminEntryLocation(pathname, search, hash)
+    || ['admin', 'plan'].includes(new URLSearchParams(search).get('view') || '')) return false;
   const normalized = stripLocalePath(pathname).replace(/\/+$/, '') || '/';
   return normalized === '/'
     || normalized === PUBLIC_ROUTE_PATHS.vibeAtlas

@@ -16,8 +16,8 @@ export { useLocale } from "./LocaleContext";
 
 const LOCALE_CHANGE_EVENT = "fandom:locale-change";
 
-function isInternalLocaleRoute(pathname: string): boolean {
-  return isLocaleSwitcherRoute(pathname);
+function isInternalLocaleRoute(pathname: string, search = "", hash = ""): boolean {
+  return isLocaleSwitcherRoute(pathname, search, hash);
 }
 
 export function LocaleProvider({ children }: { children: ReactNode }) {
@@ -59,6 +59,7 @@ export function LocaleProvider({ children }: { children: ReactNode }) {
   }), [locale, setLocale]);
 
   const relocalizeCoreLink = useCallback((event: MouseEvent<HTMLDivElement>) => {
+    if (!isInternalLocaleRoute(window.location.pathname, window.location.search, window.location.hash)) return;
     const target = event.target;
     if (!(target instanceof Element)) return;
     const anchor = target.closest<HTMLAnchorElement>("a[href]");
@@ -66,11 +67,11 @@ export function LocaleProvider({ children }: { children: ReactNode }) {
     const targetWindow = anchor.getAttribute("target");
     if (targetWindow && targetWindow !== "_self") return;
     const url = new URL(anchor.href, window.location.href);
-    if (url.origin !== window.location.origin || !isInternalLocaleRoute(url.pathname)) return;
+    if (url.origin !== window.location.origin || !isInternalLocaleRoute(url.pathname, url.search, url.hash)) return;
     anchor.href = localizedPath(`${url.pathname}${url.search}${url.hash}`, locale);
   }, [locale]);
 
-  const inScope = isInternalLocaleRoute(window.location.pathname);
+  const inScope = isInternalLocaleRoute(window.location.pathname, window.location.search, window.location.hash);
   return (
     <LocaleContext.Provider value={value}>
       <div onClickCapture={relocalizeCoreLink}>
