@@ -60,11 +60,22 @@ function applyOperation(collection, operation, mappings, current, clientCursor) 
     const sourceKey = operation.item.kind === "grid"
       ? `grid:${operation.item.id}`
       : `local:${operation.localId}`;
+    const tombstone = Object.values(collection.tombstones).find(item => (
+      item.localId === operation.localId || item.sourceKey === sourceKey
+    ));
+    // A write started before a deletion must not resurrect the deleted record
+    // when its conditional write is retried. A client that has observed the
+    // tombstone may intentionally restore it with a current cursor.
+    if (tombstone && tombstone.revision > clientCursor) {
+      mappings[operation.localId] = tombstone.id;
+      collection.processed[operation.mutationId] = { revision, serverId: tombstone.id };
+      return;
+    }
     const existing = Object.values(collection.items).find(item => (
       item.localId === operation.localId
       || item.sourceKey === sourceKey
     ));
-    const serverId = existing?.id || randomUUID();
+    const serverId = existing?.id || tombstone?.id || randomUUID();
     collection.items[serverId] = {
       ...operation.item,
       // A client that has not seen the retirement must not revive its old label
@@ -89,10 +100,12 @@ function applyOperation(collection, operation, mappings, current, clientCursor) 
     const serverId = operation.serverId
       || Object.values(collection.items).find(item => item.localId === operation.localId)?.id;
     if (serverId) {
+      const removed = collection.items[serverId];
       delete collection.items[serverId];
       collection.tombstones[serverId] = {
         id: serverId,
         localId: operation.localId,
+        ...(removed?.sourceKey ? { sourceKey: removed.sourceKey } : {}),
         revision,
         deletedAt: current.toISOString(),
       };
