@@ -6,6 +6,8 @@
   <title>Xianxia Trope Decoder: The Story Machinery Fans Know | Fandom Vibes</title>
   <meta name="description" content="Decode 14 beloved xianxia tropes in plain English, from the cliff of amnesia to heavenly bureaucracy, with affectionate fandom translations and spoiler-light examples.">
   <link rel="canonical" href="https://fandom.justlikekatie.com/c-drama-fandom/trope-decoder/">
+  <link rel="alternate" hreflang="en" href="https://fandom.justlikekatie.com/c-drama-fandom/trope-decoder/">
+  <link rel="alternate" hreflang="zh-CN" href="https://fandom.justlikekatie.com/zh-cn/c-drama-fandom/trope-decoder/">
   <meta name="robots" content="index,follow,max-image-preview:large">
   <meta property="og:type" content="article">
   <meta property="og:site_name" content="Fandom Vibes">
@@ -81,6 +83,7 @@
         <a href="/c-drama-fandom/trope-decoder/" aria-current="page">Trope decoder</a>
         <a href="/c-drama-fandom/fandom-games/">Fandom games</a>
         <a href="/vibe-atlas">Vibe Atlas</a>
+        <a data-language-link data-language-path="/zh-cn/c-drama-fandom/trope-decoder/" href="/zh-cn/c-drama-fandom/trope-decoder/" hreflang="zh-CN" lang="zh-CN" aria-label="Read this page in Simplified Chinese">简体中文</a>
       </nav>
     </div>
   </header>
@@ -298,6 +301,9 @@
       const shareButton = document.querySelector("#share-decoder");
       const shareStatus = document.querySelector("#share-status");
       const publicUrl = "https://fandom.justlikekatie.com/c-drama-fandom/trope-decoder/";
+      const languageLinks = [...document.querySelectorAll("[data-language-link]")];
+      const cardById = new Map(cards.map(card => [card.id, card]));
+      const validFilters = new Set(["all", "love", "realm", "signs"]);
 
       const trackEvent = (name, data) => {
         try {
@@ -314,8 +320,39 @@
 
       let lastFilterSignature = "";
       let activeFilter = "all";
+      const readContext = () => {
+        const hash = window.location.hash.slice(1);
+        if (cardById.has(hash)) return { filter: "all", cardId: hash };
+        if (!hash.startsWith("context?")) return { filter: "all", cardId: "" };
+        const params = new URLSearchParams(hash.slice("context?".length));
+        const requestedFilter = params.get("filter");
+        const requestedCard = params.get("card");
+        return {
+          filter: validFilters.has(requestedFilter) ? requestedFilter : "all",
+          cardId: cardById.has(requestedCard) ? requestedCard : "",
+        };
+      };
+      const initialContext = readContext();
+      activeFilter = initialContext.filter;
 
-      const applyFilters = () => {
+      const syncLanguageLinks = () => {
+        const queryPresent = Boolean(search.value.trim());
+        const cardId = initialContext.cardId && !cardById.get(initialContext.cardId).hidden
+          ? initialContext.cardId
+          : cards.find(card => !card.hidden)?.id || "";
+        const context = new URLSearchParams();
+        if (activeFilter !== "all" || queryPresent) context.set("filter", activeFilter);
+        if ((activeFilter !== "all" || queryPresent || initialContext.cardId) && cardId) {
+          context.set("card", cardId);
+        }
+        const serializedContext = context.toString();
+        const fragment = serializedContext ? `#context?${serializedContext}` : "";
+        languageLinks.forEach(link => {
+          link.href = `${link.dataset.languagePath}${fragment}`;
+        });
+      };
+
+      const applyFilters = (shouldTrack = true) => {
         const query = search.value.trim().toLowerCase();
         let visible = 0;
         cards.forEach((card) => {
@@ -327,8 +364,15 @@
         });
         count.textContent = `Showing ${visible} of ${cards.length} tropes`;
         empty.hidden = visible !== 0;
+        syncLanguageLinks();
+        if (initialContext.cardId) {
+          const contextCard = cardById.get(initialContext.cardId);
+          if (contextCard && !contextCard.hidden && window.location.hash.startsWith("#context?")) {
+            contextCard.scrollIntoView({ block: "start" });
+          }
+        }
         const filterSignature = `${activeFilter}:${query ? "present" : "empty"}:${visible}`;
-        if (filterSignature !== lastFilterSignature) {
+        if (shouldTrack && filterSignature !== lastFilterSignature) {
           lastFilterSignature = filterSignature;
           trackEvent("trope_filter_used", {
             category: activeFilter,
@@ -338,6 +382,12 @@
         }
       };
 
+      filterButtons.forEach(button => {
+        const isActive = button.dataset.filter === activeFilter;
+        button.classList.toggle("is-active", isActive);
+        button.setAttribute("aria-pressed", String(isActive));
+      });
+      applyFilters(false);
       search.addEventListener("input", applyFilters);
 
       filterButtons.forEach((button) => {

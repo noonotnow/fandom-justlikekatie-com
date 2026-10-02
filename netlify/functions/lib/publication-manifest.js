@@ -79,7 +79,11 @@ function isPublicationReleaseReceipt(value, date) {
     && value?.kind === "vibe-atlas-release-receipt"
     && value.date === date;
 }
-export async function ensurePublicationReleaseDates(store, dates) {
+export async function ensurePublicationReleaseDates(store, dates, { publicationDate } = {}) {
+  if (publicationDate && (!isPublicationDate(publicationDate)
+    || !dates.includes(publicationDate))) {
+    throw new Error("The publication receipt date is invalid.");
+  }
   for (let attempt = 0; attempt < 8; attempt += 1) {
     const entry = typeof store.getWithMetadata === "function"
       ? await getWithResolvedEtag(store, PUBLICATION_RELEASE_DATES_KEY, { type: "json" })
@@ -93,7 +97,7 @@ export async function ensurePublicationReleaseDates(store, dates) {
     const nextDates = [...new Set([...(current?.dates || []), ...dates])].sort();
     if (!nextDates.every(isPublicationDate)) throw new Error("The released-date history has an invalid date.");
     if (current && nextDates.length === current.dates.length) {
-      await ensurePublicationReleaseReceipts(store, nextDates);
+      if (publicationDate) await ensurePublicationReleaseReceipts(store, [publicationDate]);
       return current;
     }
     if (current && !entry?.etag) {
@@ -113,7 +117,9 @@ export async function ensurePublicationReleaseDates(store, dates) {
     });
     if (isPublicationReleaseDates(authoritative)
       && nextDates.every(date => authoritative.dates.includes(date))) {
-      await ensurePublicationReleaseReceipts(store, authoritative.dates);
+      // Only the date being published may get a receipt here; bulk catalog
+      // dates (including those recovered by repairs) are not release evidence.
+      if (publicationDate) await ensurePublicationReleaseReceipts(store, [publicationDate]);
       return authoritative;
     }
   }
@@ -192,8 +198,8 @@ export async function backfillPublicationReleaseDates(store, archiveEditions) {
       type: "json", consistency: "strong",
     });
     if (!manifest) {
-      // Legacy Archive link metadata can name a page that was never backed by
-      // a publication manifest. It is not release evidence by itself.
+      // A legacy Archive link may name a page without a publication manifest.
+      // Only independent release evidence makes the missing manifest fatal.
       const receipt = await store.get(publicationReleaseReceiptKey(date), {
         type: "json", consistency: "strong",
       });
@@ -243,7 +249,6 @@ export async function backfillPublicationReleaseDates(store, archiveEditions) {
       throw new Error("The released-date history disagrees with the Archive.");
     }
     if (current?.verifiedBaseline && current.dates.length === verified.length) {
-      await ensurePublicationReleaseReceipts(store, verified);
       return current;
     }
     if (current && !entry?.etag) {
@@ -261,22 +266,78 @@ export async function backfillPublicationReleaseDates(store, archiveEditions) {
     const authoritative = await readPublicationReleaseDates(store);
     if (authoritative?.verifiedBaseline
       && verified.every(date => authoritative.dates.includes(date))) {
-      await ensurePublicationReleaseReceipts(store, verified);
       return authoritative;
     }
   }
   throw new Error("The released-date baseline could not be updated safely.");
 }
 
+// Called only from the private operator route after the full Archive/manifest
+// baseline has been certified. A page is validated in full before any writes.
+export async function reconcilePublicationReleaseReceipts(store, archiveEditions) {
+  if (!Array.isArray(archiveEditions) || archiveEditions.length > 100
+    || archiveEditions.some(edition => !isPublicationDate(edition?.date))
+    || new Set(archiveEditions.map(edition => edition.date)).size !== archiveEditions.length) {
+    throw new Error("The receipt reconciliation batch is invalid.");
+  }
+  const history = await readPublicationReleaseDates(store);
+  if (!history?.verifiedBaseline) throw new Error("The released-date baseline is not verified.");
+  const catalog = await store.get(publicationManifestCatalogKey(), {
+    type: "json", consistency: "strong",
+  });
+  if (!isPublicationManifestCatalog(catalog)
+    || catalog.dates.length !== history.dates.length
+    || catalog.dates.some(date => !history.dates.includes(date))) {
+    throw new Error("The publication catalog disagrees with the verified baseline.");
+  }
+  const pending = [];
+  for (const edition of archiveEditions) {
+    if (!history.dates.includes(edition.date)) {
+      const receipt = await store.get(publicationReleaseReceiptKey(edition.date), {
+        type: "json", consistency: "strong",
+      });
+      if (receipt) throw new Error(`The released-date baseline omits ${edition.date}.`);
+      // Link metadata on an old Archive entry does not prove publication.
+      continue;
+    }
+    const manifest = await store.get(gridManifestKey(edition.date), {
+      type: "json", consistency: "strong",
+    });
+    if (!isGridManifest(manifest) || manifest.publicationDate !== edition.date
+      || edition.actorName !== manifest.actor.name
+      || edition.vibeLabel !== manifest.vibe.label
+      || (edition.publicRecord
+        && edition.publicRecord.editionPath !== publicEditionPath(manifest))) {
+      throw new Error(`Archive publication evidence disagrees for ${edition.date}.`);
+    }
+    const receipt = await store.get(publicationReleaseReceiptKey(edition.date), {
+      type: "json", consistency: "strong",
+    });
+    if (receipt && !isPublicationReleaseReceipt(receipt, edition.date)) {
+      throw new Error(`The immutable release receipt disagrees for ${edition.date}.`);
+    }
+    if (!receipt) pending.push(edition.date);
+  }
+  // Do not attest to a stale baseline or catalog if an operator publishes
+  // while the page is being checked.
+  const latestHistory = await readPublicationReleaseDates(store);
+  const latestCatalog = await store.get(publicationManifestCatalogKey(), {
+    type: "json", consistency: "strong",
+  });
+  if (JSON.stringify(latestHistory) !== JSON.stringify(history)
+    || JSON.stringify(latestCatalog) !== JSON.stringify(catalog)) {
+    throw new Error("Publication evidence changed during receipt reconciliation.");
+  }
+  await ensurePublicationReleaseReceipts(store, pending);
+  return { checked: archiveEditions.length, written: pending.length };
+}
+
 export const PUBLIC_VIBE_ATLAS_ORIGIN = "https://fandom.justlikekatie.com";
 export const PUBLIC_ACTOR_PATH = "/vibe-atlas/actors";
 export const PUBLIC_EDITION_PATH = "/vibe-atlas/editions";
 const MIN_PUBLIC_EDITORIAL_COPY_LENGTH = 40;
-// An editor approved this dated manifest's existing bilingual pack name and
-// accompanying line after all nine immutable MEDIA deliveries passed review.
-// Do not relax the copy-length gate for other historical manifests.
-const APPROVED_SHORT_COPY_EDITION_DATE = "2026-09-03";
 
+const APPROVED_SHORT_COPY_EDITION_DATE = "2026-09-03";
 export function publicActorSlug(actor) {
   const source = actor?.nameEn || actor?.name || actor?.id || "";
   return String(source)
@@ -326,6 +387,13 @@ export function publicEditionPreview(manifest) {
   const editionPath = publicEditionPath(manifest);
   const copy = (manifest.vibe.supportingCopyEn || manifest.vibe.supportingCopy
     || manifest.vibe.subtitleEn).trim();
+  const copyEn = typeof manifest.vibe.supportingCopyEn === "string"
+    ? manifest.vibe.supportingCopyEn.trim()
+    : "";
+  const copyZhSource = typeof manifest.vibe.supportingCopy === "string"
+    ? manifest.vibe.supportingCopy.trim()
+    : "";
+  const copyZh = /\p{Script=Han}/u.test(copyZhSource) ? copyZhSource : "";
   return {
     kind: "vibe-atlas-public-edition",
     date: manifest.publicationDate,
@@ -342,8 +410,11 @@ export function publicEditionPreview(manifest) {
       label: manifest.vibe.label,
       labelEn: manifest.vibe.labelEn,
       emoji: manifest.vibe.emoji || null,
+      subtitle: manifest.vibe.subtitle || "",
       subtitleEn: manifest.vibe.subtitleEn || copy,
       copy,
+      ...(copyEn ? { copyEn } : {}),
+      ...(copyZh ? { copyZh } : {}),
     },
     canonical: publicCanonical(editionPath),
     path: editionPath,
@@ -1821,7 +1892,7 @@ async function materializePublicationManifestUnlocked({
       throw requestError("That publication date already contains a different immutable board.", 409);
     }
     const publicationCatalog = await ensurePublicationManifestCatalogDate(store, date, now);
-    await ensurePublicationReleaseDates(store, publicationCatalog.dates);
+    await ensurePublicationReleaseDates(store, publicationCatalog.dates, { publicationDate: date });
     await ensureArchiveAccessWindow(store, publicationCatalog.dates, now);
     await updatePublicationActorIndexSafely(store, existingManifest, now);
     return { manifest: existingManifest, payload: manifestPayload(existingManifest) };
@@ -1837,7 +1908,7 @@ async function materializePublicationManifestUnlocked({
       throw requestError("That publication date already contains a different immutable board.", 409);
     }
     const publicationCatalog = await ensurePublicationManifestCatalogDate(store, date, now);
-    await ensurePublicationReleaseDates(store, publicationCatalog.dates);
+    await ensurePublicationReleaseDates(store, publicationCatalog.dates, { publicationDate: date });
     await ensureArchiveAccessWindow(store, publicationCatalog.dates, now);
     await updatePublicationActorIndexSafely(store, racedManifest, now);
     return { manifest: racedManifest, payload: manifestPayload(racedManifest) };
@@ -1962,7 +2033,7 @@ async function materializePublicationManifestUnlocked({
     throw requestError("Another board won this publication date.", 409);
   }
   const publicationCatalog = await ensurePublicationManifestCatalogDate(store, date, now);
-  await ensurePublicationReleaseDates(store, publicationCatalog.dates);
+  await ensurePublicationReleaseDates(store, publicationCatalog.dates, { publicationDate: date });
   await ensureArchiveAccessWindow(store, publicationCatalog.dates, now);
   await updatePublicationActorIndexSafely(store, authoritative, now);
   try {
@@ -2272,7 +2343,8 @@ function pinnedHttpsFetch(url, resolved) {
   return new Promise((resolve, reject) => {
     const request = httpsGet(url, {
       headers: { Accept: "image/png,image/jpeg,image/webp" },
-      lookup: pinnedPublicLookup(resolved),
+      lookup: (_hostname, _options, callback) =>
+        callback(null, resolved.address, resolved.family),
     }, response => {
       const chunks = [];
       let size = 0;
@@ -2304,15 +2376,6 @@ function pinnedHttpsFetch(url, resolved) {
       request.destroy(requestError("The approved source image timed out.", 502)));
     request.on("error", reject);
   });
-}
-
-// Node requests an array when auto-selecting address families. Return only the
-// already-validated address in either callback shape; never re-resolve the host.
-export function pinnedPublicLookup(resolved) {
-  return (_hostname, options, callback) => {
-    if (options.all) callback(null, [resolved]);
-    else callback(null, resolved.address, resolved.family);
-  };
 }
 
 function isPrivateOrReservedIp(address) {

@@ -3,6 +3,7 @@ import type { GridItemData, ImageTier } from '../../types';
 import type { StarOfDayData } from '../../hooks/useStarOfDay';
 import { renderCard, type CardMetadata } from '../../utils/cardRenderer';
 import { Toast } from '../Toast/Toast';
+import { useLocale } from '../../i18n/LocaleProvider';
 import styles from './ExportCardButton.module.css';
 
 export interface ExportCardMetadata {
@@ -22,13 +23,14 @@ interface ExportCardButtonProps {
 }
 
 export const ExportCardButton: React.FC<ExportCardButtonProps> = ({ image, metadata }) => {
+  const { t } = useLocale();
   const [isExporting, setIsExporting] = useState(false);
   const [toastMessage, setToastMessage] = useState<string | null>(null);
 
   const handleExport = useCallback(async () => {
     if (isExporting) return;
     setIsExporting(true);
-    setToastMessage('正在生成卡片……');
+    setToastMessage(t('Preparing card…', '正在生成卡片……'));
 
     try {
       const cardMeta: CardMetadata = {
@@ -72,14 +74,14 @@ export const ExportCardButton: React.FC<ExportCardButtonProps> = ({ image, metad
         }),
       }).catch(() => { /* non-critical */ });
 
-      setToastMessage('卡片已导出 ✓ Card exported!');
+      setToastMessage(t('Card exported!', '卡片已导出！'));
     } catch (err) {
       console.error('Export card failed:', err);
-      setToastMessage('导出失败，请重试 · Export failed');
+      setToastMessage(t('Export failed. Try again.', '导出失败，请重试。'));
     } finally {
       setIsExporting(false);
     }
-  }, [isExporting, image, metadata]);
+  }, [isExporting, image, metadata, t]);
 
   const dismissToast = useCallback(() => setToastMessage(null), []);
 
@@ -89,10 +91,10 @@ export const ExportCardButton: React.FC<ExportCardButtonProps> = ({ image, metad
         className={styles.exportCardBtn}
         onClick={handleExport}
         disabled={isExporting}
-        aria-label="Export individual card"
+        aria-label={t('Export individual card', '导出单张卡片')}
       >
         <span className={styles.icon}>📥</span>
-        <span className={styles.label}>导出卡片</span>
+        <span className={styles.label}>{t('Export card', '导出卡片')}</span>
       </button>
       {toastMessage && <Toast message={toastMessage} onClose={dismissToast} />}
     </>

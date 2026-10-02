@@ -18,8 +18,12 @@ function releasedPackPreviewCards(manifest) {
 test("sitemap preserves static public routes and never emits query-bearing URLs", () => {
   const xml = sitemapXml(["/", "/vibe-atlas", "/vibe-atlas/actors/liu-xueyi/"]);
   assert.match(xml, /<loc>https:\/\/fandom\.justlikekatie\.com\/vibe-atlas<\/loc>/);
+  assert.match(xml, /<xhtml:link rel="alternate" hreflang="zh-CN" href="https:\/\/fandom\.justlikekatie\.com\/zh-cn\/vibe-atlas"\/>/);
+  assert.match(xml, /<xhtml:link rel="alternate" hreflang="x-default" href="https:\/\/fandom\.justlikekatie\.com\/vibe-atlas"\/>/);
   assert.match(xml, /\/vibe-atlas\/actors\/liu-xueyi\//);
+  assert.match(xml, /hreflang="zh-CN" href="https:\/\/fandom\.justlikekatie\.com\/zh-cn\/vibe-atlas\/actors\/liu-xueyi\/"/);
   assert.doesNotMatch(xml, /[?&](?:query|account|view)=/);
+  assert.doesNotMatch(xml, /\/zh-cn\/c-drama-fandom\/(?:archetypes|glossary|watch-journal)\//);
 });
 
 test("deployed sitemap uses the V2 Blobs context and serves the registered static routes", async () => {
@@ -77,8 +81,10 @@ test("dynamic sitemap includes approved actor and edition once and excludes thin
   assert.equal(result.headers["X-Public-Sitemap-Inventory"], "complete");
   const actorUrl = "https://fandom.justlikekatie.com/vibe-atlas/actors/liu-xueyi/";
   const editionUrl = "https://fandom.justlikekatie.com/vibe-atlas/editions/2026-09-03/liu-xueyi/";
-  assert.equal(result.body.split(actorUrl).length - 1, 1);
-  assert.equal(result.body.split(editionUrl).length - 1, 1);
+  assert.equal(result.body.split(`<loc>${actorUrl}</loc>`).length - 1, 1);
+  assert.equal(result.body.split(`<loc>${editionUrl}</loc>`).length - 1, 1);
+  assert.match(result.body, /<xhtml:link rel="alternate" hreflang="zh-CN" href="https:\/\/fandom\.justlikekatie\.com\/zh-cn\/vibe-atlas\/actors\/liu-xueyi\/"\/>/);
+  assert.match(result.body, /<xhtml:link rel="alternate" hreflang="zh-CN" href="https:\/\/fandom\.justlikekatie\.com\/zh-cn\/vibe-atlas\/editions\/2026-09-03\/liu-xueyi\/"\/>/);
   assert.doesNotMatch(result.body, /2026-09-04/);
 });
 
@@ -157,8 +163,10 @@ test("dynamic sitemap includes only the qualified released-pack catalog", async 
   });
   const result = await handler(new Request("https://fandom.justlikekatie.com/sitemap.xml"), {});
   assert.equal(result.statusCode, 200);
-  assert.equal(result.body.split(canonical).length - 1, 1);
+  assert.equal(result.body.split(`<loc>${canonical}</loc>`).length - 1, 1);
   assert.match(result.body, /\/vibe-atlas\/packs\/liu-xueyi\//);
+  assert.match(result.body, /hreflang="zh-CN" href="https:\/\/fandom\.justlikekatie\.com\/zh-cn\/vibe-atlas\/packs\/liu-xueyi\/"/);
+  assert.match(result.body, /hreflang="zh-CN" href="https:\/\/fandom\.justlikekatie\.com\/zh-cn\/vibe-atlas\/packs\/liu-xueyi\/cold-jade-immortal-0\/"/);
   assert.doesNotMatch(result.body, /runId|query|prompt|account/);
 });
 

@@ -210,7 +210,7 @@ test('isGridSaved resets to false and Save button re-enables after removal — c
   // The Save button must be disabled only while isGridSaved is true,
   // so once isGridSaved is false the button re-enables naturally.
   assert.ok(
-    source.includes('isGridSaved ? \'Already saved to your collection\''),
+    source.includes("isGridSaved ? tr('Already saved to your collection', '此网格已保存到收藏夹')"),
     'Save button title should reflect the saved state',
   );
 });

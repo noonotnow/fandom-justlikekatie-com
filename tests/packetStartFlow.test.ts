@@ -58,7 +58,7 @@ test('every Workstation grid caller uses the centralized save, session, and sing
     /export async function syncPublicGrid[\s\S]*?\n}\n(?=\nasync function persistEmbeddedCollectionImages)/,
   )?.[0] || '';
   assert.match(targetedSync, /dbBuildGridSyncRequest\(user\.accountId, gridId\)/);
-  assert.match(targetedSync, /dbApplySyncResponse\(user\.accountId, body, payload\.operations\)/);
+  assert.match(targetedSync, /applySyncResponseWithConflictAnalytics\(user\.accountId, body, payload\.operations\)/);
   assert.doesNotMatch(targetedSync, /syncPublicCollection|persistEmbeddedCollectionImages/);
 });
 

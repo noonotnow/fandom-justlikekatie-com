@@ -5,6 +5,7 @@ import { ExportCardButton, type ExportCardMetadata } from '../ExportCardButton/E
 import { dbSaveCard, dbRemoveCard, dbIsCardSaved } from '../../utils/collectionDB';
 import { storage } from '../../utils/storage';
 import { schedulePublicCollectionSync } from '../../utils/publicAccount';
+import { useLocale } from '../../i18n/LocaleProvider';
 import { ArchiveImageSaveError, authorizeArchiveImageSave } from '../../utils/archiveImageSave';
 import { vibeAtlasPath } from '../../utils/fandomRoutes';
 import { notifySavedItemChanged } from '../../hooks/useSaveItem';
@@ -35,6 +36,7 @@ export const Lightbox: React.FC<LightboxProps> = ({
   tier,
   onTierChange,
 }) => {
+  const { t, path } = useLocale();
   const total = images.length;
   const current = images[currentIndex];
   const touchStartX = useRef<number | null>(null);
@@ -255,7 +257,7 @@ export const Lightbox: React.FC<LightboxProps> = ({
       onTouchEnd={handleTouchEnd}
       role="dialog"
       aria-modal="true"
-      aria-label={`Image viewer: ${current.title}`}
+      aria-label={`${t('Image viewer', '图片查看器')}: ${current.title}`}
     >
       <div className={styles.content} onClick={(e) => e.stopPropagation()}>
         {/* Close button */}
@@ -263,7 +265,7 @@ export const Lightbox: React.FC<LightboxProps> = ({
           ref={closeButtonRef}
           className={styles.closeBtn}
           onClick={onClose}
-          aria-label="Close lightbox"
+          aria-label={t('Close lightbox', '关闭图片查看器')}
         >
           ✕
         </button>
@@ -272,14 +274,14 @@ export const Lightbox: React.FC<LightboxProps> = ({
         <button
           className={`${styles.navBtn} ${styles.navPrev}`}
           onClick={goPrev}
-          aria-label="Previous image"
+          aria-label={t('Previous image', '上一张图片')}
         >
           ‹
         </button>
         <button
           className={`${styles.navBtn} ${styles.navNext}`}
           onClick={goNext}
-          aria-label="Next image"
+          aria-label={t('Next image', '下一张图片')}
         >
           ›
         </button>
@@ -307,14 +309,14 @@ export const Lightbox: React.FC<LightboxProps> = ({
         {/* Export card action */}
         {cardMetadata && (
           <>
-            <div className={styles.tierControls} aria-label="Image card edition">
+            <div className={styles.tierControls} aria-label={t('Image card edition', '图片卡版本')}>
               <button
                 type="button"
                 className={`${styles.tierButton} ${styles.misprint} ${tier === 'misprint' ? styles.tierActive : ''}`}
                 aria-pressed={tier === 'misprint'}
                 onClick={() => onTierChange(tier === 'misprint' ? null : 'misprint')}
               >
-                🫠 错版 <span>Misprint</span>
+                {t('🫠 Misprint', '🫠 错版')}
               </button>
               <button
                 type="button"
@@ -322,7 +324,7 @@ export const Lightbox: React.FC<LightboxProps> = ({
                 aria-pressed={tier === 'legendary'}
                 onClick={() => onTierChange(tier === 'legendary' ? null : 'legendary')}
               >
-                🔥 传说 <span>Legendary</span>
+                {t('🔥 Legendary', '🔥 传说')}
               </button>
             </div>
             <div className={styles.actions}>
@@ -335,8 +337,8 @@ export const Lightbox: React.FC<LightboxProps> = ({
                 <button
                   onClick={handleSave}
                   disabled={saveBusy}
-                  title={isLegacySaved ? 'Add to Collection' : isSaved ? 'Remove from collection' : 'Save to collection'}
-                  aria-label={isLegacySaved ? 'Add to Collection' : isSaved ? 'Unsave' : 'Save to collection'}
+                  title={isLegacySaved ? t('Add to Collection', '加入收藏') : isSaved ? t('Remove from collection', '从收藏中移除') : t('Save to collection', '保存到收藏')}
+                  aria-label={isLegacySaved ? t('Add to Collection', '加入收藏') : isSaved ? t('Unsave', '取消收藏') : t('Save to collection', '保存到收藏')}
                   style={{
                     background: 'none',
                     border: 'none',
@@ -358,12 +360,12 @@ export const Lightbox: React.FC<LightboxProps> = ({
                 {saveFailure && (
                   <span className={styles.saveNotice} role="alert">
                     {saveFailure === 'sign_in'
-                      ? <>Sign in before saving this edition’s cards. <a href={vibeAtlasPath({ view: 'membership' })}>Sign in</a></>
+                      ? <>{t('Sign in before saving this edition’s cards.', '请先登录，再保存本期卡片。')} <a href={path(vibeAtlasPath({ view: 'membership' }))}>{t('Sign in', '登录')}</a></>
                       : saveFailure === 'upgrade'
-                        ? <>Older edition card saves are a Collector benefit. <a href={vibeAtlasPath({ view: 'membership' })}>See Collector options</a></>
+                        ? <>{t('Older edition card saves are a Collector benefit.', '保存较早期卡组中的单张卡片，需要收藏会员权限。')} <a href={path(vibeAtlasPath({ view: 'membership' }))}>{t('See Collector options', '查看收藏会员方案')}</a></>
                         : saveFailure === 'retry'
-                          ? <>We could not verify this card; your save was not changed. <button type="button" onClick={() => void handleSave()} disabled={saveBusy}>Try again</button></>
-                          : <>Could not update this save; please try again. <button type="button" onClick={() => void handleSave()} disabled={saveBusy}>Try again</button></>}
+                          ? <>{t('We could not verify this card; your save was not changed.', '暂时无法核验这张卡片，原有收藏未改动。')} <button type="button" onClick={() => void handleSave()} disabled={saveBusy}>{t('Try again', '重试')}</button></>
+                          : <>{t('Could not update this save; please try again.', '未能更新这项收藏，请重试。')} <button type="button" onClick={() => void handleSave()} disabled={saveBusy}>{t('Try again', '重试')}</button></>}
                   </span>
                 )}
               </div>
@@ -372,13 +374,13 @@ export const Lightbox: React.FC<LightboxProps> = ({
         )}
 
         {/* Thumbnail strip */}
-        <div className={styles.thumbStrip} role="list" aria-label="Image thumbnails">
+        <div className={styles.thumbStrip} role="list" aria-label={t('Image thumbnails', '图片缩略图')}>
           {images.map((img, idx) => (
             <button
               key={img.id}
               className={`${styles.thumb} ${idx === currentIndex ? styles.thumbActive : ''}`}
               onClick={() => onNavigate(idx)}
-              aria-label={`Go to image ${idx + 1}: ${img.title}`}
+              aria-label={`${t('Go to image', '查看第')} ${idx + 1}: ${img.title}`}
               role="listitem"
             >
               <img src={img.thumbnail} alt={img.title} />

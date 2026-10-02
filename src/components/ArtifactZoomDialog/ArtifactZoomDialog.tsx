@@ -1,4 +1,5 @@
 import { useEffect, useId, useRef, type ReactNode } from 'react';
+import { useLocale } from '../../i18n/LocaleProvider';
 import styles from './ArtifactZoomDialog.module.css';
 
 interface ZoomImage {
@@ -23,6 +24,7 @@ export const ArtifactZoomDialog: React.FC<Props> = ({
   singleImage = false,
   onClose,
 }) => {
+  const { t } = useLocale();
   const titleId = useId();
   const closeRef = useRef<HTMLButtonElement>(null);
 
@@ -69,7 +71,7 @@ export const ArtifactZoomDialog: React.FC<Props> = ({
             <h2 id={titleId}>{title}</h2>
             {subtitle && <p>{subtitle}</p>}
           </div>
-          <button ref={closeRef} type="button" aria-label="Close enlarged view" onClick={onClose}>×</button>
+          <button ref={closeRef} type="button" aria-label={t('Close enlarged view', '关闭放大视图')} onClick={onClose}>×</button>
         </header>
         <div className={`${styles.visual} ${composition}`}>
           {images.slice(0, 12).map((image, index) => (

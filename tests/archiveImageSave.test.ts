@@ -187,8 +187,8 @@ test('daily and historical save controls retain the server-issued date and raw i
   assert.match(saveButtonSource, /archiveSaveFailure === 'sign_in'/);
   assert.match(saveButtonSource, /archiveSaveFailure === 'upgrade'/);
   assert.match(saveButtonSource, /archiveSaveFailure === 'retry'/);
-  assert.match(saveButtonSource, /href=\{vibeAtlasPath\(\{ view: 'membership' \}\)\}/);
-  assert.match(lightboxSource, /href=\{vibeAtlasPath\(\{ view: 'membership' \}\)\}/);
+  assert.match(saveButtonSource, /href=\{path\(vibeAtlasPath\(\{ view: 'membership' \}\)\)\}/);
+  assert.match(lightboxSource, /href=\{path\(vibeAtlasPath\(\{ view: 'membership' \}\)\)\}/);
   assert.equal(vibeAtlasPath({ view: 'membership' }), '/vibe-atlas?view=membership');
   assert.match(saveHookSource, /if \(newSavedState\) \{[\s\S]*?authorizeArchiveImageSave\([\s\S]*?archiveImageId \|\| itemId,[\s\S]*?item\?\.gridPosition[\s\S]*?dbSaveCard\(card\)[\s\S]*?storage\.removeItem\(itemId\)/);
   assert.doesNotMatch(saveHookSource, /storage\.saveItem\(itemId\)/, 'new Collection saves must not be duplicated as legacy bookmarks');

@@ -201,7 +201,7 @@ for (const engine of BROWSER_ENGINES) {
       await page.getByRole('button', { name: 'Propose Compiled 3×3' }).click();
       await page.getByLabel('Proposed Compiled 9-frame set').waitFor();
 
-      await page.getByRole('button', { name: 'Your Collection · Saved Grids and Grid Builder' }).click();
+      await page.getByRole('button', { name: /^Your Collection/ }).click();
       await page.getByRole('button', { name: 'Grid Builder', exact: true }).click();
       await page.getByText('1 saved result matches this lens').waitFor();
       assert.equal(await page.getByRole('button', { name: new RegExp(`^${SAVED_ACTOR} 1`) }).count(), 1);
@@ -278,7 +278,7 @@ for (const engine of BROWSER_ENGINES) {
     await gotoTestPage(page, origin, { waitUntil: 'domcontentloaded' });
     await seedSavedCollection(page);
 
-    const dailyUrl = `${origin}/vibe-atlas?view=builder&source=daily`;
+        const dailyUrl = `${origin}/vibe-atlas?view=builder&source=daily`;
     await gotoTestPage(page, dailyUrl, { waitUntil: 'domcontentloaded' });
     await page.getByText('9 Daily Drop images match this lens').waitFor();
     assert.equal(await page.getByRole('button', { name: new RegExp(`^${DAILY_ACTOR} 9`) }).count(), 1);
@@ -294,7 +294,7 @@ for (const engine of BROWSER_ENGINES) {
     assert.equal(await page.getByRole('button', { name: new RegExp(`^${SAVED_ACTOR}`) }).count(), 0);
     await assertClearBuilderState(page, DAILY_ACTOR, 9);
 
-    const archiveUrl = `${origin}/vibe-atlas?view=builder`;
+      const archiveUrl = `${origin}/vibe-atlas?view=builder&source=archive`;
     await gotoTestPage(page, archiveUrl, { waitUntil: 'domcontentloaded' });
     await page.getByText('9 public Archive images match this lens').waitFor();
     assert.equal(page.url(), archiveUrl, 'a source-less Builder URL should use the public Archive inventory');
@@ -428,7 +428,7 @@ for (const engine of BROWSER_ENGINES) {
       await gotoTestPage(page, origin, { waitUntil: 'domcontentloaded' });
       await seedSavedCollection(page);
 
-      const dailyUrl = `${origin}/vibe-atlas?view=builder&source=daily`;
+        const dailyUrl = `${origin}/vibe-atlas?view=builder&source=daily`;
       const editionUrl = `${origin}/vibe-atlas?view=builder&source=edition&date=${HISTORICAL_DATE}`;
       await gotoTestPage(page, dailyUrl, { waitUntil: 'domcontentloaded' });
       await page.getByText('9 Daily Drop images match this lens').waitFor();

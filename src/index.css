@@ -8,8 +8,31 @@
   --color-gold-text: #c9a96e;
 }
 
+/* Noto Sans SC Simplified Chinese is self-hosted so UI/canvas text does not
+   depend on a font CDN. Source: Google Fonts / SIL OFL 1.1 (see public/fonts). */
+@font-face {
+  font-family: 'Noto Sans SC';
+  src: url('/fonts/vibe-atlas-cjk.woff2') format('woff2');
+  font-style: normal;
+  font-weight: 400;
+  font-display: swap;
+}
+
 :root {
-  font-family: system-ui, 'Segoe UI', Roboto, sans-serif;
+  font-family: system-ui, 'Noto Sans SC', 'Segoe UI', Roboto, sans-serif;
+}
+
+/* English display typography has tight negative tracking and line height.
+   Chinese headlines need independent metrics to avoid isolated final glyphs. */
+html:lang(zh-CN) h1 {
+  letter-spacing: 0;
+  line-height: 1.2;
+  font-size: clamp(36px, 6vw, 76px);
+  text-wrap: balance;
+}
+
+:root:lang(zh-CN) {
+  font-family: 'Noto Sans SC', system-ui, 'Segoe UI', Roboto, sans-serif;
 }
 
 * {

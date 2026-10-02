@@ -9,6 +9,7 @@ import {
   initialVibeAtlasEditionDate,
   initialVibeAtlasView,
   isAdminEntryLocation,
+  isLocaleSwitcherRoute,
   isPublishingHandoffPreview,
   isVibeAtlasArchiveLocation,
   isValidVibeAtlasEditionDate,
@@ -24,9 +25,15 @@ test('resolves the three Fandom product routes and keeps magic-link verification
   assert.equal(resolveFandomProductRoute('/', '?admin=true'), 'vibe-atlas');
   assert.equal(isAdminEntryLocation('/', '?admin=true'), true);
   assert.equal(isAdminEntryLocation('/auth/verify', '', '#token=redacted&next=admin'), true);
+  assert.equal(isAdminEntryLocation('/zh-cn/auth/verify', '', '#token=redacted&next=admin'), true);
   assert.equal(isAdminEntryLocation('/auth/verify', '', '#token=redacted&next=plan'), true);
   assert.equal(isAdminEntryLocation('/auth/verify', '', '#token=redacted&next=collection'), false);
   assert.equal(resolveFandomProductRoute('/vibe-atlas'), 'vibe-atlas');
+  assert.equal(resolveFandomProductRoute('/zh-cn/vibe-atlas'), 'vibe-atlas');
+  assert.equal(resolveFandomProductRoute('/zh-cn/vibe-atlas/archive'), 'vibe-atlas');
+  assert.equal(resolveFandomProductRoute('/zh-cn/auth/verify'), 'vibe-atlas');
+  assert.equal(resolveFandomProductRoute('/zh-cn/'), 'launchpad');
+  assert.equal(resolveFandomProductRoute('/zh-cn/memeforge/middle-earth'), 'middle-earth');
   assert.equal(resolveFandomProductRoute('/vibe-atlas/'), 'vibe-atlas');
   assert.equal(resolveFandomProductRoute('/vibe-atlas/archive'), 'vibe-atlas');
   assert.equal(resolveFandomProductRoute('/memeforge/middle-earth'), 'middle-earth');
@@ -112,5 +119,21 @@ test('publishing handoff preview access is explicit and limited to this Netlify 
 test('the archive has a dedicated public route', () => {
   assert.equal(isVibeAtlasArchiveLocation('/vibe-atlas/archive'), true);
   assert.equal(isVibeAtlasArchiveLocation('/vibe-atlas/archive/'), true);
+  assert.equal(isVibeAtlasArchiveLocation('/zh-cn/vibe-atlas/archive'), true);
   assert.equal(isVibeAtlasArchiveLocation('/vibe-atlas'), false);
+});
+
+test('the centralized language selector is limited to core localized routes', () => {
+  assert.equal(isLocaleSwitcherRoute('/'), true);
+  assert.equal(isLocaleSwitcherRoute('/zh-cn/'), true);
+  assert.equal(isLocaleSwitcherRoute('/zh-cn/vibe-atlas/packs/actor/vibe'), true);
+  assert.equal(isLocaleSwitcherRoute('/memeforge/middle-earth'), false);
+  assert.equal(isLocaleSwitcherRoute('/c-drama-fandom/glossary/'), false);
+  assert.equal(isLocaleSwitcherRoute('/vibe-atlas/veteran-journal'), false);
+  assert.equal(isLocaleSwitcherRoute('/vibe-atlas', '?admin=true&tab=actor-audit&receiptId=receipt-7'), false);
+  assert.equal(isLocaleSwitcherRoute('/zh-cn/vibe-atlas', '?admin=true'), false);
+  assert.equal(isLocaleSwitcherRoute('/vibe-atlas', '?view=admin'), false);
+  assert.equal(isLocaleSwitcherRoute('/vibe-atlas', '?view=plan'), false);
+  assert.equal(isLocaleSwitcherRoute('/', '?admin=true'), false);
+  assert.equal(isLocaleSwitcherRoute('/vibe-atlas', '?view=collection'), true);
 });

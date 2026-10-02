@@ -78,7 +78,7 @@ export function createPublicAuth({
       requireMethod(req, "POST");
       validateSameOrigin(req);
       requireConfiguration(env, ["FANDOM_AUTH_ID_SECRET", "FANDOM_PUBLIC_ORIGIN"]);
-      const { email, next } = await readJson(req);
+      const { email, next, locale } = await readJson(req);
       const normalizedEmail = normalizeEmail(email);
       // Only a strict allowlist of destinations is honoured; anything else is ignored.
       // "plan" is retained only as a legacy input so old links remain usable;
@@ -90,6 +90,10 @@ export function createPublicAuth({
       const nextView = next === "admin" || next === "plan" || next === "membership"
         ? next
         : archiveReturn;
+      // Locale is a strict allowlisted preference, never a path or redirect.
+      // The locale-specific route carries it through verification without
+      // exposing any authentication capability in public route state.
+      const requestedLocale = locale === "zh-CN" ? "zh-CN" : "en";
       const current = now();
       const { magic, limits } = stores(context);
       const limited = await isRateLimited(limits, req, normalizedEmail, env.FANDOM_AUTH_ID_SECRET, current);
@@ -107,11 +111,13 @@ export function createPublicAuth({
         }, { onlyIfNew: true });
         const origin = new URL(env.FANDOM_PUBLIC_ORIGIN).origin;
         const nextParam = nextView ? `&next=${encodeURIComponent(nextView)}` : "";
+        const localeParam = `&locale=${encodeURIComponent(requestedLocale)}`;
+        const verifyPath = requestedLocale === "zh-CN" ? "/zh-cn/auth/verify" : "/auth/verify";
         await sendEmail({
           env,
           fetchImpl,
           email: normalizedEmail,
-          magicLink: `${origin}/auth/verify#token=${encodeURIComponent(token)}${nextParam}`,
+          magicLink: `${origin}${verifyPath}#token=${encodeURIComponent(token)}${nextParam}${localeParam}`,
         });
       }
       return json(202, { message: "If that address can receive mail, a sign-in link is on its way." });

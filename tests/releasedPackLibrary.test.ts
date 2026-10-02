@@ -1,9 +1,11 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
 import { readFile } from 'node:fs/promises';
-import { createElement } from 'react';
+import { setImmediate as nextEventLoopTurn } from 'node:timers/promises';
+import { createElement, type ComponentProps } from 'react';
 import { act, create } from 'react-test-renderer';
 import { ReleasedPackLibrary } from '../src/components/ReleasedPackLibrary/ReleasedPackLibrary.tsx';
+import { LocaleContext } from '../src/i18n/LocaleContext.tsx';
 import { IDBFactory } from 'fake-indexeddb';
 import { dbGetAllCards, dbGetAllGrids } from '../src/utils/collectionDB.ts';
 import {
@@ -40,10 +42,29 @@ function makeGridRun(id: string) {
   };
 }
 
+function releasedLibraryElement(
+  props: ComponentProps<typeof ReleasedPackLibrary>,
+  locale: 'en' | 'zh-CN' = 'en',
+) {
+  return createElement(
+    LocaleContext.Provider,
+    {
+      value: {
+        locale,
+        t: (english: string, chinese: string) => locale === 'zh-CN' ? chinese : english,
+        path: (url: string) => url,
+        setLocale: () => {},
+      },
+    },
+    createElement(ReleasedPackLibrary, props),
+  );
+}
+
 async function flushReleasedLibrary(times = 6) {
   for (let index = 0; index < times; index += 1) {
     await act(async () => {
-      await Promise.resolve();
+      // IndexedDB completes on a later event-loop turn, not a microtask.
+      await nextEventLoopTurn();
     });
   }
 }
@@ -123,7 +144,7 @@ test('signed-out visitors browse public pack previews without requesting Collect
   try {
     let library: ReturnType<typeof create>;
     await act(async () => {
-      library = create(createElement(ReleasedPackLibrary, {
+      library = create(releasedLibraryElement({
         status: null,
         membershipResolved: true,
         source: 'library_navigation',
@@ -156,7 +177,7 @@ test('a signed-in free account sees an upgrade, not another sign-in form or Coll
   try {
     let library: ReturnType<typeof create>;
     await act(async () => {
-      library = create(createElement(ReleasedPackLibrary, {
+      library = create(releasedLibraryElement({
         status: { state: 'inactive', isMember: false, capabilities: [] },
         membershipResolved: true,
         source: 'library_navigation',
@@ -230,7 +251,7 @@ test('entitled Released Pack Library keeps English primary while rendering Chine
   try {
     let library: ReturnType<typeof create>;
     await act(async () => {
-      library = create(createElement(ReleasedPackLibrary, {
+      library = create(releasedLibraryElement({
         status: { state: 'active', isMember: true, capabilities: ['fandom_collector'] },
         membershipResolved: true,
         actorId: 'zhang-linghe',
@@ -241,7 +262,7 @@ test('entitled Released Pack Library keeps English primary while rendering Chine
     await flushReleasedLibrary();
 
     const optionText = library!.root.findAllByType('option').map(option => String(option.props.children));
-    assert.ok(optionText.includes('Jade-Faced Calamity · 玉色祸水'));
+    assert.ok(optionText.includes('Jade-Faced Calamity · Chinese: 玉色祸水'));
 
     const openedMarkup = JSON.stringify(library!.toJSON());
     assert.match(openedMarkup, /Jade-Faced Calamity/);
@@ -333,7 +354,7 @@ test('signed-out Released Pack teaser keeps its existing bilingual copy without 
   try {
     let library: ReturnType<typeof create>;
     await act(async () => {
-      library = create(createElement(ReleasedPackLibrary, {
+      library = create(releasedLibraryElement({
         status: null,
         membershipResolved: true,
         actorId: 'zhang-linghe',
@@ -385,7 +406,7 @@ test('signed-out Released Pack page shows graceful fallback when public teaser i
   try {
     let library: ReturnType<typeof create>;
     await act(async () => {
-      library = create(createElement(ReleasedPackLibrary, {
+      library = create(releasedLibraryElement({
         status: null,
         membershipResolved: true,
         actorId: 'liu-xueyi',
@@ -408,6 +429,63 @@ test('signed-out Released Pack page shows graceful fallback when public teaser i
     cleanup();
   }
 });
+
+for (const chineseCopy of ['戏服会换，情绪废墟不换。', undefined]) {
+  test(`Chinese released teaser ${chineseCopy ? 'uses existing Chinese editorial copy' : 'labels legacy English-only prose'} without unlocking depth`, async () => {
+    const requests: string[] = [];
+    const cleanup = installReleasedLibraryEnvironment((async input => {
+      const url = String(input);
+      requests.push(url);
+      if (url.includes('/.netlify/functions/released-pack-preview?actorId=liu-xueyi&vibeIdx=2')) {
+        return Response.json({
+          pack: {
+            actor: { id: 'liu-xueyi', name: '刘学义', nameEn: 'Liu Xueyi' },
+            vibeIdx: 2,
+            vibe: { label: '斯文败类', labelEn: 'Polished Danger' },
+            preview: {
+              copy: 'The costume changes. The emotional ruin remains.',
+              copyEn: 'The costume changes. The emotional ruin remains.',
+              ...(chineseCopy ? { copyZh: chineseCopy } : {}),
+              cards: [{
+                title: '来源中的中文原标题',
+                source: 'Original publisher',
+                thumbnailUrl: 'https://example.com/approved-preview.jpg',
+                link: 'https://example.com/original',
+              }],
+            },
+          },
+        });
+      }
+      return Response.json({ error: `Unexpected request: ${url}` }, { status: 404 });
+    }) as typeof fetch);
+    let library: ReturnType<typeof create> | undefined;
+    try {
+      await act(async () => {
+        library = create(releasedLibraryElement({
+          status: null,
+          membershipResolved: true,
+          actorId: 'liu-xueyi',
+          vibeIndex: 2,
+          source: 'public_record',
+        }, 'zh-CN'));
+      });
+      await flushReleasedLibrary();
+      const markup = JSON.stringify(library!.toJSON());
+      if (chineseCopy) {
+        assert.ok(markup.includes(chineseCopy));
+        assert.ok(!markup.includes('英文预览文案：'));
+      } else {
+        assert.ok(markup.includes('英文预览文案：The costume changes. The emotional ruin remains.'));
+      }
+      assert.ok(markup.includes('来源原标题（未翻译）：来源中的中文原标题'));
+      assert.ok(!markup.includes('英文来源标题'));
+      assert.equal(requests.some(url => url.includes('actor-pack-depth')), false);
+    } finally {
+      if (library) await act(async () => { library!.unmount(); });
+      cleanup();
+    }
+  });
+}
 
 test('daily-star navigation shows only the other verified packs for that actor', async () => {
   const requests: string[] = [];
@@ -438,7 +516,7 @@ test('daily-star navigation shows only the other verified packs for that actor',
   try {
     let library: ReturnType<typeof create>;
     await act(async () => {
-      library = create(createElement(ReleasedPackLibrary, {
+      library = create(releasedLibraryElement({
         status: null,
         membershipResolved: true,
         actorId: 'dylan-wang',
@@ -484,7 +562,7 @@ test('daily-star navigation never fills an empty Dylan view with another actor�
   try {
     let library: ReturnType<typeof create>;
     await act(async () => {
-      library = create(createElement(ReleasedPackLibrary, {
+      library = create(releasedLibraryElement({
         status: null,
         membershipResolved: true,
         actorId: 'dylan-wang',
@@ -526,7 +604,7 @@ test('article-linked Liu Xueyi teaser opens its exact pack, not the public actor
   try {
     let library: ReturnType<typeof create>;
     await act(async () => {
-      library = create(createElement(ReleasedPackLibrary, {
+      library = create(releasedLibraryElement({
         status: null,
         membershipResolved: true,
         actorId: 'liu-xueyi',
@@ -564,8 +642,8 @@ test('released pack library keeps source-depth protected while showing signed-ou
   assert.ok(source.includes("fetch('/.netlify/functions/actor-pack-depth'"));
   assert.ok(source.includes("fetch(`/.netlify/functions/released-pack-preview?actorId="));
   assert.match(source, /if \(!entitled\)/);
-  assert.match(source, /Public teaser · 公开预览/);
-  assert.match(source, /This Vibe Pack \/ 氛围包 is the reusable editorial sourceboard/);
+  assert.match(source, /t\('Public teaser', '公开预览'\)/);
+  assert.match(source, /t\('This Vibe Pack is the reusable editorial sourceboard\./);
   assert.match(source, /Email sign-in link/);
   assert.match(source, /Become a Fandom Collector/);
   assert.match(source, /trackReleasedLibraryOpened/);
@@ -596,13 +674,13 @@ test('released pack navigation preserves actor and vibe selection from daily dro
 
 test('released pack library uses bilingual collector copy and fallback source labeling', async () => {
   const source = await readFile(new URL('../src/components/ReleasedPackLibrary/ReleasedPackLibrary.tsx', import.meta.url), 'utf8');
-  assert.match(source, /Fandom Collector · 已发布 Vibe Packs/);
-  assert.match(source, /Explore released actor × vibe packs—and generate a fresh 图集 from each one/);
-  assert.match(source, /Actor \/ 演员/);
-  assert.match(source, /Vibe Pack \/ 氛围包/);
-  assert.match(source, /Generated from this released Vibe Pack · 来自已发布氛围包/);
-  assert.match(source, /Refresh grid · 换一组/);
-  assert.match(source, /Image source: backup search · 备用搜索源/);
+  assert.match(source, /t\('Fandom Collector · released Vibe Packs', 'Fandom 收藏会员 · 已发布氛围包'\)/);
+  assert.match(source, /t\('Explore released actor × vibe packs—and generate a fresh grid from each one\./);
+  assert.match(source, /t\('Actor', '演员'\)/);
+  assert.match(source, /t\('Vibe Pack', '氛围包'\)/);
+  assert.match(source, /t\('Generated from this released Vibe Pack', '由此已发布氛围包生成'\)/);
+  assert.match(source, /t\('Refresh grid', '换一组'\)/);
+  assert.match(source, /t\('Image source: backup search', '图片来源：备用搜索'\)/);
 });
 
 test('released pack analytics is bounded and checkout attribution is consumed once', () => {

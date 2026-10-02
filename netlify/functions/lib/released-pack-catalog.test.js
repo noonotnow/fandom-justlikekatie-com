@@ -71,6 +71,23 @@ test("released pack inspection distinguishes editorial and media gates", () => {
   assert.ok(inspectReleasedPackManifest(manifest()).safe);
 });
 
+test("released pack previews project optional Chinese copy and preserve explicit English fallback without manifest mutation", () => {
+  const withChineseCopy = manifest();
+  withChineseCopy.vibe.supportingCopy = "戏服会换，情绪废墟不换。";
+  const unchangedManifest = structuredClone(withChineseCopy);
+  const projection = inspectReleasedPackManifest(withChineseCopy).safe;
+  assert.equal(projection.copyZh, "戏服会换，情绪废墟不换。");
+  assert.equal(projection.copyEn, withChineseCopy.vibe.supportingCopyEn);
+  assert.equal(projection.copy, withChineseCopy.vibe.supportingCopyEn);
+  assert.deepEqual(withChineseCopy, unchangedManifest);
+
+  const englishOnly = manifest();
+  const fallback = inspectReleasedPackManifest(englishOnly).safe;
+  assert.equal(fallback.copyZh, undefined);
+  assert.equal(fallback.copyEn, englishOnly.vibe.supportingCopyEn);
+  assert.equal(fallback.copy, englishOnly.vibe.supportingCopyEn);
+});
+
 test("private catalog health distinguishes every fail-closed gate", () => {
   const valid = manifest();
   const missingCopy = manifest();
@@ -185,6 +202,7 @@ test("stale malformed listed records cannot contradict a valid released catalog 
 
 test("an unready newer edition does not hide an older qualifying immutable preview", async () => {
   const older = manifest();
+  older.vibe.supportingCopy = "戏服会换，情绪废墟不换。";
   const newer = manifest({
     publicationDate: "2026-09-24",
     vibe: { ...manifest().vibe, supportingCopyEn: "" },
@@ -225,6 +243,8 @@ test("an unready newer edition does not hide an older qualifying immutable previ
   assert.equal(catalog.packs.length, 1);
   assert.deepEqual(catalog.collectorPackIds, ["actor:0"]);
   assert.equal(catalog.packs[0].preview.copy, older.vibe.supportingCopyEn);
+  assert.equal(catalog.packs[0].preview.copyZh, older.vibe.supportingCopy);
+  assert.equal(catalog.packs[0].preview.copyEn, older.vibe.supportingCopyEn);
   assert.equal(health.pairings[0].status, "released");
   assert.equal(health.pairings[0].publicationDate, "2026-09-23");
 });

@@ -71,14 +71,40 @@ import type {
   ArchiveRecordLocation,
   ArchiveRecordType,
 } from './utils/analytics';
-import { PUBLIC_ORIGIN, PUBLIC_ROUTE_PATHS, publicRouteUrl } from '../shared/public-routes.js';
+import {
+  PUBLIC_ORIGIN,
+  PUBLIC_ROUTE_PATHS,
+  publicAlternatePaths,
+  publicRouteUrl,
+} from '../shared/public-routes.js';
+import { stripLocalePath } from '../shared/locale.js';
+import { useLocale } from './i18n/LocaleProvider';
 
 /** Number of columns in the grid — used to calculate preview row insertion */
 const GRID_COLS = 3;
 const LAST_SAVED_EDITION_KEY = 'fandom_vibe_atlas_last_saved_edition';
+type ErrorTranslator = (english: string, chinese: string) => string;
+
+function publicApiErrorMessage(
+  message: string,
+  locale: 'en' | 'zh-CN',
+  t: ErrorTranslator,
+  fallbackEnglish: string,
+  fallbackChinese: string,
+): string {
+  if (/private\s+approval\s+desk|publish(?:ing)?\s+(?:the\s+)?rescue\s+board/i.test(message)) {
+    return t(fallbackEnglish, fallbackChinese);
+  }
+  if (locale === 'zh-CN' && !/\p{Script=Han}/u.test(message)) {
+    return `${t('Original error: ', '英文原文错误：')}${message}`;
+  }
+  return message;
+}
+
 type DailyPackPublication =
   | { pairKey: string; status: 'checking' | 'unpublished' | 'unavailable' }
-  | { pairKey: string; status: 'published' | 'snapshot'; canonical?: string; cards: { thumbnailUrl: string; title: string }[] };
+  | { pairKey: string; status: 'published'; canonical: string; cards: { thumbnailUrl: string; title: string }[] }
+  | { pairKey: string; status: 'snapshot'; cards: { thumbnailUrl: string; title: string }[] };
 
 function VisibleArchiveRecordPlacement({
   as: Element,
@@ -141,10 +167,10 @@ function VisibleArchiveRecordPlacement({
   );
 }
 
-function formatEditionDate(value: string): string {
+function formatEditionDate(value: string, locale = 'en-US'): string {
   const date = new Date(`${value}T00:00:00Z`);
   if (!Number.isFinite(date.getTime())) return value;
-  return new Intl.DateTimeFormat('en-US', {
+  return new Intl.DateTimeFormat(locale, {
     month: 'short',
     day: 'numeric',
     year: 'numeric',
@@ -152,7 +178,7 @@ function formatEditionDate(value: string): string {
   }).format(date);
 }
 
-function syncVibeAtlasEditionUrl(date: string | null, replace = false) {
+function syncVibeAtlasEditionUrl(date: string | null, replace = false, localizePath: (url: string) => string = url => url) {
   const params = new URLSearchParams(window.location.search);
   if (date) {
     params.set('date', date);
@@ -161,7 +187,7 @@ function syncVibeAtlasEditionUrl(date: string | null, replace = false) {
   }
 
   const query = params.toString();
-  const nextUrl = `${PUBLIC_ROUTE_PATHS.vibeAtlas}${query ? `?${query}` : ''}`;
+  const nextUrl = localizePath(`${PUBLIC_ROUTE_PATHS.vibeAtlas}${query ? `?${query}` : ''}`);
   if (`${window.location.pathname}${window.location.search}` === nextUrl) return;
   const update = replace ? window.history.replaceState : window.history.pushState;
   update.call(window.history, {}, '', nextUrl);
@@ -194,6 +220,8 @@ function MiddleEarthApp() {
 }
 
 function VibeAtlasApp({ archiveEntry = false }: { archiveEntry?: boolean }) {
+  const { locale, t, path } = useLocale();
+  const dateLocale = locale === 'zh-CN' ? 'zh-CN' : 'en-US';
   const [exploreOpen, setExploreOpen] = useState(false);
   const exploreRef = useRef<HTMLDivElement>(null);
   const exploreToggleRef = useRef<HTMLButtonElement>(null);
@@ -296,7 +324,7 @@ function VibeAtlasApp({ archiveEntry = false }: { archiveEntry?: boolean }) {
           preview?: { cards?: { thumbnailUrl?: string; title?: string }[] };
         };
         const published = result.kind === 'vibe-atlas-released-pack'
-          && result.canonical?.startsWith(`${PUBLIC_ORIGIN}${PUBLIC_ROUTE_PATHS.vibeAtlasPacks}/`);
+          && result.canonical?.startsWith(`${PUBLIC_ORIGIN}/vibe-atlas/packs/`);
         const snapshot = result.kind === 'vibe-atlas-daily-pack-snapshot'
           && result.date === rawData.date
           && result.actorId === rawData.actorId
@@ -391,7 +419,7 @@ function VibeAtlasApp({ archiveEntry = false }: { archiveEntry?: boolean }) {
             archiveReturnDate
             && isValidVibeAtlasEditionDate(archiveReturnDate)
           ) {
-            syncVibeAtlasEditionUrl(archiveReturnDate, true);
+            syncVibeAtlasEditionUrl(archiveReturnDate, true, path);
             setSelectedEditionDate(archiveReturnDate);
             setView('daily');
             trackArchiveAccess('restored', archiveReturnDate, 'sign_in');
@@ -411,7 +439,7 @@ function VibeAtlasApp({ archiveEntry = false }: { archiveEntry?: boolean }) {
               window.history.replaceState(
                 {},
                 '',
-                `${PUBLIC_ROUTE_PATHS.vibeAtlas}?${params.toString()}`,
+                path(`${PUBLIC_ROUTE_PATHS.vibeAtlas}?${params.toString()}`),
               );
               setView('released');
             } else if (
@@ -427,11 +455,17 @@ function VibeAtlasApp({ archiveEntry = false }: { archiveEntry?: boolean }) {
       .catch(error => {
         sessionStorage.setItem(
           'fandom_auth_notice',
-          error instanceof Error ? error.message : 'The sign-in link could not be used.',
+          publicApiErrorMessage(
+            error instanceof Error ? error.message : 'The sign-in link could not be used.',
+            locale,
+            t,
+            'The sign-in link could not be used.',
+            '无法使用此登录链接。',
+          ),
         );
         setView('collection');
       });
-  }, [refreshMembership]);
+  }, [locale, path, refreshMembership, t]);
 
   useEffect(() => {
     if (
@@ -450,13 +484,13 @@ function VibeAtlasApp({ archiveEntry = false }: { archiveEntry?: boolean }) {
     if (params.get('view') !== 'plan') return;
     params.delete('view');
     params.set('admin', 'true');
-    window.history.replaceState({}, '', `${PUBLIC_ROUTE_PATHS.vibeAtlas}?${params.toString()}`);
-  }, []);
+    window.history.replaceState({}, '', path(`${PUBLIC_ROUTE_PATHS.vibeAtlas}?${params.toString()}`));
+  }, [path]);
 
   useEffect(() => {
     if (!hasMalformedGridBuilderSource(window.location.search)) return;
-    window.history.replaceState({}, '', `${PUBLIC_ROUTE_PATHS.vibeAtlas}?view=builder&source=archive`);
-  }, []);
+    window.history.replaceState({}, '', path(`${PUBLIC_ROUTE_PATHS.vibeAtlas}?view=builder&source=archive`));
+  }, [path]);
 
   useEffect(() => {
     void refreshMembership();
@@ -526,26 +560,27 @@ function VibeAtlasApp({ archiveEntry = false }: { archiveEntry?: boolean }) {
   }, [collectionTab, membershipCapabilities, membershipResolved, view]);
 
   useEffect(() => {
-    const privateView = window.location.pathname === '/auth/verify'
+    const normalizedPath = stripLocalePath(window.location.pathname).replace(/\/+$/, '') || '/';
+    const privateView = normalizedPath === '/auth/verify'
       || window.location.search.length > 0
       || view === 'collection'
       || view === 'admin'
       || view === 'membership'
       || view === 'released';
     const title = archivePage
-      ? 'Vibe Atlas Archive | Fandom Vibes'
+      ? t('Vibe Atlas Archive | Fandom Vibes', 'Vibe Atlas 往期典藏｜每日古装剧收藏卡 | Fandom Vibes')
       : view === 'daily'
-        ? 'Vibe Atlas | Daily C-Drama Collectible Cards | Fandom Vibes'
+        ? t('Vibe Atlas | Daily C-Drama Collectible Cards | Fandom Vibes', 'Vibe Atlas｜每日古装剧收藏卡 | Fandom Vibes')
       : view === 'membership'
-        ? 'Vibe Atlas Founding Member | Fandom Vibes'
+        ? t('Vibe Atlas Founding Member | Fandom Vibes', '氛围图鉴创始会员 | Fandom Vibes')
         : view === 'released'
-          ? 'Released Vibe Packs | Fandom Vibes'
+          ? t('Released Vibe Packs | Fandom Vibes', '已发布氛围包 | Fandom Vibes')
         : view === 'collection'
-          ? 'Your Vibe Atlas Studio | Fandom Vibes'
-          : 'Operator Console | Fandom Vibes';
+          ? t('Your Vibe Atlas Studio | Fandom Vibes', '你的氛围图鉴工作室 | Fandom Vibes')
+          : t('Operator Console | Fandom Vibes', '运营控制台 | Fandom Vibes');
     const description = archivePage
-      ? 'Browse past Vibe Atlas C-drama collectible card drops, with one star, one vibe, and nine pieces of evidence in every edition.'
-      : 'Browse today’s Vibe Atlas C-drama collectible: one star, one vibe, and nine pieces of evidence.';
+      ? t('Browse past Vibe Atlas C-drama collectible card drops, with one star, one vibe, and nine pieces of evidence in every edition.', '浏览 Vibe Atlas 往期古装剧收藏卡，每期包含一位演员、一个氛围主题和九张精选图片。')
+      : t('Browse today’s Vibe Atlas C-drama collectible: one star, one vibe, and nine pieces of evidence.', '浏览今日 Vibe Atlas 古装剧收藏卡：一位演员、一个氛围主题，以及九张精选图片。');
     const publicPath = archivePage ? PUBLIC_ROUTE_PATHS.vibeAtlasArchive : PUBLIC_ROUTE_PATHS.vibeAtlas;
     document.title = title;
 
@@ -557,7 +592,16 @@ function VibeAtlasApp({ archiveEntry = false }: { archiveEntry?: boolean }) {
     const canonical = document.querySelector<HTMLLinkElement>('link[rel="canonical"]')
       ?? document.head.appendChild(document.createElement('link'));
     canonical.rel = 'canonical';
-    canonical.href = publicRouteUrl(publicPath);
+    canonical.href = publicRouteUrl(path(publicPath));
+
+    for (const alternate of publicAlternatePaths(publicPath)) {
+      const link = document.querySelector<HTMLLinkElement>(
+        `link[rel="alternate"][hreflang="${alternate.hreflang}"]`,
+      ) ?? document.head.appendChild(document.createElement('link'));
+      link.rel = 'alternate';
+      link.hreflang = alternate.hreflang;
+      link.href = publicRouteUrl(alternate.path);
+    }
 
     const setMetaContent = (selector: string, attribute: 'name' | 'property', key: string, content: string) => {
       const meta = document.querySelector<HTMLMetaElement>(selector)
@@ -567,13 +611,13 @@ function VibeAtlasApp({ archiveEntry = false }: { archiveEntry?: boolean }) {
     };
     setMetaContent('meta[property="og:title"]', 'property', 'og:title', title);
     setMetaContent('meta[property="og:description"]', 'property', 'og:description', description);
-    setMetaContent('meta[property="og:url"]', 'property', 'og:url', publicRouteUrl(publicPath));
+    setMetaContent('meta[property="og:url"]', 'property', 'og:url', publicRouteUrl(path(publicPath)));
     setMetaContent('meta[property="og:image"]', 'property', 'og:image', `${PUBLIC_ORIGIN}/assets/c-drama-fandom/legendary-grid-liu-xueyi-2026-08-29.webp`);
     setMetaContent('meta[name="twitter:card"]', 'name', 'twitter:card', 'summary_large_image');
     setMetaContent('meta[name="twitter:title"]', 'name', 'twitter:title', title);
     setMetaContent('meta[name="twitter:description"]', 'name', 'twitter:description', description);
     setMetaContent('meta[name="twitter:image"]', 'name', 'twitter:image', `${PUBLIC_ORIGIN}/assets/c-drama-fandom/legendary-grid-liu-xueyi-2026-08-29.webp`);
-  }, [archivePage, view]);
+  }, [archivePage, path, t, view]);
 
   useEffect(() => {
     if (archivePage && !archive.length && !archiveLoading && !archiveError) void loadArchive();
@@ -589,9 +633,9 @@ function VibeAtlasApp({ archiveEntry = false }: { archiveEntry?: boolean }) {
     setExpandedId(null);
     setLightboxIndex(null);
     setDailyGridZoomOpen(false);
-    window.history.replaceState({}, '', PUBLIC_ROUTE_PATHS.vibeAtlasArchive);
+    window.history.replaceState({}, '', path(PUBLIC_ROUTE_PATHS.vibeAtlasArchive));
     if (!archive.length && !archiveLoading) void loadArchive();
-  }, [archive.length, archiveLoading, loadArchive]);
+  }, [archive.length, archiveLoading, loadArchive, path]);
 
   const selectEdition = (date: string | null) => {
     setExpandedId(null);
@@ -599,30 +643,30 @@ function VibeAtlasApp({ archiveEntry = false }: { archiveEntry?: boolean }) {
     setDailyGridZoomOpen(false);
     setImageTiers({});
     if (date !== null && !isValidVibeAtlasEditionDate(date)) {
-      syncVibeAtlasEditionUrl(null, true);
+      syncVibeAtlasEditionUrl(null, true, path);
       setSelectedEditionDate(null);
       openArchivePicker();
       return;
     }
     setArchivePage(false);
-    syncVibeAtlasEditionUrl(date);
+    syncVibeAtlasEditionUrl(date, false, path);
     setSelectedEditionDate(date);
   };
 
   const copyArchivedEditionLink = async () => {
     if (!selectedEditionDate || !isValidVibeAtlasEditionDate(selectedEditionDate)) return;
 
-    const shareUrl = new URL(PUBLIC_ROUTE_PATHS.vibeAtlas, window.location.origin);
+    const shareUrl = new URL(path(PUBLIC_ROUTE_PATHS.vibeAtlas), window.location.origin);
     shareUrl.searchParams.set('date', selectedEditionDate);
 
     try {
       if (!navigator.clipboard?.writeText) throw new Error('Clipboard unavailable');
       await navigator.clipboard.writeText(shareUrl.toString());
-      setEditionShareNotice(`Copied link for ${formatEditionDate(selectedEditionDate)}.`);
+      setEditionShareNotice(t('Copied link for', '已复制链接：') + ` ${formatEditionDate(selectedEditionDate, dateLocale)}.`);
       trackDailyDropShared(selectedEditionDate, 'edition_link');
     } catch {
       setEditionShareNotice(
-        'Could not copy this archived edition link. Please copy the address from your browser.',
+        t('Could not copy this archived edition link. Please copy the address from your browser.', '无法复制此期刊链接。请从浏览器地址栏复制链接。'),
       );
     }
   };
@@ -634,7 +678,7 @@ function VibeAtlasApp({ archiveEntry = false }: { archiveEntry?: boolean }) {
     setExpandedId(null);
     setLightboxIndex(null);
     setDailyGridZoomOpen(false);
-    window.history.pushState({}, '', PUBLIC_ROUTE_PATHS.vibeAtlasArchive);
+    window.history.pushState({}, '', path(PUBLIC_ROUTE_PATHS.vibeAtlasArchive));
     if (!archive.length && !archiveLoading) void loadArchive();
   };
 
@@ -644,15 +688,15 @@ function VibeAtlasApp({ archiveEntry = false }: { archiveEntry?: boolean }) {
   ) => {
     setExploreOpen(false);
     const nextPath = destination === 'daily'
-      ? vibeAtlasPath()
+      ? path(vibeAtlasPath())
       : destination === 'membership'
-        ? vibeAtlasPath({ view: 'membership' })
+        ? path(vibeAtlasPath({ view: 'membership' }))
         : destination === 'released'
-          ? vibeAtlasPath({ view: 'released' })
-          : vibeAtlasPath({
+          ? path(vibeAtlasPath({ view: 'released' }))
+          : path(vibeAtlasPath({
             view: tab === 'grids' ? 'collection' : tab,
             ...(tab === 'builder' ? { source: 'collection' } : {}),
-          });
+          }));
     window.history.pushState({}, '', nextPath);
     setArchivePage(false);
     setCollectionTab(tab);
@@ -664,7 +708,7 @@ function VibeAtlasApp({ archiveEntry = false }: { archiveEntry?: boolean }) {
   const openEditionBuilder = (date: string, placement: ArchiveRebuildPlacement) => {
     if (!isValidVibeAtlasEditionDate(date)) return;
     trackArchiveRebuildLaunched(date, placement);
-    window.history.pushState({}, '', `${PUBLIC_ROUTE_PATHS.vibeAtlas}?view=builder&source=edition&date=${encodeURIComponent(date)}`);
+    window.history.pushState({}, '', path(`${PUBLIC_ROUTE_PATHS.vibeAtlas}?view=builder&source=edition&date=${encodeURIComponent(date)}`));
     setArchivePage(false);
     setView('collection');
     setCollectionTab('builder');
@@ -693,20 +737,20 @@ function VibeAtlasApp({ archiveEntry = false }: { archiveEntry?: boolean }) {
         : null;
       setSelectedEditionDate(restoredEditionDate);
       if (malformedBuilderSource) {
-        window.history.replaceState({}, '', `${PUBLIC_ROUTE_PATHS.vibeAtlas}?view=builder&source=archive`);
+        window.history.replaceState({}, '', path(`${PUBLIC_ROUTE_PATHS.vibeAtlas}?view=builder&source=archive`));
       }
       if (restoredView === 'daily' && !restoredArchivePage && invalidEditionDate) {
-        syncVibeAtlasEditionUrl(null, true);
+        syncVibeAtlasEditionUrl(null, true, path);
         openArchivePicker();
       }
     };
     window.addEventListener('popstate', restoreUrlState);
     return () => window.removeEventListener('popstate', restoreUrlState);
-  }, [openArchivePicker]);
+  }, [openArchivePicker, path]);
 
   useEffect(() => {
     if (!hasInvalidVibeAtlasEditionDate(window.location.search)) return;
-    syncVibeAtlasEditionUrl(null, true);
+    syncVibeAtlasEditionUrl(null, true, path);
     setSelectedEditionDate(null);
     if (view === 'daily' && !archivePage) openArchivePicker();
   }, [archivePage, openArchivePicker, view]);
@@ -716,7 +760,7 @@ function VibeAtlasApp({ archiveEntry = false }: { archiveEntry?: boolean }) {
     // was never generated. Return the visitor to a usable picker rather than
     // leaving them on an empty/error grid.
     if (view !== 'daily' || !selectedEditionDate || loading || !error) return;
-    syncVibeAtlasEditionUrl(null, true);
+    syncVibeAtlasEditionUrl(null, true, path);
     setSelectedEditionDate(null);
     openArchivePicker();
   }, [error, loading, openArchivePicker, selectedEditionDate, view]);
@@ -760,7 +804,13 @@ function VibeAtlasApp({ archiveEntry = false }: { archiveEntry?: boolean }) {
         `archive:${selectedEditionDate}`,
       ));
     } catch (error) {
-      setArchiveGateNotice(error instanceof Error ? error.message : 'Could not send the sign-in link.');
+      setArchiveGateNotice(publicApiErrorMessage(
+        error instanceof Error ? error.message : 'Could not send the sign-in link.',
+        locale,
+        t,
+        'Could not send the sign-in link.',
+        '无法发送登录链接。',
+      ));
     } finally {
       setArchiveGateBusy('');
     }
@@ -773,7 +823,13 @@ function VibeAtlasApp({ archiveEntry = false }: { archiveEntry?: boolean }) {
     try {
       window.location.assign(await createMembershipCheckout(selectedEditionDate));
     } catch (error) {
-      setArchiveGateNotice(error instanceof Error ? error.message : 'Checkout could not be opened.');
+      setArchiveGateNotice(publicApiErrorMessage(
+        error instanceof Error ? error.message : 'Checkout could not be opened.',
+        locale,
+        t,
+        'Checkout could not be opened.',
+        '无法打开结账页面。',
+      ));
       setArchiveGateBusy('');
     }
   };
@@ -842,34 +898,34 @@ function VibeAtlasApp({ archiveEntry = false }: { archiveEntry?: boolean }) {
   };
 
   return (
-    <div className="app fandom-atlas-page">
+    <div className="app fandom-atlas-page" lang={locale === 'zh-CN' ? 'zh-CN' : 'en'}>
       <ThemeToggle isDark={isDark} onToggle={toggleDarkMode} />
 
       {/* Navigation bar */}
-      <nav className="fandom-universe-nav" aria-label="Fandom Vibes navigation">
-        <a className="fandom-universe-brand" href="/">
+      <nav className="fandom-universe-nav" aria-label={t('Fandom Vibes navigation', 'Fandom Vibes 导航')}>
+        <a className="fandom-universe-brand" href={path('/')}>
           <span className="fandom-universe-mark">FV</span>
-          <span><strong>Fandom Vibes</strong><small>Worldbuilding launchpad</small></span>
+          <span><strong>Fandom Vibes</strong><small>{t('Worldbuilding launchpad', '世界构筑创作入口')}</small></span>
         </a>
-        <div className="fandom-atlas-nav" aria-label="Vibe Atlas workspace">
-          <span className="fandom-atlas-nav__title">Vibe Atlas</span>
+        <div className="fandom-atlas-nav" aria-label={t('Vibe Atlas workspace', '氛围图鉴工作区')}>
+          <span className="fandom-atlas-nav__title">{t('Vibe Atlas', '氛围图鉴')}</span>
           <button
             type="button"
-            aria-label="今日之星 · Daily"
+            aria-label={t('Daily drop', '每日卡组')}
             onClick={() => navigateAtlas('daily')}
             aria-current={!archivePage && view === 'daily' ? 'page' : undefined}
             className={!archivePage && view === 'daily' ? 'fandom-atlas-nav__active' : ''}
           >
-            <span>Today</span>
+            <span>{t('Today', '今日')}</span>
           </button>
           <button
             type="button"
-            aria-label="Your Collection · Saved Grids and Grid Builder"
+            aria-label={t('Your Collection · Saved Grids and Grid Builder', '我的收藏 · 已保存的九宫格与九宫格创作器')}
             onClick={() => navigateAtlas('collection', 'grids')}
             aria-current={!archivePage && view === 'collection' ? 'page' : undefined}
             className={!archivePage && view === 'collection' ? 'fandom-atlas-nav__active' : ''}
           >
-            <span>Your Collection</span>
+            <span>{t('Your Collection', '我的收藏')}</span>
           </button>
           <div
             className="fandom-atlas-nav__group"
@@ -886,13 +942,13 @@ function VibeAtlasApp({ archiveEntry = false }: { archiveEntry?: boolean }) {
               className={archivePage || view === 'released' ? 'fandom-atlas-nav__active' : ''}
               onClick={() => setExploreOpen(open => !open)}
             >
-              <span>Explore <span aria-hidden="true" className="fandom-atlas-nav__chevron">⌄</span></span>
+              <span>{t('Explore', '探索')} <span aria-hidden="true" className="fandom-atlas-nav__chevron">⌄</span></span>
             </button>
             {exploreOpen && (
               <div id="atlas-explore-links" className="fandom-atlas-nav__panel">
-                <p>Discover</p>
-                <button type="button" aria-current={!archivePage && view === 'released' ? 'page' : undefined} onClick={() => navigateAtlas('released')}>Released packs</button>
-                <button type="button" aria-label="Vibe Atlas archive" aria-current={archivePage ? 'page' : undefined} onClick={openArchivePage}>Archive</button>
+                <p>{t('Discover', '发现')}</p>
+                <button type="button" aria-current={!archivePage && view === 'released' ? 'page' : undefined} onClick={() => navigateAtlas('released')}>{t('Released packs', '已发布氛围包')}</button>
+                <button type="button" aria-label={t('Vibe Atlas archive', '氛围图鉴典藏')} aria-current={archivePage ? 'page' : undefined} onClick={openArchivePage}>{t('Archive', '典藏')}</button>
               </div>
             )}
           </div>
@@ -902,7 +958,7 @@ function VibeAtlasApp({ archiveEntry = false }: { archiveEntry?: boolean }) {
             aria-current={!archivePage && view === 'membership' ? 'page' : undefined}
             className={!archivePage && view === 'membership' ? 'fandom-atlas-nav__active' : ''}
           >
-            <span>Membership</span>
+            <span>{t('Membership', '会员')}</span>
           </button>
         </div>
       </nav>
@@ -920,33 +976,33 @@ function VibeAtlasApp({ archiveEntry = false }: { archiveEntry?: boolean }) {
       ) : view === 'daily' ? (
         <>
       <header className="atlas-hero">
-        <div className="atlas-hero__eyebrow"><span>Fandom Vibes / studio 01</span><i /></div>
+        <div className="atlas-hero__eyebrow"><span>{t('Fandom Vibes / studio 01', 'Fandom Vibes / 工作室 01')}</span><i /></div>
         <div className="atlas-hero__title-row">
           <div>
-            <p className="atlas-hero__universe">A daily C-drama card drop</p>
-            <h1>Vibe Atlas <span>氛围图鉴</span></h1>
+            <p className="atlas-hero__universe">{t('A daily C-drama card drop', '每日中剧卡组')}</p>
+            <h1>{locale === 'zh-CN' ? '氛围图鉴' : 'Vibe Atlas'} {locale === 'zh-CN' ? null : <span lang="zh-CN">氛围图鉴</span>}</h1>
           </div>
-          <p className="atlas-hero__thesis">One star. One vibe. Nine pieces of evidence.</p>
+          <p className="atlas-hero__thesis">{t('One star. One vibe. Nine pieces of evidence.', '一位明星，一种氛围，九份心动证据。')}</p>
         </div>
          <p className="atlas-hero__hook">
-           <em>Collect the evidence. Confirm your type.</em><br />
+           <em>{t('Collect the evidence. Confirm your type.', '收集心动证据，确认你的偏爱。')}</em><br />
            <span lang="zh-CN">九张证据，一眼心动</span>
          </p>
-         <p className="atlas-hero__intro">Every day, Vibe Atlas pairs one C-drama star with one very specific kind of heartthrob energy. Browse nine collectible pieces of evidence, save the ones that understand your type, and build your own 3×3.</p>
-         <div className="atlas-hero__actions" aria-label="Vibe Atlas actions">
-           <a href="#daily-evidence">Browse today’s drop</a>
-           <a href={`${PUBLIC_ROUTE_PATHS.vibeAtlas}?view=builder&source=daily`}>Open the Grid Builder</a>
+         <p className="atlas-hero__intro">{t('Every day, Vibe Atlas pairs one C-drama star with one very specific kind of heartthrob energy. Browse nine collectible pieces of evidence, save the ones that understand your type, and build your own 3×3.', '每天，氛围图鉴都会为一位中剧明星配上一种独特的心动气质。浏览九份可收藏的视觉证据，保存最懂你偏爱的卡片，再拼出专属 3×3 九宫格。')}</p>
+         <div className="atlas-hero__actions" aria-label={t('Vibe Atlas actions', '氛围图鉴操作')}>
+           <a href="#daily-evidence">{t('Browse today’s drop', '浏览今日卡组')}</a>
+           <a href={path(`${PUBLIC_ROUTE_PATHS.vibeAtlas}?view=builder&source=daily`)}>{t('Open the Grid Builder', '打开九宫格创作器')}</a>
             {rawData?.actorId && !selectedEditionDate && (
-              <a href="#todays-released-pack">Open today’s free released pack</a>
+              <a href="#todays-released-pack">{t('Open today’s free released pack', '查看今日免费氛围包')}</a>
             )}
             {rawData?.actorId && (
-              <a href={vibeAtlasPath({
+              <a href={path(vibeAtlasPath({
                 view: 'released',
                 source: 'daily_star',
                 actorId: rawData.actorId,
                 vibeIdx: rawData.vibeIdx,
-              })}>
-                Explore {rawData.actorShortNameEn || rawData.actorName} released packs
+              }))}>
+                {t('Explore released packs for', '探索此演员的已发布氛围包：')} {locale === 'zh-CN' ? rawData.actorName : rawData.actorShortNameEn || rawData.actorName}
               </a>
             )}
          </div>
@@ -965,36 +1021,36 @@ function VibeAtlasApp({ archiveEntry = false }: { archiveEntry?: boolean }) {
           <div className="atlas-edition">
             <div className="atlas-edition__meta">
               <div className="atlas-edition__label">
-                {selectedEditionDate ? `Archived card drop · ${formatEditionDate(meta.date)}` : "Today's curated card drop"}
+                {selectedEditionDate ? `${t('Archived card drop', '典藏卡组')} · ${formatEditionDate(meta.date, dateLocale)}` : t("Today's curated card drop", '今日精选卡组')}
               </div>
               <div className="atlas-edition__name">
-                <span>Today's star</span> {meta.vibeEmoji} {meta.actorName}
+                <span>{t("Today's star", '今日之星')}</span> {meta.vibeEmoji} {meta.actorName}
               </div>
               <div className="atlas-edition__name">
-                <span>Today's vibe</span> {meta.vibeLabel}
+                <span>{t("Today's vibe", '今日氛围')}</span> {meta.vibeLabel}
               </div>
               <div className="atlas-edition__subline">
-                {meta.vibeLabelEn} — {meta.vibeSubtitleEn}
+                {locale === 'zh-CN' ? `英文：${meta.vibeLabelEn} — ${meta.vibeSubtitleEn}` : `${meta.vibeLabelEn} — ${meta.vibeSubtitleEn}`}
               </div>
                 {rawData?.publicRecord && (
                   <VisibleArchiveRecordPlacement
                     as="nav"
                     className="atlas-edition__records"
-                    ariaLabel="Curated public records"
+                    ariaLabel={t('Curated public records', '精选公开档案')}
                     location="daily"
                     recordTypes={['actor', 'edition']}
                     presentationKey={`daily:${rawData.publicRecord.actorPath}:${rawData.publicRecord.editionPath}`}
                   >
-                    <a href={rawData.publicRecord.actorPath} onClick={() => trackArchiveRecordOpened('actor', 'daily')}>Explore {meta.actorName}’s actor record</a>
-                    <a href={rawData.publicRecord.editionPath} onClick={() => trackArchiveRecordOpened('edition', 'daily')}>Read this edition’s permanent record</a>
+                    <a href={path(rawData.publicRecord.actorPath)} onClick={() => trackArchiveRecordOpened('actor', 'daily')}>{t('Explore actor record', '查看演员档案')} · {meta.actorName}</a>
+                    <a href={path(rawData.publicRecord.editionPath)} onClick={() => trackArchiveRecordOpened('edition', 'daily')}>{t('Read this edition’s permanent record', '阅读本期永久档案')}</a>
                   </VisibleArchiveRecordPlacement>
                 )}
               {meta.vibeSupportingCopyEn && (
-                <div className="atlas-edition__supporting-copy">{meta.vibeSupportingCopyEn}</div>
+                <div className="atlas-edition__supporting-copy">{locale === 'zh-CN' ? `英文说明：${meta.vibeSupportingCopyEn}` : meta.vibeSupportingCopyEn}</div>
               )}
               {meta.stale && (
                 <div className="atlas-edition__stale">
-                  ⏳ Showing yesterday's picks while today's grid builds
+                  ⏳ {t("Showing yesterday's picks while today's grid builds", '今日九宫格正在生成，暂时显示昨日精选')}
                 </div>
               )}
             </div>
@@ -1004,10 +1060,10 @@ function VibeAtlasApp({ archiveEntry = false }: { archiveEntry?: boolean }) {
                   type="button"
                   onClick={() => openEditionBuilder(selectedEditionDate, 'edition_detail')}
                 >
-                  Rebuild this edition
+                  {t('Rebuild this edition', '重建本期九宫格')}
                 </button>
                 <button type="button" onClick={copyArchivedEditionLink}>
-                  Copy archived edition link
+                  {t('Copy archived edition link', '复制本期典藏链接')}
                 </button>
                 <p className="daily-edition-share__notice" role="status" aria-live="polite" aria-atomic="true">
                   {editionShareNotice}
@@ -1035,38 +1091,38 @@ function VibeAtlasApp({ archiveEntry = false }: { archiveEntry?: boolean }) {
        {!gate && rawData && !selectedEditionDate && (
          <section className="daily-released-pack" id="todays-released-pack" aria-labelledby="todays-released-pack-title">
            <div className="daily-released-pack__intro">
-             <p className="membership__label">Free today · Star of the Day released Vibe Pack</p>
-             <h2 id="todays-released-pack-title">{rawData.vibeEmoji} {rawData.actorShortNameEn || rawData.actorName} · {rawData.vibeLabelEn || rawData.vibeLabel}</h2>
-             <p>{rawData.vibeSubtitleEn || rawData.vibeSubtitle}</p>
+             <p className="membership__label">{t('Free today · Star of the Day released Vibe Pack', '今日免费 · 今日之星已发布氛围包')}</p>
+             <h2 id="todays-released-pack-title">{rawData.vibeEmoji} {locale === 'zh-CN' ? rawData.actorName : rawData.actorShortNameEn || rawData.actorName} · {locale === 'zh-CN' ? rawData.vibeLabel : rawData.vibeLabelEn || rawData.vibeLabel}</h2>
+             <p>{locale === 'zh-CN' ? rawData.vibeSubtitle : rawData.vibeSubtitleEn || rawData.vibeSubtitle}</p>
              {(rawData.vibeSupportingCopyEn || rawData.vibeSupportingCopy) && (
-               <p>{rawData.vibeSupportingCopyEn || rawData.vibeSupportingCopy}</p>
+               <p>{locale === 'zh-CN' ? rawData.vibeSupportingCopy || (rawData.vibeSupportingCopyEn ? `英文说明：${rawData.vibeSupportingCopyEn}` : '') : rawData.vibeSupportingCopyEn || rawData.vibeSupportingCopy}</p>
              )}
            </div>
            <div className="daily-released-pack__access">
-             <strong>Today’s pack is free on this homepage.</strong>
+             <strong>{t('Today’s pack is free on this homepage.', '今日氛围包可在此首页免费浏览。')}</strong>
              {visibleDailyPublication.status === 'published' ? (
-               <p>This first daily grid also has a permanent public record. <a href={visibleDailyPublication.canonical}>View the released pack</a>.</p>
+               <p>{t('This first daily grid also has a permanent public record.', '今日首个九宫格也有永久公开档案。')} <a href={path(visibleDailyPublication.canonical)}>{t('View the released pack', '查看已发布氛围包')}</a>.</p>
              ) : visibleDailyPublication.status === 'snapshot' ? (
-               <p>Today’s first grid is saved as a public snapshot. A permanent editorial page is not published yet.</p>
+               <p>{t('Today’s first grid is saved as a public snapshot. A permanent editorial page is not published yet.', '今日首个九宫格已保存为公开快照，永久编辑页面尚未发布。')}</p>
              ) : visibleDailyPublication.status === 'unpublished' ? (
-               <p>A permanent public preview has not been published for this pairing. Today’s nine cards remain free here.</p>
+               <p>{t('A permanent public preview has not been published for this pairing. Today’s nine cards remain free here.', '这组演员与氛围尚未发布永久公开预览。今日九张卡片仍可在此免费浏览。')}</p>
              ) : (
-               <p>Permanent preview status is {visibleDailyPublication.status === 'checking' ? 'being checked' : 'temporarily unavailable'}. Today’s nine cards remain free here.</p>
+               <p>{t('Permanent preview status is', '永久预览状态：')} {visibleDailyPublication.status === 'checking' ? t('being checked', '正在检查') : t('temporarily unavailable', '暂时无法使用')}{t('. Today’s nine cards remain free here.', '。今日九张卡片仍可在此免费浏览。')}</p>
              )}
-             <p>The full released-pack library stays available to Fandom Collectors.</p>
-              <a href={vibeAtlasPath({
+             <p>{t('The full released-pack library stays available to Fandom Collectors.', '完整的已发布氛围包图书馆仅向 Fandom 收藏会员开放。')}</p>
+              <a href={path(vibeAtlasPath({
                 view: 'released',
                 source: 'daily_star',
                 actorId: rawData.actorId,
                 vibeIdx: rawData.vibeIdx,
-              })}>
-               Open fresh grids in the Collector library
+              }))}>
+               {t('Open fresh grids in the Collector library', '在收藏会员图书馆中打开新九宫格')}
              </a>
            </div>
            {(visibleDailyPublication.status === 'published' || visibleDailyPublication.status === 'snapshot') && (
-             <div className="daily-released-pack__teaser" aria-label="First daily grid teaser">
+             <div className="daily-released-pack__teaser" aria-label={t('First daily grid teaser', '今日首个九宫格预览')}>
                {visibleDailyPublication.cards.slice(0, 6).map((card, index) => (
-                 <img key={index} src={card.thumbnailUrl} alt={card.title || `${rawData.vibeLabelEn || rawData.vibeLabel} card ${index + 1}`} loading="lazy" />
+                 <img key={index} src={card.thumbnailUrl} alt={card.title || `${locale === 'zh-CN' ? rawData.vibeLabel : rawData.vibeLabelEn || rawData.vibeLabel} ${t('card', '卡片')} ${index + 1}`} loading="lazy" />
                ))}
              </div>
            )}
@@ -1076,19 +1132,27 @@ function VibeAtlasApp({ archiveEntry = false }: { archiveEntry?: boolean }) {
        {!gate && (
          <div className="daily-grid" id="daily-evidence">
           <div className="daily-grid__header">
-            <h2>Today’s evidence</h2>
-            <p>Nine cards from today’s star × Vibe Pack.</p>
+            <h2>{t('Today’s evidence', '今日心动证据')}</h2>
+            <p>{t('Nine cards from today’s star × Vibe Pack.', '来自今日之星 × 氛围包的九张卡片。')}</p>
           </div>
           {!loading && !error && gridImages.length > 0 && (
             <button type="button" className="daily-grid__zoom" onClick={() => setDailyGridZoomOpen(true)}>
-              ⛶ View whole grid
+              ⛶ {t('View whole grid', '查看完整九宫格')}
             </button>
           )}
           <div className="grid">
             {loading
               ? Array.from({ length: 9 }).map((_, i) => <GridItemSkeleton key={i} />)
               : error
-                ? <div className="col-span-3 text-center py-8 text-gray-500">{error}</div>
+                ? <div className="col-span-3 text-center py-8 text-gray-500">
+                    {publicApiErrorMessage(
+                      error,
+                      locale,
+                      t,
+                      'Today’s Vibe Atlas card drop could not be loaded. Please try again later.',
+                      '今日 Vibe Atlas 卡组暂时无法加载，请稍后重试。',
+                    )}
+                  </div>
                 : renderGridItems()
             }
           </div>
@@ -1098,9 +1162,9 @@ function VibeAtlasApp({ archiveEntry = false }: { archiveEntry?: boolean }) {
       {dailyGridZoomOpen && meta && (
         <ArtifactZoomDialog
           title={`${meta.vibeEmoji} ${meta.actorName}`}
-          subtitle={`${meta.vibeLabel} · ${meta.vibeLabelEn}`}
+          subtitle={locale === 'zh-CN' ? `${meta.vibeLabel} · 英文：${meta.vibeLabelEn}` : `${meta.vibeLabel} · ${meta.vibeLabelEn}`}
           images={gridImages.map(image => ({ src: image.thumbnail, alt: image.title }))}
-          footer={`${gridImages.length} source ${gridImages.length === 1 ? 'result' : 'results'} · ${meta.date}`}
+          footer={`${gridImages.length} ${t(gridImages.length === 1 ? 'source result' : 'source results', gridImages.length === 1 ? '条来源结果' : '条来源结果')} · ${meta.date}`}
           onClose={() => setDailyGridZoomOpen(false)}
         />
       )}
@@ -1143,7 +1207,7 @@ function VibeAtlasApp({ archiveEntry = false }: { archiveEntry?: boolean }) {
           onTypeChange={(type) => {
             const viewParam = type === 'grids' ? 'collection' : type;
             const sourceParam = type === 'builder' ? '&source=collection' : '';
-            window.history.pushState({}, '', `${PUBLIC_ROUTE_PATHS.vibeAtlas}?view=${viewParam}${sourceParam}`);
+            window.history.pushState({}, '', path(`${PUBLIC_ROUTE_PATHS.vibeAtlas}?view=${viewParam}${sourceParam}`));
             setCollectionTab(type);
             if (type === 'builder') setBuilderSource('collection');
           }}
@@ -1178,7 +1242,7 @@ function VibeAtlasApp({ archiveEntry = false }: { archiveEntry?: boolean }) {
       ) : view === 'membership' ? (
         <Membership status={membershipStatus} />
       ) : adminLoading ? (
-        <div className="admin-gate-loading" aria-label="Checking admin session…" />
+        <div className="admin-gate-loading" role="status" aria-label={t('Checking admin session…', '正在检查管理员会话…')} />
       ) : !hasAdminAccess ? (
         <AdminSignIn />
       ) : (
@@ -1207,6 +1271,7 @@ function ArchiveLockedEdition({
   onCheckout: () => void;
   onIntent: () => void;
 }) {
+  const { t, path } = useLocale();
   const edition = gate.edition;
   const billingDelay = gate.reason === 'billing_delay';
   return (
@@ -1217,31 +1282,31 @@ function ArchiveLockedEdition({
         ))}
       </div>
       <div className="archive-gate__copy">
-        <p className="daily-archive__kicker">Founding Member archive</p>
+        <p className="daily-archive__kicker">{t('Founding Member archive', '创始会员典藏')}</p>
         <h2 id="archive-gate-title">{edition.vibeEmoji} {edition.actorName}</h2>
         <p><strong>{edition.vibeLabel}</strong> · {edition.vibeLabelEn}</p>
         {edition.publicRecord && (
           <VisibleArchiveRecordPlacement
             as="nav"
             className="atlas-edition__records"
-            ariaLabel="Curated public records"
+          ariaLabel={t('Curated public records', '精选公开档案')}
             location="locked_preview"
             recordTypes={['actor', 'edition']}
             presentationKey={`locked_preview:${edition.date}`}
           >
-            <a href={edition.publicRecord.actorPath} onClick={() => trackArchiveRecordOpened('actor', 'locked_preview')}>Explore {edition.actorName}’s actor record</a>
-            <a href={edition.publicRecord.editionPath} onClick={() => trackArchiveRecordOpened('edition', 'locked_preview')}>Read this edition’s permanent record</a>
+            <a href={path(edition.publicRecord.actorPath)} onClick={() => trackArchiveRecordOpened('actor', 'locked_preview')}>{t('Explore actor record', '查看演员档案')} · {edition.actorName}</a>
+            <a href={path(edition.publicRecord.editionPath)} onClick={() => trackArchiveRecordOpened('edition', 'locked_preview')}>{t('Read this edition’s permanent record', '阅读本期永久档案')}</a>
           </VisibleArchiveRecordPlacement>
         )}
         <p>
           {billingDelay
-            ? 'Your membership status is still being confirmed. Try again shortly or review billing.'
-            : 'This published preview stays open to everyone. Founding Members can unlock the complete nine-card board, save its cards, use it in Grid Builder, and export finished boards.'}
+            ? t('Your membership status is still being confirmed. Try again shortly or review billing.', '会员状态仍在确认中。请稍后重试，或查看账单。')
+            : t('This published preview stays open to everyone. Founding Members can unlock the complete nine-card board, save its cards, use it in Grid Builder, and export finished boards.', '此公开预览对所有人开放。创始会员可解锁完整九宫格、收藏其中卡片、在九宫格创作器中使用并导出完成的作品。')}
         </p>
         {notice && <p className="membership__notice" role="status">{notice}</p>}
         {gate.reason === 'sign_in' ? (
           <form className="membership__sign-in" onSubmit={onSignIn}>
-            <label htmlFor="archive-gate-email">Sign in to check your archive access</label>
+            <label htmlFor="archive-gate-email">{t('Sign in to check your archive access', '登录以检查典藏访问权限')}</label>
             <div>
               <input
                 id="archive-gate-email"
@@ -1249,14 +1314,14 @@ function ArchiveLockedEdition({
                 required
                 value={email}
                 onChange={event => onEmailChange(event.target.value)}
-                placeholder="you@example.com"
+                placeholder={t('you@example.com', 'you@example.com')}
               />
-              <button disabled={Boolean(busy)}>{busy === 'sign-in' ? 'Sending…' : 'Email sign-in link'}</button>
+              <button disabled={Boolean(busy)}>{busy === 'sign-in' ? t('Sending…', '正在发送…') : t('Email sign-in link', '发送登录链接')}</button>
             </div>
           </form>
         ) : (
           <button type="button" className="archive-gate__checkout" onClick={onCheckout} disabled={Boolean(busy) || billingDelay}>
-            {busy === 'checkout' ? 'Opening checkout…' : 'Become a Founding Member'}
+            {busy === 'checkout' ? t('Opening checkout…', '正在打开结账页面…') : t('Become a Founding Member', '成为创始会员')}
           </button>
         )}
       </div>
@@ -1279,6 +1344,8 @@ function ArchiveEditionCard({
   index: number;
   issueNumber: number;
 }) {
+  const { t, locale, path } = useLocale();
+  const dateLocale = locale === 'zh-CN' ? 'zh-CN' : 'en-US';
   const images = edition.previewThumbnails ?? [];
   const isLatest = index === 0;
   const className = [
@@ -1287,7 +1354,7 @@ function ArchiveEditionCard({
     edition.legendaryMisprint ? 'archive-card--misprint' : '',
   ].filter(Boolean).join(' ');
   const href = edition.publicRecord?.editionPath
-    ?? `${PUBLIC_ROUTE_PATHS.vibeAtlas}?date=${encodeURIComponent(edition.date)}`;
+    ?? path(`${PUBLIC_ROUTE_PATHS.vibeAtlas}?date=${encodeURIComponent(edition.date)}`);
 
   return (
     <article className={className}>
@@ -1302,7 +1369,7 @@ function ArchiveEditionCard({
           trackDailyArchiveEditionSelected(edition.date, isLatest);
           if (edition.publicRecord) trackArchiveRecordOpened('edition', 'full_archive');
         }}
-        ariaLabel={`Open Issue ${issueNumber}, ${formatEditionDate(edition.date)}: ${edition.actorName}, ${edition.vibeLabelEn}`}
+        ariaLabel={`${t('Open issue', '打开第')} ${issueNumber} · ${formatEditionDate(edition.date, dateLocale)}：${edition.actorName} · ${locale === 'zh-CN' ? `英文：${edition.vibeLabelEn}` : edition.vibeLabelEn}`}
       >
       <span className="archive-card__plate" aria-hidden="true">
         {images.length > 0 ? (
@@ -1322,36 +1389,38 @@ function ArchiveEditionCard({
         )}
         <span className="archive-card__wash" />
         <span className="archive-card__number">
-          <small>Issue</small>
+          <small>{t('Issue', '期')}</small>
           {String(issueNumber).padStart(2, '0')}
         </span>
         {edition.legendaryMisprint && (
-          <span className="archive-card__misprint-seal">Legendary<br />misprint</span>
+          <span className="archive-card__misprint-seal">{t('Legendary', '传奇')}<br />{t('misprint', '错版')}</span>
         )}
       </span>
       <span className="archive-card__caption">
         {edition.legendaryMisprint && (
           <span className="archive-card__misprint-title">
-            <small>Archive anomaly · Legendary Misprint</small>
-            <b>{edition.legendaryMisprintTitle ?? 'Preserved retrieval anomaly'}</b>
+            <small>{t('Archive anomaly · Legendary Misprint', '典藏异常 · 传奇错版')}</small>
+            <b>{locale === 'zh-CN'
+              ? `英文：${edition.legendaryMisprintTitle ?? 'Preserved retrieval anomaly'}`
+              : edition.legendaryMisprintTitle ?? 'Preserved retrieval anomaly'}</b>
           </span>
         )}
-        {edition.legendaryMisprintCopy && <q>{edition.legendaryMisprintCopy}</q>}
+        {edition.legendaryMisprintCopy && <q>{locale === 'zh-CN' ? `英文原文：${edition.legendaryMisprintCopy}` : edition.legendaryMisprintCopy}</q>}
         <span className="archive-card__meta">
-          <time dateTime={edition.date}>{formatEditionDate(edition.date)}</time>
-          <span>{isLatest ? 'Latest edition' : 'Published edition'}</span>
+          <time dateTime={edition.date}>{formatEditionDate(edition.date, dateLocale)}</time>
+          <span>{isLatest ? t('Latest edition', '最新一期') : t('Published edition', '已发布期刊')}</span>
         </span>
         <strong>{edition.actorName}</strong>
-        {edition.actorShortNameEn && <small>{edition.actorShortNameEn}</small>}
+        {edition.actorShortNameEn && <small>{locale === 'zh-CN' ? `英文名：${edition.actorShortNameEn}` : edition.actorShortNameEn}</small>}
         <span className="archive-card__vibe">
           <i>{edition.vibeEmoji}</i>
-          <span>{edition.vibeLabel}<em>{edition.vibeLabelEn}</em></span>
+          <span>{edition.vibeLabel}<em>{locale === 'zh-CN' ? `英文：${edition.vibeLabelEn}` : edition.vibeLabelEn}</em></span>
         </span>
-        {edition.vibeSubtitleEn && <q>{edition.vibeSubtitleEn}</q>}
+        {edition.vibeSubtitleEn && <q>{locale === 'zh-CN' ? `英文说明：${edition.vibeSubtitleEn}` : edition.vibeSubtitleEn}</q>}
         <span className="archive-card__open">
           {edition.publicRecord
-            ? 'Read the permanent edition record'
-            : edition.access === 'member' ? 'Preview Founding Member edition' : 'Open the nine-card board'}
+            ? t('Read the permanent edition record', '阅读本期永久档案')
+            : edition.access === 'member' ? t('Preview Founding Member edition', '预览创始会员特刊') : t('Open the nine-card board', '打开九宫格')}
           <b aria-hidden="true">↗</b>
         </span>
       </span>
@@ -1360,18 +1429,18 @@ function ArchiveEditionCard({
         <VisibleArchiveRecordPlacement
           as="nav"
           className="archive-card__records"
-          ariaLabel={`Curated records for ${edition.actorName}`}
+          ariaLabel={`${edition.actorName} ${t('curated records', '精选档案')}`}
           location="full_archive"
           recordTypes={['actor', 'edition']}
           presentationKey={`full_archive_records:${edition.date}`}
         >
-          <a href={edition.publicRecord.actorPath} onClick={() => trackArchiveRecordOpened('actor', 'full_archive')}>Actor record</a>
-          <a href={edition.publicRecord.editionPath} onClick={() => trackArchiveRecordOpened('edition', 'full_archive')}>Edition record</a>
+          <a href={path(edition.publicRecord.actorPath)} onClick={() => trackArchiveRecordOpened('actor', 'full_archive')}>{t('Actor record', '演员档案')}</a>
+          <a href={path(edition.publicRecord.editionPath)} onClick={() => trackArchiveRecordOpened('edition', 'full_archive')}>{t('Edition record', '期刊档案')}</a>
           <a
-            href={`${PUBLIC_ROUTE_PATHS.vibeAtlas}?view=builder&source=edition&date=${encodeURIComponent(edition.date)}`}
+            href={path(`${PUBLIC_ROUTE_PATHS.vibeAtlas}?view=builder&source=edition&date=${encodeURIComponent(edition.date)}`)}
             onClick={() => trackArchiveRebuildLaunched(edition.date, 'archive_card')}
           >
-            Rebuild this edition
+            {t('Rebuild this edition', '重建本期九宫格')}
           </a>
         </VisibleArchiveRecordPlacement>
       )}
@@ -1396,53 +1465,53 @@ function ArchivePage({
   loadArchive: () => Promise<void>;
   loadMoreArchive: () => Promise<void>;
 }) {
+  const { t, locale, path } = useLocale();
   const yearCount = new Set(archive.map(edition => edition.date.slice(0, 4))).size;
 
   return (
     <main className="atlas-archive-page">
       <header className="atlas-hero atlas-archive-page__hero">
-        <div className="atlas-hero__eyebrow"><span>Fandom Vibes / studio 01</span><i /></div>
+        <div className="atlas-hero__eyebrow"><span>{t('Fandom Vibes / studio 01', 'Fandom Vibes / 工作室 01')}</span><i /></div>
         <div className="atlas-hero__title-row">
           <div>
-            <p className="atlas-hero__universe">Star of the Day · The complete collection</p>
-            <h1>Archive <span>星光典藏</span></h1>
+            <p className="atlas-hero__universe">{t('Star of the Day · The complete collection', '今日之星 · 完整典藏')}</p>
+            <h1>{locale === 'zh-CN' ? '星光典藏' : 'Archive'} {locale === 'zh-CN' ? null : <span lang="zh-CN">星光典藏</span>}</h1>
           </div>
         </div>
         <p className="atlas-hero__intro">
-          Browse every published Star of the Day as it first appeared: one actor, one assigned
-          mood, nine pieces of visual evidence. Rare legendary misprints remain sealed in place.
+          {t('Browse every published Star of the Day as it first appeared: one actor, one assigned mood, nine pieces of visual evidence. Rare legendary misprints remain sealed in place.', '浏览每一期最初发布的今日之星：一位演员、一种指定氛围、九份视觉证据。珍稀传奇错版将原样封存。')}
         </p>
       </header>
 
       <section className="daily-archive daily-archive--page" aria-labelledby="archive-page-title">
         <div className="archive-index">
           <div>
-            <h2 id="archive-page-title">The Star of the Day Archive</h2>
-            <p>Published boards only. Each plate opens the exact original nine-card edition.</p>
+            <h2 id="archive-page-title">{t('The Star of the Day Archive', '今日之星典藏')}</h2>
+            <p>{t('Published boards only. Each plate opens the exact original nine-card edition.', '仅收录已发布的九宫格。每张典藏卡片都会打开对应的原始九张卡组。')}</p>
           </div>
-          <dl aria-label="Archive summary">
-            <div><dt>Editions</dt><dd>{(archiveTotal ?? archive.length) || '—'}</dd></div>
-            <div><dt>Years</dt><dd>{yearCount || '—'}</dd></div>
-            <div><dt>Format</dt><dd>3 × 3</dd></div>
+          <dl aria-label={t('Archive summary', '典藏摘要')}>
+            <div><dt>{t('Editions', '期数')}</dt><dd>{(archiveTotal ?? archive.length) || '—'}</dd></div>
+            <div><dt>{t('Years', '年份')}</dt><dd>{yearCount || '—'}</dd></div>
+            <div><dt>{t('Format', '规格')}</dt><dd>3 × 3</dd></div>
           </dl>
         </div>
         {archiveLoading && archive.length === 0 ? (
-          <p className="daily-archive__status">Loading published editions…</p>
+          <p className="daily-archive__status">{t('Loading published editions…', '正在加载已发布期刊…')}</p>
         ) : archiveError && archive.length === 0 ? (
           <>
             <p className="daily-archive__status daily-archive__status--error" role="alert">
-              Couldn’t load the archive. Try again.
+              {t('Couldn’t load the archive. Try again.', '无法加载典藏。请重试。')}
             </p>
             <button
               type="button"
               className="daily-archive__today"
               onClick={() => void loadArchive()}
             >
-              Retry loading the archive
+              {t('Retry loading the archive', '重试加载典藏')}
             </button>
           </>
         ) : archive.length === 0 ? (
-          <p className="daily-archive__status">No published editions are available yet.</p>
+          <p className="daily-archive__status">{t('No published editions are available yet.', '目前还没有可查看的已发布期刊。')}</p>
         ) : (
           <>
             <div className="archive-gallery">
@@ -1459,7 +1528,7 @@ function ArchivePage({
               <>
                 {archiveError && (
                   <p className="daily-archive__status daily-archive__status--error" role="alert">
-                    Couldn’t load more editions. Try again.
+                    {t('Couldn’t load more editions. Try again.', '无法加载更多期刊。请重试。')}
                   </p>
                 )}
                 <button
@@ -1468,15 +1537,15 @@ function ArchivePage({
                   disabled={archiveLoading}
                   onClick={() => void loadMoreArchive()}
                 >
-                  {archiveLoading ? 'Loading editions…' : archiveError ? 'Retry loading editions' : 'Load more editions'}
+                  {archiveLoading ? t('Loading editions…', '正在加载期刊…') : archiveError ? t('Retry loading editions', '重试加载期刊') : t('Load more editions', '加载更多期刊')}
                 </button>
               </>
             )}
           </>
         )}
         <footer className="archive-footer">
-          <span>Fandom Vibes · Permanent edition record</span>
-          <a className="daily-archive__today" href={PUBLIC_ROUTE_PATHS.vibeAtlas}>Return to today’s drop <b aria-hidden="true">→</b></a>
+          <span>{t('Fandom Vibes · Permanent edition record', 'Fandom Vibes · 永久期刊档案')}</span>
+          <a className="daily-archive__today" href={path(PUBLIC_ROUTE_PATHS.vibeAtlas)}>{t('Return to today’s drop', '返回今日卡组')} <b aria-hidden="true">→</b></a>
         </footer>
       </section>
     </main>
@@ -1485,6 +1554,7 @@ function ArchivePage({
 
 /** Shown in the Fandom Admin view when the admin session has expired or was never set. */
 function AdminSignIn() {
+  const { locale, t } = useLocale();
   const [email, setEmail] = useState('');
   const [notice, setNotice] = useState('');
   const [busy, setBusy] = useState(false);
@@ -1497,7 +1567,13 @@ function AdminSignIn() {
       const message = await requestMagicLink(email, 'admin');
       setNotice(message);
     } catch (error) {
-      setNotice(error instanceof Error ? error.message : 'Could not send the sign-in link.');
+      setNotice(publicApiErrorMessage(
+        error instanceof Error ? error.message : 'Could not send the admin sign-in link.',
+        locale,
+        t,
+        'Could not send the admin sign-in link.',
+        '无法发送管理员登录链接。',
+      ));
     } finally {
       setBusy(false);
     }
@@ -1506,8 +1582,8 @@ function AdminSignIn() {
   return (
     <div className="admin-sign-in">
       <span className="admin-sign-in__icon" aria-hidden="true">🔒</span>
-      <h2>Admin sign-in required</h2>
-      <p>Your admin session has expired. Enter your admin email to receive a new sign-in link.</p>
+      <h2>{t('Admin sign-in required', '需要管理员登录')}</h2>
+      <p>{t('Your admin session has expired. Enter your admin email to receive a new sign-in link.', '管理员会话已过期。请输入管理员邮箱以接收新的登录链接。')}</p>
       <form onSubmit={handleSubmit}>
         <input
           type="email"
@@ -1515,10 +1591,10 @@ function AdminSignIn() {
           value={email}
           onChange={event => setEmail(event.target.value)}
           placeholder="admin@example.com"
-          aria-label="Admin email address"
+          aria-label={t('Admin email address', '管理员邮箱地址')}
         />
         <button type="submit" disabled={busy || !email.trim()}>
-          {busy ? 'Sending…' : 'Email sign-in link'}
+          {busy ? t('Sending…', '正在发送…') : t('Email sign-in link', '发送登录链接')}
         </button>
       </form>
       {notice && <p className="admin-sign-in__notice" role="status">{notice}</p>}

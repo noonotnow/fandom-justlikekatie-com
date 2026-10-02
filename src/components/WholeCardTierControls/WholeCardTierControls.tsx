@@ -1,5 +1,6 @@
 import type React from 'react';
 import type { ImageTier } from '../../types';
+import { useLocale } from '../../i18n/LocaleProvider';
 import styles from './WholeCardTierControls.module.css';
 
 interface WholeCardTierControlsProps {
@@ -19,11 +20,12 @@ export const WholeCardTierControls: React.FC<WholeCardTierControlsProps> = ({
   tier,
   onTierChange,
 }) => {
+  const { t } = useLocale();
   return (
     <div
       className={styles.tierControls}
       role="group"
-      aria-label="Board edition — classifies the whole exported share card, not a single image"
+      aria-label={t('Board edition — classifies the whole exported share card, not a single image', '整卡版本分类——用于整张分享卡，而非单张图片')}
     >
       <span className={styles.label}>
         整卡分类 <span className={styles.labelEn}>Board edition</span>

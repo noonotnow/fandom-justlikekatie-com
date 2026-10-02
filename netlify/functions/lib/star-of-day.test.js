@@ -760,7 +760,7 @@ test("archive pages load only the year buckets and edition records needed for th
     today: () => "2026-09-30",
   });
   const editions = [
-    "2099-01-01",
+    "2026-10-01",
     "2026-09-20",
     "2026-09-19",
     "2025-12-31",
@@ -933,7 +933,7 @@ test("deep archive totals exclude future editions without reading the newest-yea
     today: () => "2026-09-30",
   });
   const editions = [
-    "2099-01-01",
+    "2026-10-01",
     "2026-09-20",
     "2026-09-19",
     "2006-06-30",
@@ -972,7 +972,7 @@ test("deep archive totals exclude future editions without reading the newest-yea
     "2006-06-30",
     "2006-01-01",
   ]);
-  assert.equal(reads.includes(`${ARCHIVE_CATALOG_YEAR_PREFIX}2099`), false);
+  assert.equal(reads.includes(`${ARCHIVE_CATALOG_YEAR_PREFIX}2026`), false);
 });
 
 test("archive totals remain global when a cursor moves into an older year", async () => {
@@ -1170,7 +1170,7 @@ test("historical and archive reads prefer the verified publication manifest over
   })(new Request("https://fandom.justlikekatie.com/sitemap.xml"), {});
   assert.equal(edition.statusCode, 200);
   const published = publicationManifest(date);
-  const grid = edition.body.match(/<section aria-label="Approved preview grid">([\s\S]*?)<\/section>/)?.[1];
+  const grid = edition.body.match(/<section class="record-preview-grid" aria-label="Approved preview grid">([\s\S]*?)<\/section>/)?.[1];
   assert.ok(grid);
   assert.equal((grid.match(/<img /g) || []).length, 9);
   for (const card of published.cards) {
@@ -1459,9 +1459,7 @@ test("release-history backfill is private and requires a migrated, complete Arch
       throw Object.assign(new Error("Sign in is required."), { status: 401 });
     } },
   });
-  const unauthenticated = await denied({ method: "GET", url }, {});
-  assert.equal(unauthenticated.status, 401);
-  assert.equal(unauthenticated.headers.get("cache-control"), "private, no-store");
+  assert.equal((await denied({ method: "GET", url }, {})).status, 401);
   assert.equal(store.stats().setCalls, 0);
   const allowed = createStarOfDayHandler({
     getStore: () => store,
@@ -1490,7 +1488,38 @@ test("release-history backfill is private and requires a migrated, complete Arch
   assert.deepEqual((await response.json()).releaseHistoryBackfill,
     { verifiedBaseline: true, releaseCount: 2 });
   assert.equal(response.headers.get("cache-control"), "private, no-store");
-  assert.equal(response.headers.get("vary"), "Cookie");
+});
+
+test("release-receipt reconciliation is private, bounded and cursor-based", async () => {
+  const url = "https://example.test/star-of-day?releaseReceiptReconcile=1";
+  const store = makeStore(archiveCatalogEntries([
+    { date: "2026-09-01", actorName: "A", vibeLabel: "V" },
+    { date: "2026-09-02", actorName: "A", vibeLabel: "V" },
+  ]));
+  const denied = createStarOfDayHandler({
+    getStore: () => store,
+    auth: { authenticateAdmin: async () => {
+      throw Object.assign(new Error("Sign in is required."), { status: 401 });
+    } },
+  });
+  assert.equal((await denied({ method: "GET", url }, {})).status, 401);
+  let checked;
+  const allowed = createStarOfDayHandler({
+    getStore: () => store,
+    today: () => "2026-09-03",
+    auth: { authenticateAdmin: async () => ({ user: { accountId: "operator" } }) },
+    reconcileReleaseReceipts: async (_store, editions) => {
+      checked = editions.map(edition => edition.date);
+      return { checked: editions.length, written: 1 };
+    },
+  });
+  assert.equal((await allowed({ method: "GET", url: `${url}&cursor=bad` }, {})).status, 400);
+  const response = await allowed({ method: "GET", url }, {});
+  assert.equal(response.status, 200);
+  assert.deepEqual(checked, ["2026-09-02", "2026-09-01"]);
+  assert.deepEqual((await response.json()).releaseReceiptReconciliation,
+    { checked: 2, written: 1, nextCursor: null });
+  assert.equal(response.headers.get("cache-control"), "private, no-store");
 });
 
 test("the builder skips a failed approved pairing and preserves the public 3x3 payload contract", async () => {

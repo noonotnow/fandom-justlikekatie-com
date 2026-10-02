@@ -1,4 +1,5 @@
 import { PUBLIC_ROUTE_PATHS } from '../../shared/public-routes.js';
+import { stripLocalePath } from '../../shared/locale.js';
 
 export type FandomProductRoute = 'launchpad' | 'vibe-atlas' | 'middle-earth' | 'veteran-journal';
 
@@ -15,12 +16,12 @@ export function vibeAtlasPath(params?: Record<string, string | number | null | u
 
 export function isAdminEntryLocation(pathname: string, search = '', hash = ''): boolean {
   if (new URLSearchParams(search).get('admin') === 'true') return true;
-  return pathname === '/auth/verify'
+  return stripLocalePath(pathname) === '/auth/verify'
     && ['admin', 'plan'].includes(new URLSearchParams(hash.replace(/^#/, '')).get('next') || '');
 }
 
 export function resolveFandomProductRoute(pathname: string, search = ''): FandomProductRoute {
-  const normalized = pathname.replace(/\/+$/, '') || '/';
+  const normalized = stripLocalePath(pathname).replace(/\/+$/, '') || '/';
   if (normalized === PUBLIC_ROUTE_PATHS.vibeAtlas || normalized === PUBLIC_ROUTE_PATHS.vibeAtlasArchive || normalized === '/auth/verify') return 'vibe-atlas';
   if (normalized === '/' && isAdminEntryLocation(normalized, search)) return 'vibe-atlas';
   if (normalized === PUBLIC_ROUTE_PATHS.vibeAtlasVeteranJournal) return 'veteran-journal';
@@ -29,10 +30,19 @@ export function resolveFandomProductRoute(pathname: string, search = ''): Fandom
 }
 
 export function isVibeAtlasArchiveLocation(pathname: string): boolean {
-  const normalized = pathname.replace(/\/+$/, '') || '/';
+  const normalized = stripLocalePath(pathname).replace(/\/+$/, '') || '/';
   return normalized === PUBLIC_ROUTE_PATHS.vibeAtlasArchive;
 }
 
+export function isLocaleSwitcherRoute(pathname: string, search = '', hash = ''): boolean {
+  if (isAdminEntryLocation(pathname, search, hash)
+    || ['admin', 'plan'].includes(new URLSearchParams(search).get('view') || '')) return false;
+  const normalized = stripLocalePath(pathname).replace(/\/+$/, '') || '/';
+  return normalized === '/'
+    || normalized === PUBLIC_ROUTE_PATHS.vibeAtlas
+    || normalized === PUBLIC_ROUTE_PATHS.vibeAtlasArchive
+    || /^\/vibe-atlas\/(?:actors|editions|packs)(?:\/|$)/.test(normalized);
+}
 export function initialVibeAtlasView(search: string): 'daily' | 'collection' | 'admin' | 'membership' | 'released' {
   const params = new URLSearchParams(search);
   if (params.get('admin') === 'true') return 'admin';

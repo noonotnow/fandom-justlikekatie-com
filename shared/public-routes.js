@@ -1,4 +1,7 @@
+import { localizedPath, stripLocalePath } from "./locale.js";
+
 export const PUBLIC_ORIGIN = "https://fandom.justlikekatie.com";
+export const PUBLIC_CHINESE_LOCALE = "zh-CN";
 
 export const PUBLIC_ROUTE_PATHS = Object.freeze({
   launchpad: "/",
@@ -8,17 +11,39 @@ export const PUBLIC_ROUTE_PATHS = Object.freeze({
   vibeAtlasEditions: "/vibe-atlas/editions",
   vibeAtlasPacks: "/vibe-atlas/packs",
   vibeAtlasVeteranJournal: "/vibe-atlas/veteran-journal",
+  tropeDecoder: "/c-drama-fandom/trope-decoder/",
+});
+
+export const PUBLIC_LOCALIZABLE_PATHS = Object.freeze([
+  PUBLIC_ROUTE_PATHS.launchpad,
+  PUBLIC_ROUTE_PATHS.vibeAtlas,
+  PUBLIC_ROUTE_PATHS.vibeAtlasArchive,
+  PUBLIC_ROUTE_PATHS.tropeDecoder,
+]);
+
+export const PUBLIC_LOCALIZED_ROUTE_PATHS = Object.freeze({
+  launchpad: localizedPath(PUBLIC_ROUTE_PATHS.launchpad, PUBLIC_CHINESE_LOCALE),
+  vibeAtlas: localizedPath(PUBLIC_ROUTE_PATHS.vibeAtlas, PUBLIC_CHINESE_LOCALE),
+  vibeAtlasArchive: localizedPath(PUBLIC_ROUTE_PATHS.vibeAtlasArchive, PUBLIC_CHINESE_LOCALE),
+  vibeAtlasActors: localizedPath(PUBLIC_ROUTE_PATHS.vibeAtlasActors, PUBLIC_CHINESE_LOCALE),
+  vibeAtlasEditions: localizedPath(PUBLIC_ROUTE_PATHS.vibeAtlasEditions, PUBLIC_CHINESE_LOCALE),
+  vibeAtlasPacks: localizedPath(PUBLIC_ROUTE_PATHS.vibeAtlasPacks, PUBLIC_CHINESE_LOCALE),
 });
 
 export const VIBE_ATLAS_NETLIFY_ROUTES = Object.freeze({
   seoIndexing: Object.freeze([
     PUBLIC_ROUTE_PATHS.vibeAtlas,
     `${PUBLIC_ROUTE_PATHS.vibeAtlas}/*`,
+    PUBLIC_LOCALIZED_ROUTE_PATHS.launchpad.replace(/\/+$/, ""),
+    `${PUBLIC_LOCALIZED_ROUTE_PATHS.launchpad.replace(/\/+$/, "")}/*`,
   ]),
   publicRecords: Object.freeze([
     `${PUBLIC_ROUTE_PATHS.vibeAtlasActors}/*`,
     `${PUBLIC_ROUTE_PATHS.vibeAtlasEditions}/*`,
     `${PUBLIC_ROUTE_PATHS.vibeAtlasPacks}/*`,
+    `${PUBLIC_LOCALIZED_ROUTE_PATHS.vibeAtlasActors}/*`,
+    `${PUBLIC_LOCALIZED_ROUTE_PATHS.vibeAtlasEditions}/*`,
+    `${PUBLIC_LOCALIZED_ROUTE_PATHS.vibeAtlasPacks}/*`,
   ]),
 });
 
@@ -86,7 +111,77 @@ export const PUBLIC_STATIC_ROUTES = Object.freeze([
 
 export const PUBLIC_STATIC_PATHS = Object.freeze(PUBLIC_STATIC_ROUTES.map(({ path }) => path));
 
-export function publicStaticPreviewRoutes(routes = PUBLIC_STATIC_ROUTES) {
+export const PUBLIC_LOCALIZED_STATIC_ROUTES = Object.freeze(
+  PUBLIC_STATIC_ROUTES
+    .filter(({ path }) => PUBLIC_LOCALIZABLE_PATHS.includes(path))
+    .map(route => {
+      const path = localizedPath(route.path, PUBLIC_CHINESE_LOCALE);
+      return {
+        ...route,
+        path,
+        ...(route.path === PUBLIC_ROUTE_PATHS.tropeDecoder
+          ? { page: `public${path}index.html` }
+          : {}),
+      };
+    }),
+);
+
+export const PUBLIC_SITEMAP_STATIC_PATHS = Object.freeze([
+  ...PUBLIC_STATIC_PATHS,
+  ...PUBLIC_LOCALIZED_STATIC_ROUTES.map(({ path }) => path),
+]);
+
+function cleanRoutePath(path) {
+  const withoutLocale = stripLocalePath(path);
+  return withoutLocale.replace(/\/+$/, "") || "/";
+}
+
+function isLocalizedPublicRecordPath(path) {
+  const clean = cleanRoutePath(path);
+  return /^\/vibe-atlas\/actors\/[a-z0-9-]+$/.test(clean)
+    || /^\/vibe-atlas\/editions\/\d{4}-\d{2}-\d{2}\/[a-z0-9-]+$/.test(clean)
+    || /^\/vibe-atlas\/packs\/[a-z0-9-]+$/.test(clean)
+    || /^\/vibe-atlas\/packs\/[a-z0-9-]+\/[a-z0-9-]+$/.test(clean);
+}
+
+export function localizedPublicPath(path, locale) {
+  const englishPath = stripLocalePath(path);
+  const actorPackPath = englishPath.match(/^\/vibe-atlas\/packs\/([a-z0-9-]+)\/?$/);
+  if (actorPackPath && locale === PUBLIC_CHINESE_LOCALE) {
+    const localizedPackRoot = localizedPath(PUBLIC_ROUTE_PATHS.vibeAtlasPacks, locale);
+    return `${localizedPackRoot}/${actorPackPath[1]}/`;
+  }
+  return localizedPath(englishPath, locale);
+}
+
+export function publicAlternatePaths(path) {
+  const originalEnglishPath = stripLocalePath(path);
+  const routeIdentity = cleanRoutePath(originalEnglishPath);
+  const registeredPath = PUBLIC_LOCALIZABLE_PATHS.find(route => cleanRoutePath(route) === routeIdentity);
+  const isLocalizable = Boolean(registeredPath)
+    || isLocalizedPublicRecordPath(path);
+  if (!isLocalizable) return [];
+
+  const englishPath = registeredPath || originalEnglishPath;
+  const zhPath = localizedPublicPath(englishPath, PUBLIC_CHINESE_LOCALE);
+  return [
+    { hreflang: "en", path: englishPath },
+    { hreflang: "zh-CN", path: zhPath },
+    { hreflang: "x-default", path: englishPath },
+  ];
+}
+
+// Select every installment, not a hand-maintained list of currently published slugs.
+// The shelf itself is not an episode-bounded article.
+export function vibingNowArticleRoutes(routes = PUBLIC_STATIC_ROUTES) {
+  const shelf = "/c-drama-fandom/vibing-now/";
+  return routes.filter(({ path }) => path.startsWith(shelf) && path !== shelf);
+}
+
+export function publicStaticPreviewRoutes(routes = [
+  ...PUBLIC_STATIC_ROUTES,
+  ...PUBLIC_LOCALIZED_STATIC_ROUTES,
+]) {
   return routes
     .filter(({ group, page }) => (group === "editorial" || group === "journal") && page)
     .map(({ path, page }) => [
@@ -96,15 +191,24 @@ export function publicStaticPreviewRoutes(routes = PUBLIC_STATIC_ROUTES) {
 }
 
 export function publicRouteUrl(path) {
-  if (!PUBLIC_STATIC_PATHS.includes(path)) {
+  if (!PUBLIC_SITEMAP_STATIC_PATHS.includes(path)) {
     throw new Error(`Unknown public route: ${path}`);
   }
   return `${PUBLIC_ORIGIN}${path}`;
 }
 
 export function staticSitemapXml() {
-  const entries = PUBLIC_STATIC_ROUTES.map(({ path, changefreq, priority }) => (
-    `  <url>\n    <loc>${publicRouteUrl(path)}</loc>\n    <changefreq>${changefreq}</changefreq>\n    <priority>${priority}</priority>\n  </url>`
-  ));
-  return `<?xml version="1.0" encoding="UTF-8"?>\n<urlset xmlns="http://www.sitemaps.org/schemas/sitemap/0.9">\n${entries.join("\n")}\n</urlset>\n`;
+  const routes = [
+    ...PUBLIC_STATIC_ROUTES,
+    ...PUBLIC_LOCALIZED_STATIC_ROUTES,
+  ];
+  const entries = routes.map(({ path, changefreq, priority }) => {
+    const alternates = publicAlternatePaths(path)
+      .map(({ hreflang, path: alternatePath }) => (
+        `\n    <xhtml:link rel="alternate" hreflang="${hreflang}" href="${PUBLIC_ORIGIN}${alternatePath}" />`
+      ))
+      .join("");
+    return `  <url>\n    <loc>${publicRouteUrl(path)}</loc>${alternates}\n    <changefreq>${changefreq}</changefreq>\n    <priority>${priority}</priority>\n  </url>`;
+  });
+  return `<?xml version="1.0" encoding="UTF-8"?>\n<urlset xmlns="http://www.sitemaps.org/schemas/sitemap/0.9" xmlns:xhtml="http://www.w3.org/1999/xhtml">\n${entries.join("\n")}\n</urlset>\n`;
 }
