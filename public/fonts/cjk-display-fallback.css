@@ -1,0 +1,89 @@
+/* Self-hosted CJK-only faces preserve Latin brand glyphs. Exact weights matter:
+   a variable weight range loses font matching to existing exact-weight Latin
+   faces, leaving Chinese to an unavailable system serif/mono fallback.
+   Reuse the existing OFL Noto Sans SC asset; do not replace published images. */
+@font-face {
+  font-family: "Fraunces"; font-weight: 400; font-style: normal; font-display: swap;
+  src: url("/fonts/vibe-atlas-cjk.woff2") format("woff2");
+  unicode-range: U+3000-303F, U+3400-4DBF, U+4E00-9FFF, U+FF00-FFEF;
+}
+@font-face {
+  font-family: "Fraunces"; font-weight: 500; font-style: normal; font-display: swap;
+  src: url("/fonts/vibe-atlas-cjk.woff2") format("woff2");
+  unicode-range: U+3000-303F, U+3400-4DBF, U+4E00-9FFF, U+FF00-FFEF;
+}
+@font-face {
+  font-family: "Fraunces"; font-weight: 600; font-style: normal; font-display: swap;
+  src: url("/fonts/vibe-atlas-cjk.woff2") format("woff2");
+  unicode-range: U+3000-303F, U+3400-4DBF, U+4E00-9FFF, U+FF00-FFEF;
+}
+@font-face {
+  font-family: "Fraunces"; font-weight: 700; font-style: normal; font-display: swap;
+  src: url("/fonts/vibe-atlas-cjk.woff2") format("woff2");
+  unicode-range: U+3000-303F, U+3400-4DBF, U+4E00-9FFF, U+FF00-FFEF;
+}
+@font-face {
+  font-family: "Fraunces"; font-weight: 400; font-style: italic; font-display: swap;
+  src: url("/fonts/vibe-atlas-cjk.woff2") format("woff2");
+  unicode-range: U+3000-303F, U+3400-4DBF, U+4E00-9FFF, U+FF00-FFEF;
+}
+@font-face {
+  font-family: "Fraunces"; font-weight: 500; font-style: italic; font-display: swap;
+  src: url("/fonts/vibe-atlas-cjk.woff2") format("woff2");
+  unicode-range: U+3000-303F, U+3400-4DBF, U+4E00-9FFF, U+FF00-FFEF;
+}
+@font-face {
+  font-family: "Fraunces"; font-weight: 600; font-style: italic; font-display: swap;
+  src: url("/fonts/vibe-atlas-cjk.woff2") format("woff2");
+  unicode-range: U+3000-303F, U+3400-4DBF, U+4E00-9FFF, U+FF00-FFEF;
+}
+@font-face {
+  font-family: "Fraunces"; font-weight: 700; font-style: italic; font-display: swap;
+  src: url("/fonts/vibe-atlas-cjk.woff2") format("woff2");
+  unicode-range: U+3000-303F, U+3400-4DBF, U+4E00-9FFF, U+FF00-FFEF;
+}
+@font-face {
+  font-family: "DM Mono"; font-weight: 400; font-style: normal; font-display: swap;
+  src: url("/fonts/vibe-atlas-cjk.woff2") format("woff2");
+  unicode-range: U+3000-303F, U+3400-4DBF, U+4E00-9FFF, U+FF00-FFEF;
+}
+@font-face {
+  font-family: "DM Mono"; font-weight: 500; font-style: normal; font-display: swap;
+  src: url("/fonts/vibe-atlas-cjk.woff2") format("woff2");
+  unicode-range: U+3000-303F, U+3400-4DBF, U+4E00-9FFF, U+FF00-FFEF;
+}
+@font-face {
+  font-family: "DM Mono"; font-weight: 600; font-style: normal; font-display: swap;
+  src: url("/fonts/vibe-atlas-cjk.woff2") format("woff2");
+  unicode-range: U+3000-303F, U+3400-4DBF, U+4E00-9FFF, U+FF00-FFEF;
+}
+@font-face {
+  font-family: "DM Mono"; font-weight: 700; font-style: normal; font-display: swap;
+  src: url("/fonts/vibe-atlas-cjk.woff2") format("woff2");
+  unicode-range: U+3000-303F, U+3400-4DBF, U+4E00-9FFF, U+FF00-FFEF;
+}
+@font-face {
+  font-family: "Manrope"; font-weight: 400; font-style: normal; font-display: swap;
+  src: url("/fonts/vibe-atlas-cjk.woff2") format("woff2");
+  unicode-range: U+3000-303F, U+3400-4DBF, U+4E00-9FFF, U+FF00-FFEF;
+}
+@font-face {
+  font-family: "Manrope"; font-weight: 500; font-style: normal; font-display: swap;
+  src: url("/fonts/vibe-atlas-cjk.woff2") format("woff2");
+  unicode-range: U+3000-303F, U+3400-4DBF, U+4E00-9FFF, U+FF00-FFEF;
+}
+@font-face {
+  font-family: "Manrope"; font-weight: 600; font-style: normal; font-display: swap;
+  src: url("/fonts/vibe-atlas-cjk.woff2") format("woff2");
+  unicode-range: U+3000-303F, U+3400-4DBF, U+4E00-9FFF, U+FF00-FFEF;
+}
+@font-face {
+  font-family: "Manrope"; font-weight: 700; font-style: normal; font-display: swap;
+  src: url("/fonts/vibe-atlas-cjk.woff2") format("woff2");
+  unicode-range: U+3000-303F, U+3400-4DBF, U+4E00-9FFF, U+FF00-FFEF;
+}
+@font-face {
+  font-family: "Georgia"; font-weight: 100 900; font-style: normal; font-display: swap;
+  src: url("/fonts/vibe-atlas-cjk.woff2") format("woff2");
+  unicode-range: U+3000-303F, U+3400-4DBF, U+4E00-9FFF, U+FF00-FFEF;
+}
