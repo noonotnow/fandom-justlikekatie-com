@@ -1,0 +1,43 @@
+.selector {
+  position: fixed;
+  z-index: 1000;
+  top: 0.75rem;
+  /* Leave the existing 40px theme control reachable at the right edge. */
+  right: 4.25rem;
+}
+
+.selector select {
+  min-height: 2.25rem;
+  max-width: 9.5rem;
+  padding: 0.35rem 1.7rem 0.35rem 0.65rem;
+  border: 1px solid rgba(126, 102, 56, 0.48);
+  border-radius: 999px;
+  background: #fffdf8;
+  color: #2b2620;
+  font: inherit;
+  font-size: 0.82rem;
+  box-shadow: 0 2px 12px rgba(30, 24, 16, 0.12);
+}
+
+.selector select:focus-visible {
+  outline: 3px solid #c9a96e;
+  outline-offset: 2px;
+}
+
+:global(.dark) .selector select {
+  border-color: rgba(212, 175, 55, 0.55);
+  background: #19181c;
+  color: #f3f3f5;
+}
+
+.visuallyHidden {
+  position: absolute;
+  width: 1px;
+  height: 1px;
+  padding: 0;
+  margin: -1px;
+  overflow: hidden;
+  clip: rect(0, 0, 0, 0);
+  white-space: nowrap;
+  border: 0;
+}

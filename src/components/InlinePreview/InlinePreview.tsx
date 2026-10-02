@@ -3,6 +3,7 @@ import { SaveButton } from '../SaveButton/SaveButton';
 import type { SaveItemMetadata } from '../../hooks/useSaveItem';
 import type { GridItemData } from '../../types';
 import styles from './InlinePreview.module.css';
+import { useLocale } from '../../i18n/LocaleProvider';
 
 interface InlinePreviewProps {
   item: GridItemData;
@@ -25,6 +26,7 @@ export const InlinePreview: React.FC<InlinePreviewProps> = ({
   saveMetadata,
   onSaveChange,
 }) => {
+  const { t } = useLocale();
   const rowRef = useRef<HTMLDivElement>(null);
 
   // Close on click-away
@@ -63,7 +65,7 @@ export const InlinePreview: React.FC<InlinePreviewProps> = ({
       ref={rowRef}
       className={`${styles.previewRow} ${isOpen ? styles.previewRowOpen : ''}`}
       role="region"
-      aria-label={`Preview of ${item.title}`}
+      aria-label={`${t('Preview of', '预览：')} ${item.title}`}
       aria-hidden={!isOpen}
     >
       <div className={styles.arrow} />
@@ -71,7 +73,7 @@ export const InlinePreview: React.FC<InlinePreviewProps> = ({
         <button
           className={styles.closeBtn}
           onClick={onClose}
-          aria-label="Close preview"
+          aria-label={t('Close preview', '关闭预览')}
         >
           ✕
         </button>
@@ -102,7 +104,7 @@ export const InlinePreview: React.FC<InlinePreviewProps> = ({
 
           <div style={{ display: 'flex', gap: '12px', alignItems: 'center' }}>
             <button className={styles.viewBtn} onClick={onViewFull}>
-              View Full Screen
+              {t('View Full Screen', '全屏查看')}
             </button>
             <SaveButton
               itemId={item.id}

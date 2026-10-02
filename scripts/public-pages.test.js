@@ -1,7 +1,8 @@
 import test from "node:test";
 import assert from "node:assert/strict";
 import { createHash } from "node:crypto";
-import { existsSync, readFileSync } from "node:fs";
+import { existsSync, mkdirSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from "node:fs";
+import { tmpdir } from "node:os";
 import { dirname, resolve } from "node:path";
 import { fileURLToPath } from "node:url";
 import { XMLParser, XMLValidator } from "fast-xml-parser";
@@ -13,11 +14,19 @@ import {
   preparePublicPages,
   publicStaticNetlifyRedirects,
   REQUIRED_PUBLIC_PAGES,
+  REQUIRED_LOCALIZED_PUBLIC_PAGES,
   TROPE_DECODER_SHARE_EVENT,
   WATCH_JOURNAL_PUBLIC_PAGES,
 } from "./generate-public-pages.js";
-import { PUBLIC_ORIGIN, PUBLIC_STATIC_ROUTES } from "../netlify/functions/lib/public-routes.js";
+import {
+  PUBLIC_ORIGIN,
+  PUBLIC_LOCALIZED_STATIC_ROUTES,
+  PUBLIC_STATIC_ROUTES,
+} from "../netlify/functions/lib/public-routes.js";
 import { PUBLIC_ROUTE_PATHS, publicStaticPreviewRoutes } from "../shared/public-routes.js";
+import { assertRegisteredVibingWarningCopy, assertVibingWarningCopy } from "./vibing-warning-copy.js";
+import { assertVibingPublicInventory } from "./vibing-public-inventory.js";
+import { assertStaticGuidePublicInventory, STATIC_GUIDE_QUERY_SHARE_EXCLUSIONS } from "./static-guide-public-inventory.js";
 import { createPublicSitemapHandler } from "../netlify/functions/public-sitemap.js";
 import { manifestStore, publicManifest } from "../netlify/functions/public-test-fixture.js";
 import { PUBLICATION_RELEASE_DATES_KEY } from "../netlify/functions/lib/publication-manifest.js";
@@ -138,12 +147,133 @@ async function assertStylesheetAssetsLoad(html, routePath, origin) {
 }
 
 test("static public pages canonically match their registered production routes", () => {
-  const fileBackedRoutes = PUBLIC_STATIC_ROUTES.filter(({ page }) => page);
+  const fileBackedRoutes = [
+    ...PUBLIC_STATIC_ROUTES,
+    ...PUBLIC_LOCALIZED_STATIC_ROUTES,
+  ].filter(({ page }) => page);
   assert.ok(fileBackedRoutes.length > 0, "the registry must include static HTML pages");
 
   for (const route of fileBackedRoutes) {
     assertCanonicalMatchesRoute(read(route.page), route);
   }
+});
+
+test("every publishable Vibing Now article file has its expected public registry route", () => {
+  assertVibingPublicInventory(root);
+});
+
+test("every static C-drama guide file has its expected public registry route", () => {
+  assertStaticGuidePublicInventory(root);
+});
+
+test("static guide inventory catches omitted guides and accepts exact registrations", (t) => {
+  const fixtureRoot = mkdtempSync(resolve(tmpdir(), "static-guide-inventory-"));
+  t.after(() => rmSync(fixtureRoot, { recursive: true, force: true }));
+  for (const directory of ["public/c-drama-fandom", "public/c-dramas"]) {
+    mkdirSync(resolve(fixtureRoot, directory), { recursive: true });
+  }
+  const writeFixture = (page, html = "<!doctype html><h1>Fixture</h1>") => {
+    mkdirSync(dirname(resolve(fixtureRoot, page)), { recursive: true });
+    writeFileSync(resolve(fixtureRoot, page), html);
+  };
+  writeFixture("public/c-drama-fandom/glossary/assets/readme.txt");
+  assert.doesNotThrow(() => assertStaticGuidePublicInventory(fixtureRoot, []));
+  const routes = [];
+  for (const page of [
+    "public/c-drama-fandom/index.html",
+    "public/c-drama-fandom/glossary/index.html",
+    "public/c-drama-fandom/glossary/new-term/index.html",
+    "public/c-drama-fandom/archetypes/new-archetype/index.html",
+    "public/c-drama-fandom/soundtrack/new-drama/index.html",
+    "public/c-drama-fandom/new-section/nested/guide/index.html",
+    "public/c-dramas/new-drama/themes/index.html",
+    "public/c-drama-fandom/vibing-now/index.html",
+  ]) {
+    const path = `/${page.replace(/^public\//, "").replace(/index\.html$/, "")}`;
+    writeFixture(page);
+    const message = `${page}: unregistered static C-drama guide; expected route ${path} in shared/public-routes.js`;
+    assert.throws(() => assertStaticGuidePublicInventory(fixtureRoot, routes), { message });
+    for (const invalid of [
+      { path: `${path}wrong/`, page },
+      { path, page: `${page}.wrong` },
+    ]) {
+      assert.throws(() => assertStaticGuidePublicInventory(fixtureRoot, [...routes, invalid]), { message });
+    }
+    routes.push({ path, page, group: "editorial" });
+    assert.doesNotThrow(() => assertStaticGuidePublicInventory(fixtureRoot, routes));
+  }
+  writeFixture("public/c-drama-fandom/vibing-now/unregistered-article/index.html");
+  assert.doesNotThrow(() => assertStaticGuidePublicInventory(fixtureRoot, routes),
+    "Vibing Now articles remain owned by their separate inventory");
+
+  for (const page of Object.keys(STATIC_GUIDE_QUERY_SHARE_EXCLUSIONS)) writeFixture(page);
+  assert.doesNotThrow(() => assertStaticGuidePublicInventory(fixtureRoot, routes));
+  const page = "public/c-drama-fandom/fandom-games/previews/new-result/index.html";
+  writeFixture(page, '<meta name="robots" content="noindex"><h1>Fixture</h1>');
+  assert.throws(() => assertStaticGuidePublicInventory(fixtureRoot, routes),
+    /previews\/new-result\/index\.html: unregistered static C-drama guide/,
+    "neither a previews directory nor noindex copy exempts a new file");
+  const fixtures = { [page]: "Synthetic non-public test fixture, not a publishable guide." };
+  assert.doesNotThrow(() => assertStaticGuidePublicInventory(fixtureRoot, routes, fixtures));
+  for (const invalid of [
+    { [page]: "" },
+    { "public/c-drama-fandom/fandom-games/previews/": "Entire directory" },
+    { "public/c-drama-fandom/../c-drama-fandom/draft/index.html": "Non-normalized path" },
+    { "public/c-drama-fandom/vibing-now/draft/index.html": "Wrong inventory" },
+    { "public/elsewhere/index.html": "Outside inventory" },
+  ]) {
+    assert.throws(() => assertStaticGuidePublicInventory(fixtureRoot, routes, invalid),
+      /exact guide file path and documented reason/);
+  }
+  writeFixture("public/c-drama-fandom/fandom-games/previews/another-result/index.html");
+  assert.throws(() => assertStaticGuidePublicInventory(fixtureRoot, routes, fixtures),
+    /previews\/another-result\/index\.html: unregistered static C-drama guide/,
+    "an exact fixture exemption does not exempt its siblings");
+});
+
+test("Vibing Now inventory catches unregistered articles independently of copy", (t) => {
+  const fixtureRoot = mkdtempSync(resolve(tmpdir(), "vibing-public-inventory-"));
+  t.after(() => rmSync(fixtureRoot, { recursive: true, force: true }));
+  const shelf = "public/c-drama-fandom/vibing-now";
+  const writeFixture = (page, html = "<!doctype html><h1>Fixture</h1>") => {
+    mkdirSync(dirname(resolve(fixtureRoot, page)), { recursive: true });
+    writeFileSync(resolve(fixtureRoot, page), html);
+  };
+  writeFixture(`${shelf}/index.html`);
+  writeFixture(`${shelf}/assets/readme.txt`);
+  assert.doesNotThrow(() => assertVibingPublicInventory(fixtureRoot, []),
+    "the shelf and non-index assets are not installments");
+
+  const page = `${shelf}/another-drama-episodes-31-35/index.html`;
+  const path = "/c-drama-fandom/vibing-now/another-drama-episodes-31-35/";
+  writeFixture(page);
+  assert.throws(() => assertVibingPublicInventory(fixtureRoot, PUBLIC_STATIC_ROUTES), {
+    message: `${page}: unregistered Vibing Now article; expected route ${path} in shared/public-routes.js`,
+  });
+  const routes = [...PUBLIC_STATIC_ROUTES, { path, page, group: "editorial" }];
+  assert.doesNotThrow(() => assertVibingPublicInventory(fixtureRoot, routes),
+    "registering the same article makes its inventory check pass");
+  for (const invalid of [
+    { path: `${path}wrong/`, page },
+    { path, page: `${shelf}/wrong/index.html` },
+  ]) {
+    assert.throws(() => assertVibingPublicInventory(fixtureRoot, [invalid]),
+      /unregistered Vibing Now article/);
+  }
+
+  const nestedPage = `${shelf}/drafts/nested-article/index.html`;
+  writeFixture(nestedPage, '<meta name="robots" content="noindex"><h1>Draft fixture</h1>');
+  assert.throws(() => assertVibingPublicInventory(fixtureRoot, routes), {
+    message: `${nestedPage}: unregistered Vibing Now article; expected route /c-drama-fandom/vibing-now/drafts/nested-article/ in shared/public-routes.js`,
+  });
+  const fixtures = { [nestedPage]: "Non-public synthetic inventory fixture; not an editorial draft." };
+  assert.doesNotThrow(() => assertVibingPublicInventory(fixtureRoot, routes, fixtures));
+  assert.throws(() => assertVibingPublicInventory(fixtureRoot, routes, { [nestedPage]: "" }),
+    /exact article file path and documented reason/);
+  writeFixture(`${shelf}/drafts/another-article/index.html`);
+  assert.throws(() => assertVibingPublicInventory(fixtureRoot, routes, fixtures),
+    /drafts\/another-article\/index\.html: unregistered Vibing Now article/,
+    "a fixture exemption must not exclude its siblings or the whole directory");
 });
 
 test("the Episode 21 article has an editorial discussion with an explicit safe boundary and working route", () => {
@@ -166,6 +296,9 @@ test("Netlify serves every registered C-drama static page before the SPA fallbac
 
   assert.ok(expectedRedirects.length > 0);
   assert.doesNotThrow(() => assertPublicStaticNetlifyRedirects(netlify));
+  assert.ok(REQUIRED_LOCALIZED_PUBLIC_PAGES.includes(
+    "public/zh-cn/c-drama-fandom/trope-decoder/index.html",
+  ));
 
   const renamedRoutes = PUBLIC_STATIC_ROUTES.map((route) => (
     route.path === "/c-drama-fandom/getting-started/"
@@ -233,7 +366,12 @@ test("local Vite serves registered C-drama documents before the SPA fallback", a
   const address = server.httpServer?.address();
   assert.ok(address && typeof address !== "string", "Vite must listen on an isolated TCP port");
   const origin = `http://127.0.0.1:${address.port}`;
-  const fileBackedRoutes = PUBLIC_STATIC_ROUTES.filter(
+  const homepage = await (await fetch(origin)).text();
+  assert.match(homepage, /<a href="\/c-drama-fandom\/vibing-now\/">choose an Against the Current Vibing Now reading<\/a>/);
+  const fileBackedRoutes = [
+    ...PUBLIC_STATIC_ROUTES,
+    ...PUBLIC_LOCALIZED_STATIC_ROUTES,
+  ].filter(
     ({ group, page }) => group === "editorial" && page,
   );
   assert.ok(fileBackedRoutes.length > 0, "the registry must include C-drama static HTML pages");
@@ -741,7 +879,7 @@ test("Against the Current stays within Episode 21 and uses registered static edi
   assert.match(read("public/c-drama-fandom/index.html"), /href="\/c-drama-fandom\/vibing-now\/"/);
 });
 
-test("Against the Current follow-ups keep their reviewed episode boundaries and public routes", () => {
+test("Against the Current follow-ups keep their declared boundaries and public routes", () => {
   const shelf = read("public/c-drama-fandom/vibing-now/index.html");
   const netlify = read("netlify.toml");
   const pages = [
@@ -762,8 +900,6 @@ test("Against the Current follow-ups keep their reviewed episode boundaries and 
     assert.match(html, new RegExp(`stops at the end of Episode ${boundary}`));
     assert.match(html, /Source-reviewed September 28, 2026/);
     assert.match(html, /<script defer src="\/c-drama-fandom\/editorial\.js"><\/script>/);
-    assert.match(html, /<script defer src="\/c-drama-fandom\/vibing-discussion\.js"><\/script>/);
-    assert.match(html, new RegExp(`data-discussion-id="against-the-current-${suffix}" data-safe-through-episode="${boundary}"`));
     assert.doesNotMatch(html, /X-Amz-|prod-files-secure|Draft release package/);
     assert.match(shelf, new RegExp(`href="${path}"`));
     assert.match(netlify, new RegExp(`from = "${path.slice(0, -1)}"\\s+to = "${path}index\\.html"`));
@@ -771,28 +907,71 @@ test("Against the Current follow-ups keep their reviewed episode boundaries and 
   }
   const first = read("public/c-drama-fandom/vibing-now/against-the-current-episodes-22-25/index.html");
   const second = read("public/c-drama-fandom/vibing-now/against-the-current-episodes-26-30/index.html");
+  // These strings catch known regressions, not whether a plot claim happened before
+  // the boundary. Editorial sign-off follows docs/vibing-now-publication-review.md.
   assert.doesNotMatch(first, /The state does not become just|Episode 26 also widens|music house|slaps him|drugging her/);
   assert.match(second, /Zheng family’s downfall/);
   assert.match(second, /He can move her body\. He cannot manufacture arrival\./);
 });
 
 test("episode boundary notices use the approved event-free copy", () => {
-  for (const { range, boundary } of [
-    { range: "22–25", boundary: 25 },
-    { range: "26–30", boundary: 30 },
-  ]) {
-    const html = read(`public/c-drama-fandom/vibing-now/against-the-current-episodes-${range.replace("–", "-")}/index.html`);
-    const notices = [...html.matchAll(/<p><strong>Spoiler boundary:<\/strong> ([^<]+)<\/p>/g)]
-      .map(([, copy]) => copy);
-    assert.deepEqual(notices, [
-      `This installment stops at the end of Episode ${boundary}. No previews, later episodes, novel material, or endgame information.`,
-      `This installment discusses Episodes ${range} and includes spoilers through the end of Episode ${boundary}. No later episodes, previews, novel material, or endgame information.`,
-    ], `Episodes ${range} must retain the opening notice and approved closing copy`);
-    for (const notice of notices) {
-      assert.doesNotMatch(notice, /wedding|punishment|Shen|bath|arrival/i,
-        "A boundary notice must not reveal events, even by saying they are excluded");
-    }
+  assertRegisteredVibingWarningCopy(read);
+});
+
+test("warning-copy checks follow newly registered installments without scanning analysis", () => {
+  const route = {
+    path: "/c-drama-fandom/vibing-now/another-drama-episodes-31-35/",
+    page: "public/c-drama-fandom/vibing-now/another-drama-episodes-31-35/index.html",
+  };
+  const opening = "<p><strong>Spoiler boundary:</strong> This installment stops at the end of Episode 35. No previews, later episodes, novel material, or endgame information.</p>";
+  const closing = "<p><strong>Spoiler boundary:</strong> This installment discusses Episodes 31–35 and includes spoilers through the end of Episode 35. No later episodes, previews, novel material, or endgame information.</p>";
+  const html = `${opening}<section><p>The wedding and punishment inform this reading.</p></section>${closing}`;
+  const routes = [
+    ...PUBLIC_STATIC_ROUTES,
+    route,
+  ];
+  const fixtureRead = (page) => page === route.page ? html : read(page);
+  assert.doesNotThrow(() => assertRegisteredVibingWarningCopy(fixtureRead, routes));
+  assert.throws(() => assertRegisteredVibingWarningCopy(
+    (page) => page === route.page ? "" : read(page), routes,
+  ), /another-drama-episodes-31-35.*approved event-free/);
+
+  const mutations = [
+    ["event-specific exclusion", html.replace("No previews,", "No <em>secret coronation or exile</em>, previews,")],
+    ["scene cutoff", html.replace("the end of Episode 35", "the scene before the messenger arrives in Episode 35")],
+    ["wrong opening endpoint", html.replace("the end of Episode 35", "the end of Episode 36")],
+    ["wrong closing endpoint", html.replace("spoilers through the end of Episode 35", "spoilers through the end of Episode 36")],
+    ["wrong start episode", html.replace("Episodes 31–35", "Episodes 30–35")],
+    ["missing opening", html.replace(opening, "")],
+    ["missing closing", html.replace(closing, "")],
+    ["missing all warnings", "<p>Article analysis without a warning.</p>"],
+    ["extra exclusion warning", `${html}<p>Spoiler boundary: No palace fire included.</p>`],
+    ["commented warning", html.replace(opening, `<!--${opening}-->`)],
+  ];
+  for (const [label, invalid] of mutations) {
+    assert.throws(() => assertVibingWarningCopy(invalid, route),
+      /approved event-free warning paragraphs/, label);
   }
+  const single = { path: "/c-drama-fandom/vibing-now/another-drama-episode-35/" };
+  assert.doesNotThrow(() => assertVibingWarningCopy(opening, single));
+  assert.throws(() => assertRegisteredVibingWarningCopy(() => html, [single]),
+    /warning-checkable page/);
+  assert.throws(() => assertVibingWarningCopy(html, { ...route, path: "/c-drama-fandom/vibing-now/new-format/" }),
+    /warning boundary needs an episode route/);
+  assert.throws(() => assertVibingWarningCopy(html, { ...route, path: "/c-drama-fandom/vibing-now/another-drama-episodes-35-31/" }),
+    /invalid episode range/);
+});
+
+test("the reviewed Episode 21 warning also rejects event exclusions and missing copy", () => {
+  const route = PUBLIC_STATIC_ROUTES.find(({ path }) => path.endsWith("/against-the-current-episode-21/"));
+  const html = read(route.page);
+  assert.doesNotThrow(() => assertVibingWarningCopy(html, route));
+  for (const invalid of [
+    html.replace("No preview, later-episode, novel, or endgame material included", "No sentencing or later-episode material included"),
+    html.replace("Spoiler boundary: Episode 21", "Spoiler boundary: Episode 22"),
+    html.replace("Spoiler boundary: Episode 21", "Spoiler boundary: Before the wedding in Episode 21"),
+    html.replace(/<p class="meta-row">Spoiler boundary:[^<]+<\/p>/, ""),
+  ]) assert.throws(() => assertVibingWarningCopy(invalid, route), /approved event-free/);
 });
 
 test("the soundtrack pilot links only to verified licensed listings and stays separate from viewing data", () => {
@@ -826,6 +1005,68 @@ test("Vibing Now landing page is crawlable and advertises the live spoiler bound
   assert.match(html, /Against the Current, through Episode 21/);
   assert.match(html, /No preview material, later episodes, novel material, or endgame commentary/);
   assert.match(read("public/c-drama-fandom/editorial.js"), /"vibing-now-index"/);
+});
+
+test("Against the Current discovery path and search snippets preserve episode boundaries", () => {
+  const guide = read("public/c-drama-fandom/index.html");
+  const shelfPath = "/c-drama-fandom/vibing-now/";
+  const shelf = read(`public${shelfPath}index.html`);
+  const sitemap = read("public/sitemap.xml");
+  const paths = [
+    { slug: "episode-21", label: "Episode 21", boundary: "21" },
+    { slug: "episodes-22-25", label: "Episodes 22–25", boundary: "25" },
+    { slug: "episodes-26-30", label: "Episodes 26–30", boundary: "30" },
+  ];
+  const pages = [{ path: shelfPath, html: shelf }];
+
+  assert.ok(guide.indexOf("Featured series / Currently Vibing") < guide.indexOf("01 / Fandom literacy"),
+    "the show feature must lead the guide choices");
+  assert.match(guide, /<h3><a href="\/c-drama-fandom\/vibing-now\/"[^>]*>Against the Current: Vibing Now<\/a><\/h3>/);
+  assert.match(shelf, /<h1>Against the Current <em>on Vibing Now\.<\/em><\/h1>/);
+  assert.match(shelf, /Vibing Now is our spoiler-bounded shelf for dramas we are tracking/);
+
+  for (const { slug, label, boundary } of paths) {
+    const path = `${shelfPath}against-the-current-${slug}/`;
+    const html = read(`public${path}index.html`);
+    pages.push({ path, html });
+    assert.match(shelf, new RegExp(`href="${path}"`));
+    assert.match(shelf, new RegExp(`Safe through ${label}`));
+    assert.match(html, /<p class="eyebrow">Vibing Now · Against the Current/);
+    assert.match(html, /<h1>Against the Current/);
+    assert.match(html, new RegExp(`Contains spoilers through Episode ${boundary} only`));
+  }
+
+  const titles = new Set();
+  const descriptions = new Set();
+  const urls = new Set();
+  for (const { path, html } of pages) {
+    const route = PUBLIC_STATIC_ROUTES.find((entry) => entry.path === path);
+    assert.ok(route, `${path} must be registered`);
+    assertCanonicalMatchesRoute(html, route);
+    const title = html.match(/<title>([^<]+)<\/title>/)?.[1];
+    const description = html.match(/<meta name="description" content="([^"]+)"/)?.[1];
+    assert.match(title, /Against the Current/);
+    assert.match(description, /Against the Current/);
+    assert.match(html, new RegExp(`<meta property="og:url" content="${PUBLIC_ORIGIN}${path}"`));
+    assert.match(html, /<meta property="og:title" content="[^"]*Against the Current/);
+    assert.match(html, /<meta name="twitter:title" content="[^"]*Against the Current/);
+    assert.match(html, /<meta name="twitter:description" content="[^"]*"/);
+    const json = JSON.parse(html.match(/<script type="application\/ld\+json">\s*([\s\S]*?)\s*<\/script>/)?.[1]);
+    assert.equal(json.mainEntityOfPage, `${PUBLIC_ORIGIN}${path}`);
+    assert.match(json.headline, /Against the Current/);
+    assert.equal(sitemap.split(`<loc>${PUBLIC_ORIGIN}${path}</loc>`).length - 1, 1);
+    titles.add(title);
+    descriptions.add(description);
+    urls.add(`${PUBLIC_ORIGIN}${path}`);
+  }
+  assert.equal(titles.size, pages.length);
+  assert.equal(descriptions.size, pages.length);
+  assert.equal(urls.size, pages.length);
+  for (const { html } of pages) {
+    const snippets = [...html.matchAll(/<meta (?:name="(?:description|twitter:description)"|property="og:description") content="([^"]+)"/g)]
+      .map(([, content]) => content).join(" ");
+    assert.doesNotMatch(snippets, /marriage decree|assassination|drugged|beaten|trafficking|wedding/i);
+  }
 });
 
 test("the public field journal has crawlable direct routes with spoiler-safe metadata", () => {

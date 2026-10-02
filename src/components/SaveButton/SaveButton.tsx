@@ -4,6 +4,7 @@ import { useSaveItem, type SaveItemMetadata } from '../../hooks/useSaveItem';
 import { vibeAtlasPath } from '../../utils/fandomRoutes';
 import { Toast } from '../Toast/Toast';
 import styles from './SaveButton.module.css';
+import { useLocale } from '../../i18n/LocaleProvider';
 
 interface SaveButtonProps {
   itemId: string;
@@ -24,6 +25,7 @@ export const SaveButton: React.FC<SaveButtonProps> = ({
   onClick,
   onSaveChange,
 }) => {
+  const { t, path } = useLocale();
   const {
     isSaved,
     isLegacySaved,
@@ -55,9 +57,9 @@ export const SaveButton: React.FC<SaveButtonProps> = ({
         className={`${styles.saveButton} ${isSaved ? styles.saved : ''}`}
         onClick={handleClick}
         disabled={isLoading || isSavedStateLoading}
-        aria-label={isLegacySaved ? 'Add to Collection' : isSaved ? 'Remove from saved' : 'Save item'}
+        aria-label={isLegacySaved ? t('Add to Collection', '加入收藏') : isSaved ? t('Remove from saved', '从收藏中移除') : t('Save item', '收藏此项')}
         aria-pressed={isSaved}
-        title={isLegacySaved ? 'Add to Collection' : isSaved ? 'Remove from saved' : 'Save item'}
+        title={isLegacySaved ? t('Add to Collection', '加入收藏') : isSaved ? t('Remove from saved', '从收藏中移除') : t('Save item', '收藏此项')}
       >
         <svg
           xmlns="http://www.w3.org/2000/svg"
@@ -75,16 +77,16 @@ export const SaveButton: React.FC<SaveButtonProps> = ({
         <div className={styles.saveNotice} role="alert">
           <span>
             {archiveSaveFailure === 'sign_in'
-              ? 'Sign in before saving this edition’s cards.'
+              ? t('Sign in before saving this edition’s cards.', '请先登录，再保存本期卡片。')
               : archiveSaveFailure === 'upgrade'
-                ? 'Older edition card saves are a Collector benefit.'
-                : 'We could not verify this card. Your save was not changed.'}
+                ? t('Older edition card saves are a Collector benefit.', '保存较早期卡组中的单张卡片，需要收藏会员权限。')
+                : t('We could not verify this card. Your save was not changed.', '暂时无法核验这张卡片，原有收藏未改动。')}
           </span>
           {archiveSaveFailure === 'retry' ? (
-            <button type="button" onClick={retrySave} disabled={isLoading}>Try again</button>
+            <button type="button" onClick={retrySave} disabled={isLoading}>{t('Try again', '重试')}</button>
           ) : (
-            <a href={vibeAtlasPath({ view: 'membership' })} onClick={e => e.stopPropagation()}>
-              {archiveSaveFailure === 'sign_in' ? 'Sign in' : 'See Collector options'}
+            <a href={path(vibeAtlasPath({ view: 'membership' }))} onClick={e => e.stopPropagation()}>
+              {archiveSaveFailure === 'sign_in' ? t('Sign in', '登录') : t('See Collector options', '查看收藏会员方案')}
             </a>
           )}
         </div>

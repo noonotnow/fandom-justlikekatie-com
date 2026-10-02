@@ -3,6 +3,7 @@ import type { GridItemData, ImageTier } from '../../types';
 import type { SaveItemMetadata } from '../../hooks/useSaveItem';
 import { SaveButton } from '../SaveButton/SaveButton';
 import styles from './GridItem.module.css';
+import { useLocale } from '../../i18n/LocaleProvider';
 
 interface GridItemProps {
   id: string;
@@ -35,6 +36,7 @@ export const GridItem: React.FC<GridItemProps> = ({
   saveMetadata,
   tier,
 }) => {
+  const { t } = useLocale();
   const item: GridItemData = {
     id,
     title,
@@ -64,12 +66,12 @@ export const GridItem: React.FC<GridItemProps> = ({
       onKeyDown={handleKeyDown}
       tabIndex={0}
       role="button"
-      aria-label={`View ${title}${publisher ? ` by ${publisher}` : ''}`}
+      aria-label={t(`View ${title}${publisher ? ` by ${publisher}` : ''}`, `查看图片（来源原标题）：${title}${publisher ? `；来源：${publisher}` : ''}`)}
     >
       <img src={thumbnail} alt={title} className={styles.thumbnail} loading="lazy" />
       {tier && (
         <span className={`${styles.tierBadge} ${styles[tier]}`}>
-          {tier === 'legendary' ? '🔥 传说' : '🫠 错版'}
+          {tier === 'legendary' ? t('🔥 Legendary', '🔥 传说') : t('🫠 Misprint', '🫠 错版')}
         </span>
       )}
       <SaveButton

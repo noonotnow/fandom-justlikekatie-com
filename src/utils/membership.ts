@@ -1,3 +1,5 @@
+import { translate } from '../i18n/locale';
+
 export type MembershipState = 'inactive' | 'active' | 'past_due' | 'cancelled';
 export type CreatorOsInterestStep = 'interest' | 'caption' | 'plan' | 'publish' | 'performance';
 export type MembershipCapability =
@@ -5,6 +7,26 @@ export type MembershipCapability =
   | 'creator_os'
   | 'fandom_creator_bridge'
   | 'ecosystem_bundle';
+
+function localizedMembershipError(message: string | undefined, fallbackEnglish: string, fallbackChinese: string): string {
+  if (!message) return translate(fallbackEnglish, fallbackChinese);
+  if (message === 'Membership service is unavailable. Please try again.' || message === 'Billing is temporarily unavailable.') {
+    return translate(message, '会员服务暂时不可用，请重试。');
+  }
+  if (message === 'No billing account exists.') {
+    return translate(message, '尚未找到账单账户。');
+  }
+  if (message === 'Method not allowed.') {
+    return translate(message, '不支持此操作。');
+  }
+  if (message === 'Checkout could not be started.') {
+    return translate(message, '无法开始结账。');
+  }
+  if (message === 'Billing management could not be opened.') {
+    return translate(message, '无法打开账单管理页面。');
+  }
+  return message;
+}
 
 /** Deliberately small, payment-detail-free shape returned by the billing API. */
 export interface MembershipStatus {
@@ -25,7 +47,13 @@ interface MembershipResponse {
 
 async function readJson(response: Response): Promise<MembershipResponse> {
   const body = await response.json().catch(() => ({})) as MembershipResponse;
-  if (!response.ok) throw new Error(body.error || 'Membership service is unavailable. Please try again.');
+  if (!response.ok) {
+    throw new Error(localizedMembershipError(
+      body.error,
+      'Membership service is unavailable. Please try again.',
+      '会员服务暂时不可用，请重试。',
+    ));
+  }
   return body;
 }
 
@@ -85,7 +113,9 @@ export async function createMembershipCheckout(returnDate?: string): Promise<str
     headers: { 'Content-Type': 'application/json' },
     body: JSON.stringify(returnDate ? { returnDate } : {}),
   }));
-  if (typeof body.url !== 'string' || !body.url) throw new Error('Checkout could not be started.');
+  if (typeof body.url !== 'string' || !body.url) {
+    throw new Error(localizedMembershipError(undefined, 'Checkout could not be started.', '无法开始结账。'));
+  }
   return body.url;
 }
 
@@ -96,7 +126,9 @@ export async function createMembershipPortal(): Promise<string> {
     headers: { 'Content-Type': 'application/json' },
     body: '{}',
   }));
-  if (typeof body.url !== 'string' || !body.url) throw new Error('Billing management could not be opened.');
+  if (typeof body.url !== 'string' || !body.url) {
+    throw new Error(localizedMembershipError(undefined, 'Billing management could not be opened.', '无法打开账单管理页面。'));
+  }
   return body.url;
 }
 
@@ -116,7 +148,11 @@ export async function refreshMembershipAfterBilling(
 export function logMembershipEvent(
   event: 'membership_view' | 'upgrade_click' | 'checkout_started' | 'membership_activated' | 'paid_feature_used',
 ): void {
-  const pilotPath = typeof window !== 'undefined'
+  const internalPilot = typeof window !== 'undefined' && (() => {
+    try { return localStorage.getItem('companion-pilot-internal') === '1'; }
+    catch { return false; }
+  })();
+  const pilotPath = !internalPilot && typeof window !== 'undefined'
     && Date.now() - Number(sessionStorage.getItem('companion-pilot-time')) < 24 * 60 * 60 * 1000
     ? sessionStorage.getItem('companion-pilot-path') : null;
   void fetch('/.netlify/functions/log-engagement', {

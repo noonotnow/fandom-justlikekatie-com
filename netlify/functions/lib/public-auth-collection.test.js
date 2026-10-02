@@ -114,6 +114,47 @@ test("magic links are hashed, single-use, and mint a secure revocable session", 
   assert.equal((await afterLogout.json()).user, null);
 });
 
+test("magic-link returns accept Simplified Chinese locale only as an allowlisted route choice", async () => {
+  const stores = new Map();
+  const getStore = name => {
+    if (!stores.has(name)) stores.set(name, memoryStore());
+    return stores.get(name);
+  };
+  const delivered = [];
+  let tokenNumber = 0;
+  const auth = createPublicAuth({
+    env: {
+      FANDOM_AUTH_ID_SECRET: "identity-secret",
+      FANDOM_PUBLIC_ORIGIN: "https://fandom.justlikekatie.com",
+    },
+    getStore,
+    sendEmail: async message => delivered.push(message),
+    randomToken: () => `locale-magic-token-${++tokenNumber}-with-more-than-thirty-two-characters`,
+    now: () => new Date("2026-08-10T01:00:00Z"),
+  });
+
+  await auth.requestMagicLink(request("/api/auth/magic-link", {
+    body: { email: "chinese@example.com", next: "archive:2026-08-10", locale: "zh-CN" },
+  }));
+  await auth.requestMagicLink(request("/api/auth/magic-link", {
+    body: {
+      email: "invalid-locale@example.com",
+      next: "https://evil.example/",
+      locale: "zh-CN/../../admin",
+    },
+  }));
+
+  const chineseLink = new URL(delivered[0].magicLink);
+  assert.equal(chineseLink.pathname, "/zh-cn/auth/verify");
+  assert.equal(new URLSearchParams(chineseLink.hash.slice(1)).get("next"), "archive:2026-08-10");
+  assert.equal(new URLSearchParams(chineseLink.hash.slice(1)).get("locale"), "zh-CN");
+  const fallbackLink = new URL(delivered[1].magicLink);
+  assert.equal(fallbackLink.pathname, "/auth/verify");
+  assert.equal(new URLSearchParams(fallbackLink.hash.slice(1)).get("next"), null);
+  assert.equal(new URLSearchParams(fallbackLink.hash.slice(1)).get("locale"), "en");
+  assert.equal(fallbackLink.hash.includes("admin"), false);
+});
+
 test("magic-link consumption and session revocation stay conditional when strong Blob reads omit ETags", async t => {
   const directory = await mkdtemp(join(tmpdir(), "public-auth-blobs-"));
   const server = new BlobsServer({ directory });
@@ -821,6 +862,81 @@ test("collection sync is idempotent, saved-record-specific, cursor-based, and to
   assert.equal(remaining.items.length, 1);
   assert.equal(remaining.items[0].id, id);
 });
+
+for (const kind of ["card", "grid"]) {
+  test(`concurrent stale ${kind} save cannot undo a deletion`, async () => {
+    const base = memoryStore();
+    const localId = `shared-${kind}`;
+    const item = kind === "card"
+      ? { kind, imageUrl: "https://images.example/card.jpg", thumbnailUrl: "https://images.example/thumb.jpg" }
+      : {
+        kind, id: localId, schemaVersion: 1, rendererVersion: "vibe-atlas-v1",
+        images: [{ resultId: "result", imageUrl: "https://images.example/grid.jpg" }],
+      };
+    const input = (clientId, cursor, operation) => ({
+      schemaVersion: 1, clientId, cursor, operations: [operation],
+    });
+    const saved = await syncCollection(base, "usr_test", input("device-a", 0, {
+      type: "upsert", mutationId: "seed", localId, item,
+    }));
+    const serverId = saved.mappings[localId];
+
+    let releaseReads;
+    const bothRead = new Promise(resolve => { releaseReads = resolve; });
+    let reads = 0;
+    let releaseStaleWrite;
+    const deletionWritten = new Promise(resolve => { releaseStaleWrite = resolve; });
+    let failedWrites = 0;
+    const store = {
+      get: (...args) => base.get(...args),
+      async getWithMetadata(...args) {
+        const snapshot = await base.getWithMetadata(...args);
+        if (++reads <= 2) {
+          if (reads === 2) releaseReads();
+          await bothRead;
+        }
+        return snapshot;
+      },
+      async setJSON(key, value, options) {
+        if (value.processed["stale-save"] && !value.processed["remove"]) await deletionWritten;
+        const result = await base.setJSON(key, value, options);
+        if (!result.modified) failedWrites += 1;
+        if (result.modified && value.processed["remove"]) releaseStaleWrite();
+        return result;
+      },
+    };
+
+    const stale = syncCollection(store, "usr_test", input("device-b", saved.cursor, {
+      type: "upsert", mutationId: "stale-save", localId, item: { ...item, title: "Stale edit" },
+    }));
+    const removal = syncCollection(store, "usr_test", input("device-a", saved.cursor, {
+      type: "delete", mutationId: "remove", localId, serverId,
+    }));
+    const [staleDelta, deleteDelta] = await Promise.all([stale, removal]);
+
+    assert.equal(failedWrites, 1, "the stale save must retry its conditional write");
+    assert.ok(reads >= 3, "the stale save must read the tombstone on retry");
+    for (const [client, result, mutationId] of [
+      ["saving", staleDelta, "stale-save"], ["deleting", deleteDelta, "remove"],
+    ]) {
+      assert.deepEqual(result.acknowledgedMutationIds, [mutationId], `${client} client acknowledgment`);
+      assert.deepEqual(result.items, [], `${client} client must not receive a revived item`);
+      assert.deepEqual(result.tombstones.map(entry => entry.id), [serverId], `${client} client deletion`);
+      assert.ok(result.cursor >= deleteDelta.cursor, `${client} client cursor must include deletion`);
+    }
+    assert.equal(staleDelta.mappings[localId], serverId);
+    const final = await readCollection(store, "usr_test", saved.cursor);
+    assert.deepEqual(final.items, []);
+    assert.deepEqual(final.tombstones.map(entry => entry.id), [serverId]);
+
+    const restored = await syncCollection(store, "usr_test", input("device-b", staleDelta.cursor, {
+      type: "upsert", mutationId: "intentional-restore", localId, item,
+    }));
+    assert.deepEqual(restored.items.map(entry => entry.id), [serverId],
+      "a client that observed the deletion can intentionally restore");
+    assert.deepEqual(restored.tombstones, []);
+  });
+}
 
 test("collection sync enforces complete editorial compositions while preserving legacy grids", async () => {
   const store = memoryStore();

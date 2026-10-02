@@ -192,7 +192,7 @@ test('nudge button is inside the showSaveNudge conditional block and calls saveG
     'nudge <button> must use the saveNudgeBtn CSS class inside the showSaveNudge block',
   );
   assert.ok(
-    saveNudgeJsx.includes('💾 Save to collection?'),
+    saveNudgeJsx.includes('💾 {tr(\'Save to collection?\', \'保存到收藏夹？\')}'),
     'nudge button must contain the expected label text inside the showSaveNudge block',
   );
 });

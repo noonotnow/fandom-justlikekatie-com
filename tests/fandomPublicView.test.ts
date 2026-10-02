@@ -73,10 +73,10 @@ const previewHtml = await Promise.all(
 );
 
 test('Your Collection is the public Collection and Grid Builder workspace', () => {
-  assert.match(appSource, /aria-label="Your Collection · Saved Grids and Grid Builder"/);
-  assert.match(appSource, /<span>Your Collection<\/span>/);
-  assert.match(collectionSource, /'Your Collection'/);
-  assert.match(collectionSource, />\s*Grid Builder\s*<\/button>/);
+  assert.match(appSource, /aria-label=\{t\('Your Collection · Saved Grids and Grid Builder', '我的收藏 · 已保存的九宫格与九宫格创作器'\)\}/);
+  assert.match(appSource, /<span>\{t\('Your Collection', '我的收藏'\)\}<\/span>/);
+  assert.match(collectionSource, /tr\('Your Collection', '我的收藏夹'\)/);
+  assert.match(collectionSource, /tr\('Grid Builder', '网格构建器'\)/);
   assert.doesNotMatch(appSource, /<span>Admin<\/span><small>Packets<\/small>/);
 });
 
@@ -410,9 +410,9 @@ test('the launchpad and guide present C-drama fandom as the editorial path into 
   assert.match(launchpadSource, /href="\/c-drama-fandom\/glossary\/"/);
   assert.match(launchpadSource, /href="\/c-drama-fandom\/archetypes\/"/);
   assert.match(launchpadSource, /href="\/c-drama-fandom\/watch-journal\/"/);
-  assert.match(launchpadSource, /href="\/c-drama-fandom\/vibing-now\/"[^\n]*>Vibing Now/);
-  assert.match(launchpadSource, /<h2>Learning<\/h2>/);
-  assert.match(launchpadSource, /<h2>Reading<\/h2>/);
+  assert.match(launchpadSource, /href="\/c-drama-fandom\/vibing-now\/" onClick=\{\(\) => trackHomepageGuideMenuLinkSelected\('vibing_now'\)\}>\{t\("Vibing Now \(English\)", "正在追的剧（英文）"\)\}<\/a>/);
+  assert.match(launchpadSource, /<h2>\{t\("Learning · English", "学习 · 英文"\)\}<\/h2>/);
+  assert.match(launchpadSource, /<h2>\{t\("Reading · English", "阅读 · 英文"\)\}<\/h2>/);
 
   for (const silo of [
     'Fandom literacy',
@@ -444,8 +444,8 @@ test('public Vibe Atlas copy names the daily card-drop promise', () => {
   assert.match(appSource, /nine collectible pieces of evidence/);
   assert.match(appSource, /Today's star/);
   assert.match(appSource, /Today's vibe/);
-  assert.match(appSource, /<h2>Today’s evidence<\/h2>/);
-  assert.match(appSource, /Nine cards from today’s star × Vibe Pack/);
+  assert.match(appSource, /<h2>\{t\('Today’s evidence', '今日心动证据'\)\}<\/h2>/);
+  assert.match(appSource, /t\('Nine cards from today’s star × Vibe Pack\.', '来自今日之星 × 氛围包的九张卡片。'\)/);
   assert.match(rootHtml, /Vibe Atlas’s curated daily C-drama collectible/);
   assert.match(rootHtml, /browse today’s Vibe Atlas card drop/);
   assert.doesNotMatch(appSource, /worldbuilding instrument|emotional weather/i);

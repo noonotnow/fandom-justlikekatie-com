@@ -367,6 +367,14 @@ for (const engine of BROWSER_ENGINES) {
       const compiledGrid = page.getByRole('group', { name: 'Proposed Compiled 9-frame set' });
       await compiledGrid.waitFor();
       assert.equal(await compiledGrid.getByRole('button').count(), 9);
+      await page.getByLabel('Language').selectOption('zh-CN');
+      await page.getByRole('region', { name: '公开典藏素材' }).waitFor();
+      const chineseGrid = page.getByRole('group', { name: '9 张风格合辑提案' });
+      await chineseGrid.waitFor();
+      assert.equal(await chineseGrid.getByRole('button').count(), 9, 'language switching preserves the public Archive proposal');
+      assert.equal(await page.getByText('免费工作室').count(), 1, 'Chinese presentation does not add a paid Archive gate');
+      await page.getByLabel('语言').selectOption('en');
+      await compiledGrid.waitFor();
 
       await page.getByRole('button', { name: 'Load more editions' }).click();
       await page.getByText('18 public Archive images match this lens').waitFor();

@@ -134,6 +134,7 @@ export interface GridRationale {
   manualSwaps: string[];
 }
 
+export type BuilderDisplayLocale = 'en' | 'zh-CN';
 export interface GridProposal {
   slots: BuilderCard[];
   /** Ranked leftover candidates from the same lens, for slot swapping. */
@@ -447,15 +448,15 @@ function countBy(pool: BuilderCard[], key: (card: BuilderCard) => string | undef
   return [...counts.values()].sort((a, b) => b.count - a.count);
 }
 
-export function lensOptions(pool: BuilderCard[]): {
+export function lensOptions(pool: BuilderCard[], locale: BuilderDisplayLocale = 'en'): {
   actors: LensOption[];
   vibes: LensOption[];
   families: LensOption[];
 } {
   return {
-    actors: countBy(pool, card => card.actor, card => card.actor),
-    vibes: countBy(pool, card => card.vibeEn || card.vibe, card => `${card.vibeEmoji} ${card.vibeEn || card.vibe}`),
-    families: countBy(pool, card => card.familyId, card => card.familyLabel).filter(option => option.count >= 2),
+    actors: countBy(pool, card => card.actor, card => builderActorDisplayName(card.actor, card.actorEn, locale, card.actorId)),
+    vibes: countBy(pool, card => card.vibeEn || card.vibe, card => `${card.vibeEmoji} ${builderVibeDisplayName(card.vibe, card.vibeEn, locale)}`),
+    families: countBy(pool, card => card.familyId, card => builderSourceLabel(card.familyLabel, locale)).filter(option => option.count >= 2),
   };
 }
 
@@ -663,6 +664,32 @@ export function rationaleBrief(rationale: GridRationale): string {
   ].filter(Boolean).join('\n');
 }
 
+/**
+ * Chinese, display-only version of the creative brief. The persisted
+ * generationPrompt continues to use rationaleBrief() so localization never
+ * rewrites a saved grid or changes its identity/provenance.
+ */
+export function displayRationaleBrief(rationale: GridRationale, locale: BuilderDisplayLocale): string {
+  if (locale !== 'zh-CN') return rationaleBrief(rationale);
+  const original = (value: string) => `英文原文：${value}`;
+  return [
+    rationale.editorialMode
+      ? `编辑约定：${rationale.editorialMode === 'event' ? 'Event（锁定同一场造型，继续细看）' : 'Compiled（看看不同造型之间的变化）'}`
+      : '',
+    rationale.familyEvidence
+      ? `系列依据：${rationale.familyEvidence === 'persisted-event' ? '已保存的获准 Event 系列' : '共享的已保存批次来源'}`
+      : '',
+    rationale.compositionSize ? `画面数量：${rationale.compositionSize} 张` : '',
+    `筛选条件：${original(rationale.lens)}`,
+    `视觉观察：${original(rationale.aestheticRead)}`,
+    `编排理由：${original(rationale.whyTogether)}`,
+    `视觉线索：${rationale.motifs.map(original).join('；')}`,
+    rationale.manualSwaps.length
+      ? `手动替换：${rationale.manualSwaps.map(original).join('；')}`
+      : '',
+    `建议发布方向：${original(rationale.suggestedStance)}`,
+  ].filter(Boolean).join('\n');
+}
 /** Build an honest brief for a grid whose selection and order came from the creator. */
 export function manualGridRationale(slots: BuilderCard[], actor: string): GridRationale {
   const motifs = [...new Set(slots.map(card => card.familyLabel).filter(Boolean))].slice(0, 4);
@@ -787,4 +814,56 @@ export function gridRecordFromProposal(
       gridPosition,
     })),
   };
+}
+
+function hasHan(value: string): boolean {
+  return /\p{Script=Han}/u.test(value);
+}
+
+const ACTOR_NAME_ZH: Record<string, string> = {
+  'liu-yuning': '刘宇宁',
+  'liu-xueyi': '刘学义',
+  'zhang-linghe': '张凌赫',
+  'dylan-wang': '王鹤棣',
+};
+
+/** Display-only actor copy. The saved actor values and all lens keys stay untouched. */
+export function builderActorDisplayName(
+  actor: string,
+  actorEn: string,
+  locale: BuilderDisplayLocale,
+  actorId?: string,
+): string {
+  if (locale !== 'zh-CN') return actorEn || actor;
+  const chinese = hasHan(actor)
+    ? actor
+    : hasHan(actorEn)
+      ? actorEn
+      : actorId ? ACTOR_NAME_ZH[actorId] : undefined;
+  const original = actorEn || (hasHan(actor) ? '' : actor);
+  if (!chinese) return `英文原文：${original || actor || actorId || '未知演员'}`;
+  return original && original !== chinese
+    ? `${chinese}（英文原文：${original}）`
+    : chinese;
+}
+
+/** Display-only vibe copy; English remains the stable lens value. */
+export function builderVibeDisplayName(
+  vibe: string,
+  vibeEn: string,
+  locale: BuilderDisplayLocale,
+): string {
+  if (locale !== 'zh-CN') return vibeEn || vibe;
+  const chinese = hasHan(vibe) ? vibe : hasHan(vibeEn) ? vibeEn : '';
+  const original = vibeEn || (hasHan(vibe) ? '' : vibe);
+  if (!chinese) return `英文原文：${original || vibe || '未命名氛围'}`;
+  return original && original !== chinese
+    ? `${chinese}（英文原文：${original}）`
+    : chinese;
+}
+
+/** Label source-derived editorial metadata without changing its stored value. */
+export function builderSourceLabel(value: string, locale: BuilderDisplayLocale): string {
+  if (locale !== 'zh-CN' || !value || hasHan(value)) return value;
+  return `英文原文：${value}`;
 }

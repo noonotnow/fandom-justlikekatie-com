@@ -27,6 +27,8 @@ import {
 import { logMembershipEvent } from '../../utils/membership';
 import { collectorBenefits, type CollectorPalette } from '../../utils/collectorBenefits';
 import { isVerifiedMediaReference } from '../../utils/mediaReference';
+import { useLocale } from '../../i18n/LocaleProvider';
+import { localizedPublicArchiveMessage } from '../../i18n/publicArchiveMessages';
 import {
   trackActorSourceNotesLoadFailed,
   trackActorSourceNotesLoadSucceeded,
@@ -38,19 +40,22 @@ import {
   actorPackIdForLens,
   buildVibeAtlasPool,
   buildPublicArchivePool,
+  builderActorDisplayName,
+  builderSourceLabel,
+  builderVibeDisplayName,
+  displayRationaleBrief,
   gridRecordFromProposal,
   lensOptions,
   manualGridRationale,
   proposeGrid,
-  rationaleBrief,
   rebuildRationale,
   type BuilderCard,
   type CollectionLens,
   type EditorialMode,
   type GridProposal,
 } from '../../utils/gridBuilder';
-import { usePublicArchiveInventory } from '../../hooks/usePublicArchiveInventory';
 import styles from './GridBuilder.module.css';
+import { usePublicArchiveInventory } from '../../hooks/usePublicArchiveInventory';
 
 interface ActorPackSourceVibe {
   emoji?: string;
@@ -81,7 +86,7 @@ interface Props {
   hasCollectorAccess?: boolean;
   onUpgrade?: () => void;
   onCollectionChanged?: () => Promise<void>;
-  /** Explicit inventory boundary. Public Archive, edition, and Daily Drop cards never fall back to Collection. */
+  /** Explicit inventory boundary. Daily Drop and edition cards never fall back to My Collection. */
   sourceKind?: 'collection' | 'daily' | 'edition' | 'archive';
   sourceEditionDate?: string;
   sourcePool?: BuilderCard[];
@@ -112,6 +117,16 @@ export const GridBuilder: React.FC<Props> = ({
   sourceEditionDate,
   sourcePool = [],
 }) => {
+  const { locale, t, path } = useLocale();
+  const tr = t;
+  const errorText = (error: unknown, english: string, chinese: string) => {
+    if (error instanceof Error) {
+      return locale === 'zh-CN' && !/\p{Script=Han}/u.test(error.message)
+        ? `英文原文错误：${error.message}`
+        : error.message;
+    }
+    return tr(english, chinese);
+  };
   const isCollectionSource = sourceKind === 'collection';
   const isPublicArchiveSource = sourceKind === 'archive' || sourceKind === 'edition';
   const externalSourcePool = isCollectionSource || isPublicArchiveSource ? null : sourcePool;
@@ -168,9 +183,9 @@ export const GridBuilder: React.FC<Props> = ({
     if (!handoffState) return;
     const remaining = handoffState.expiresAt - Date.now();
     if (remaining <= 0) { setHandoffState(null); return; }
-    const timeout = window.setTimeout(() => { setHandoffState(null); setNotice('Handoff expired. Prepare the current grid again.'); }, remaining);
+    const timeout = window.setTimeout(() => { setHandoffState(null); setNotice(tr('Handoff expired. Prepare the current grid again.', '交接文件已过期，请重新准备。')); }, remaining);
     return () => window.clearTimeout(timeout);
-  }, [handoffState?.expiresAt]);
+  }, [handoffState?.expiresAt, t]);
   useEffect(() => { const url = handoffState?.objectUrl; return () => { if (url) URL.revokeObjectURL(url); }; }, [handoffState?.objectUrl]);
   const isHandoffExpired = Boolean(handoffState && now >= handoffState.expiresAt);
   // Synchronous in-flight lock for exportGrid. React state setters do not
@@ -183,9 +198,7 @@ export const GridBuilder: React.FC<Props> = ({
 
   useEffect(() => {
     let cancelled = false;
-    // Public inventory belongs to the source, not to the resolving account.
-    // Its own effect updates it on source/page changes. Clearing it here
-    // would strand an already loaded Archive when the session arrives.
+    // Public inventory is owned by its source, not by the resolving account.
     if (!isPublicArchiveSource) setPool(null);
     setLoadError('');
     setLens({});
@@ -201,9 +214,7 @@ export const GridBuilder: React.FC<Props> = ({
         if (!cancelled) {
           setSourceRecords(isCollectionSource ? { cards } : null);
           if (!isPublicArchiveSource) {
-            setPool(isCollectionSource
-              ? buildVibeAtlasPool(cards, 'standard')
-              : externalSourcePool || []);
+            setPool(isCollectionSource ? buildVibeAtlasPool(cards, 'standard') : externalSourcePool || []);
           }
           setSavedCanvasCount(grids.length);
         }
@@ -211,10 +222,10 @@ export const GridBuilder: React.FC<Props> = ({
         if (!cancelled) setLoadError(caught instanceof Error
           ? caught.message
           : isCollectionSource
-            ? 'Saved collection could not be loaded.'
+            ? tr('Saved collection could not be loaded.', '无法加载已保存的收藏。')
             : isPublicArchiveSource
-              ? 'Public Archive inventory metadata could not be loaded.'
-              : 'Today’s Daily Drop inventory could not be loaded.');
+              ? tr('Public Archive inventory metadata could not be loaded.', '无法加载公开典藏素材信息。')
+              : tr('Today’s Daily Drop inventory could not be loaded.', '无法加载今日卡组素材。'));
       }
     })();
     return () => { cancelled = true; };
@@ -224,14 +235,14 @@ export const GridBuilder: React.FC<Props> = ({
     if (isPublicArchiveSource) setPool(publicArchivePool);
   }, [isPublicArchiveSource, publicArchivePool]);
 
-  const savedOptions = useMemo(() => (pool ? lensOptions(pool) : null), [pool]);
+  const savedOptions = useMemo(() => (pool ? lensOptions(pool, locale) : null), [pool, locale]);
   const smartOptionPool = useMemo(
     () => (pool ? applyLens(pool, { mode: lens.mode, actor: lens.actor }) : null),
     [pool, lens.actor, lens.mode],
   );
   const smartOptions = useMemo(
-    () => (smartOptionPool ? lensOptions(smartOptionPool) : null),
-    [smartOptionPool],
+    () => (smartOptionPool ? lensOptions(smartOptionPool, locale) : null),
+    [smartOptionPool, locale],
   );
   const eligibleEventFamilyIds = useMemo(() => new Set(
     (smartOptionPool || [])
@@ -314,7 +325,7 @@ export const GridBuilder: React.FC<Props> = ({
       }
     } catch {
       if (sourceNotesRequest.current === requestId) {
-        setSourceNotesError('Source notes are still syncing. You can keep building with your saved images.');
+        setSourceNotesError(tr('Source notes are still syncing. You can keep building with your saved images.', '来源备注仍在同步，你可以继续使用已保存的图片构建网格。'));
         trackActorSourceNotesLoadFailed(hasCollectorAccess, builderMode);
       }
     } finally {
@@ -384,7 +395,7 @@ export const GridBuilder: React.FC<Props> = ({
         ? slots.filter((_, index) => index !== selectedIndex)
         : slots.length < 9 ? [...slots, card] : slots;
       if (!selected && slots.length >= 9) {
-        setNotice('Your grid already has nine images. Remove one before adding another.');
+        setNotice(tr('Your grid already has nine images. Remove one before adding another.', '网格已有九张图片，请先移除一张再添加。'));
         return current;
       }
       setNotice('');
@@ -462,8 +473,8 @@ export const GridBuilder: React.FC<Props> = ({
     const targetSize = next.rationale.compositionSize || 9;
     setNotice(next.slots.length < targetSize
       ? editorialMode === 'event'
-        ? `This Event family has ${next.slots.length} of ${targetSize} needed frames. Save more from this appearance or choose Compiled.`
-        : `Only ${next.slots.length} cards match this lens — save more material or widen the lens.`
+        ? tr(`This Event family has ${next.slots.length} of ${targetSize} needed frames. Save more from this appearance or choose Compiled.`, `此单场造型目前有 ${next.slots.length}/${targetSize} 张图片。请从同一造型多保存一些图片，或改选「风格合辑」。`)
+        : tr(`Only ${next.slots.length} cards match this lens — save more material or widen the lens.`, `符合此筛选条件的图片只有 ${next.slots.length} 张，请多保存一些素材或放宽筛选条件。`)
       : '');
   }
 
@@ -503,8 +514,8 @@ export const GridBuilder: React.FC<Props> = ({
     if (!proposal || !proposalComplete || busy) return;
     if (!isGridSaved && !priorSavedGridId && savedCanvasCount >= benefits.canvasAllowance) {
       setNotice(hasCollectorAccess
-        ? `Collector includes ${benefits.canvasAllowance} active canvases. Remove one before saving another.`
-        : 'Your free canvas is already saved. You can keep editing it, or unlock three additional Collector canvases.');
+        ? tr(`Collector includes ${benefits.canvasAllowance} active canvases. Remove one before saving another.`, `Collector 可保存 ${benefits.canvasAllowance} 个有效网格。请先移除一个，再保存其他网格。`)
+        : tr('Your free canvas is already saved. You can keep editing it, or unlock three additional Collector canvases.', '免费账户已保存一个网格。你可以继续编辑，或升级 Collector 以解锁另外三个网格。'));
       return;
     }
     setBusy('save');
@@ -539,14 +550,14 @@ export const GridBuilder: React.FC<Props> = ({
       setSavedGridId(grid.id);
       setShowSaveNudge(false);
       setNotice(syncFailed
-        ? 'Grid saved locally. Cross-device sync will retry automatically.'
-        : 'Grid saved to your collection.');
+        ? tr('Grid saved locally. Cross-device sync will retry automatically.', '网格已保存在本设备上。跨设备同步会自动重试。')
+        : tr('Grid saved to your collection.', '网格已保存到收藏夹。'));
       if (pendingNavAfterSave) {
         setPendingNavAfterSave(false);
         onExported?.();
       }
     } catch (caught) {
-      setNotice(caught instanceof Error ? caught.message : 'Could not save the grid.');
+      setNotice(errorText(caught, 'Could not save the grid.', '无法保存网格。'));
     } finally {
       setBusy('');
     }
@@ -566,9 +577,9 @@ export const GridBuilder: React.FC<Props> = ({
       setSavedGridId(null);
       setPriorSavedGridId(null);
       setSavedCanvasCount(count => Math.max(0, count - 1));
-      setNotice('Removed from your collection.');
+      setNotice(tr('Removed from your collection.', '已从收藏夹中移除。'));
     } catch (caught) {
-      setNotice(caught instanceof Error ? caught.message : 'Could not remove the grid.');
+      setNotice(errorText(caught, 'Could not remove the grid.', '无法移除网格。'));
     } finally {
       setBusy('');
     }
@@ -591,7 +602,7 @@ export const GridBuilder: React.FC<Props> = ({
     const wasGridSaved = isGridSaved;
     let prepared: { objectUrl: string; file: File; fileName: string; tier: string } | null = null;
     setBusy('export');
-    setNotice('正在生成分享卡……');
+    setNotice(tr('Preparing share card…', '正在生成分享卡……'));
     setShowSaveNudge(false);
     try {
       const grid = gridRecordFromProposal(
@@ -606,7 +617,7 @@ export const GridBuilder: React.FC<Props> = ({
       if (hasCollectorAccess) {
         const assets: ExportProvenanceAsset[] = grid.images.map(image => {
           if (!isVerifiedMediaReference(image.media)) {
-            throw new Error('Master Export needs nine materialized MEDIA assets. Save or recover every image first.');
+          throw new Error(tr('Master Export needs nine materialized MEDIA assets. Save or recover every image first.', 'Master 导出需要 9 个已实体化的 MEDIA 媒体资源。请先保存或恢复每张图片。'));
           }
           return {
             assetId: image.media.assetId,
@@ -671,11 +682,11 @@ export const GridBuilder: React.FC<Props> = ({
         prepared = await prepareShareCard(starData, 'raw', blob => { renderedBlob = blob; });
         if (!mountedRef.current || proposalRef.current !== preparedProposal) { URL.revokeObjectURL(prepared.objectUrl); return; }
         setHandoffState({ objectUrl: prepared.objectUrl, file: prepared.file, tier: prepared.tier, expiresAt: Date.now() + 120_000 });
-        setNotice('Handoff prepared.');
+        setNotice(tr('Handoff prepared.', '发布交接文件已准备好。'));
       }
     } catch (caught) {
       if (prepared?.objectUrl) URL.revokeObjectURL(prepared.objectUrl);
-      setNotice(caught instanceof Error ? caught.message : '分享卡生成失败，再试一次？');
+      setNotice(errorText(caught, 'Share card could not be generated. Please try again.', '分享卡生成失败，请重试。'));
     } finally {
       exportInFlight.current = false;
       setBusy('');
@@ -684,63 +695,69 @@ export const GridBuilder: React.FC<Props> = ({
 
   async function shareToDevice() {
     if (!handoffState) return;
-    if (Date.now() > handoffState.expiresAt) { setHandoffState(null); setNotice('Handoff expired. Please prepare again.'); return; }
+    if (Date.now() > handoffState.expiresAt) { setHandoffState(null); setNotice(tr('Handoff expired. Please prepare again.', '交接文件已过期，请重新准备。')); return; }
     const shareData = { files: [handoffState.file], title: 'Vibe Atlas Grid' };
     const canShareFiles = typeof navigator !== 'undefined' && typeof navigator.share === 'function' && typeof navigator.canShare === 'function' && navigator.canShare(shareData);
-    if (!canShareFiles) { setNotice('Sharing not supported on this device.'); return; }
-    try { await navigator.share(shareData); setNotice('Share request completed. Please verify in RedNote.'); }
-    catch (error) { setNotice(error instanceof DOMException && error.name === 'AbortError' ? 'Share cancelled.' : 'Native sharing failed.'); }
+    if (!canShareFiles) { setNotice(tr('Sharing not supported on this device.', '此设备不支持分享文件。')); return; }
+    try { await navigator.share(shareData); setNotice(tr('Share request completed. Please verify in RedNote.', '分享请求已完成，请在小红书中确认。')); }
+    catch (error) { setNotice(error instanceof DOMException && error.name === 'AbortError' ? tr('Share cancelled.', '已取消分享。') : tr('Native sharing failed.', '原生分享失败。')); }
   }
 
-  if (loadError) return <div className={styles.notice} role="alert">{loadError}</div>;
+  if (loadError) {
+    const loadErrorMessage = locale === 'zh-CN'
+      ? loadError === 'Saved collection could not be loaded.'
+        ? tr(loadError, '无法加载已收藏的素材。')
+        : loadError === 'Today’s Daily Drop inventory could not be loaded.'
+          ? tr(loadError, '无法加载今日卡组素材。')
+          : !/\p{Script=Han}/u.test(loadError) ? `英文原文错误：${loadError}` : loadError
+      : loadError;
+    return <div className={styles.notice} role="alert">{loadErrorMessage}</div>;
+  }
   if (isPublicArchiveSource && publicArchive.loading && publicArchive.editions.length === 0) {
-    return <div className={styles.loading} aria-label={
-      sourceKind === 'edition' ? 'Loading public historical edition inventory' : 'Loading public Archive inventory'
+    return <div className={styles.loading} aria-label={sourceKind === 'edition'
+      ? tr('Loading public historical edition inventory', '正在加载本期公开素材')
+      : tr('Loading public Archive inventory', '正在加载公开典藏素材')
     }><span /><span /><span /></div>;
   }
   if (isPublicArchiveSource && publicArchive.error && (!pool || pool.length === 0)) {
     return <div className={styles.notice} role="alert">
-      <strong>Public Archive inventory unavailable.</strong> {publicArchive.error}
+      <strong>{tr('Public Archive inventory unavailable.', '公开典藏素材暂时不可用。')}</strong> {localizedPublicArchiveMessage(publicArchive.error, locale)}
     </div>;
   }
   if (!pool || !savedOptions || !smartOptions) {
     return <div className={styles.loading} aria-label={
       isCollectionSource
-        ? 'Loading saved collection'
+        ? tr('Loading saved collection', '正在加载收藏夹')
         : sourceKind === 'edition'
-          ? 'Loading public historical edition inventory'
+          ? tr('Loading public historical edition inventory', '正在加载本期公开素材')
           : sourceKind === 'archive'
-            ? 'Loading public Archive inventory'
-            : 'Loading Daily Drop inventory'
+            ? tr('Loading public Archive inventory', '正在加载公开典藏素材')
+            : tr('Loading Daily Drop inventory', '正在加载今日卡组素材')
     }><span /><span /><span /></div>;
   }
   if (pool.length === 0) {
     return (
       <div className={styles.empty}>
         <strong>{isCollectionSource
-          ? 'The shelf is empty.'
+          ? tr('The shelf is empty.', '收藏架还是空的。')
           : isPublicArchiveSource
             ? sourceKind === 'edition'
-              ? `No public inventory is available for ${sourceEditionDate || 'this edition'}.`
-              : 'No public Archive inventory is available yet.'
-            : 'Today’s inventory is not ready yet.'}</strong>
+              ? tr(`No public inventory is available for ${sourceEditionDate || 'this edition'}.`, `${sourceEditionDate || '本期卡组'}暂无公开素材。`)
+              : tr('No public Archive inventory is available yet.', '暂时还没有可用的公开典藏素材。')
+            : tr('Today’s inventory is not ready yet.', '今日素材尚未准备好。')}</strong>
         <span>{isCollectionSource
-          ? 'Save cards or grids first — the Grid Builder assembles editorial sets from saved material.'
+          ? tr('Save cards or grids first — the Grid Builder assembles editorial sets from saved material.', '先收藏单张图片或网格，再用网格构建器将这些素材编排成专题。')
           : isPublicArchiveSource
             ? sourceKind === 'edition'
-              ? 'This edition is not available in the public inventory. No Collection images were substituted.'
-              : 'There are no publicly verified editions to build from. No Collection images were substituted.'
-            : 'Return to today’s drop while its approved images finish loading.'}</span>
+              ? tr('This edition is not available in the public inventory. No Collection images were substituted.', '公开素材中暂时没有本期卡组。没有用“我的收藏”中的图片替代。')
+              : tr('There are no publicly verified editions to build from. No Collection images were substituted.', '暂时没有已核验的公开卡组可供创作。没有用“我的收藏”中的图片替代。')
+            : tr('Return to today’s drop while its approved images finish loading.', '请先返回今日卡组，等待已审核的图片完成加载。')}</span>
         {isPublicArchiveSource && publicArchive.notices.map(message => (
-          <span role="status" key={message}>{message}</span>
+          <span role="status" key={message}>{localizedPublicArchiveMessage(message, locale)}</span>
         ))}
         {sourceKind === 'archive' && publicArchive.hasMore && (
-          <button
-            type="button"
-            onClick={() => void publicArchive.loadMore()}
-            disabled={publicArchive.loadingMore}
-          >
-            {publicArchive.loadingMore ? 'Loading editions…' : 'Load more editions'}
+          <button type="button" onClick={() => void publicArchive.loadMore()} disabled={publicArchive.loadingMore}>
+            {publicArchive.loadingMore ? tr('Loading editions…', '正在加载卡组…') : tr('Load more editions', '加载更多卡组')}
           </button>
         )}
       </div>
@@ -751,39 +768,27 @@ export const GridBuilder: React.FC<Props> = ({
     <section className={styles.builder} data-palette={palette?.id || 'default'}>
       <header className={styles.header}>
         <div>
-          <h3>Vibe Atlas Grid Builder</h3>
-          <p>Start with a smart proposal or choose and arrange every image yourself.</p>
+          <h3>{tr('Vibe Atlas Grid Builder', 'Vibe Atlas 网格构建器')}</h3>
+          <p>{tr('Start with a smart proposal or choose and arrange every image yourself.', '从智能提案开始，也可以亲自挑选并编排每一张图片。')}</p>
         </div>
         <span>
           {builderMode === 'manual'
-            ? `${countLabel(manualCandidates.length, isCollectionSource ? 'saved result' : isPublicArchiveSource ? 'public Archive image' : 'Daily Drop image')} for this star`
-            : `${countLabel(lensedCount, isCollectionSource ? 'saved result' : isPublicArchiveSource ? 'public Archive image' : 'Daily Drop image')} ${lensedCount === 1 ? 'matches' : 'match'} this lens`}
+             ? tr(`${countLabel(manualCandidates.length, isCollectionSource ? 'saved result' : isPublicArchiveSource ? 'public Archive image' : 'Daily Drop image')} for this star`, `当前演员共 ${countLabel(manualCandidates.length, isCollectionSource ? '条已收藏图片' : isPublicArchiveSource ? '张公开典藏图片' : '张今日图片', locale)}`)
+             : tr(`${countLabel(lensedCount, isCollectionSource ? 'saved result' : isPublicArchiveSource ? 'public Archive image' : 'Daily Drop image')} ${lensedCount === 1 ? 'matches' : 'match'} this lens`, `${countLabel(lensedCount, isCollectionSource ? '条已收藏图片' : isPublicArchiveSource ? '张公开典藏图片' : '张今日图片', locale)}符合当前筛选条件`)}
         </span>
       </header>
 
       {isPublicArchiveSource && (
-        <section className={styles.archiveInventory} aria-label="Public Archive inventory">
+        <section className={styles.archiveInventory} aria-label={tr('Public Archive inventory', '公开典藏素材')}>
           <div>
-            <strong>{sourceKind === 'edition' ? `Public edition · ${sourceEditionDate}` : 'Public Vibe Atlas Archive'}</strong>
-            {sourceKind === 'archive' && (
-              <span>{publicArchive.editions.length} editions loaded · {publicArchive.actors.length} stars in loaded editions</span>
-            )}
+            <strong>{sourceKind === 'edition' ? tr(`Public edition · ${sourceEditionDate}`, `公开卡组 · ${sourceEditionDate}`) : tr('Public Vibe Atlas Archive', '氛围图鉴公开典藏')}</strong>
+            {sourceKind === 'archive' && <span>{tr(`${publicArchive.editions.length} editions loaded · ${publicArchive.actors.length} stars in loaded editions`, `已加载 ${publicArchive.editions.length} 期卡组 · 涵盖 ${publicArchive.actors.length} 位演员`)}</span>}
           </div>
-          {publicArchive.error && <p role="alert">{publicArchive.error}</p>}
-          {publicArchive.notices.map(message => (
-            <p role="status" key={message}>{message}</p>
-          ))}
+          {publicArchive.error && <p role="alert">{localizedPublicArchiveMessage(publicArchive.error, locale)}</p>}
+          {publicArchive.notices.map(message => <p role="status" key={message}>{localizedPublicArchiveMessage(message, locale)}</p>)}
           {sourceKind === 'archive' && publicArchive.hasMore && (
-            <button
-              type="button"
-              onClick={() => void publicArchive.loadMore()}
-              disabled={publicArchive.loadingMore}
-            >
-              {publicArchive.loadingMore
-                ? 'Loading editions…'
-                : publicArchive.error
-                  ? 'Retry loading editions'
-                  : 'Load more editions'}
+            <button type="button" onClick={() => void publicArchive.loadMore()} disabled={publicArchive.loadingMore}>
+              {publicArchive.loadingMore ? tr('Loading editions…', '正在加载卡组…') : publicArchive.error ? tr('Retry loading editions', '重试加载卡组') : tr('Load more editions', '加载更多卡组')}
             </button>
           )}
         </section>
@@ -793,51 +798,51 @@ export const GridBuilder: React.FC<Props> = ({
         {hasCollectorAccess ? (
           <>
             <strong>Fandom Collector</strong>
-            <span>{benefits.canvasAllowance} canvases · cross-device persistence enabled</span>
+            <span>{tr(`${benefits.canvasAllowance} canvases · cross-device persistence enabled`, `${benefits.canvasAllowance} 个网格 · 已开启跨设备同步`)}</span>
             {benefits.palettes.length > 0 && (
               <label>
-                Atmosphere
+                {tr('Atmosphere', '氛围')}
                 <select
                   value={palette?.id || ''}
                   onChange={event => setPalette(
                     benefits.palettes.find(item => item.id === event.target.value) || null,
                   )}
                 >
-                  <option value="">Original</option>
-                  {benefits.palettes.map(item => <option value={item.id} key={item.id}>{item.name}</option>)}
+                  <option value="">{tr('Original', '原始样式')}</option>
+                  {benefits.palettes.map(item => <option value={item.id} key={item.id}>{locale === 'zh-CN' ? '月夜墨色（英文原名：Moonlit Ink）' : item.name}</option>)}
                 </select>
               </label>
             )}
           </>
         ) : (
           <>
-            <strong>Free studio</strong>
-            <span>1 canvas · local saves, rearranging, sharing, and 1080×1080 sRGB export included.</span>
+            <strong>{tr('Free studio', '免费工作室')}</strong>
+            <span>{tr('1 canvas · local saves, rearranging, sharing, and 1080×1080 sRGB export included.', '1 个网格 · 可本地保存、重新编排、分享，并导出 1080×1080 sRGB 图片。')}</span>
           </>
         )}
       </div>
 
-      <div className={styles.modeTabs} role="tablist" aria-label="Grid building method">
+      <div className={styles.modeTabs} role="tablist" aria-label={tr('Grid building method', '网格构建方式')}>
         <button type="button" role="tab" aria-selected={builderMode === 'smart'} onClick={() => chooseBuilderMode('smart')}>
-          Smart Proposal
+          {tr('Smart Proposal', '智能提案')}
         </button>
         <button type="button" role="tab" aria-selected={builderMode === 'manual'} onClick={() => chooseBuilderMode('manual')}>
-          Build Your Own
+          {tr('Build Your Own', '自选编排')}
         </button>
       </div>
 
       {builderMode === 'smart' && (
         <fieldset className={styles.contractChoice}>
-          <legend>Editorial contract</legend>
+          <legend>{tr('Editorial contract', '编排方式')}</legend>
           <button
             type="button"
             className={styles.contractCard}
             aria-pressed={editorialMode === 'event'}
             onClick={() => chooseEditorialMode('event')}
           >
-            <span>Event</span>
-            <strong>No, look closer.</strong>
-            <small>Stay inside one detected appearance. Nine frames turn repetition into sequence.</small>
+            <span>{tr('Event', '单场造型 Event')}</span>
+            <strong>{tr('No, look closer.', '别急，再看一眼。')}</strong>
+            <small>{tr('Stay inside one detected appearance. Nine frames turn repetition into sequence.', '只选同一场造型中的图片。九张相似镜头，排在一起就有了叙事。')}</small>
           </button>
           <button
             type="button"
@@ -845,26 +850,26 @@ export const GridBuilder: React.FC<Props> = ({
             aria-pressed={editorialMode === 'compiled'}
             onClick={() => chooseEditorialMode('compiled')}
           >
-            <span>Compiled</span>
-            <strong>Look at the range.</strong>
-            <small>Build a nine-frame argument across visual families, sources, roles, looks, and moods.</small>
+            <span>{tr('Compiled', '风格合辑 Compiled')}</span>
+            <strong>{tr('Look at the range.', '看看变化有多丰富。')}</strong>
+            <small>{tr('Build a nine-frame argument across visual families, sources, roles, looks, and moods.', '从视觉系列、来源、角色、造型和氛围中各取所长，编排出九张有观点的图片。')}</small>
           </button>
         </fieldset>
       )}
 
       {(notice || showSaveNudge) && (
         <div className={styles.notice} role="status">
-          {notice}
+          {locale === 'zh-CN' && notice && !/\p{Script=Han}/u.test(notice) ? `英文原文提示：${notice}` : notice}
           {showSaveNudge && (
             <span className={styles.saveNudge}>
-              {' '}Grid not saved yet —{' '}
+              {' '}{tr('Grid not saved yet —', '网格尚未保存 —')}{' '}
               <button
                 type="button"
                 className={styles.saveNudgeBtn}
                 onClick={saveGrid}
                 disabled={Boolean(busy)}
               >
-                💾 Save to collection?
+                💾 {tr('Save to collection?', '保存到收藏夹？')}
               </button>
             </span>
           )}
@@ -874,16 +879,16 @@ export const GridBuilder: React.FC<Props> = ({
       <div className={styles.lenses}>
         {isCollectionSource && (
           <LensRow
-            label="Collection"
+            label={tr('Collection', '收藏内容')}
             options={[
               {
                 value: 'standard',
-                label: 'Ordinary Vibe Atlas',
+                label: tr('Ordinary Vibe Atlas', 'Vibe Atlas 常规收藏'),
                 count: collectionCounts.standard,
               },
               {
                 value: 'misprints',
-                label: 'Legendary Misprints',
+                label: tr('Legendary Misprints', '传奇误印'),
                 count: collectionCounts.misprints,
               },
             ]}
@@ -891,22 +896,22 @@ export const GridBuilder: React.FC<Props> = ({
             onToggle={value => setMode(value as 'standard' | 'misprints')}
           />
         )}
-        <LensRow label="Star" options={savedOptions.actors} active={lens.actor} onToggle={value => toggle('actor', value)} />
-        {builderMode === 'smart' && <LensRow label="Vibe" options={smartOptions.vibes} active={lens.vibe} onToggle={value => toggle('vibe', value)} />}
+        <LensRow label={tr('Star', '演员')} options={savedOptions.actors} active={lens.actor} onToggle={value => toggle('actor', value)} />
+        {builderMode === 'smart' && <LensRow label={tr('Vibe', '氛围')} options={smartOptions.vibes} active={lens.vibe} onToggle={value => toggle('vibe', value)} />}
         {builderMode === 'smart' && familyOptions.length > 0 && (
-          <LensRow label="Visual family" options={familyOptions} active={lens.familyId} onToggle={value => toggle('familyId', value)} />
+        <LensRow label={tr('Visual family', '视觉系列')} options={familyOptions} active={lens.familyId} onToggle={value => toggle('familyId', value)} />
         )}
       </div>
 
       {lens.actor && (
-        <section className={styles.sourceNotes} aria-label={`Source notes for ${lens.actor}`}>
+        <section className={styles.sourceNotes} aria-label={tr(`Source notes for ${lens.actor}`, `关于${builderActorDisplayName(lens.actor, smartOptionPool?.find(card => card.actor === lens.actor)?.actorEn || lens.actor, locale)}的来源备注`)}>
           <div className={styles.sourceNotesIntro}>
             <div>
-              <strong>Actor source notes</strong>
+              <strong>{tr('Actor source notes', '演员素材来源备注')}</strong>
               <span>
                 {hasCollectorAccess
-                  ? 'Open the editorial searches and visual directions behind this actor pack.'
-                  : 'Collector adds the source searches and editorial directions behind each actor pack.'}
+                  ? tr('Open the editorial searches and visual directions behind this actor pack.', '查看此演员素材包背后的编辑搜索词和视觉方向。')
+                  : tr('Collector adds the source searches and editorial directions behind each actor pack.', 'Collector 可查看每个演员素材包背后的搜索词和编辑视觉方向。')}
               </span>
             </div>
             <button
@@ -914,7 +919,7 @@ export const GridBuilder: React.FC<Props> = ({
               aria-expanded={sourceNotesOpen}
               onClick={sourceNotesOpen ? () => setSourceNotesOpen(false) : openSourceNotes}
             >
-              {sourceNotesOpen ? 'Hide notes' : hasCollectorAccess ? 'Open notes' : 'Preview benefit'}
+              {sourceNotesOpen ? tr('Hide notes', '收起备注') : hasCollectorAccess ? tr('Open notes', '查看备注') : tr('Preview benefit', '预览会员权益')}
             </button>
           </div>
 
@@ -922,11 +927,11 @@ export const GridBuilder: React.FC<Props> = ({
             <div className={styles.sourceNotesBody}>
               {!hasCollectorAccess ? (
                 <>
-                  <p>Explore source trails and authoring context without leaving the Builder. Protected searches and notes stay available only to active Collectors.</p>
-                  {onUpgrade && <button type="button" className={styles.sourceNotesUpgrade} onClick={onUpgrade}>Explore Fandom Collector</button>}
+                  <p>{tr('Explore source trails and authoring context without leaving the Builder. Protected searches and notes stay available only to active Collectors.', '无需离开构建器，即可查看来源记录与编辑背景。受保护的搜索词和备注仅向有效 Collector 开放。')}</p>
+                  {onUpgrade && <button type="button" className={styles.sourceNotesUpgrade} onClick={onUpgrade}>{tr('Explore Fandom Collector', '了解 Fandom Collector')}</button>}
                 </>
               ) : sourceNotesBusy ? (
-                <p role="status">Loading private source notes…</p>
+                <p role="status">{tr('Loading private source notes…', '正在加载私有来源备注…')}</p>
               ) : sourceNotesError ? (
                 <p role="status">{sourceNotesError}</p>
               ) : sourceNotes ? (
@@ -934,23 +939,23 @@ export const GridBuilder: React.FC<Props> = ({
                   <div className={styles.sourceNotesList}>
                     {sourceNotes.vibes.map((vibe, index) => (
                       <article key={`${vibe.label_en || vibe.label || 'vibe'}-${index}`}>
-                        <strong>{vibe.emoji} {vibe.label_en || vibe.label || 'Editorial direction'}</strong>
+                        <strong>{vibe.emoji} {builderVibeDisplayName(vibe.label || '', vibe.label_en || '', locale) || tr('Editorial direction', '编辑方向')}</strong>
                         {vibe.sourceDepth?.queries && vibe.sourceDepth.queries.length > 0 && (
                           <>
-                            <small>Source searches</small>
-                            <ul>{vibe.sourceDepth.queries.map(query => <li key={query}>{query}</li>)}</ul>
+                            <small>{tr('Source searches', '来源搜索词')}</small>
+                            <ul>{vibe.sourceDepth.queries.map(query => <li key={query}>{builderSourceLabel(query, locale)}</li>)}</ul>
                           </>
                         )}
                         {vibe.sourceDepth?.authoringPrompt && (
                           <>
-                            <small>Authoring note</small>
-                            <p>{vibe.sourceDepth.authoringPrompt}</p>
+                            <small>{tr('Authoring note', '编辑备注')}</small>
+                            <p>{builderSourceLabel(vibe.sourceDepth.authoringPrompt, locale)}</p>
                           </>
                         )}
                       </article>
                     ))}
                   </div>
-                  <footer>Source: {sourceNotes.provenance.attribution}</footer>
+                  <footer>{tr('Source: ', '来源：')}{builderSourceLabel(sourceNotes.provenance.attribution, locale)}</footer>
                 </>
               ) : null}
             </div>
@@ -960,24 +965,24 @@ export const GridBuilder: React.FC<Props> = ({
 
       {builderMode === 'smart' && <button type="button" className={styles.propose} onClick={propose} disabled={lensedCount === 0}>
         {proposal
-          ? `Re-propose ${proposalTargetSize}-frame ${editorialMode === 'event' ? 'Event' : 'Compiled'} set`
-          : `Propose ${editorialMode === 'event' ? 'Event set' : 'Compiled 3×3'}`}
+          ? tr(`Re-propose ${proposalTargetSize}-frame ${editorialMode === 'event' ? 'Event' : 'Compiled'} set`, `重新生成 ${proposalTargetSize} 张${editorialMode === 'event' ? '单场造型' : '风格合辑'}提案`)
+          : tr(`Propose ${editorialMode === 'event' ? 'Event set' : 'Compiled 3×3'}`, `生成${editorialMode === 'event' ? '单场造型' : '风格合辑 3×3'}提案`)}
       </button>}
 
       {builderMode === 'manual' && (
-        <section className={styles.manualPicker} aria-label="Choose nine saved images">
+        <section className={styles.manualPicker} aria-label={tr('Choose nine saved images', isCollectionSource ? '选择九张已保存图片' : isPublicArchiveSource ? '选择九张公开典藏图片' : '选择九张今日卡组图片')}>
           <div className={styles.manualPickerHeader}>
-            <strong>{lens.actor ? `${proposal?.slots.length || 0} of 9 selected` : 'Choose a star to begin'}</strong>
+            <strong>{lens.actor ? tr(`${proposal?.slots.length || 0} of 9 selected`, `已选择 ${proposal?.slots.length || 0}/9 张`) : tr('Choose a star to begin', '先选择一位演员')}</strong>
             <span>{isCollectionSource
-              ? 'Only saved images for the selected actor appear here. Select a placed image to duplicate it intentionally.'
+              ? tr('Only saved images for the selected actor appear here. Select a placed image to duplicate it intentionally.', '这里只显示所选演员的已收藏图片。再次选择已放入网格的图片，即可有意重复使用。')
               : isPublicArchiveSource
-                ? 'Only publicly verified Archive images for the selected star appear here. Each image links to its permanent edition record.'
-              : 'Only images from today’s Daily Drop appear here. Select a placed image to duplicate it intentionally.'}</span>
+                ? tr('Only publicly verified Archive images for the selected star appear here. Each image links to its permanent edition record.', '这里只显示所选演员已核验的公开典藏图片。每张图片均附永久期次记录链接。')
+              : tr('Only images from today’s Daily Drop appear here. Select a placed image to duplicate it intentionally.', '这里只显示今日卡组中的图片。再次选择已放入网格的图片，即可有意重复使用。')}</span>
           </div>
           {lens.actor && manualCandidates.length === 0 ? (
             <div className={styles.notice}>{isPublicArchiveSource
-              ? `No loaded public Archive images are available for ${lens.actor}. Load another page or choose another star.`
-              : `Save at least one image for ${lens.actor} to begin a custom grid.`}</div>
+              ? tr(`No loaded public Archive images are available for ${lens.actor}. Load another page or choose another star.`, `已加载的公开典藏中暂无${builderActorDisplayName(lens.actor, smartOptionPool?.find(card => card.actor === lens.actor)?.actorEn || lens.actor, locale)}的图片。请加载下一页，或选择其他演员。`)
+              : tr(`Save at least one image for ${lens.actor} to begin a custom grid.`, `请至少收藏一张${builderActorDisplayName(lens.actor, smartOptionPool?.find(card => card.actor === lens.actor)?.actorEn || lens.actor, locale)}的图片，再开始自选编排。`)}</div>
           ) : lens.actor ? (
             <div className={styles.candidateGrid}>
               {manualCandidates.map(card => {
@@ -985,19 +990,15 @@ export const GridBuilder: React.FC<Props> = ({
                 return (
                   <div className={styles.candidateItem} key={card.key}>
                     <button
-                      type="button"
-                      aria-pressed={selectedIndex >= 0}
-                      aria-label={`${selectedIndex >= 0 ? `Remove position ${selectedIndex + 1}` : 'Select'} ${card.title}`}
-                      onClick={() => toggleManualCard(card)}
-                    >
-                      <img src={card.imageUrl} alt="" loading="lazy" />
-                      {selectedIndex >= 0 && <span>{selectedIndex + 1}</span>}
+                    type="button"
+                    aria-pressed={selectedIndex >= 0}
+                    aria-label={tr(`${selectedIndex >= 0 ? `Remove position ${selectedIndex + 1}` : 'Select'} ${card.title}`, `${selectedIndex >= 0 ? `移除第 ${selectedIndex + 1} 张` : '选择'}${builderSourceLabel(card.title, locale)}`)}
+                    onClick={() => toggleManualCard(card)}
+                  >
+                    <img src={card.imageUrl} alt="" loading="lazy" />
+                    {selectedIndex >= 0 && <span>{selectedIndex + 1}</span>}
                     </button>
-                    {card.archiveSource && (
-                      <a href={card.archiveSource.publicRecord.editionPath}>
-                        Edition record ↗
-                      </a>
-                    )}
+                    {card.archiveSource && <a href={path(card.archiveSource.publicRecord.editionPath)}>{tr('Edition record ↗', '期次记录 ↗')}</a>}
                   </div>
                 );
               })}
@@ -1013,33 +1014,25 @@ export const GridBuilder: React.FC<Props> = ({
               className={styles.grid}
               role="group"
               aria-label={builderMode === 'manual'
-                ? 'Custom 3×3 grid'
-                : `Proposed ${proposal.rationale.editorialMode === 'event' ? 'Event' : 'Compiled'} ${proposalTargetSize}-frame set`}
+                ? tr('Custom 3×3 grid', '自选 3×3 网格')
+                : tr(`Proposed ${proposal.rationale.editorialMode === 'event' ? 'Event' : 'Compiled'} ${proposalTargetSize}-frame set`, `${proposalTargetSize} 张${proposal.rationale.editorialMode === 'event' ? '单场造型' : '风格合辑'}提案`)}
             >
               {proposal.slots.map((card, index) => (
                 <div className={styles.slotCell} key={`${card.key}-${index}`}>
-                  <button
-                    type="button"
-                    className={styles.slot}
-                    aria-pressed={swapSlot === index}
-                    title={proposal.rationale.slotReasons[index]}
-                    onClick={() => {
-                      if (builderMode === 'manual' && swapSlot !== null) swapManualSlots(swapSlot, index);
-                      else setSwapSlot(current => (current === index ? null : index));
-                    }}
-                  >
-                    <img src={card.imageUrl} alt={card.title} loading="lazy" />
-                    <span>{proposal.rationale.slotReasons[index]}</span>
-                  </button>
-                  {card.archiveSource && (
-                    <a
-                      className={styles.slotEditionLink}
-                      href={card.archiveSource.publicRecord.editionPath}
-                      aria-label={`Open public edition record for ${card.title}`}
-                    >
-                      Edition ↗
-                    </a>
-                  )}
+                <button
+                  type="button"
+                  className={styles.slot}
+                  aria-pressed={swapSlot === index}
+                  title={locale === 'zh-CN' ? `英文原文：${proposal.rationale.slotReasons[index]}` : proposal.rationale.slotReasons[index]}
+                  onClick={() => {
+                    if (builderMode === 'manual' && swapSlot !== null) swapManualSlots(swapSlot, index);
+                    else setSwapSlot(current => (current === index ? null : index));
+                  }}
+                >
+                  <img src={card.imageUrl} alt={builderSourceLabel(card.title, locale)} loading="lazy" />
+                  <span>{builderSourceLabel(proposal.rationale.slotReasons[index], locale)}</span>
+                </button>
+                {card.archiveSource && <a className={styles.slotEditionLink} href={path(card.archiveSource.publicRecord.editionPath)} aria-label={tr(`Open public edition record for ${card.title}`, `查看${builderSourceLabel(card.title, locale)}的公开期次记录`)}>{tr('Edition ↗', '本期记录 ↗')}</a>}
                 </div>
               ))}
               {builderMode === 'manual' && Array.from({ length: Math.max(0, 9 - proposal.slots.length) }).map((_, index) => (
@@ -1048,32 +1041,30 @@ export const GridBuilder: React.FC<Props> = ({
             </div>
             {builderMode === 'manual' && proposal.slots.length > 0 && (
               <div className={styles.arrangeHelp}>
-                <span>{swapSlot === null ? 'Select a filled slot to move or swap it.' : `Position ${swapSlot + 1} selected. Choose another slot to swap.`}</span>
+                <span>{swapSlot === null ? tr('Select a filled slot to move or swap it.', '选择一个已放入图片的位置，即可移动或交换。') : tr(`Position ${swapSlot + 1} selected. Choose another slot to swap.`, `已选择第 ${swapSlot + 1} 张图片，请再选一个位置进行交换。`)}</span>
                 {swapSlot !== null && (
                   <span>
-                    <button type="button" onClick={() => moveManualSlot(swapSlot, -1)} disabled={swapSlot === 0}>Move earlier</button>
-                    <button type="button" onClick={() => moveManualSlot(swapSlot, 1)} disabled={swapSlot === proposal.slots.length - 1}>Move later</button>
-                    <button type="button" onClick={() => duplicateManualSlot(swapSlot)} disabled={proposal.slots.length >= 9}>Duplicate selected</button>
-                    <button type="button" onClick={() => removeManualSlot(swapSlot)}>Remove selected</button>
+                    <button type="button" onClick={() => moveManualSlot(swapSlot, -1)} disabled={swapSlot === 0}>{tr('Move earlier', '向前移动')}</button>
+                    <button type="button" onClick={() => moveManualSlot(swapSlot, 1)} disabled={swapSlot === proposal.slots.length - 1}>{tr('Move later', '向后移动')}</button>
+                    <button type="button" onClick={() => duplicateManualSlot(swapSlot)} disabled={proposal.slots.length >= 9}>{tr('Duplicate selected', '重复使用所选图片')}</button>
+                    <button type="button" onClick={() => removeManualSlot(swapSlot)}>{tr('Remove selected', '移除所选图片')}</button>
                   </span>
                 )}
               </div>
             )}
             {builderMode === 'smart' && swapSlot !== null && (
               <div className={styles.alternates}>
-                <strong>Swap slot {swapSlot + 1} with:</strong>
+                <strong>{tr(`Swap slot ${swapSlot + 1} with:`, `将第 ${swapSlot + 1} 张替换为：`)}</strong>
                 {proposal.alternates.length === 0 ? (
-                  <span className={styles.noAlternates}>No other cards match this lens.</span>
+                  <span className={styles.noAlternates}>{tr('No other cards match this lens.', '没有其他图片符合当前筛选条件。')}</span>
                 ) : (
-                    <div className={styles.alternateStrip}>
+                  <div className={styles.alternateStrip}>
                     {proposal.alternates.map(card => (
                       <div className={styles.alternateItem} key={card.key}>
-                        <button type="button" onClick={() => swapInto(swapSlot, card)} title={card.familyLabel}>
-                          <img src={card.imageUrl} alt={card.title} loading="lazy" />
-                        </button>
-                        {card.archiveSource && (
-                          <a href={card.archiveSource.publicRecord.editionPath}>Edition record ↗</a>
-                        )}
+                      <button type="button" onClick={() => swapInto(swapSlot, card)} title={builderSourceLabel(card.familyLabel, locale)}>
+                        <img src={card.imageUrl} alt={builderSourceLabel(card.title, locale)} loading="lazy" />
+                      </button>
+                      {card.archiveSource && <a href={path(card.archiveSource.publicRecord.editionPath)}>{tr('Edition record ↗', '期次记录 ↗')}</a>}
                       </div>
                     ))}
                   </div>
@@ -1082,69 +1073,69 @@ export const GridBuilder: React.FC<Props> = ({
             )}
           </div>
 
-          <aside className={styles.rationale} aria-label="Curation rationale">
+          <aside className={styles.rationale} aria-label={tr('Curation rationale', '编排说明')}>
             <div className={styles.rationaleHeader}>
               <div>
                 <span>{builderMode === 'manual' || proposal.rationale.manualSwaps.length > 0
-                  ? 'Creator-arranged'
-                  : 'Automatic proposal'}</span>
-                <h4>Creative brief</h4>
+                  ? tr('Creator-arranged', '创作者编排')
+                  : tr('Automatic proposal', '自动提案')}</span>
+                <h4>{tr('Creative brief', '创作简报')}</h4>
               </div>
               {proposal.rationale.editorialMode && (
-                <strong>{proposal.rationale.editorialMode === 'event' ? 'Event' : 'Compiled'} · {proposalTargetSize}</strong>
+                <strong>{tr(proposal.rationale.editorialMode === 'event' ? 'Event' : 'Compiled', proposal.rationale.editorialMode === 'event' ? '单场造型' : '风格合辑')} · {proposalTargetSize}</strong>
               )}
             </div>
             {lens.mode === 'misprints' && (
-              <p><strong>Legendary Misprint lens</strong> · Only creator-marked mismatches are included. Saved grids and exports retain both identities and provenance.</p>
+              <p><strong>{tr('Legendary Misprint lens', '传奇误印筛选')}</strong> · {tr('Only creator-marked mismatches are included. Saved grids and exports retain both identities and provenance.', '仅包含由创作者标记的错误匹配。已保存的网格和导出文件会保留双方身份及来源记录。')}</p>
             )}
             {proposalEvidence && builderMode === 'smart' && (
               <dl className={styles.evidence}>
-                <div><dt>Primary family</dt><dd>{proposalEvidence.primaryFamily}</dd></div>
-                <div><dt>Family logic</dt><dd>{proposal.rationale.editorialMode === 'event'
-                  ? `One bounded family across ${proposal.slots.length} frames`
-                  : `${proposalEvidence.familyCount} families balanced across nine frames`}</dd></div>
-                <div><dt>Source trail</dt><dd>{proposalEvidence.sourceCount} distinct source {proposalEvidence.sourceCount === 1 ? 'signal' : 'signals'}</dd></div>
+                <div><dt>{tr('Primary family', '主要视觉系列')}</dt><dd>{builderSourceLabel(proposalEvidence.primaryFamily, locale)}</dd></div>
+                <div><dt>{tr('Family logic', '系列编排逻辑')}</dt><dd>{proposal.rationale.editorialMode === 'event'
+                  ? tr(`One bounded family across ${proposal.slots.length} frames`, `${proposal.slots.length} 张图片均来自同一视觉系列`)
+                  : tr(`${proposalEvidence.familyCount} families balanced across nine frames`, `九张图片均衡呈现 ${proposalEvidence.familyCount} 个视觉系列`)}</dd></div>
+                <div><dt>{tr('Source trail', '来源记录')}</dt><dd>{tr(`${proposalEvidence.sourceCount} distinct source ${proposalEvidence.sourceCount === 1 ? 'signal' : 'signals'}`, `${proposalEvidence.sourceCount} 条不同来源证据`)}</dd></div>
                 {proposal.rationale.familyEvidence && (
-                  <div><dt>Family evidence</dt><dd>{proposal.rationale.familyEvidence === 'persisted-event'
-                    ? 'Preserved approved Event family'
-                    : 'Shared saved batch provenance'}</dd></div>
+                  <div><dt>{tr('Family evidence', '系列证据')}</dt><dd>{proposal.rationale.familyEvidence === 'persisted-event'
+                    ? tr('Preserved approved Event family', '已保留获准的单场造型系列')
+                    : tr('Shared saved batch provenance', '共享已保存批次的来源记录')}</dd></div>
                 )}
               </dl>
             )}
-            <pre>{rationaleBrief(proposal.rationale)}</pre>
+            <pre>{displayRationaleBrief(proposal.rationale, locale)}</pre>
             <div className={styles.actions}>
               <button
                 type="button"
                 onClick={saveGrid}
                 disabled={Boolean(busy) || !proposalComplete || isGridSaved}
-                title={isGridSaved ? 'Already saved to your collection' : 'Save this grid to your collection'}
+                title={isGridSaved ? tr('Already saved to your collection', '此网格已保存到收藏夹') : tr('Save this grid to your collection', '将此网格保存到收藏夹')}
               >
-                {busy === 'save' ? 'Saving…' : isGridSaved ? '✓ Saved' : '💾 Save grid'}
+                {busy === 'save' ? tr('Saving…', '正在保存…') : isGridSaved ? tr('✓ Saved', '✓ 已保存') : `💾 ${tr('Save grid', '保存网格')}`}
               </button>
               {isGridSaved && (
                 <button
                   type="button"
                   onClick={removeGrid}
                   disabled={Boolean(busy)}
-                  title="Remove this grid from your collection"
+                  title={tr('Remove this grid from your collection', '从收藏夹中移除此网格')}
                 >
-                  {busy === 'remove' ? 'Removing…' : 'Remove from collection'}
+                  {busy === 'remove' ? tr('Removing…', '正在移除…') : tr('Remove from collection', '从收藏夹移除')}
                 </button>
               )}
               <div className={styles.handoffContainer}>
-          <button type="button" onClick={() => setHandoffExpanded(value => !value)} disabled={Boolean(busy) || !proposalComplete} className={styles.handoffToggle}>{handoffExpanded ? 'Close handoff' : 'Handoff Publishing Grid'}</button>
+          <button type="button" onClick={() => setHandoffExpanded(value => !value)} disabled={Boolean(busy) || !proposalComplete} className={styles.handoffToggle}>{handoffExpanded ? tr('Close handoff', '关闭发布交接') : tr('Handoff Publishing Grid', '准备发布网格')}</button>
           {handoffExpanded && <div className={styles.handoffPanel}>
             <div className={styles.handoffDestinations}><button type="button" onClick={() => setHandoffDestination('rednote')} aria-pressed={handoffDestination === 'rednote'}>RedNote</button><button type="button" disabled>Weibo</button><button type="button" disabled>Instagram</button><button type="button" disabled>Facebook</button></div>
-            {!handoffState ? <button type="button" onClick={() => exportGrid('rednote')} disabled={Boolean(busy)}>{busy === 'export' ? 'Preparing...' : '1. Prepare RedNote Handoff'}</button> : <div className={styles.handoffReady}>{isHandoffExpired ? <span className={styles.expiredText}>Handoff expired.</span> : <span className={styles.expiryText}>Expires in {Math.max(0, Math.floor((handoffState.expiresAt - now) / 1000))}s</span>}<div className={styles.handoffActions}><button type="button" onClick={shareToDevice} disabled={isHandoffExpired}>2a. Share to Device</button><a href="https://creator.rednote.com/publish/publish" target="_blank" rel="noreferrer" className={isHandoffExpired ? styles.disabledLink : ''} onClick={event => { if (isHandoffExpired) event.preventDefault(); }}>2b. Open RedNote</a></div><p className={styles.disclaimer}>Browser sharing does not prove RedNote received or published anything.</p></div>}
-            <button type="button" className={styles.downloadBtn} onClick={() => exportGrid('download_raw')} disabled={Boolean(busy)}>Download PNG</button>
+            {!handoffState ? <button type="button" onClick={() => exportGrid('rednote')} disabled={Boolean(busy)}>{busy === 'export' ? tr('Preparing…', '正在准备…') : tr('1. Prepare RedNote Handoff', '1. 准备小红书发布')}</button> : <div className={styles.handoffReady}>{isHandoffExpired ? <span className={styles.expiredText}>{tr('Handoff expired.', '交接文件已过期。')}</span> : <span className={styles.expiryText}>{tr(`Expires in ${Math.max(0, Math.floor((handoffState.expiresAt - now) / 1000))}s`, `${Math.max(0, Math.floor((handoffState.expiresAt - now) / 1000))} 秒后过期`)}</span>}<div className={styles.handoffActions}><button type="button" onClick={shareToDevice} disabled={isHandoffExpired}>{tr('2a. Share to Device', '2a. 分享到设备')}</button><a href="https://creator.rednote.com/publish/publish" target="_blank" rel="noreferrer" className={isHandoffExpired ? styles.disabledLink : ''} onClick={event => { if (isHandoffExpired) event.preventDefault(); }}>{tr('2b. Open RedNote', '2b. 打开小红书')}</a></div><p className={styles.disclaimer}>{tr('Browser sharing does not prove RedNote received or published anything.', '浏览器分享无法证明小红书已接收或发布任何内容。')}</p></div>}
+            <button type="button" className={styles.downloadBtn} onClick={() => exportGrid('download_raw')} disabled={Boolean(busy)}>{tr('Download PNG', '下载 PNG')}</button>
           </div>}
         </div>
         <button type="button" onClick={() => exportGrid()} disabled={Boolean(busy) || !proposalComplete}>
-                {busy === 'export' ? 'Exporting…' : `📤 Export ${hasCollectorAccess ? 'master' : 'square'} PNG`}
+                {busy === 'export' ? tr('Exporting…', '正在导出…') : tr(`📤 Export ${hasCollectorAccess ? 'master' : 'square'} PNG`, `📤 导出${hasCollectorAccess ? ' Master' : '方形'} PNG`)}
               </button>
               {!hasCollectorAccess && onUpgrade && (
                 <button type="button" onClick={onUpgrade} disabled={Boolean(busy)}>
-                  ✦ Unlock Collector canvases and palettes
+                  ✦ {tr('Unlock Collector canvases and palettes', '解锁 Collector 网格和配色')}
                 </button>
               )}
             </div>
@@ -1155,8 +1146,10 @@ export const GridBuilder: React.FC<Props> = ({
   );
 };
 
-function countLabel(count: number, singular: string): string {
-  return `${count} ${singular}${count === 1 ? '' : 's'}`;
+function countLabel(count: number, singular: string, locale: string = 'en'): string {
+  return locale === 'zh-CN'
+    ? `${count} ${singular}`
+    : `${count} ${singular}${count === 1 ? '' : 's'}`;
 }
 
 function LensRow({ label, options, active, onToggle }: {

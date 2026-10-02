@@ -7,9 +7,12 @@ import sharp from "sharp";
 import {
   PUBLIC_ROUTE_PATHS,
   PUBLIC_STATIC_ROUTES,
+  PUBLIC_LOCALIZED_STATIC_ROUTES,
   staticSitemapXml,
 } from "../netlify/functions/lib/public-routes.js";
 import { evaluateWatchRecord, loadWatchRecord, renderWatchPage, WATCH_PAGE, WATCH_ROUTE } from "./where-to-watch.js";
+import { assertStaticGuidePublicInventory } from "./static-guide-public-inventory.js";
+import { assertVibingPublicInventory } from "./vibing-public-inventory.js";
 
 const scriptFile = fileURLToPath(import.meta.url);
 const root = resolve(dirname(scriptFile), "..");
@@ -49,13 +52,19 @@ export const REQUIRED_PUBLIC_PAGES = PUBLIC_STATIC_ROUTES
   .filter(({ group }) => group === "editorial")
   .map(({ page }) => page);
 
+export const REQUIRED_LOCALIZED_PUBLIC_PAGES = PUBLIC_LOCALIZED_STATIC_ROUTES
+  .filter(({ group, page }) => group === "editorial" && page)
+  .map(({ page }) => page);
 export const TROPE_DECODER_SHARE_EVENT = "decoder_share_succeeded";
 
 export const WATCH_JOURNAL_PUBLIC_PAGES = PUBLIC_STATIC_ROUTES
   .filter(({ group }) => group === "journal")
   .map(({ page }) => page);
 
-export function publicStaticNetlifyRedirects(routes = PUBLIC_STATIC_ROUTES) {
+export function publicStaticNetlifyRedirects(routes = [
+  ...PUBLIC_STATIC_ROUTES,
+  ...PUBLIC_LOCALIZED_STATIC_ROUTES,
+]) {
   return routes
     .filter(({ group, page }) => page && ["editorial", "journal"].includes(group))
     .map(({ path, page }) => ({
@@ -67,7 +76,7 @@ export function publicStaticNetlifyRedirects(routes = PUBLIC_STATIC_ROUTES) {
 
 export function assertPublicStaticNetlifyRedirects(
   netlifyConfig,
-  routes = PUBLIC_STATIC_ROUTES,
+  routes = [...PUBLIC_STATIC_ROUTES, ...PUBLIC_LOCALIZED_STATIC_ROUTES],
 ) {
   const redirectBlocks = netlifyConfig
     .split(/(?=\[\[redirects\]\])/)
@@ -530,15 +539,20 @@ async function prepareOutcomeAssets(template) {
   );
 }
 
-export async function preparePublicPages() {
+export function prepareWatchPage(now = new Date()) {
   // Publication requires both a reviewed record and an explicit registry/redirect change.
   const watchRegistered = PUBLIC_STATIC_ROUTES.some(({ path }) => path === WATCH_ROUTE);
-  if (watchRegistered) {
-    const record = loadWatchRecord();
-    const gate = evaluateWatchRecord(record);
-    if (!gate.publishable) throw new Error(`Where-to-watch publication blocked: ${gate.issues.join("; ")}`);
+  if (!watchRegistered) return null;
+  const record = loadWatchRecord();
+  const gate = evaluateWatchRecord(record, now, { allowStale: true });
+  if (!gate.publishable) throw new Error(`Where-to-watch publication blocked: ${gate.issues.join("; ")}`);
+  return renderWatchPage(record, now);
+}
+export async function preparePublicPages(now = new Date()) {
+  const watchHtml = prepareWatchPage(now);
+  if (watchHtml) {
     mkdirSync(dirname(resolve(root, WATCH_PAGE)), { recursive: true });
-    writeFileSync(resolve(root, WATCH_PAGE), renderWatchPage(record));
+    writeFileSync(resolve(root, WATCH_PAGE), watchHtml);
   }
   if (!existsSync(source)) {
     throw new Error(`LG · 01 master is missing: ${source}`);
@@ -556,6 +570,11 @@ export async function preparePublicPages() {
       throw new Error(`Required public page is missing: ${page}`);
     }
   }
+  for (const page of REQUIRED_LOCALIZED_PUBLIC_PAGES) {
+    if (!existsSync(resolve(root, page))) {
+      throw new Error(`Required localized public page is missing: ${page}`);
+    }
+  }
   assertPublicStaticNetlifyRedirects(readFileSync(resolve(root, "netlify.toml"), "utf8"));
   assertTropeDecoderAnalyticsContract();
   for (const page of WATCH_JOURNAL_PUBLIC_PAGES) {
@@ -566,6 +585,10 @@ export async function preparePublicPages() {
         : {},
     ));
   }
+  // Check the filesystem after generating journal pages, not only the registry.
+  // Reuse the exact exclusions; registration is not source or warning approval.
+  assertStaticGuidePublicInventory(root);
+  assertVibingPublicInventory(root);
   writeFileSync(resolve(root, "public/sitemap.xml"), staticSitemapXml());
 
   mkdirSync(outputDir, { recursive: true });

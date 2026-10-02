@@ -60,6 +60,7 @@ import {
 import { ArtifactZoomDialog } from '../ArtifactZoomDialog/ArtifactZoomDialog';
 import { GridBuilder } from '../GridBuilder/GridBuilder';
 import { isVerifiedMediaReference } from '../../utils/mediaReference';
+import { useLocale } from '../../i18n/LocaleProvider';
 import {
   getPublicSession,
   hasMergeDecision,
@@ -73,7 +74,12 @@ import {
   type PublicUser,
 } from '../../utils/publicAccount';
 import styles from './Collection.module.css';
-import type { BuilderCard } from '../../utils/gridBuilder';
+import {
+  builderActorDisplayName,
+  builderSourceLabel,
+  builderVibeDisplayName,
+  type BuilderCard,
+} from '../../utils/gridBuilder';
 
 const UNDO_WINDOW_MS = 8_000;
 const MAX_UPLOADED_MEME_BYTES = 8 * 1024 * 1024;
@@ -146,6 +152,23 @@ export const Collection: React.FC<Props> = ({
   builderSourcePool = [],
 }) => {
   const isMiddleEarth = scope === 'middle-earth';
+  const { locale, t, path } = useLocale();
+  const tr = (english: string, chinese: string) => isMiddleEarth ? english : t(english, chinese);
+  const errorText = (error: unknown, english: string, chinese: string) => {
+    if (error instanceof Error) {
+      return !isMiddleEarth && locale === 'zh-CN' && !/\p{Script=Han}/u.test(error.message)
+        ? `英文原文错误：${error.message}`
+        : error.message;
+    }
+    return tr(english, chinese);
+  };
+  const actorLabel = (actor: string, actorEn: string, actorId?: string) => (
+    isMiddleEarth ? actor : builderActorDisplayName(actor, actorEn, locale, actorId)
+  );
+  const vibeLabel = (vibe: string, vibeEn: string) => (
+    isMiddleEarth ? vibe : builderVibeDisplayName(vibe, vibeEn, locale)
+  );
+  const sourceCopy = (value: string) => isMiddleEarth ? value : builderSourceLabel(value, locale);
   // Owned Collection sync is free. Preserve the existing operator gate on
   // non-C-drama meme records so they cannot reappear in C-drama sync.
   const canSyncCloud = !isMiddleEarth || hasCollectorAccess;
@@ -229,9 +252,7 @@ export const Collection: React.FC<Props> = ({
             await loadCollection(session.accountId);
             setAccountNotice('');
           } catch (error) {
-            setAccountNotice(
-              `Saved items on this browser are still shown, but account sync failed: ${messageFrom(error, 'try again after reconnecting')}`,
-            );
+            setAccountNotice(tr('Saved items on this browser are still shown, but account sync failed: ', '此设备上的收藏仍会显示，但账户同步失败：') + errorText(error, 'try again after reconnecting', '请检查网络后重试。'));
           }
         }
 
@@ -248,9 +269,7 @@ export const Collection: React.FC<Props> = ({
         setNeedsMergeChoice(false);
         setSyncEnabled(false);
         await loadCollection();
-        setAccountNotice(
-          `Saved items on this browser are still shown, but account status could not be checked: ${messageFrom(error, 'try again after reconnecting')}`,
-        );
+        setAccountNotice(tr('Saved items on this browser are still shown, but account status could not be checked: ', '此设备上的收藏仍会显示，但暂时无法确认账户状态：') + errorText(error, 'try again after reconnecting', '请检查网络后重试。'));
       } finally {
         setLoading(false);
       }
@@ -297,7 +316,7 @@ export const Collection: React.FC<Props> = ({
       );
       forgetPendingRemoval(stored.pending.token);
     } catch (error) {
-      setAccountNotice(messageFrom(error, 'The item could not be removed.'));
+      setAccountNotice(errorText(error, 'The item could not be removed.', '无法移除此项目。'));
     }
   }
 
@@ -313,7 +332,7 @@ export const Collection: React.FC<Props> = ({
     ).then(() => {
       forgetPendingRemoval(pending.token);
     }).catch(error => {
-      sessionStorage.setItem('fandom_auth_notice', messageFrom(error, 'The item could not be removed.'));
+      sessionStorage.setItem('fandom_auth_notice', errorText(error, 'The item could not be removed.', '无法移除此项目。'));
     });
   }, []);
 
@@ -335,7 +354,7 @@ export const Collection: React.FC<Props> = ({
       } else {
         setCards(current => sortCards([...current, pending.record]));
       }
-      setAccountNotice(messageFrom(error, 'The item could not be removed.'));
+      setAccountNotice(errorText(error, 'The item could not be removed.', '无法移除此项目。'));
     }
   }
 
@@ -382,14 +401,14 @@ export const Collection: React.FC<Props> = ({
       }
       setAccountNotice(decision === 'restore'
         ? canSyncCloud && await shouldSyncCollection(user.accountId)
-          ? 'This saved copy was restored to your account.'
-          : 'This copy is kept on this device. Turn on Collection sync to restore it to your account.'
-        : 'The older device copy was discarded. Nothing was restored to your account.');
+          ? tr('This saved copy was restored to your account.', '已将这份收藏恢复到你的账户。')
+          : tr('This copy is kept on this device. Turn on Collection sync to restore it to your account.', '这份收藏已保留在此设备上。开启收藏同步后，才能将它恢复到账户。')
+        : tr('The older device copy was discarded. Nothing was restored to your account.', '已丢弃另一设备上的旧副本；没有内容恢复到账户。'));
     } catch (error) {
       await loadCollection(user.accountId);
       setAccountNotice(resolvedLocally
-        ? `This copy was kept on this device, but account sync failed: ${messageFrom(error, 'try again after reconnecting')}`
-        : messageFrom(error, 'The deletion choice could not be completed. Please retry.'));
+        ? tr('This copy was kept on this device, but account sync failed: ', '这份收藏已保留在此设备上，但账户同步失败：') + errorText(error, 'try again after reconnecting', '请检查网络后重试。')
+        : errorText(error, 'The deletion choice could not be completed. Please retry.', '无法保存删除选择，请重试。'));
     } finally {
       setBusyKey('');
     }
@@ -399,15 +418,15 @@ export const Collection: React.FC<Props> = ({
     if (!user || !localId || deletionConflicts[localId] !== kind) return null;
     return (
       <div className={styles.deletionConflict} role="status">
-        <strong>Deleted on another device</strong>
-        <p>This older copy is still saved on this device. It has not been restored to your account. Choose whether to restore it or discard it.</p>
+        <strong>{tr('Deleted on another device', '已在另一台设备上删除')}</strong>
+        <p>{tr('This older copy is still saved on this device. It has not been restored to your account. Choose whether to restore it or discard it.', '此设备仍保留着旧副本，但它尚未恢复到账户。请选择恢复这份副本，或将其丢弃。')}</p>
         <div>
           <button type="button" disabled={Boolean(busyKey) || Boolean(pendingRemoval)}
             onClick={() => void resolveDeletion(kind, localId, 'restore')}>
-            {busyKey === `deletion:${localId}` ? 'Working…' : 'Keep & restore'}
+            {busyKey === `deletion:${localId}` ? tr('Working…', '处理中…') : tr('Keep & restore', '保留并恢复')}
           </button>
           <button type="button" disabled={Boolean(busyKey) || Boolean(pendingRemoval)}
-            onClick={() => void resolveDeletion(kind, localId, 'discard')}>Discard this copy</button>
+            onClick={() => void resolveDeletion(kind, localId, 'discard')}>{tr('Discard this copy', '丢弃此副本')}</button>
         </div>
       </div>
     );
@@ -418,7 +437,7 @@ export const Collection: React.FC<Props> = ({
     try {
       setAccountNotice(await requestMagicLink(email));
     } catch (error) {
-      setAccountNotice(messageFrom(error, 'Could not send the sign-in link.'));
+      setAccountNotice(errorText(error, 'Could not send the sign-in link.', '无法发送登录链接。'));
     }
   }
 
@@ -426,7 +445,7 @@ export const Collection: React.FC<Props> = ({
     if (!user) return;
     if (!canSyncCloud) {
       setNeedsMergeChoice(false);
-      setAccountNotice('Your local saves remain on this device. Cloud sync is unavailable here.');
+      setAccountNotice(tr('Your local saves remain on this device. Cloud sync is unavailable here.', '本地收藏仍保存在此设备上，但此处无法使用云端同步。'));
       return;
     }
     try {
@@ -435,9 +454,9 @@ export const Collection: React.FC<Props> = ({
       setSyncEnabled(merge);
       if (merge && canSyncCloud) await syncPublicCollection(user);
       await loadCollection(user.accountId);
-      setAccountNotice(merge ? 'This device is now synced.' : 'This device’s local saves will stay separate.');
+      setAccountNotice(merge ? tr('This device is now synced.', '此设备现已开始同步。') : tr('This device’s local saves will stay separate.', '此设备上的本地收藏将保持独立。'));
     } catch (error) {
-      setAccountNotice(messageFrom(error, 'This device could not be synced.'));
+      setAccountNotice(errorText(error, 'This device could not be synced.', '无法同步此设备。'));
     }
   }
 
@@ -449,9 +468,9 @@ export const Collection: React.FC<Props> = ({
       setUser(null);
       setSyncEnabled(false);
       await loadCollection();
-      setAccountNotice('Signed out. Local saves still work on this device.');
+      setAccountNotice(tr('Signed out. Local saves still work on this device.', '已退出登录。本地收藏仍可在此设备上使用。'));
     } catch (error) {
-      setAccountNotice(messageFrom(error, 'Could not sign out.'));
+      setAccountNotice(errorText(error, 'Could not sign out.', '无法退出登录。'));
     }
   }
 
@@ -486,10 +505,10 @@ export const Collection: React.FC<Props> = ({
       await loadCollection(user?.accountId);
       if (canSyncCloud) schedulePublicCollectionSync();
       setAccountNotice(targetScope === 'middle-earth'
-        ? 'Saved result moved to the Middle-earth collection.'
-        : 'Saved result moved to the Vibe Atlas collection.');
+        ? tr('Saved result moved to the Middle-earth collection.', '已将收藏移至中土世界收藏夹。')
+        : tr('Saved result moved to the Vibe Atlas collection.', '已将收藏移至 Vibe Atlas 收藏夹。'));
     } catch (error) {
-      setAccountNotice(messageFrom(error, 'The saved result could not be moved.'));
+      setAccountNotice(errorText(error, 'The saved result could not be moved.', '无法移动这条收藏。'));
     } finally {
       setBusyKey('');
     }
@@ -523,10 +542,10 @@ export const Collection: React.FC<Props> = ({
       anchor.remove();
       URL.revokeObjectURL(url);
       setAccountNotice(
-        `Diagnostic data downloaded: ${diagnostic.counts.cards} saved results and ${diagnostic.counts.grids} grids. Nothing in your Collection was changed.`,
+        tr(`Diagnostic data downloaded: ${diagnostic.counts.cards} saved results and ${diagnostic.counts.grids} grids. Nothing in your Collection was changed.`, `诊断数据已下载：${diagnostic.counts.cards} 条收藏结果、${diagnostic.counts.grids} 个网格。收藏内容未作更改。`),
       );
     } catch (error) {
-      setAccountNotice(messageFrom(error, 'Collection diagnostic data could not be downloaded.'));
+      setAccountNotice(errorText(error, 'Collection diagnostic data could not be downloaded.', '无法下载收藏诊断数据。'));
     } finally {
       setBusyKey('');
     }
@@ -541,12 +560,12 @@ export const Collection: React.FC<Props> = ({
       setFilterActor(MISPRINT_FILTER);
       try {
         const correctedCount = await correctLegendaryGridEvidence(grid);
-        setAccountNotice(`Legendary Misprint preserved. ${correctedCount} source result${correctedCount === 1 ? '' : 's'} will stay out of future curator evidence.`);
+      setAccountNotice(tr(`Legendary Misprint preserved. ${correctedCount} source result${correctedCount === 1 ? '' : 's'} will stay out of future curator evidence.`, `已保留为「传奇误印」。这 ${correctedCount} 条来源结果将不会进入今后的策展判断。`));
       } catch (correctionError) {
-        setAccountNotice(`Legendary Misprint preserved, but curator learning was not recorded: ${messageFrom(correctionError, 'open Actor Preflight to correct its source evidence.')}`);
+        setAccountNotice(tr('Legendary Misprint preserved, but curator learning was not recorded: ', '已保留为「传奇误印」，但策展修正未记录：') + errorText(correctionError, 'open Actor Preflight to correct its source evidence.', '请打开 Actor Preflight 修正来源证据。'));
       }
     } catch (error) {
-      setAccountNotice(messageFrom(error, 'The grid could not be marked as a Legendary Misprint.'));
+      setAccountNotice(errorText(error, 'The grid could not be marked as a Legendary Misprint.', '无法将此网格标记为「传奇误印」。'));
     } finally {
       setBusyKey('');
     }
@@ -627,16 +646,16 @@ export const Collection: React.FC<Props> = ({
         return next;
       });
       setAccountNotice(payload.calibrationStatus === 'applied'
-        ? `${payload.misprint.label} preserved. The collectible stays visible while its correction teaches future curation.`
+        ? tr(`${payload.misprint.label} preserved. The collectible stays visible while its correction teaches future curation.`, `已保留为「${sourceCopy(payload.misprint.label)}」。这件收藏会继续显示，同时将修正用于改进后续策展。`)
         : payload.calibrationStatus === 'recorded'
-          ? `${payload.misprint.label} preserved. The collectible stays visible and its diagnostic evidence was recorded.`
+          ? tr(`${payload.misprint.label} preserved. The collectible stays visible and its diagnostic evidence was recorded.`, `已保留为「${sourceCopy(payload.misprint.label)}」。这件收藏会继续显示，诊断证据也已记录。`)
           : payload.calibrationStatus === 'rejected' || payload.calibrationStatus === 'retracted'
-            ? `${payload.misprint.label} preserved as a collectible. Its curator correction is no longer active.`
-            : `${payload.misprint.label} preserved. The collectible stays visible and its correction was submitted for curator review.`);
+            ? tr(`${payload.misprint.label} preserved as a collectible. Its curator correction is no longer active.`, `已将「${sourceCopy(payload.misprint.label)}」作为收藏保留；相关策展修正目前未生效。`)
+            : tr(`${payload.misprint.label} preserved. The collectible stays visible and its correction was submitted for curator review.`, `已保留为「${sourceCopy(payload.misprint.label)}」。这件收藏会继续显示，修正已提交策展审核。`));
     } catch (error) {
       setAccountNotice(correctionSaved
-        ? `Curator correction saved, but the collectible could not be preserved: ${messageFrom(error, 'unknown storage error.')}`
-        : messageFrom(error, 'The curator correction could not be recorded, so the collectible was not changed.'));
+        ? tr('Curator correction saved, but the collectible could not be preserved: ', '策展修正已保存，但无法保留这件收藏：') + errorText(error, 'unknown storage error.', '未知存储错误。')
+        : errorText(error, 'The curator correction could not be recorded, so the collectible was not changed.', '无法记录策展修正，因此收藏内容未更改。'));
     } finally {
       setBusyKey('');
     }
@@ -658,9 +677,9 @@ export const Collection: React.FC<Props> = ({
       await loadCollection(user?.accountId);
       if (canSyncCloud) schedulePublicCollectionSync();
       setFilterActor(MISPRINT_FILTER);
-      setAccountNotice('Promoted to Legendary Misprint. Its correction remains negative evidence for the curator.');
+      setAccountNotice(tr('Promoted to Legendary Misprint. Its correction remains negative evidence for the curator.', '已升级为「传奇误印」。此项修正仍作为策展的反面证据保留。'));
     } catch (error) {
-      setAccountNotice(messageFrom(error, 'The Misprint could not be promoted.'));
+      setAccountNotice(errorText(error, 'The Misprint could not be promoted.', '无法升级此误印。'));
     } finally {
       setBusyKey('');
     }
@@ -673,9 +692,9 @@ export const Collection: React.FC<Props> = ({
       await dbSaveCard({ ...card, savedAt: new Date().toISOString(), legendaryMisprint: undefined });
       await loadCollection(user?.accountId);
       if (canSyncCloud) schedulePublicCollectionSync();
-      setAccountNotice('Legendary promotion removed. The result remains a Misprint.');
+      setAccountNotice(tr('Legendary promotion removed. The result remains a Misprint.', '已取消「传奇误印」升级，结果仍保留为误印。'));
     } catch (error) {
-      setAccountNotice(messageFrom(error, 'The Legendary promotion could not be removed.'));
+      setAccountNotice(errorText(error, 'The Legendary promotion could not be removed.', '无法取消「传奇误印」升级。'));
     } finally {
       setBusyKey('');
     }
@@ -686,11 +705,11 @@ export const Collection: React.FC<Props> = ({
     event.target.value = '';
     if (!file) return;
     if (!SUPPORTED_MEME_TYPES.has(file.type)) {
-      setAccountNotice('Upload a PNG, JPEG, or WebP image.');
+      setAccountNotice(tr('Upload a PNG, JPEG, or WebP image.', '请上传 PNG、JPEG 或 WebP 格式的图片。'));
       return;
     }
     if (file.size > MAX_UPLOADED_MEME_BYTES) {
-      setAccountNotice('That image is larger than 8 MB. Choose a smaller image.');
+      setAccountNotice(tr('That image is larger than 8 MB. Choose a smaller image.', '图片超过 8 MB，请选择较小的图片。'));
       return;
     }
     setBusyKey(`media:${cardRecordKey(card)}`);
@@ -701,9 +720,9 @@ export const Collection: React.FC<Props> = ({
       const media = await uploadCollectionImage(dataUrl, isMiddleEarth ? 'middle-earth' : 'vibe-atlas', localId);
       await dbReplaceCardImage(card.imageUrl, media);
       await loadCollection(user?.accountId);
-      setAccountNotice('The saved result is now backed by a canonical MEDIA reference.');
+      setAccountNotice(tr('The saved result is now backed by a canonical MEDIA reference.', '这条收藏现已关联规范的 MEDIA 媒体记录。'));
     } catch (error) {
-      setAccountNotice(messageFrom(error, 'The image could not be registered in MEDIA.'));
+      setAccountNotice(errorText(error, 'The image could not be registered in MEDIA.', '无法将图片登记到 MEDIA。'));
     } finally {
       setBusyKey('');
     }
@@ -725,11 +744,11 @@ export const Collection: React.FC<Props> = ({
       });
       setAccountNotice(result.recovery.status === 'recovered'
         ? result.reusedExistingMedia
-          ? 'The saved result now uses its verified MEDIA asset.'
-          : 'The saved result was recovered into permanent MEDIA storage.'
-        : `This saved result remains visible, but its ${mediaClassificationLabel(result.recovery.classification)} could not be recovered: ${result.recovery.message || 'original unavailable.'}`);
+          ? tr('The saved result now uses its verified MEDIA asset.', '这条收藏现已使用经过验证的 MEDIA 媒体资源。')
+          : tr('The saved result was recovered into permanent MEDIA storage.', '这条收藏已恢复到永久 MEDIA 存储。')
+        : `${tr('This saved result remains visible, but its ', '这条收藏仍会显示，但其')}${tr(mediaClassificationLabel(result.recovery.classification), mediaClassificationLabelZh(result.recovery.classification))}${tr(' could not be recovered: ', '无法恢复：')}${result.recovery.message ? errorText(new Error(result.recovery.message), '', '') : tr('original unavailable.', '原始资源不可用。')}`);
     } catch (error) {
-      setAccountNotice(messageFrom(error, 'The saved result could not be recovered.'));
+      setAccountNotice(errorText(error, 'The saved result could not be recovered.', '无法恢复这条收藏。'));
     } finally {
       setBusyKey('');
     }
@@ -751,11 +770,11 @@ export const Collection: React.FC<Props> = ({
       });
       setAccountNotice(result.recovery.status === 'recovered'
         ? result.reusedExistingMedia
-          ? 'The legacy grid now uses its verified MEDIA asset.'
-          : 'The legacy grid was recovered into permanent MEDIA storage.'
-        : `This grid remains visible, but its ${mediaClassificationLabel(result.recovery.classification)} could not be recovered: ${result.recovery.message || 'original unavailable.'}`);
+          ? tr('The legacy grid now uses its verified MEDIA asset.', '此旧版网格现已使用经过验证的 MEDIA 媒体资源。')
+          : tr('The legacy grid was recovered into permanent MEDIA storage.', '此旧版网格已恢复到永久 MEDIA 存储。')
+        : `${tr('This grid remains visible, but its ', '此网格仍会显示，但其')}${tr(mediaClassificationLabel(result.recovery.classification), mediaClassificationLabelZh(result.recovery.classification))}${tr(' could not be recovered: ', '无法恢复：')}${result.recovery.message ? errorText(new Error(result.recovery.message), '', '') : tr('original unavailable.', '原始资源不可用。')}`);
     } catch (error) {
-      setAccountNotice(messageFrom(error, 'The saved grid could not be recovered.'));
+      setAccountNotice(errorText(error, 'The saved grid could not be recovered.', '无法恢复此网格。'));
     } finally {
       setBusyKey('');
     }
@@ -770,7 +789,7 @@ export const Collection: React.FC<Props> = ({
       if (variant === 'master') {
         const assets: ExportProvenanceAsset[] = grid.images.map(image => {
           if (!isVerifiedMediaReference(image.media)) {
-            throw new Error('Master Export needs nine materialized MEDIA assets. Recover every image first.');
+            throw new Error(tr('Master Export needs nine materialized MEDIA assets. Recover every image first.', 'Master 导出需要 9 个已实体化的 MEDIA 媒体资源，请先恢复全部图片。'));
           }
           return {
             assetId: image.media.assetId,
@@ -805,7 +824,7 @@ export const Collection: React.FC<Props> = ({
       }
       setAccountNotice(message);
     } catch (error) {
-      setAccountNotice(messageFrom(error, 'The grid could not be exported.'));
+      setAccountNotice(errorText(error, 'The grid could not be exported.', '无法导出此网格。'));
     } finally {
       setBusyKey('');
     }
@@ -816,11 +835,11 @@ export const Collection: React.FC<Props> = ({
     event.target.value = '';
     if (!file) return;
     if (!SUPPORTED_MEME_TYPES.has(file.type)) {
-      setAccountNotice('Upload a PNG, JPEG, or WebP image.');
+      setAccountNotice(tr('Upload a PNG, JPEG, or WebP image.', '请上传 PNG、JPEG 或 WebP 格式的图片。'));
       return;
     }
     if (file.size > MAX_UPLOADED_MEME_BYTES) {
-      setAccountNotice('That image is larger than 8 MB. Choose a smaller meme.');
+      setAccountNotice(tr('That image is larger than 8 MB. Choose a smaller meme.', '图片超过 8 MB，请选择较小的表情图。'));
       return;
     }
 
@@ -852,22 +871,22 @@ export const Collection: React.FC<Props> = ({
         try {
           await syncPublicCollection(user);
           await loadCollection(user.accountId);
-          setAccountNotice(`“${file.name}” was uploaded, saved, and registered in MEDIA.`);
+          setAccountNotice(tr(`“${file.name}” was uploaded, saved, and registered in MEDIA.`, `已上传并保存“${file.name}”，也已登记到 MEDIA。`));
         } catch (error) {
-          setAccountNotice(`“${file.name}” is saved on this device, but MEDIA sync failed: ${messageFrom(error, 'try again after reconnecting')}`);
+          setAccountNotice(tr(`“${file.name}” is saved on this device, but MEDIA sync failed: `, `“${file.name}”已保存在此设备上，但 MEDIA 同步失败：`) + errorText(error, 'try again after reconnecting', '请检查网络后重试。'));
         }
       } else {
         if (canSyncCloud) schedulePublicCollectionSync();
-        setAccountNotice(`“${file.name}” is saved in this Collection. Sign in and merge this device to register it in MEDIA.`);
+        setAccountNotice(tr(`“${file.name}” is saved in this Collection. Sign in and merge this device to register it in MEDIA.`, `“${file.name}”已保存在此收藏夹中。登录并合并此设备后，即可将其登记到 MEDIA。`));
       }
     } catch (error) {
-      setAccountNotice(messageFrom(error, 'The image could not be saved.'));
+      setAccountNotice(errorText(error, 'The image could not be saved.', '无法保存此图片。'));
     } finally {
       setBusyKey('');
     }
   }
 
-  if (loading) return <div className={styles.loading}>Loading collection…</div>;
+  if (loading) return <div className={styles.loading} role="status">{tr('Loading collection…', '正在加载收藏夹…')}</div>;
 
   const allActors = Array.from(new Set([
     ...grids.filter(grid => !grid.legendaryMisprint && grid.intent !== 'legendary-misprint').map(grid => grid.actor),
@@ -886,6 +905,11 @@ export const Collection: React.FC<Props> = ({
     : filterActor
       ? cards.filter(card => !card.misprint && !card.legendaryMisprint && card.actor === filterActor)
       : cards.filter(card => !card.misprint && !card.legendaryMisprint);
+  const actorDisplayLabel = (actor: string) => {
+    const grid = grids.find(item => item.actor === actor);
+    const card = cards.find(item => item.actor === actor);
+    return actorLabel(actor, grid?.actorEn || card?.actorEn || actor, grid?.actorId || card?.actorId);
+  };
 
   return (
     <main className={styles.collection}>
@@ -894,27 +918,26 @@ export const Collection: React.FC<Props> = ({
           <h2>{isMiddleEarth
             ? 'Middle-earth Collection'
             : isExternalBuilder
-              ? isEditionBuilder ? 'Archive Edition Grid Builder'
-                : builderSourceKind === 'archive' ? 'Public Archive Grid Builder' : 'Today’s Grid Builder'
-              : 'Your Collection'}</h2>
+              ? isEditionBuilder ? tr('Archive Edition Grid Builder', '典藏期刊网格构建器') : isArchiveBuilder ? tr('Public Archive Grid Builder', '公开典藏网格构建器') : tr('Today’s Grid Builder', '今日网格构建器')
+              : tr('Your Collection', '我的收藏夹')}</h2>
           <p>{isMiddleEarth
             ? 'Your separate MemeForge shelf for finished Middle-earth memes.'
             : isExternalBuilder
               ? isEditionBuilder
-                ? 'Rebuild or remix this immutable historical edition. Its images are not added to My Collection.'
-                : builderSourceKind === 'archive'
-                  ? 'Browse published Star of the Day images across dates and build for free. Individual saves stay separate from your grids and Collection.'
-                  : 'Build only with the active Star of the Day inventory. Nothing from My Collection is added here.'
-              : 'Collect individual finds, keep finished worlds, and compose Event or Compiled editorial sets.'}</p>
+                ? tr('Rebuild or remix this immutable historical edition. Its images are not added to My Collection.', '使用这期不可更改的历史素材重新编排或改造网格。素材不会添加到「我的收藏夹」。')
+                : isArchiveBuilder
+                  ? tr('Browse published Star of the Day images across dates and build for free. Individual saves stay separate from your grids and Collection.', '浏览不同日期已发布的每日主角图片，免费编排网格。使用这些素材不会自动收藏单张图片，也不会加入“我的收藏”。')
+                  : tr('Build only with the active Star of the Day inventory. Nothing from My Collection is added here.', '这里只能使用今日之星的当前素材构建网格。「我的收藏夹」中的内容不会加入。')
+              : tr('Collect individual finds, keep finished worlds, and compose Event or Compiled editorial sets.', '收藏喜欢的单张图片、保存已完成的网格，再将素材编排成「单场造型」或「风格合辑」。')}</p>
         </div>
         {!isExternalBuilder && <div className={styles.heroActions}>
-          <span>{isMiddleEarth ? `${cards.length} memes` : `${grids.length} grids · ${cards.length} results`}</span>
+          <span>{isMiddleEarth ? `${cards.length} memes` : tr(`${grids.length} grids · ${cards.length} results`, `${grids.length} 个网格 · ${cards.length} 条单图收藏`)}</span>
           <button
             type="button"
             disabled={Boolean(busyKey)}
             onClick={() => void downloadDiagnosticData()}
           >
-            {busyKey === 'diagnostic-export' ? 'Preparing data…' : 'Download diagnostic data'}
+            {busyKey === 'diagnostic-export' ? tr('Preparing data…', '正在准备数据…') : tr('Download diagnostic data', '下载诊断数据')}
           </button>
         </div>}
       </header>
@@ -922,14 +945,14 @@ export const Collection: React.FC<Props> = ({
       {!isExternalBuilder && <section className={styles.account}>
         {user ? (
           <div className={styles.signedIn}>
-            <p>{syncEnabled ? (isMiddleEarth ? 'Middle-earth sync enabled for' : 'Cloud sync enabled for') : 'Signed in as'} <strong>{user.email}</strong></p>
-            <button type="button" onClick={() => void handleLogout()}>Sign out</button>
+            <p>{syncEnabled ? (isMiddleEarth ? 'Middle-earth sync enabled for' : tr('Cloud sync enabled for', '云端同步账户：')) : tr('Signed in as', '当前登录账户：')} <strong>{user.email}</strong></p>
+            <button type="button" onClick={() => void handleLogout()}>{tr('Sign out', '退出登录')}</button>
           </div>
         ) : (
           <form onSubmit={handleMagicLink}>
             <label htmlFor="collection-email">{isMiddleEarth
               ? 'Sync Middle-earth memes across devices'
-              : 'Sync grids and saved results across devices'}</label>
+              : tr('Sync grids and saved results across devices', '在不同设备间同步网格和单图收藏')}</label>
             <div>
               <input
                 id="collection-email"
@@ -937,42 +960,36 @@ export const Collection: React.FC<Props> = ({
                 required
                 value={email}
                 onChange={event => setEmail(event.target.value)}
-                placeholder="you@example.com"
+                placeholder={tr('you@example.com', 'you@example.com')}
               />
-              <button>Email sign-in link</button>
+              <button>{tr('Email sign-in link', '发送邮箱登录链接')}</button>
             </div>
           </form>
         )}
         {needsMergeChoice && (
           <div className={styles.mergeChoice}>
-            <p>Merge this browser’s grids and saved results into your account?</p>
-            <button onClick={() => void handleMerge(true)}>Merge and sync</button>
-            <button onClick={() => void handleMerge(false)}>Keep separate</button>
+            <p>{tr('Merge this browser’s grids and saved results into your account?', '要将此浏览器中的网格和单图收藏合并到你的账户吗？')}</p>
+            <button onClick={() => void handleMerge(true)}>{tr('Merge and sync', '合并并同步')}</button>
+            <button onClick={() => void handleMerge(false)}>{tr('Keep separate', '保持独立')}</button>
           </div>
         )}
-        {accountNotice && <p className={styles.notice} role="status">{accountNotice}</p>}
+        {accountNotice && <p className={styles.notice} role="status">{!isMiddleEarth && locale === 'zh-CN' && !/\p{Script=Han}/u.test(accountNotice) ? `英文原文提示：${accountNotice}` : accountNotice}</p>}
       </section>}
 
       {isExternalBuilder ? (
         <div className={styles.collectionScopeNav}>
           <strong>
             {isEditionBuilder
-              ? `Historical edition${builderSourceEditionDate ? ` · ${builderSourceEditionDate}` : ''}`
-              : isArchiveBuilder
-                ? 'Public Archive inventory'
-                : 'Active Daily Drop inventory'}
+              ? tr(`Historical edition${builderSourceEditionDate ? ` · ${builderSourceEditionDate}` : ''}`, `历史期次${builderSourceEditionDate ? ` · ${builderSourceEditionDate}` : ''}`)
+              : isArchiveBuilder ? tr('Public Archive inventory', '公开典藏素材') : tr('Active Daily Drop inventory', '今日之星当前素材')}
           </strong>
           <div className={styles.collectionScopeActions}>
-            <a href={isArchiveBuilder
-              ? PUBLIC_ROUTE_PATHS.vibeAtlasArchive
-              : isEditionBuilder && builderSourceEditionDate
-                ? `${PUBLIC_ROUTE_PATHS.vibeAtlas}?date=${encodeURIComponent(builderSourceEditionDate)}`
-                : PUBLIC_ROUTE_PATHS.vibeAtlas}>
-              {isArchiveBuilder ? 'Back to the public Archive' : isEditionBuilder ? 'Back to this edition' : 'Back to today’s drop'}
+            <a href={path(isArchiveBuilder ? PUBLIC_ROUTE_PATHS.vibeAtlasArchive : isEditionBuilder && builderSourceEditionDate
+              ? `${PUBLIC_ROUTE_PATHS.vibeAtlas}?date=${encodeURIComponent(builderSourceEditionDate)}`
+              : PUBLIC_ROUTE_PATHS.vibeAtlas)}>
+              {isArchiveBuilder ? tr('Back to the public Archive', '返回公开典藏') : isEditionBuilder ? tr('Back to this edition', '返回本期') : tr('Back to today’s drop', '返回今日卡组')}
             </a>
-            {isEditionBuilder && (
-              <a href={PUBLIC_ROUTE_PATHS.vibeAtlasArchive}>Back to the public Archive</a>
-            )}
+            {isEditionBuilder && <a href={path(PUBLIC_ROUTE_PATHS.vibeAtlasArchive)}>{tr('Back to the public Archive', '返回公开典藏')}</a>}
           </div>
         </div>
       ) : isMiddleEarth ? (
@@ -993,31 +1010,31 @@ export const Collection: React.FC<Props> = ({
           </div>
         </div>
       ) : (
-        <nav className={styles.typeTabs} aria-label="Collection artifact type">
+        <nav className={styles.typeTabs} aria-label={tr('Collection artifact type', '收藏夹内容类型')}>
           <button type="button" aria-current={activeType === 'grids'} onClick={() => {
             setActiveType('grids');
             onTypeChange?.('grids');
           }}>
-            Grids <span>{grids.length}</span>
+            {tr('Grids', '网格')} <span>{grids.length}</span>
           </button>
           <button type="button" aria-current={activeType === 'results'} onClick={() => {
             setActiveType('results');
             onTypeChange?.('results');
           }}>
-            Saved results <span>{cards.length}</span>
+            {tr('Saved results', '单图收藏')} <span>{cards.length}</span>
           </button>
           <button type="button" aria-current={activeType === 'builder'} onClick={() => {
             setActiveType('builder');
             onTypeChange?.('builder');
           }}>
-            Grid Builder
+            {tr('Grid Builder', '网格构建器')}
           </button>
         </nav>
       )}
 
       {activeType !== 'builder' && allActors.length > 1 && (
-        <div className={styles.filters} aria-label="Filter collection by actor">
-          <button type="button" aria-pressed={filterActor === null} onClick={() => setFilterActor(null)}>All</button>
+        <div className={styles.filters} aria-label={tr('Filter collection by actor', '按演员筛选收藏')}>
+          <button type="button" aria-pressed={filterActor === null} onClick={() => setFilterActor(null)}>{tr('All', '全部')}</button>
           {allActors.map(actor => (
             <button
               type="button"
@@ -1025,7 +1042,7 @@ export const Collection: React.FC<Props> = ({
               aria-pressed={filterActor === actor}
               onClick={() => setFilterActor(actor)}
             >
-              {actor === MISPRINT_FILTER ? '🖨️ Misprints' : actor}
+              {actor === MISPRINT_FILTER ? tr('🖨️ Misprints', '🖨️ 误印') : actorDisplayLabel(actor)}
             </button>
           ))}
         </div>
@@ -1054,59 +1071,59 @@ export const Collection: React.FC<Props> = ({
         displayedGrids.length === 0 ? (
           <EmptyState
             symbol="▦"
-            title="No saved grids yet"
-            body="Save a grid — from the Grid Builder or the daily Vibe Atlas — to keep its images, search spell, styling, and provenance here."
+            title={tr('No saved grids yet', '还没有保存的网格')}
+            body={tr('Save a grid — from the Grid Builder or the daily Vibe Atlas — to keep its images, search spell, styling, and provenance here.', '在网格构建器或每日 Vibe Atlas 中保存网格，即可在此保留图片、搜索词、样式和来源记录。')}
           />
         ) : (
-          <section className={styles.gridArtifacts} aria-label="Saved grids">
+          <section className={styles.gridArtifacts} aria-label={tr('Saved grids', '已保存的网格')}>
             {displayedGrids.map(grid => (
               <article className={styles.gridArtifact} key={grid.id}>
                 <button
                   type="button"
                   className={styles.gridPreviewButton}
-                  aria-label={`View ${grid.actor} ${grid.vibe} grid larger`}
+                  aria-label={tr(`View ${grid.actor} ${grid.vibe} grid larger`, `放大查看${actorLabel(grid.actor, grid.actorEn, grid.actorId)}的${vibeLabel(grid.vibe, grid.vibeEn)}网格`)}
                   onClick={() => setExpandedArtifact({ kind: 'grid', record: grid })}
                 >
                    <GridVisual
                      grid={grid}
                      onImageError={() => setFailedGridImages(current => ({ ...current, [grid.id]: true }))}
                    />
-                  <span>View larger</span>
+                  <span>{tr('View larger', '放大查看')}</span>
                 </button>
                 <div className={styles.gridStory}>
                   <div className={styles.gridTitle}>
                     <div>
                       <h3>
                         {grid.legendaryMisprint || grid.intent === 'legendary-misprint'
-                          ? '🔥 Legendary Misprint'
-                          : `${grid.vibeEmoji} ${grid.actor}`}
+                           ? tr('🔥 Legendary Misprint', '🔥 传奇误印')
+                           : `${grid.vibeEmoji} ${actorLabel(grid.actor, grid.actorEn, grid.actorId)}`}
                       </h3>
                       <p>
                         {grid.legendaryMisprint || grid.intent === 'legendary-misprint'
-                          ? `Vibe Atlas × ${grid.legendaryMisprint?.unexpectedActor.name || grid.misprintMetadata?.unexpectedImageIdentities.join(', ') || 'unexpected identity'} · ${grid.vibe}`
-                          : `${grid.vibe} · ${grid.vibeEn}`}
+                           ? tr(`Vibe Atlas × ${grid.legendaryMisprint?.unexpectedActor.name || grid.misprintMetadata?.unexpectedImageIdentities.join(', ') || 'unexpected identity'} · ${grid.vibe}`, `Vibe Atlas × ${sourceCopy(grid.legendaryMisprint?.unexpectedActor.name || grid.misprintMetadata?.unexpectedImageIdentities.join('、') || '意外出现的身份')} · ${vibeLabel(grid.vibe, grid.vibeEn)}`)
+                           : vibeLabel(grid.vibe, grid.vibeEn)}
                       </p>
                     </div>
-                    <span>{formatDate(grid.capturedDate)}</span>
+                    <span>{formatDate(grid.capturedDate, locale)}</span>
                   </div>
-                  {grid.searchSpell && <p className={styles.spell}>⌕ {grid.searchSpell}</p>}
-                  {grid.vibeSubtitle && <p className={styles.subtitle}>{grid.vibeSubtitle}</p>}
+                  {grid.searchSpell && <p className={styles.spell}>⌕ {sourceCopy(grid.searchSpell)}</p>}
+                  {grid.vibeSubtitle && <p className={styles.subtitle}>{sourceCopy(grid.vibeSubtitle)}</p>}
                   {historicalEditionHref(grid) && (
                     <p className={styles.editionSource}>
-                      Historical Daily Drop ·{' '}
+                      {tr('Historical Daily Drop · ', '历史每日卡组 · ')}
                       <a href={historicalEditionHref(grid)}>
-                        {formatDate(grid.sourceProvenance!.editionDate!)}
+                        {formatDate(grid.sourceProvenance!.editionDate!, locale)}
                       </a>
                     </p>
                   )}
                   <p className={styles.provenance}>
-                    {grid.images.length} source results · {grid.rendererVersion}
+                    {tr(`${grid.images.length} source results · ${grid.rendererVersion}`, `${grid.images.length} 条来源结果 · ${grid.rendererVersion}`)}
                     {grid.legendaryMisprint || grid.intent === 'legendary-misprint'
-                      ? ' · Intentional Legendary Misprint'
+                      ? tr(' · Intentional Legendary Misprint', ' · 有意保留的传奇误印')
                       : grid.edition.legendary
-                        ? ' · Legendary'
+                        ? tr(' · Legendary', ' · 传奇')
                         : grid.edition.misprint
-                          ? ' · Misprint'
+                          ? tr(' · Misprint', ' · 误印')
                           : ''}
                   </p>
                   {deletionChoice('grid', grid.localId)}
@@ -1114,15 +1131,15 @@ export const Collection: React.FC<Props> = ({
                     && (failedGridImages[grid.id] || grid.mediaRecovery?.status === 'unrecoverable') && (
                     <div className={styles.mediaRecovery} role="status">
                       <strong>
-                        Image status: {mediaClassificationLabel(grid.mediaRecovery?.classification || classifyCollectionMedia(grid))}
+                        {tr('Image status: ', '图片状态：')}{tr(mediaClassificationLabel(grid.mediaRecovery?.classification || classifyCollectionMedia(grid)), mediaClassificationLabelZh(grid.mediaRecovery?.classification || classifyCollectionMedia(grid)))}
                       </strong>
-                      <span>{grid.mediaRecovery?.message || 'This older image is not backed by permanent MEDIA yet.'}</span>
+                      <span>{grid.mediaRecovery?.message ? sourceCopy(grid.mediaRecovery.message) : tr('This older image is not backed by permanent MEDIA yet.', '这张旧图片尚未保存到永久 MEDIA 存储。')}</span>
                       <button
                         type="button"
                         disabled={Boolean(busyKey)}
                         onClick={() => void recoverGridMedia(grid)}
                       >
-                        {busyKey === `recover-grid:${grid.id}` ? 'Recovering…' : 'Recover in MEDIA'}
+                        {busyKey === `recover-grid:${grid.id}` ? tr('Recovering…', '正在恢复…') : tr('Recover in MEDIA', '在 MEDIA 中恢复')}
                       </button>
                     </div>
                   )}
@@ -1131,10 +1148,10 @@ export const Collection: React.FC<Props> = ({
                      if (!remoteImages.length) return null;
                      return (
                        <div className={styles.mediaRecovery} role="status">
-                         <strong>Image status: MEDIA copy incomplete</strong>
+                          <strong>{tr('Image status: MEDIA copy incomplete', '图片状态：MEDIA 副本尚未完整')}</strong>
                          <span>
-                           {remoteImages.length} image{remoteImages.length === 1 ? '' : 's'} still depend{remoteImages.length === 1 ? 's' : ''} on remote sources:
-                           {' '}{remoteImages.map(image => image.title || `position ${image.gridPosition + 1}`).join(', ')}.
+                            {tr(`${remoteImages.length} image${remoteImages.length === 1 ? '' : 's'} still depend${remoteImages.length === 1 ? 's' : ''} on remote sources:`, `${remoteImages.length} 张图片仍依赖远程来源：`)}
+                            {' '}{remoteImages.map(image => image.title ? sourceCopy(image.title) : `${tr('position ', '第 ')}${image.gridPosition + 1}${tr('', ' 张')}`).join('、')}。
                          </span>
                        </div>
                      );
@@ -1147,7 +1164,7 @@ export const Collection: React.FC<Props> = ({
                     disabled={Boolean(busyKey)}
                      onClick={() => void exportSavedGrid(grid, 'standard')}
                   >
-                     {busyKey === `export:standard:${grid.id}` ? 'Rendering…' : 'Export standard PNG'}
+                      {busyKey === `export:standard:${grid.id}` ? tr('Rendering…', '正在生成…') : tr('Export standard PNG', '导出标准 PNG')}
                   </button>
                    {hasCollectorAccess && (
                      <button
@@ -1155,7 +1172,7 @@ export const Collection: React.FC<Props> = ({
                        disabled={Boolean(busyKey)}
                        onClick={() => void exportSavedGrid(grid, 'master')}
                      >
-                       {busyKey === `export:master:${grid.id}` ? 'Rendering…' : 'Export Master PNG'}
+                        {busyKey === `export:master:${grid.id}` ? tr('Rendering…', '正在生成…') : tr('Export Master PNG', '导出 Master PNG')}
                      </button>
                    )}
                   {!grid.legendaryMisprint && (
@@ -1164,7 +1181,7 @@ export const Collection: React.FC<Props> = ({
                       disabled={Boolean(busyKey)}
                       onClick={() => void markLegendaryMisprint(grid)}
                     >
-                      {busyKey === `misprint:${grid.id}` ? 'Marking…' : 'Mark Legendary Misprint'}
+                      {busyKey === `misprint:${grid.id}` ? tr('Marking…', '正在标记…') : tr('Mark Legendary Misprint', '标记为传奇误印')}
                     </button>
                   )}
                   <button
@@ -1173,7 +1190,7 @@ export const Collection: React.FC<Props> = ({
                     disabled={Boolean(pendingRemoval)}
                     onClick={() => queueRemoval({ kind: 'grid', record: grid })}
                   >
-                    Remove
+                    {tr('Remove', '移除')}
                   </button>
                 </div>
                 <GridExportHistory
@@ -1188,13 +1205,13 @@ export const Collection: React.FC<Props> = ({
       ) : displayedCards.length === 0 ? (
         <EmptyState
           symbol="☆"
-          title={isMiddleEarth ? 'No saved Middle-earth memes yet' : 'No saved results yet'}
+          title={isMiddleEarth ? 'No saved Middle-earth memes yet' : tr('No saved results yet', '还没有单图收藏')}
           body={isMiddleEarth
             ? 'Save an existing meme from MemeForge and it will appear here, separate from your Vibe Atlas collection.'
-            : 'Tap ☆ in the lightbox to collect individual images without duplicating their full grid.'}
+            : tr('Tap ☆ in the lightbox to collect individual images without duplicating their full grid.', '在放大查看时点按 ☆，即可单独收藏图片，而不必重复保存整张网格。')}
         />
       ) : (
-        <section className={styles.savedResults} aria-label="Saved results">
+        <section className={styles.savedResults} aria-label={tr('Saved results', '单图收藏')}>
           {displayedCards.map(card => {
             const recordKey = cardRecordKey(card);
             const misprintKey = `card-misprint:${recordKey}`;
@@ -1208,7 +1225,9 @@ export const Collection: React.FC<Props> = ({
               <button
                 type="button"
                 className={styles.resultPreviewButton}
-                aria-label={card.contentKind === 'middle-earth-meme' ? `View ${card.title || card.vibe} meme larger` : `View ${card.actor} ${card.vibe} result larger`}
+                aria-label={card.contentKind === 'middle-earth-meme'
+                  ? tr(`View ${card.title || card.vibe} meme larger`, `放大查看${sourceCopy(card.title || card.vibe)}表情图`)
+                  : tr(`View ${card.actor} ${card.vibe} result larger`, `放大查看${actorLabel(card.actor, card.actorEn, card.actorId)}的${vibeLabel(card.vibe, card.vibeEn)}单图`)}
                 onClick={() => setExpandedArtifact({ kind: 'card', record: card })}
               >
                  <img
@@ -1216,17 +1235,17 @@ export const Collection: React.FC<Props> = ({
                    alt=""
                    onError={() => setFailedCardImages(current => ({ ...current, [card.imageUrl]: true }))}
                  />
-                <span>View larger</span>
+                <span>{tr('View larger', '放大查看')}</span>
               </button>
               <div>
-                <strong>{card.vibeEmoji} {card.contentKind === 'middle-earth-meme' ? card.title || card.vibe : card.actor}</strong>
+                <strong>{card.vibeEmoji} {card.contentKind === 'middle-earth-meme' ? card.title || card.vibe : actorLabel(card.actor, card.actorEn, card.actorId)}</strong>
                 <span>{card.contentKind === 'middle-earth-meme'
                   ? `Middle-earth · ${card.actor} · ${card.memeRework
                     ? 'reworked in MemeForge · original linked'
                     : card.resultId?.startsWith('generated-')
                       ? 'reaction card forged in MemeForge'
                       : 'saved as-is'}`
-                  : card.vibe}</span>
+                  : vibeLabel(card.vibe, card.vibeEn)}</span>
                 {card.memeRework && (
                   <>
                     <span>
@@ -1240,54 +1259,56 @@ export const Collection: React.FC<Props> = ({
                 )}
                 {card.legendaryMisprint && (
                   <span>
-                    Legendary Misprint · intended {card.legendaryMisprint.intendedIdentity.actor}
-                    {' '}· unexpected {card.legendaryMisprint.unexpectedImageIdentity.label}
+                    {tr('Legendary Misprint · intended ', '传奇误印 · 预期身份：')}{sourceCopy(card.legendaryMisprint.intendedIdentity.actor)}
+                    {' '}· {tr('unexpected ', '意外出现：')}{sourceCopy(card.legendaryMisprint.unexpectedImageIdentity.label)}
                   </span>
                 )}
                 {card.misprint && !card.legendaryMisprint && (
                   <span>
-                    Misprint · {card.misprint.label} · intended {card.misprint.intendedIdentity.actor}
+                    {tr('Misprint · ', '误印 · ')}{sourceCopy(card.misprint.label)} · {tr('intended ', '预期身份：')}{sourceCopy(card.misprint.intendedIdentity.actor)}
                     {card.misprint.unexpectedImageIdentity?.label
-                      ? ` · unexpected ${card.misprint.unexpectedImageIdentity.label}`
+                      ? ` · ${tr('unexpected ', '意外出现：')}${sourceCopy(card.misprint.unexpectedImageIdentity.label)}`
                       : ''}
                   </span>
                 )}
                 {card.contentKind === 'middle-earth-meme' && card.sourceUrl && <a href={card.sourceUrl} target="_blank" rel="noreferrer">{card.publisher ? `Source: ${card.publisher}` : 'Open original source'}</a>}
-                <small>{card.capturedDate}</small>
+                 <small>{formatDate(card.capturedDate, isMiddleEarth ? 'en' : locale)}</small>
                  {!card.misprint && !card.legendaryMisprint && (
                    <button
                      type="button"
                      disabled={Boolean(busyKey) || Boolean(pendingRemoval)}
                      onClick={() => void moveCardToScope(card, isMiddleEarth ? 'vibe-atlas' : 'middle-earth')}
                    >
-                     {busyKey === `move:${recordKey}` ? 'Moving…' : isMiddleEarth ? 'Move to Vibe Atlas' : 'Move to Middle-earth'}
+                      {busyKey === `move:${recordKey}` ? tr('Moving…', '正在移动…') : isMiddleEarth ? 'Move to Vibe Atlas' : tr('Move to Middle-earth', '移至中土世界')}
                    </button>
                  )}
                 {deletionChoice('card', card.localId)}
                 {(!card.thumbnailUrl || failedCardImages[card.imageUrl] || card.mediaRecovery?.status === 'unrecoverable') && (
                   <div className={styles.mediaRecovery} role="status">
                     <strong>
-                      Image status: {mediaClassificationLabel(card.mediaRecovery?.classification || classifyCollectionMedia(card))}
+                      {tr('Image status: ', '图片状态：')}{tr(mediaClassificationLabel(card.mediaRecovery?.classification || classifyCollectionMedia(card)), mediaClassificationLabelZh(card.mediaRecovery?.classification || classifyCollectionMedia(card)))}
                     </strong>
-                    <span>{card.mediaRecovery?.message || 'This older image is not backed by permanent MEDIA yet.'}</span>
+                    <span>{card.mediaRecovery?.message ? sourceCopy(card.mediaRecovery.message) : tr('This older image is not backed by permanent MEDIA yet.', '这张旧图片尚未保存到永久 MEDIA 存储。')}</span>
                     <button
                       type="button"
                       disabled={Boolean(busyKey)}
                       onClick={() => void recoverCardMedia(card)}
                     >
-                      {busyKey === `recover:${recordKey}` ? 'Recovering…' : 'Recover in MEDIA'}
+                      {busyKey === `recover:${recordKey}` ? tr('Recovering…', '正在恢复…') : tr('Recover in MEDIA', '在 MEDIA 中恢复')}
                     </button>
                   </div>
                 )}
-                <small>{card.media ? 'MEDIA-backed' : 'Legacy URL'}</small>
+                <small>{isMiddleEarth
+                  ? card.media ? 'MEDIA-backed' : 'Legacy URL'
+                  : card.media ? tr('MEDIA-backed', '由 MEDIA 托管') : tr('Legacy URL', '旧版图片链接')}</small>
               </div>
               {!card.media && (
                 <label className={styles.collectionUpload}>
-                  {busyKey === `media:${recordKey}` ? 'Registering…' : 'Register replacement in MEDIA'}
+                  {busyKey === `media:${recordKey}` ? tr('Registering…', '正在登记…') : tr('Register replacement in MEDIA', '将替换图片登记到 MEDIA')}
                   <input
                     type="file"
                     accept="image/png,image/jpeg,image/webp"
-                    aria-label={`Register a replacement image for ${card.actor} ${card.vibe}`}
+                    aria-label={tr(`Register a replacement image for ${card.actor} ${card.vibe}`, `为${actorLabel(card.actor, card.actorEn, card.actorId)}的${vibeLabel(card.vibe, card.vibeEn)}登记替换图片`)}
                     disabled={Boolean(busyKey) || Boolean(pendingRemoval)}
                     onChange={event => void registerCardMedia(event, card)}
                   />
@@ -1297,10 +1318,10 @@ export const Collection: React.FC<Props> = ({
                 <>
                   {!card.misprint && !card.legendaryMisprint && (
                     <details className={styles.misprintControls}>
-                      <summary>Mark Misprint</summary>
+                      <summary>{tr('Mark Misprint', '标记为误印')}</summary>
                       <div>
                       <label>
-                        Misprint reason
+                        {tr('Misprint reason', '误印原因')}
                         <select
                           value={misprintDraft.reason}
                           disabled={Boolean(busyKey) || Boolean(pendingRemoval)}
@@ -1313,17 +1334,17 @@ export const Collection: React.FC<Props> = ({
                           }))}
                         >
                           {MISPRINT_REASONS.map(reason => (
-                            <option key={reason.value} value={reason.value}>{reason.label}</option>
+                            <option key={reason.value} value={reason.value}>{misprintReasonLabel(reason.value, reason.label, locale)}</option>
                           ))}
                         </select>
                       </label>
                       {misprintDraft.reason === 'wrong_actor' && (
                         <label>
-                          Who wandered in?
+                          {tr('Who wandered in?', '哪位演员意外闯入了？')}
                           <input
                             value={misprintDraft.unexpectedIdentity}
                             maxLength={160}
-                            placeholder="Zhang Linghe"
+                            placeholder={tr('Zhang Linghe', '张凌赫')}
                             disabled={Boolean(busyKey) || Boolean(pendingRemoval)}
                             onChange={event => setMisprintDrafts(current => ({
                               ...current,
@@ -1336,11 +1357,11 @@ export const Collection: React.FC<Props> = ({
                         </label>
                       )}
                       <label>
-                        Curator note <span>(optional)</span>
+                        {tr('Curator note', '策展备注')} <span>({tr('optional', '可选')})</span>
                         <input
                           value={misprintDraft.note}
                           maxLength={400}
-                          placeholder={misprintReasonDefinition(misprintDraft.reason).description}
+                          placeholder={misprintReasonDescription(misprintDraft.reason, locale)}
                           disabled={Boolean(busyKey) || Boolean(pendingRemoval)}
                           onChange={event => setMisprintDrafts(current => ({
                             ...current,
@@ -1353,7 +1374,7 @@ export const Collection: React.FC<Props> = ({
                         disabled={Boolean(busyKey) || Boolean(pendingRemoval)}
                         onClick={() => void markCardMisprint(card, misprintDraft)}
                       >
-                        {busyKey === misprintKey ? 'Teaching curator…' : 'Preserve & teach curator'}
+                        {busyKey === misprintKey ? tr('Teaching curator…', '正在更新策展依据…') : tr('Preserve & teach curator', '保留并用于改进策展')}
                       </button>
                       </div>
                     </details>
@@ -1364,7 +1385,7 @@ export const Collection: React.FC<Props> = ({
                       disabled={Boolean(busyKey) || Boolean(pendingRemoval)}
                       onClick={() => void promoteCardMisprint(card)}
                     >
-                      {busyKey === `card-misprint:${recordKey}` ? 'Saving…' : 'Make Legendary'}
+                      {busyKey === `card-misprint:${recordKey}` ? tr('Saving…', '正在保存…') : tr('Make Legendary', '升级为传奇误印')}
                     </button>
                   )}
                   {card.legendaryMisprint && (
@@ -1373,7 +1394,7 @@ export const Collection: React.FC<Props> = ({
                       disabled={Boolean(busyKey) || Boolean(pendingRemoval)}
                       onClick={() => void removeLegendaryPromotion(card)}
                     >
-                      {busyKey === `card-misprint:${recordKey}` ? 'Saving…' : 'Remove Legendary'}
+                      {busyKey === `card-misprint:${recordKey}` ? tr('Saving…', '正在保存…') : tr('Remove Legendary', '取消传奇误印')}
                     </button>
                   )}
                 </>
@@ -1383,7 +1404,7 @@ export const Collection: React.FC<Props> = ({
                 disabled={Boolean(pendingRemoval)}
                 onClick={() => queueRemoval({ kind: 'card', record: card })}
               >
-                Remove
+                {tr('Remove', '移除')}
               </button>
             </article>
             );
@@ -1392,51 +1413,39 @@ export const Collection: React.FC<Props> = ({
       )}
       {pendingRemoval && (
         <div className={styles.undoToast} role="status" aria-live="polite">
-          <span>{pendingRemoval.kind === 'grid' ? 'Grid removed.' : 'Saved result removed.'}</span>
-          <button type="button" onClick={undoRemoval}>Undo</button>
+          <span>{pendingRemoval.kind === 'grid' ? tr('Grid removed.', '已移除网格。') : tr('Saved result removed.', '已移除单图收藏。')}</span>
+          <button type="button" onClick={undoRemoval}>{tr('Undo', '撤销')}</button>
         </div>
       )}
       {expandedArtifact?.kind === 'grid' && (
         <ArtifactZoomDialog
-          title={`${expandedArtifact.record.vibeEmoji} ${expandedArtifact.record.actor}`}
-          subtitle={`${expandedArtifact.record.vibe} · ${expandedArtifact.record.vibeEn}`}
-          images={expandedArtifact.record.images.map(image => ({ src: image.imageUrl, alt: image.title }))}
+          title={`${expandedArtifact.record.vibeEmoji} ${actorLabel(expandedArtifact.record.actor, expandedArtifact.record.actorEn, expandedArtifact.record.actorId)}`}
+          subtitle={vibeLabel(expandedArtifact.record.vibe, expandedArtifact.record.vibeEn)}
+          images={expandedArtifact.record.images.map(image => ({ src: image.imageUrl, alt: sourceCopy(image.title) }))}
           singleImage={Boolean(expandedArtifact.record.legacyCompositeUrl)}
           footer={(() => {
             const grid = expandedArtifact.record;
             const editionHref = historicalEditionHref(grid);
             const archiveSourceLinks = grid.images.flatMap((image, index) => image.archiveSource
-              ? [{
-                index,
-                date: image.archiveSource.date,
-                href: image.archiveSource.publicRecord.editionPath,
-              }]
+              ? [{ index, date: image.archiveSource.date, href: image.archiveSource.publicRecord.editionPath }]
               : []);
             const details = grid.legacyCompositeUrl
-              ? 'Legacy saved share card'
+              ? tr('Legacy saved share card', '旧版已保存分享卡')
               : `${grid.images.length} source results · ${grid.editorial
-                ? `${grid.editorial.mode === 'event' ? 'Event' : 'Compiled'} · ${grid.editorial.arrangement === 'creator-arranged' ? 'creator-arranged' : 'automatic'} · `
+                ? `${tr(grid.editorial.mode === 'event' ? 'Event' : 'Compiled', grid.editorial.mode === 'event' ? '单场造型' : '风格合辑')} · ${tr(grid.editorial.arrangement === 'creator-arranged' ? 'creator-arranged' : 'automatic', grid.editorial.arrangement === 'creator-arranged' ? '创作者编排' : '自动编排')} · `
                 : ''}${grid.rendererVersion}${grid.legendaryMisprint || grid.intent === 'legendary-misprint'
-                ? ` · Intentional Legendary Misprint · unexpected ${grid.legendaryMisprint?.unexpectedActor.name || grid.misprintMetadata?.unexpectedImageIdentities.join(', ') || 'identity recorded in provenance'}`
+                ? tr(` · Intentional Legendary Misprint · unexpected ${grid.legendaryMisprint?.unexpectedActor.name || grid.misprintMetadata?.unexpectedImageIdentities.join(', ') || 'identity recorded in provenance'}`, ` · 有意保留的传奇误印 · 意外身份：${grid.legendaryMisprint?.unexpectedActor.name || grid.misprintMetadata?.unexpectedImageIdentities.join('、') || '身份详见来源记录'}`)
                 : ''}`;
             return (
               <>
                 <span>{details}</span>
-                {editionHref && (
-                  <span className={styles.zoomEditionSource}>
-                    Historical Daily Drop ·{' '}
-                    <a href={editionHref}>{formatDate(grid.sourceProvenance!.editionDate!)}</a>
-                  </span>
-                )}
-                {archiveSourceLinks.length > 0 && (
-                  <nav className={styles.zoomArchiveSources} aria-label="Public Archive source editions">
-                    {archiveSourceLinks.map(source => (
-                      <a key={`${source.date}:${source.index}`} href={source.href}>
-                        Image {source.index + 1} · edition {formatDate(source.date)}
-                      </a>
-                    ))}
-                  </nav>
-                )}
+                {editionHref && <span className={styles.zoomEditionSource}>
+                  {tr('Historical Daily Drop · ', '历史每日卡组 · ')}
+                  <a href={editionHref}>{formatDate(grid.sourceProvenance!.editionDate!, locale)}</a>
+                </span>}
+                {archiveSourceLinks.length > 0 && <nav className={styles.zoomArchiveSources} aria-label={tr('Public Archive source editions', '公开典藏来源期次')}>
+                  {archiveSourceLinks.map(source => <a key={`${source.date}:${source.index}`} href={path(source.href)}>{tr(`Image ${source.index + 1} · edition ${formatDate(source.date)}`, `第 ${source.index + 1} 张 · ${formatDate(source.date, locale)}期`)}</a>)}
+                </nav>}
               </>
             );
           })()}
@@ -1447,26 +1456,26 @@ export const Collection: React.FC<Props> = ({
         <ArtifactZoomDialog
           title={expandedArtifact.record.contentKind === 'middle-earth-meme'
             ? `${expandedArtifact.record.vibeEmoji} ${expandedArtifact.record.title || expandedArtifact.record.vibe}`
-            : `${expandedArtifact.record.vibeEmoji} ${expandedArtifact.record.actor}`}
+            : `${expandedArtifact.record.vibeEmoji} ${actorLabel(expandedArtifact.record.actor, expandedArtifact.record.actorEn, expandedArtifact.record.actorId)}`}
           subtitle={expandedArtifact.record.contentKind === 'middle-earth-meme'
             ? expandedArtifact.record.memeRework
               ? `Middle-earth · ${expandedArtifact.record.actor} · MemeForge rework · original preserved`
               : `Middle-earth · ${expandedArtifact.record.actor} · ${expandedArtifact.record.resultId?.startsWith('generated-') ? 'reaction card' : 'saved as-is'}`
-            : `${expandedArtifact.record.vibe} · ${expandedArtifact.record.vibeEn}${expandedArtifact.record.legendaryMisprint
-              ? ` · Legendary Misprint: unexpected ${expandedArtifact.record.legendaryMisprint.unexpectedImageIdentity.label}`
+            : `${vibeLabel(expandedArtifact.record.vibe, expandedArtifact.record.vibeEn)}${expandedArtifact.record.legendaryMisprint
+              ? ` · ${tr('Legendary Misprint: unexpected ', '传奇误印：意外出现 ')}${sourceCopy(expandedArtifact.record.legendaryMisprint.unexpectedImageIdentity.label)}`
               : expandedArtifact.record.misprint
-                ? ` · Misprint: ${expandedArtifact.record.misprint.label}`
+                ? ` · ${tr('Misprint: ', '误印：')}${sourceCopy(expandedArtifact.record.misprint.label)}`
                 : ''}`}
           images={[{
             src: expandedArtifact.record.imageUrl || expandedArtifact.record.thumbnailUrl,
-            alt: expandedArtifact.record.title || `${expandedArtifact.record.actor} · ${expandedArtifact.record.vibe}`,
+            alt: sourceCopy(expandedArtifact.record.title || `${expandedArtifact.record.actor} · ${expandedArtifact.record.vibe}`),
           }]}
           singleImage
           footer={expandedArtifact.record.contentKind === 'middle-earth-meme'
             ? `${expandedArtifact.record.publisher || 'Publisher unknown'} · Rights status unknown · ${expandedArtifact.record.memeRework
               ? `Derivative of “${expandedArtifact.record.memeRework.original.title}” · `
-              : ''}${formatDate(expandedArtifact.record.capturedDate)}`
-            : formatDate(expandedArtifact.record.capturedDate)}
+              : ''}${formatDate(expandedArtifact.record.capturedDate, 'en')}`
+            : formatDate(expandedArtifact.record.capturedDate, locale)}
           onClose={() => setExpandedArtifact(null)}
         />
       )}
@@ -1480,6 +1489,11 @@ export const Collection: React.FC<Props> = ({
  * and account-scoped, so anonymous visitors are pointed at sign-in instead.
  */
 function GridPublishingHandoff({ grid }: { grid: GridRecord }) {
+  const { locale, t } = useLocale();
+  const tr = t;
+  const errorMessage = (error: unknown, english: string, chinese: string) => error instanceof Error
+    ? locale === 'zh-CN' && !/\p{Script=Han}/u.test(error.message) ? `英文原文错误：${error.message}` : error.message
+    : tr(english, chinese);
   const [expanded, setExpanded] = useState(false);
   const [busy, setBusy] = useState(false);
   const [notice, setNotice] = useState('');
@@ -1503,7 +1517,7 @@ function GridPublishingHandoff({ grid }: { grid: GridRecord }) {
   async function prepareHandoff() {
     if (busy) return;
     setBusy(true);
-    setNotice('Preparing the exact saved grid…');
+    setNotice(tr('Preparing the exact saved grid…', '正在准备完全一致的已保存网格…'));
     try {
       const starData = starDataFromCollectionGrid(grid);
       let renderedBlob: Blob | null = null;
@@ -1519,9 +1533,9 @@ function GridPublishingHandoff({ grid }: { grid: GridRecord }) {
         file: artifact.file,
         expiresAt: Date.now() + 120_000,
       });
-      setNotice('Handoff prepared for two minutes.');
+      setNotice(tr('Handoff prepared for two minutes.', '发布交接文件已准备好，有效期为两分钟。'));
     } catch (error) {
-      setNotice(messageFrom(error, 'The publishing handoff could not be prepared.'));
+      setNotice(errorMessage(error, 'The publishing handoff could not be prepared.', '无法准备发布交接文件。'));
     } finally {
       setBusy(false);
     }
@@ -1530,7 +1544,7 @@ function GridPublishingHandoff({ grid }: { grid: GridRecord }) {
   async function sharePrepared() {
     if (!prepared || prepared.expiresAt <= Date.now()) {
       setPrepared(null);
-      setNotice('This handoff expired. Prepare it again.');
+      setNotice(tr('This handoff expired. Prepare it again.', '交接文件已过期，请重新准备。'));
       return;
     }
     const shareData: ShareData = { files: [prepared.file] };
@@ -1539,25 +1553,25 @@ function GridPublishingHandoff({ grid }: { grid: GridRecord }) {
       || typeof navigator.canShare !== 'function'
       || !navigator.canShare(shareData)
     ) {
-      setNotice('Native file sharing is unavailable here. Use Download PNG.');
+      setNotice(tr('Native file sharing is unavailable here. Use Download PNG.', '此设备不支持原生文件分享，请使用「下载 PNG」。'));
       return;
     }
     try {
       await navigator.share(shareData);
-      setNotice('Share sheet closed. This does not prove publication.');
+      setNotice(tr('Share sheet closed. This does not prove publication.', '分享面板已关闭；这不代表内容已发布。'));
     } catch (error) {
       if (error instanceof DOMException && error.name === 'AbortError') {
-        setNotice('Sharing cancelled. Nothing was downloaded.');
+        setNotice(tr('Sharing cancelled. Nothing was downloaded.', '已取消分享，未下载文件。'));
         return;
       }
-      setNotice('Native sharing failed. Use Download PNG.');
+      setNotice(tr('Native sharing failed. Use Download PNG.', '原生分享失败，请使用「下载 PNG」。'));
     }
   }
 
   function downloadPrepared() {
     if (!prepared || prepared.expiresAt <= Date.now()) {
       setPrepared(null);
-      setNotice('This handoff expired. Prepare it again.');
+      setNotice(tr('This handoff expired. Prepare it again.', '交接文件已过期，请重新准备。'));
       return;
     }
     const link = document.createElement('a');
@@ -1566,32 +1580,32 @@ function GridPublishingHandoff({ grid }: { grid: GridRecord }) {
     document.body.appendChild(link);
     link.click();
     link.remove();
-    setNotice('PNG downloaded.');
+    setNotice(tr('PNG downloaded.', 'PNG 已下载。'));
   }
 
   return (
     <div className={styles.publishingHandoff}>
       <button type="button" onClick={() => setExpanded(current => !current)}>
-        {expanded ? 'Close handoff' : 'Handoff Publishing Grid'}
+        {expanded ? tr('Close handoff', '关闭发布交接') : tr('Handoff Publishing Grid', '准备发布网格')}
       </button>
       {expanded && (
         <div className={styles.publishingHandoffPanel}>
           <strong>RedNote</strong>
           {!prepared ? (
             <button type="button" onClick={() => void prepareHandoff()} disabled={busy}>
-              {busy ? 'Preparing…' : 'Prepare RedNote handoff'}
+              {busy ? tr('Preparing…', '正在准备…') : tr('Prepare RedNote handoff', '准备小红书发布')}
             </button>
           ) : (
             <div className={styles.publishingHandoffActions}>
-              <button type="button" onClick={() => void sharePrepared()}>Share to device</button>
-              <button type="button" onClick={downloadPrepared}>Download PNG</button>
+              <button type="button" onClick={() => void sharePrepared()}>{tr('Share to device', '分享到设备')}</button>
+              <button type="button" onClick={downloadPrepared}>{tr('Download PNG', '下载 PNG')}</button>
               <a href="https://creator.rednote.com/publish/publish" target="_blank" rel="noreferrer">
-                Open RedNote
+                {tr('Open RedNote', '打开小红书')}
               </a>
             </div>
           )}
-          <span>Weibo · Instagram · Facebook — coming next</span>
-          <small>Opening RedNote or closing the share sheet does not prove publication.</small>
+          <span>{tr('Weibo · Instagram · Facebook — coming next', '微博 · Instagram · Facebook — 后续推出')}</span>
+          <small>{tr('Opening RedNote or closing the share sheet does not prove publication.', '打开小红书或关闭分享面板，都不能证明内容已经发布。')}</small>
           {notice && <p role="status">{notice}</p>}
         </div>
       )}
@@ -1609,6 +1623,8 @@ function GridExportHistory({
   signedIn: boolean;
   refreshRevision: number;
 }) {
+  const { locale, t } = useLocale();
+  const tr = t;
   const [entries, setEntries] = useState<PersistedExportEntry[] | null>(null);
   const [historyError, setHistoryError] = useState('');
   const [loadingHistory, setLoadingHistory] = useState(false);
@@ -1625,7 +1641,9 @@ function GridExportHistory({
       if (historyRequestRef.current === requestId) setEntries(nextEntries);
     } catch (error) {
       if (historyRequestRef.current === requestId) {
-        setHistoryError(messageFrom(error, 'Export history could not be loaded.'));
+          setHistoryError(error instanceof Error
+            ? locale === 'zh-CN' && !/\p{Script=Han}/u.test(error.message) ? `英文原文错误：${error.message}` : error.message
+            : tr('Export history could not be loaded.', '无法加载导出记录。'));
       }
     } finally {
       if (historyRequestRef.current === requestId) setLoadingHistory(false);
@@ -1644,12 +1662,12 @@ function GridExportHistory({
       className={styles.exportHistory}
       onToggle={event => { if ((event.target as HTMLDetailsElement).open) void loadHistory(); }}
     >
-      <summary>Past exports</summary>
-      {loadingHistory && <span className={styles.exportHistoryNote}>Loading export history…</span>}
+      <summary>{tr('Past exports', '过往导出')}</summary>
+      {loadingHistory && <span className={styles.exportHistoryNote}>{tr('Loading export history…', '正在加载导出记录…')}</span>}
       {historyError && <span className={styles.exportHistoryNote} role="alert">{historyError}</span>}
       {entries && entries.length === 0 && (
         <span className={styles.exportHistoryNote}>
-          No stored exports yet — export this grid and the rendered card will be kept here.
+          {tr('No stored exports yet — export this grid and the rendered card will be kept here.', '还没有保存的导出文件。导出此网格后，生成的图片会保存在这里。')}
         </span>
       )}
       {entries && entries.length > 0 && (
@@ -1657,12 +1675,12 @@ function GridExportHistory({
           {[...entries].reverse().map(entry => (
             <li key={entry.exportId}>
               <span>
-                {formatDate(entry.exportedAt.slice(0, 10))}
-                {' · '}{exportVariantLabel(entry.variant)}
-                {entry.tier && entry.tier !== 'standard' ? ` · ${entry.tier}` : ''}
+                {formatDate(entry.exportedAt.slice(0, 10), locale)}
+                {' · '}{exportVariantLabel(entry.variant, locale)}
+                {entry.tier && entry.tier !== 'standard' ? ` · ${locale === 'zh-CN' ? `英文原文：${entry.tier}` : entry.tier}` : ''}
               </span>
               <a href={exportDownloadUrl(gridId, entry.exportId)} download>
-                Re-download
+                {tr('Re-download', '重新下载')}
               </a>
             </li>
           ))}
@@ -1672,7 +1690,9 @@ function GridExportHistory({
   );
 }
 
-function exportVariantLabel(variant: ExportVariant): string {
+function exportVariantLabel(variant: ExportVariant, locale: string = 'en'): string {
+  if (locale === 'zh-CN' && variant === 'master') return 'Master 导出';
+  if (locale === 'zh-CN' && variant === 'standard') return '标准导出';
   if (variant === 'master') return 'Master';
   if (variant === 'standard') return 'Standard';
   return variant;
@@ -1738,13 +1758,9 @@ function readFileAsDataUrl(file: File): Promise<string> {
   });
 }
 
-function formatDate(value: string): string {
-  return new Intl.DateTimeFormat('en', { month: 'short', day: 'numeric', year: 'numeric' })
+function formatDate(value: string, locale: string = 'en'): string {
+  return new Intl.DateTimeFormat(locale === 'zh-CN' ? 'zh-CN' : 'en-US', { month: 'short', day: 'numeric', year: 'numeric' })
     .format(new Date(`${value}T12:00:00`));
-}
-
-function messageFrom(error: unknown, fallback: string): string {
-  return error instanceof Error ? error.message : fallback;
 }
 
 function mediaClassificationLabel(
@@ -1753,4 +1769,45 @@ function mediaClassificationLabel(
   if (classification === 'legacy-composite') return 'legacy composite';
   if (classification === 'media-backed') return 'MEDIA-backed asset';
   return 'URL-only image';
+}
+
+function mediaClassificationLabelZh(
+  classification: ReturnType<typeof classifyCollectionMedia>,
+): string {
+  if (classification === 'legacy-composite') return '旧版拼接图';
+  if (classification === 'media-backed') return 'MEDIA 托管资源';
+  return '仅有图片链接';
+}
+
+function misprintReasonLabel(reason: MisprintReason, english: string, locale: string): string {
+  if (locale !== 'zh-CN') return english;
+  const labels: Record<MisprintReason, string> = {
+    wrong_actor: '别的演员跑来啦',
+    wrong_vibe: '是他本人，氛围却不对',
+    query_mismatch: '搜索词跑偏了',
+    misleading_metadata: '元数据说法不可信',
+    composite_or_collage: '九个人挤在一件风衣里',
+    bad_asset: '图片出了问题',
+    duplicate: '同一位演员，同一张照片',
+    ranking_bug: '机器开始犯迷糊',
+    other: '其他误印',
+  };
+  return labels[reason] || english;
+}
+
+function misprintReasonDescription(reason: MisprintReason, locale: string): string {
+  const english = misprintReasonDefinition(reason).description;
+  if (locale !== 'zh-CN') return english;
+  const descriptions: Record<MisprintReason, string> = {
+    wrong_actor: '不是这位演员。请阻止此图片出现在当前演员的素材中。',
+    wrong_vibe: '演员没错，但氛围不对。只排除此演员 × 氛围组合中的这张图。',
+    query_mismatch: '搜索词跑偏了。移除此结果，但保留搜索记录。',
+    misleading_metadata: '元数据中的说法不可靠，请降低对这条证据的信任。',
+    composite_or_collage: '拼接图或合照。请在所有地方隔离此资源。',
+    bad_asset: '图片损坏、过小或无法使用。请在所有地方隔离此资源。',
+    duplicate: '当前网格中的重复图片。替换它，不改变身份判断。',
+    ranking_bug: '产品或排序问题。保留工程证据，不作为审美校准。',
+    other: '仅在本地移除此图片，并保留说明，不影响其他内容。',
+  };
+  return descriptions[reason] || english;
 }

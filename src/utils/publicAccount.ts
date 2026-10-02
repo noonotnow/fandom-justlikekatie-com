@@ -1,4 +1,5 @@
 import { PUBLIC_ROUTE_PATHS } from '../../shared/public-routes.js';
+import { getLocale, localizedPath, stripLocalePath } from '../../shared/locale.js';
 import {
   dbApplySyncResponse,
   dbBuildCardSyncRequest,
@@ -15,6 +16,56 @@ import {
   dbSetMergeDecision,
 } from './collectionDB';
 import { uploadCollectionImage } from './collectionMedia';
+import { trackEvent } from './analytics';
+
+type DeletionKind = 'card' | 'grid';
+type CollectionScope = 'vibe-atlas' | 'middle-earth';
+
+function trackDeletionConflict(
+  event: 'collection_deletion_conflict_discovered' | 'collection_deletion_conflict_resolved',
+  kind: DeletionKind,
+  scope: CollectionScope,
+  decision?: 'restore' | 'discard',
+): void {
+  trackEvent(event, { kind, scope, ...(decision ? { decision } : {}) });
+}
+
+async function conflictScope(accountId: string, kind: DeletionKind, localId: string): Promise<CollectionScope> {
+  // Grids are Vibe Atlas artifacts; MemeForge saves are cards.
+  if (kind === 'grid') return 'vibe-atlas';
+  const card = (await dbGetVisibleCards(accountId)).find(item => item.localId === localId);
+  if (!card) throw new Error('This saved copy is no longer on this device.');
+  return collectionScopeForCard(card);
+}
+
+async function applySyncResponseWithConflictAnalytics(
+  ...args: Parameters<typeof dbApplySyncResponse>
+): Promise<void> {
+  const accountId = args[0];
+  let before: Record<string, DeletionKind> | undefined;
+  try {
+    before = (await dbGetSyncState()).remoteDeletionConflictsByAccount?.[accountId] || {};
+  } catch {
+    // Reconciliation must still run when an optional analytics read fails.
+  }
+  await dbApplySyncResponse(...args);
+  if (!before) return;
+  // Analytics reads must never turn a completed sync into an apparent failure.
+  try {
+    const after = (await dbGetSyncState()).remoteDeletionConflictsByAccount?.[accountId] || {};
+    const newConflicts = Object.entries(after).filter(([localId]) => !before[localId]);
+    if (!newConflicts.length) return;
+    const cards = await dbGetVisibleCards(accountId);
+    for (const [localId, kind] of newConflicts) {
+      const card = kind === 'card' ? cards.find(item => item.localId === localId) : undefined;
+      if (kind === 'card' && !card) continue;
+      const scope = card ? collectionScopeForCard(card) : 'vibe-atlas';
+      trackDeletionConflict('collection_deletion_conflict_discovered', kind, scope);
+    }
+  } catch {
+    // A missing or unreadable local record must not break reconciliation.
+  }
+}
 
 export interface PublicUser {
   accountId: string;
@@ -35,7 +86,8 @@ export async function getPublicSession(): Promise<PublicUser | null> {
 }
 
 export async function requestMagicLink(email: string, next?: string): Promise<string> {
-  const response = await postJson('/api/auth/magic-link', { email, ...(next ? { next } : {}) });
+  const requestBody = { email, ...(next ? { next } : {}) };
+  const response = await postJson('/api/auth/magic-link', { ...requestBody, locale: getLocale() });
   const body = await response.json();
   if (!response.ok) throw new Error(body.error || 'Could not send the sign-in link.');
   return body.message;
@@ -49,32 +101,37 @@ export async function requestMagicLink(email: string, next?: string): Promise<st
 export async function consumeMagicLinkFromLocation(): Promise<
   'admin' | 'collection' | 'membership' | `archive:${string}` | false
 > {
-  if (window.location.pathname !== '/auth/verify') return false;
+  if (stripLocalePath(window.location.pathname) !== '/auth/verify') return false;
   const fragment = window.location.hash.slice(1);
   const params = new URLSearchParams(fragment);
   const token = params.get('token');
   const next = params.get('next');
+  const requestedLocale = params.get('locale');
+  const locale = getLocale(
+    window.location.pathname,
+    requestedLocale === 'en' || requestedLocale === 'zh-CN' ? requestedLocale : undefined,
+  );
   const archiveDate = next?.match(/^archive:(\d{4}-\d{2}-\d{2})$/)?.[1];
   try {
     decodeURIComponent(fragment.replace(/\+/g, '%20'));
   } catch {
-    replaceCallbackHistoryWithCollection();
+    replaceCallbackHistoryWithCollection(locale);
     throw new Error('This sign-in link is damaged. Request a new link and try again.');
   }
   if (!token) {
-    replaceCallbackHistoryWithCollection();
+    replaceCallbackHistoryWithCollection(locale);
     throw new Error('This sign-in link is incomplete. Request a new link and try again.');
   }
   window.history.replaceState(
     {},
     '',
-    next === 'plan' || next === 'admin'
+    localizedPath(next === 'plan' || next === 'admin'
       ? `${PUBLIC_ROUTE_PATHS.vibeAtlas}?admin=true`
       : archiveDate
         ? `${PUBLIC_ROUTE_PATHS.vibeAtlas}?date=${encodeURIComponent(archiveDate)}`
       : next === 'membership'
         ? `${PUBLIC_ROUTE_PATHS.vibeAtlas}?view=membership`
-        : `${PUBLIC_ROUTE_PATHS.vibeAtlas}?view=collection`,
+        : `${PUBLIC_ROUTE_PATHS.vibeAtlas}?view=collection`, locale),
   );
   const response = await postJson('/api/auth/verify', { token });
   if (!response.ok) throw new Error((await response.json()).error || 'The sign-in link could not be used.');
@@ -83,8 +140,12 @@ export async function consumeMagicLinkFromLocation(): Promise<
   return next === 'plan' || next === 'admin' ? 'admin' : next === 'membership' ? 'membership' : 'collection';
 }
 
-function replaceCallbackHistoryWithCollection(): void {
-  window.history.replaceState({}, '', `${PUBLIC_ROUTE_PATHS.vibeAtlas}?view=collection`);
+function replaceCallbackHistoryWithCollection(locale: 'en' | 'zh-CN'): void {
+  window.history.replaceState(
+    {},
+    '',
+    localizedPath(`${PUBLIC_ROUTE_PATHS.vibeAtlas}?view=collection`, locale),
+  );
 }
 
 export async function logoutPublicAccount(user: PublicUser): Promise<void> {
@@ -118,7 +179,9 @@ export async function resolvePublicCollectionDeletion(
   const run = async () => {
     const session = await getPublicSession();
     if (session?.accountId !== user.accountId) throw new Error('The active account changed. Refresh before resolving this copy.');
+    const scope = await conflictScope(user.accountId, kind, localId);
     await dbResolveRemoteDeletion(user.accountId, kind, localId, decision);
+    trackDeletionConflict('collection_deletion_conflict_resolved', kind, scope, decision);
   };
   if (navigator.locks) await navigator.locks.request('fandom-collection-sync', run);
   else await run();
@@ -138,14 +201,14 @@ export async function syncPublicCollection(user: PublicUser): Promise<void> {
       const response = await postJson('/api/collection/sync', { ...probe, operations: [] });
       const body = await response.json();
       if (!response.ok) throw new Error(body.error || 'Collection reconciliation failed.');
-      await dbApplySyncResponse(user.accountId, body, [], legacyCandidates);
+       await applySyncResponseWithConflictAnalytics(user.accountId, body, [], legacyCandidates);
     }
     for (let batch = 0; batch < 100; batch += 1) {
       const payload = await dbBuildSyncRequest(user.accountId, session.isAdmin === true);
       const response = await postJson('/api/collection/sync', payload);
       const body = await response.json();
       if (!response.ok) throw new Error(body.error || 'Collection sync failed.');
-      await dbApplySyncResponse(user.accountId, body, payload.operations);
+       await applySyncResponseWithConflictAnalytics(user.accountId, body, payload.operations);
       if (payload.operations.length === 0) break;
       if (batch === 99) throw new Error('Collection sync exceeded the safe batch limit.');
     }
@@ -167,7 +230,7 @@ export async function syncPublicGrid(user: PublicUser, gridId: string): Promise<
     const response = await postJson('/api/collection/sync', payload);
     const body = await response.json();
     if (!response.ok) throw new Error(body.error || 'Selected grid sync failed.');
-    await dbApplySyncResponse(user.accountId, body, payload.operations);
+    await applySyncResponseWithConflictAnalytics(user.accountId, body, payload.operations);
     notifyCollection('synced');
   };
   if (navigator.locks) {
@@ -186,7 +249,7 @@ export async function syncPublicCard(user: PublicUser, imageUrl: string): Promis
     const response = await postJson('/api/collection/sync', payload);
     const body = await response.json();
     if (!response.ok) throw new Error(body.error || 'Selected image sync failed.');
-    await dbApplySyncResponse(user.accountId, body, payload.operations);
+    await applySyncResponseWithConflictAnalytics(user.accountId, body, payload.operations);
     notifyCollection('synced');
   };
   if (navigator.locks) {

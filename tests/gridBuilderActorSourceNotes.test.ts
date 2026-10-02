@@ -17,7 +17,11 @@ test('actor source notes stay actor-scoped and Collector-gated in the Builder', 
   assert.match(source, /new URLSearchParams\(\{ actorId: selectedActorPackId \}\)/);
   assert.match(source, /if \(!hasCollectorAccess \|\| !selectedActorPackId/);
   assert.match(source, /credentials: 'include'/);
-  assert.match(source, /Source: \{sourceNotes\.provenance\.attribution\}/);
+  assert.match(
+    source,
+    /tr\('Source: ', '来源：'\)\}\{builderSourceLabel\(sourceNotes\.provenance\.attribution, locale\)\}/,
+    'the attribution remains visible with a Chinese source label while the original value is preserved',
+  );
 });
 
 test('saved cards preserve the canonical actor-pack id used by the depth request', () => {

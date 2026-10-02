@@ -4,7 +4,9 @@ import {
   PUBLIC_ORIGIN,
   PUBLIC_STATIC_ROUTES,
 } from '../../shared/public-routes.js';
+import { checkRenderedHomepageGuides, prepareGuideSmokeContext } from '../../scripts/check-homepage-guides.js';
 import {
+  BROWSER_ENGINES,
   closeBrowserAndServer,
   gotoTestPage,
   launchBrowserWithServer,
@@ -200,6 +202,44 @@ test('Daily and Archive UI and history navigation keeps one registered canonical
   }
 });
 
+test('the post-release guide smoke check follows the rendered menu to all four static pages', { timeout: 60_000 }, async () => {
+  const [{ server, origin }, browser] = await launchBrowserWithServer(startViteTestServer());
+  try {
+    await checkRenderedHomepageGuides(browser, origin);
+  } finally {
+    await closeBrowserAndServer(browser, server);
+  }
+});
+
+test('the guide smoke browser blocks pilot writes even from a script without internal opt-out', { timeout: 60_000 }, async () => {
+  const [{ server }, browser] = await launchBrowserWithServer(startViteTestServer());
+  const context = await browser.newContext();
+  try {
+    await prepareGuideSmokeContext(context);
+    await context.route('https://legacy.example.test/', route => route.fulfill({
+      contentType: 'text/html',
+      body: `<script>
+        fetch('/.netlify/functions/log-engagement', {method: 'POST'})
+          .then(() => { window.pilotWriteSucceeded = true; })
+          .catch(() => { window.pilotWriteFailed = true; });
+      </script>`,
+    }));
+    const page = await context.newPage();
+    await gotoTestPage(
+      page,
+      'https://legacy.example.test/',
+      undefined,
+      async () => new Response('legacy fixture', { status: 200 }),
+    );
+    await page.waitForFunction(() => (window as any).pilotWriteFailed === true);
+    assert.equal(await page.evaluate(() => localStorage.getItem('companion-pilot-internal')), '1');
+    assert.equal(await page.evaluate(() => (window as any).pilotWriteSucceeded), undefined);
+  } finally {
+    await context.close();
+    await closeBrowserAndServer(browser, server);
+  }
+});
+
 test('public menus retain reachable destinations, keyboard dismissal, history and compact layouts', { timeout: 60_000 }, async () => {
   const [{ server, origin }, browser] = await launchBrowserWithServer(startViteTestServer());
   try {
@@ -235,7 +275,7 @@ test('public menus retain reachable destinations, keyboard dismissal, history an
 
       await gotoTestPage(page, `${origin}/vibe-atlas`, { waitUntil: 'domcontentloaded' });
       const nav = page.getByRole('navigation', { name: 'Fandom Vibes navigation' });
-      const today = nav.getByRole('button', { name: '今日之星 · Daily' });
+      const today = nav.getByRole('button', { name: 'Daily drop' });
       const collection = nav.getByRole('button', { name: 'Your Collection · Saved Grids and Grid Builder' });
       const explore = nav.getByRole('button', { name: 'Explore', exact: false });
       assert.equal(await today.getAttribute('aria-current'), 'page');
@@ -285,6 +325,74 @@ test('public menus retain reachable destinations, keyboard dismissal, history an
     await closeBrowserAndServer(browser, server);
   }
 });
+
+for (const engine of BROWSER_ENGINES.filter(({ id }) => id === 'firefox' || id === 'webkit')) {
+  test(`homepage guide disclosure stays keyboard and pointer accessible in ${engine.name}`, { timeout: 90_000 }, async () => {
+    const [{ server, origin }, browser] = await launchBrowserWithServer(startViteTestServer(), engine.type);
+    try {
+      for (const width of [1280, 390]) {
+        const page = await browser.newPage({ viewport: { width, height: 800 } });
+        page.setDefaultTimeout(8_000);
+        page.setDefaultNavigationTimeout(15_000);
+        await page.route('https://www.googletagmanager.com/**', route => route.abort());
+        await gotoTestPage(page, origin, { waitUntil: 'domcontentloaded' });
+
+        const guide = page.getByRole('navigation', { name: 'Explore C-drama fandom' });
+        const more = guide.getByRole('button', { name: /More guides/ });
+        await more.focus();
+        await page.keyboard.press('Enter');
+        assert.equal(await more.getAttribute('aria-expanded'), 'true', `${engine.name} ${width}px: Enter opens the menu`);
+
+        for (const [name, href] of [
+          ['Glossary (English)', '/c-drama-fandom/glossary/'],
+          ['Archetypes (English)', '/c-drama-fandom/archetypes/'],
+          ['Veteran journal (English)', '/c-drama-fandom/watch-journal/'],
+          ['Vibing Now (English)', '/c-drama-fandom/vibing-now/'],
+        ]) {
+          await page.keyboard.press('Tab');
+          const link = guide.getByRole('link', { name, exact: true });
+          assert.equal(await link.evaluate(el => el === document.activeElement), true, `${engine.name} ${width}px: ${name} receives keyboard focus`);
+          assert.equal(await link.getAttribute('href'), href);
+        }
+
+        await page.keyboard.press('Escape');
+        assert.equal(await more.getAttribute('aria-expanded'), 'false', `${engine.name} ${width}px: Escape closes the menu`);
+        assert.equal(await more.evaluate(el => el === document.activeElement), true, `${engine.name} ${width}px: Escape returns focus`);
+        await page.keyboard.press(' ');
+        assert.equal(await more.getAttribute('aria-expanded'), 'true', `${engine.name} ${width}px: Space reopens the menu`);
+        await page.keyboard.press('Tab');
+        await page.keyboard.press('Enter');
+        await page.waitForURL(`${origin}/c-drama-fandom/glossary/`);
+
+        await gotoTestPage(page, origin, { waitUntil: 'domcontentloaded' });
+        await more.click();
+        assert.equal(await more.getAttribute('aria-expanded'), 'true');
+        await more.click();
+        assert.equal(await more.getAttribute('aria-expanded'), 'false', `${engine.name} ${width}px: trigger click toggles the menu`);
+        await more.click();
+        await page.getByRole('heading', { name: /Build a world/ }).click();
+        assert.equal(await more.getAttribute('aria-expanded'), 'false', `${engine.name} ${width}px: outside pointer closes the menu`);
+
+        if (width === 390) {
+          assert.equal(
+            await page.evaluate(() => document.documentElement.scrollWidth <= innerWidth),
+            true,
+            `${engine.name}: homepage must not overflow horizontally at phone width`,
+          );
+          await more.click();
+          assert.equal(
+            await page.evaluate(() => document.documentElement.scrollWidth <= innerWidth),
+            true,
+            `${engine.name}: open guide menu must not overflow horizontally at phone width`,
+          );
+        }
+        await page.close();
+      }
+    } finally {
+      await closeBrowserAndServer(browser, server);
+    }
+  });
+}
 
 test('app-rendered canonical validation rejects conflicting indexing signals', async (t) => {
   const route: AppRenderedRoute = { path: '/vibe-atlas' };

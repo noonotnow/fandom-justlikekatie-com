@@ -4,6 +4,10 @@
  */
 
 import type { StarOfDayData, RankedBatch } from '../hooks/useStarOfDay';
+import { getLocale, translate } from '../i18n/locale';
+
+const EXPORT_FONT_STACK = '"Inter", "Noto Sans SC", sans-serif';
+const CJK_FONT_SAMPLE = '氛围图鉴今日之星爱情故事，来源（原始记录）';
 
 // ── Canvas dimensions ──────────────────────────────────────────────
 const EXPORT_CARD_W = 1080;
@@ -81,17 +85,37 @@ const MICRO_COPY_LINES = [
   '氛围不散，磕学不止',
   'made with love and mild obsession',
 ];
+const MICRO_COPY_LINES_ZH = [
+  '今日也为心动的你认真留证',
+  '收好这一格，下一集再来认领',
+  '氛围已存档，心跳不归档',
+  '本日限定，明日重新心动',
+  '九张证据，足够再看一遍',
+  '这不是嗑糖，是严谨的现场勘查',
+];
 const MISPRINT_MICRO_COPY_LINES = [
   'Rare misprint detected.',
   'This edition escaped quality control.',
   'Known collector anomaly.',
   'The grid was haunted at export time.',
 ];
+const MISPRINT_MICRO_COPY_LINES_ZH = [
+  '罕见错版：证据不全，心动倒是真的',
+  '这一版溜过了质检，但没溜过你',
+  '已记录：现场略有异常，建议收藏',
+  '谁在导出时偷偷加了点命运感？',
+];
 const LEGENDARY_MICRO_COPY_LINES = [
   'Not reproducible. Deeply memorable.',
   'A relic from the unstable era.',
   'Collectors still speak of this batch in hushed tones.',
   'Too wrong to discard. Too iconic to ignore.',
+];
+const LEGENDARY_MICRO_COPY_LINES_ZH = [
+  '不可复现，但很难忘',
+  '来自不稳定年代的一件遗物',
+  '老藏家说起这一批，声音都会放轻',
+  '错得离谱，也经典得离谱',
 ];
 
 // ── Fallback-ladder depth per search provider ──────────────────────
@@ -197,13 +221,53 @@ function drawCoverImageRounded(
   ctx.restore();
 }
 
-function wrapCanvasText(ctx: CanvasRenderingContext2D, text: string, maxWidth: number): string[] {
+const CJK_CLOSING_PUNCTUATION = /^[，。、；：？！）》」』】〕〉》〗〙〛’”」〞’﹚﹜﹞％℃]/u;
+const CJK_OPENING_PUNCTUATION = /[（《「『【〔〈《〖〘〚‘“﹙﹛﹝]$/u;
+const CJK_SEGMENTER = new Intl.Segmenter('zh-CN', { granularity: 'grapheme' });
+
+function splitCanvasTextToken(
+  ctx: CanvasRenderingContext2D,
+  token: string,
+  maxWidth: number,
+): string[] {
+  const lines: string[] = [];
+  let current = '';
+  for (const { segment } of CJK_SEGMENTER.segment(token)) {
+    if (!current) {
+      current = segment;
+      continue;
+    }
+    if (CJK_CLOSING_PUNCTUATION.test(segment)) {
+      current += segment;
+      continue;
+    }
+    if (ctx.measureText(current + segment).width > maxWidth) {
+      const line = current.trimEnd();
+      if (CJK_OPENING_PUNCTUATION.test(line)) {
+        const graphemes = Array.from(CJK_SEGMENTER.segment(line), part => part.segment);
+        const opening = graphemes.pop() || '';
+        const prefix = graphemes.join('').trimEnd();
+        if (prefix) lines.push(prefix);
+        current = opening + segment;
+      } else {
+        lines.push(line);
+        current = segment;
+      }
+    } else {
+      current += segment;
+    }
+  }
+  if (current) lines.push(current.trimEnd());
+  return lines;
+}
+
+export function wrapCanvasText(ctx: CanvasRenderingContext2D, text: string, maxWidth: number): string[] {
   if (!text) return [];
   const tokens: string[] = [];
   let grouped = '';
   let groupType = '';
-  for (const { segment } of new Intl.Segmenter(undefined, { granularity: 'grapheme' }).segment(text)) {
-    const type = /^[\u3000-\u9fff\uff00-\uffef]/u.test(segment)
+  for (const { segment } of CJK_SEGMENTER.segment(text)) {
+    const type = /[\p{Script=Han}\p{Script=Hiragana}\p{Script=Katakana}\u3000-\u303f\uff00-\uffef]/u.test(segment)
       ? 'cjk'
       : /^\s+$/u.test(segment) ? 'space' : 'word';
     if (type === 'cjk' || (grouped && type !== groupType)) {
@@ -211,7 +275,19 @@ function wrapCanvasText(ctx: CanvasRenderingContext2D, text: string, maxWidth: n
       grouped = '';
     }
     if (type === 'cjk') {
-      tokens.push(segment);
+      if (CJK_CLOSING_PUNCTUATION.test(segment) && tokens.length) {
+        const lastIndex = tokens.length - 1;
+        if (/^\s+$/u.test(tokens[lastIndex]) && lastIndex > 0) {
+          tokens[lastIndex - 1] += tokens[lastIndex] + segment;
+          tokens.pop();
+        } else if (!/^\s+$/u.test(tokens[lastIndex])) {
+          tokens[lastIndex] += segment;
+        } else {
+          tokens.push(segment);
+        }
+      } else {
+        tokens.push(segment);
+      }
     } else {
       grouped += segment;
     }
@@ -220,17 +296,54 @@ function wrapCanvasText(ctx: CanvasRenderingContext2D, text: string, maxWidth: n
   if (grouped) tokens.push(grouped);
   const lines: string[] = [];
   let current = '';
-  tokens.forEach((tok) => {
+  const breakableTokens = tokens.flatMap(token =>
+    ctx.measureText(token).width > maxWidth
+      ? splitCanvasTextToken(ctx, token, maxWidth)
+      : [token],
+  );
+  breakableTokens.forEach((tok) => {
     const candidate = current + tok;
     if (current && ctx.measureText(candidate).width > maxWidth) {
-      lines.push(current.trim());
-      current = tok;
+      if (CJK_CLOSING_PUNCTUATION.test(tok)) {
+        const graphemes = Array.from(CJK_SEGMENTER.segment(current.trimEnd()), part => part.segment);
+        const last = graphemes[graphemes.length - 1] || '';
+        const prefix = graphemes.slice(0, -1).join('').trimEnd();
+        if (prefix && /[\p{Script=Han}\p{Script=Hiragana}\p{Script=Katakana}]/u.test(last)) {
+          lines.push(prefix);
+          current = last + tok;
+          return;
+        }
+      }
+      const line = current.trimEnd();
+      if (CJK_OPENING_PUNCTUATION.test(line)) {
+        const graphemes = Array.from(CJK_SEGMENTER.segment(line), part => part.segment);
+        const opening = graphemes.pop() || '';
+        lines.push(graphemes.join('').trimEnd());
+        current = opening + tok;
+      } else {
+        lines.push(line);
+        current = tok;
+      }
     } else {
       current = candidate;
     }
   });
   if (current.trim()) lines.push(current.trim());
   return lines;
+}
+
+function boundedWrappedLines(
+  ctx: CanvasRenderingContext2D,
+  text: string,
+  maxWidth: number,
+  maxLines: number,
+): string[] {
+  const wrapped = wrapCanvasText(ctx, text, maxWidth);
+  if (wrapped.length <= maxLines) return wrapped;
+  const visible = wrapped.slice(0, maxLines);
+  const last = visible.length - 1;
+  visible[last] = truncateCanvasText(ctx, `${visible[last]}…`, maxWidth);
+  return visible;
 }
 
 export function truncateCanvasText(
@@ -240,7 +353,7 @@ export function truncateCanvasText(
 ): string {
   if (ctx.measureText(text).width <= maxWidth) return text;
   const ellipsis = '…';
-  const graphemes = Array.from(new Intl.Segmenter(undefined, { granularity: 'grapheme' }).segment(text), segment => segment.segment);
+  const graphemes = Array.from(CJK_SEGMENTER.segment(text), segment => segment.segment);
   let low = 0;
   let high = graphemes.length;
   while (low < high) {
@@ -254,6 +367,28 @@ export function truncateCanvasText(
   return graphemes.slice(0, low).join('').trimEnd() + ellipsis;
 }
 
+function truncateCanvasTextWithSuffix(
+  ctx: CanvasRenderingContext2D,
+  text: string,
+  suffix: string,
+  maxWidth: number,
+): string {
+  if (ctx.measureText(text + suffix).width <= maxWidth) return text + suffix;
+  const graphemes = Array.from(CJK_SEGMENTER.segment(text), part => part.segment);
+  let low = 0;
+  let high = graphemes.length;
+  while (low < high) {
+    const mid = Math.ceil((low + high) / 2);
+    const candidate = graphemes.slice(0, mid).join('').trimEnd() + '…' + suffix;
+    if (ctx.measureText(candidate).width <= maxWidth) low = mid;
+    else high = mid - 1;
+  }
+  const result = graphemes.slice(0, low).join('').trimEnd() + '…' + suffix;
+  return ctx.measureText(result).width <= maxWidth
+    ? result
+    : truncateCanvasText(ctx, suffix, maxWidth);
+}
+
 function boundedCreditLines(
   ctx: CanvasRenderingContext2D,
   text: string,
@@ -265,14 +400,25 @@ function boundedCreditLines(
     return wrapped;
   }
   const firstLine = truncateCanvasText(ctx, wrapped[0] || text, maxWidth);
-  const remainder = wrapped.slice(1).join(' ')
-    .replace(trailingText, '')
+  const wrappedRemainder = wrapped.slice(1).join(' ');
+  const remainderWithoutSuffix = trailingText && wrappedRemainder.endsWith(trailingText)
+    ? wrappedRemainder.slice(0, -trailingText.length)
+    : wrappedRemainder;
+  const remainder = remainderWithoutSuffix
     .replace(/[·\s]+$/, '')
     .trim();
-  if (!remainder) return [firstLine];
+  if (!remainder) {
+    return trailingText && wrapped.length > 1
+      ? [firstLine, truncateCanvasText(ctx, ` · ${trailingText}`, maxWidth)]
+      : [firstLine];
+  }
   const suffix = trailingText ? ` · ${trailingText}` : '';
-  const remainderWidth = maxWidth - ctx.measureText(suffix).width;
-  return [firstLine, truncateCanvasText(ctx, remainder, remainderWidth) + suffix];
+  return [
+    firstLine,
+    suffix
+      ? truncateCanvasTextWithSuffix(ctx, remainder, suffix, maxWidth)
+      : truncateCanvasText(ctx, remainder, maxWidth),
+  ];
 }
 
 function sourceCreditLines(
@@ -280,8 +426,9 @@ function sourceCreditLines(
   sourceNames: string[],
   maxWidth: number,
 ): string[] {
-  const suffix = 'Vibe Atlas · sRGB';
-  const text = `${sourceNames.length ? `Sources: ${sourceNames.slice(0, 5).join(' · ')} · ` : ''}${suffix}`;
+  const suffix = translate('Vibe Atlas · sRGB', '氛围图鉴 · sRGB');
+  const sourceLabel = translate('Sources: ', '来源（原始记录）：');
+  const text = `${sourceNames.length ? `${sourceLabel}${sourceNames.slice(0, 5).join(' · ')} · ` : ''}${suffix}`;
   return boundedCreditLines(ctx, text, maxWidth, suffix);
 }
 
@@ -290,7 +437,10 @@ function legacySourceCreditLines(
   sourceNames: string[],
   maxWidth: number,
 ): string[] {
-  const text = `来源：${sourceNames.slice(0, 5).join(' · ')}`;
+  const text = translate(
+    `Sources: ${sourceNames.slice(0, 5).join(' · ')}`,
+    `来源（原始记录）：${sourceNames.slice(0, 5).join(' · ')}`,
+  );
   return boundedCreditLines(ctx, text, maxWidth);
 }
 
@@ -304,6 +454,22 @@ function drawSourceCreditLines(
   lines.forEach((line, index) => {
     ctx.fillText(line, centerX, firstBaseline + index * lineHeight);
   });
+}
+
+function localizedCaption(en: string, zh: string): string {
+  if (getLocale() !== 'zh-CN') return translate(en, zh) || en || zh;
+  if (zh && (zh !== en || /[\p{Script=Han}]/u.test(zh))) return zh;
+  return en ? `原始英文：${en}` : '';
+}
+
+function drawCenteredText(
+  ctx: CanvasRenderingContext2D,
+  text: string,
+  centerX: number,
+  y: number,
+  maxWidth: number,
+): void {
+  ctx.fillText(truncateCanvasText(ctx, text, maxWidth), centerX, y);
 }
 
 type LegacyFooterVariant = 'portrait' | 'teaser';
@@ -325,26 +491,26 @@ const LEGACY_FOOTER_LAYOUTS: Record<LegacyFooterVariant, LegacyFooterLayout> = {
   portrait: {
     zoneHeight: 190,
     sourceTop: 30,
-    sourceFont: '400 18px "Inter", "Noto Sans SC", sans-serif',
+    sourceFont: `400 18px ${EXPORT_FONT_STACK}`,
     sourceLineHeight: 22,
     brandBottom: 96,
-    brandFont: '600 20px "Inter", "Noto Sans SC", sans-serif',
+    brandFont: `600 20px ${EXPORT_FONT_STACK}`,
     editionBottom: 68,
-    editionFont: '400 17px "Inter", "Noto Sans SC", sans-serif',
+    editionFont: `400 17px ${EXPORT_FONT_STACK}`,
     microCopyBottom: 40,
-    microCopyFont: '400 15px "Inter", "Noto Sans SC", sans-serif',
+    microCopyFont: `400 15px ${EXPORT_FONT_STACK}`,
   },
   teaser: {
     zoneHeight: 170,
     sourceTop: 28,
-    sourceFont: '400 17px "Inter", "Noto Sans SC", sans-serif',
+    sourceFont: `400 17px ${EXPORT_FONT_STACK}`,
     sourceLineHeight: 21,
     brandBottom: 84,
-    brandFont: '600 18px "Inter", "Noto Sans SC", sans-serif',
+    brandFont: `600 18px ${EXPORT_FONT_STACK}`,
     editionBottom: 60,
-    editionFont: '400 15px "Inter", "Noto Sans SC", sans-serif',
+    editionFont: `400 15px ${EXPORT_FONT_STACK}`,
     microCopyBottom: 34,
-    microCopyFont: '400 14px "Inter", "Noto Sans SC", sans-serif',
+    microCopyFont: `400 14px ${EXPORT_FONT_STACK}`,
   },
 };
 
@@ -373,7 +539,14 @@ function drawLegacyFooter(
 
   ctx.font = layout.brandFont;
   ctx.fillStyle = colors.gold;
-  ctx.fillText('🔮 Vibe Guide · 氛围图鉴 · fandom.justlikekatie.com', centerX, canvasHeight - layout.brandBottom);
+  ctx.fillText(
+    translate(
+      '🔮 Vibe Guide · 氛围图鉴 · fandom.justlikekatie.com',
+      '🔮 氛围图鉴 · Vibe Guide · fandom.justlikekatie.com',
+    ),
+    centerX,
+    canvasHeight - layout.brandBottom,
+  );
 
   ctx.font = layout.editionFont;
   ctx.fillStyle = colors.textDim;
@@ -430,16 +603,21 @@ async function compositeBadge(
 export async function loadExportCardFonts(): Promise<void> {
   try {
     await Promise.all([
-      document.fonts.load('400 16px "Noto Sans SC"'),
-      document.fonts.load('600 16px "Noto Sans SC"'),
-      document.fonts.load('700 16px "Noto Sans SC"'),
+      document.fonts.load(`400 16px "Noto Sans SC"`, CJK_FONT_SAMPLE),
+      document.fonts.load(`600 16px "Noto Sans SC"`, CJK_FONT_SAMPLE),
+      document.fonts.load(`700 16px "Noto Sans SC"`, CJK_FONT_SAMPLE),
       document.fonts.load('400 16px "Inter"'),
       document.fonts.load('600 16px "Inter"'),
       document.fonts.load('700 16px "Inter"'),
       document.fonts.ready,
     ]);
   } catch {
-    // Non-fatal — worst case the card draws with a fallback system font.
+    if (getLocale() === 'zh-CN') {
+      throw new Error('简体中文字体未能加载，因此没有导出图片。请刷新页面后重试。');
+    }
+  }
+  if (getLocale() === 'zh-CN' && !document.fonts.check(`400 16px "Noto Sans SC"`, CJK_FONT_SAMPLE)) {
+    throw new Error('简体中文字体未能加载，因此没有导出图片。请刷新页面后重试。');
   }
 }
 
@@ -508,18 +686,19 @@ function formatEditionCode(dateStr: string, rankNum: number): string {
 
 function editionCodeTagText(dateStr: string, rankNum: number, tier: string): string {
   const code = formatEditionCode(dateStr, rankNum);
-  if (tier === 'misprint') return code + ' · misprint';
-  if (tier === 'legendary') return code + ' · relic-class';
-  if (tier === 'legendary-misprint') return code + ' · legendary misprint';
+  if (tier === 'misprint') return code + translate(' · misprint', ' · 错版');
+  if (tier === 'legendary') return code + translate(' · relic-class', ' · 传说级');
+  if (tier === 'legendary-misprint') return code + translate(' · legendary misprint', ' · 传说错版');
   return code;
 }
 
 function pickMicroCopyLine(dateStr: string, tier: string): string {
+  const isChinese = getLocale() === 'zh-CN';
   const pool = tier === 'misprint'
-    ? MISPRINT_MICRO_COPY_LINES
+    ? (isChinese ? MISPRINT_MICRO_COPY_LINES_ZH : MISPRINT_MICRO_COPY_LINES)
     : tier === 'legendary' || tier === 'legendary-misprint'
-      ? LEGENDARY_MICRO_COPY_LINES
-      : MICRO_COPY_LINES;
+      ? (isChinese ? LEGENDARY_MICRO_COPY_LINES_ZH : LEGENDARY_MICRO_COPY_LINES)
+      : (isChinese ? MICRO_COPY_LINES_ZH : MICRO_COPY_LINES);
   const idx = hashStringToUint('microcopy:' + tier + ':' + (dateStr || '')) % pool.length;
   return pool[idx];
 }
@@ -539,10 +718,14 @@ function buildEditionStampLine(
   const parts = [dateStr, actorName, vibeLabel].filter(Boolean);
   let text = parts.join(' · ');
   let trailing: string | null = null;
-  if (tier === 'misprint') trailing = 'misprint pull';
-  else if (tier === 'legendary') trailing = 'unstable era';
-  else if (tier === 'legendary-misprint') trailing = 'intentional legendary misprint';
-  else if (hasRank) trailing = '第 ' + rankNum + ' / ' + totalBatches + ' 期';
+  if (tier === 'misprint') trailing = translate('misprint pull', '错版');
+  else if (tier === 'legendary') trailing = translate('unstable era', '传说级藏品');
+  else if (tier === 'legendary-misprint') trailing = translate('intentional legendary misprint', '传说级错版');
+  else if (hasRank) {
+    trailing = getLocale() === 'zh-CN'
+      ? `第 ${rankNum} / ${totalBatches} 批`
+      : `Edition ${rankNum} of ${totalBatches}`;
+  }
   if (trailing) text += ' · ' + trailing;
   return { text, rankNum };
 }
@@ -582,6 +765,7 @@ interface ExportPayload {
   vibeLabel: string;
   vibeLabelEn: string;
   vibeSubtitle: string;
+  vibeSubtitleEn: string;
   chosen: RankedBatch;
   date: string;
   rankIndex: number | null;
@@ -601,7 +785,10 @@ function exportResults(data: StarOfDayData, variant: ExportVariant): RankedBatch
   const payload = buildExportPayload(data);
   const results = payload.chosen?.results?.slice(0, variant === 'teaser' ? 6 : 12) ?? [];
   if ((variant === 'full' || variant === 'standard' || variant === 'master') && results.length < 9) {
-    throw new Error('This approved board is not complete yet. A share card requires all nine images.');
+    throw new Error(translate(
+      'This approved board is not complete yet. A share card requires all nine images.',
+      '这期已批准的内容尚不完整。分享卡需要九张图片。',
+    ));
   }
   return results;
 }
@@ -640,7 +827,7 @@ async function createExportArtifact(
   const blob = await new Promise<Blob | null>((resolve) => {
     canvas.toBlob((b) => resolve(b), 'image/png');
   });
-  if (!blob) throw new Error('分享卡生成失败，再试一次？');
+  if (!blob) throw new Error(translate('Share card generation failed. Please try again.', '分享卡生成失败，请重试。'));
   const editionStamp = buildEditionStampLine(
     payload.date, payload.actorName, payload.vibeLabel,
     payload.rankIndex, payload.totalBatches, tier,
@@ -677,6 +864,7 @@ export function buildExportPayload(data: StarOfDayData): ExportPayload {
     vibeLabel: data.vibeLabel,
     vibeLabelEn: data.vibeLabelEn,
     vibeSubtitle: data.vibeSubtitle,
+    vibeSubtitleEn: data.vibeSubtitleEn,
     chosen,
     date: data.date || new Date().toISOString().slice(0, 10),
     rankIndex: 0,
@@ -692,14 +880,19 @@ export function buildExportPayload(data: StarOfDayData): ExportPayload {
 async function renderFullExportCanvas(payload: ExportPayload): Promise<HTMLCanvasElement> {
   const results = payload.chosen?.results?.slice(0, 12) ?? [];
   if (results.length < 9) {
-    throw new Error('This approved board is not complete yet. A share card requires all nine images.');
+    throw new Error(translate(
+      'This approved board is not complete yet. A share card requires all nine images.',
+      '这期已批准的内容尚不完整。分享卡需要九张图片。',
+    ));
   }
   const cols = results.length > 9 ? 4 : 3;
   const rows = 3;
   const dateStr = payload.date;
   const tier = classifyEditionTier(payload.chosen);
+  const actorName = localizedCaption(payload.actorNameEn, payload.actorName);
+  const vibeLabel = localizedCaption(payload.vibeLabelEn, payload.vibeLabel);
   const editionStamp = buildEditionStampLine(
-    dateStr, payload.actorName, payload.vibeLabel,
+    dateStr, actorName, vibeLabel,
     payload.rankIndex, payload.totalBatches, tier,
   );
   const editionCodeTag = editionCodeTagText(dateStr, editionStamp.rankNum, tier);
@@ -738,11 +931,13 @@ async function renderFullExportCanvas(payload: ExportPayload): Promise<HTMLCanva
 
   // 1. Series label
   y += 34;
-  ctx.font = '600 24px "Noto Sans SC", "Inter", sans-serif';
+  ctx.font = `600 24px ${EXPORT_FONT_STACK}`;
   ctx.fillStyle = colors.gold;
   ctx.fillText(payload.editorial
-    ? `VIBE ATLAS · ${payload.editorial.mode === 'event' ? 'EVENT SET' : 'COMPILED SET'}`
-    : '今日氛围图鉴', cx, y);
+    ? getLocale() === 'zh-CN'
+      ? `氛围图鉴 · ${payload.editorial.mode === 'event' ? '同场精选' : '主题精选'}`
+      : `VIBE ATLAS · ${payload.editorial.mode === 'event' ? 'EVENT SET' : 'COMPILED SET'}`
+    : translate('Today’s Vibe Atlas', '今日氛围图鉴'), cx, y);
 
   // 1b. Edition catalog code
   y += 26;
@@ -752,46 +947,51 @@ async function renderFullExportCanvas(payload: ExportPayload): Promise<HTMLCanva
 
   // 2. Title
   y += 56;
-  ctx.font = '700 46px "Noto Sans SC", "Inter", sans-serif';
+  ctx.font = `700 46px ${EXPORT_FONT_STACK}`;
   ctx.fillStyle = colors.text;
-  ctx.fillText('🔮 今日之星 · 氛围格子', cx, y);
+  ctx.fillText(translate('🔮 Star of the Day · Vibe Grid', '🔮 今日之星 · 氛围格子'), cx, y);
 
   // 3. Actor name
-  if (payload.actorName) {
+  if (actorName) {
     y += 58;
-    ctx.font = '700 40px "Noto Sans SC", "Inter", sans-serif';
+    ctx.font = `700 40px ${EXPORT_FONT_STACK}`;
     ctx.fillStyle = accentColor;
-    ctx.fillText(payload.actorName, cx, y);
+    drawCenteredText(ctx, actorName, cx, y, contentW);
   }
 
   // 4. Vibe name
-  if (payload.vibeLabel) {
+  if (vibeLabel) {
     y += 46;
-    ctx.font = '600 30px "Noto Sans SC", "Inter", sans-serif';
+    ctx.font = `600 30px ${EXPORT_FONT_STACK}`;
     ctx.fillStyle = colors.text;
-    ctx.fillText((payload.vibeEmoji ? payload.vibeEmoji + ' ' : '') + payload.vibeLabel, cx, y);
+    drawCenteredText(ctx, (payload.vibeEmoji ? payload.vibeEmoji + ' ' : '') + vibeLabel, cx, y, contentW);
   }
 
   // 5. Search phrase
   if (payload.chosen?.query) {
     y += 44;
-    ctx.font = '400 24px "Inter", "Noto Sans SC", sans-serif';
+    ctx.font = `400 24px ${EXPORT_FONT_STACK}`;
     ctx.fillStyle = colors.textMuted;
-    const spellLines = wrapCanvasText(ctx, '🔍 ' + payload.chosen.query, contentW - 40);
-    spellLines.slice(0, 2).forEach((line, i) => {
-      ctx.fillText(line, cx, y + i * 32);
+    const searchText = translate(
+      `🔍 Original search: ${payload.chosen.query}`,
+      `🔍 检索词（原始搜索）：${payload.chosen.query}`,
+    );
+    const spellLines = boundedWrappedLines(ctx, searchText, contentW - 40, 2);
+    spellLines.forEach((line, i) => {
+      drawCenteredText(ctx, line, cx, y + i * 32, contentW - 40);
     });
     y += (Math.min(spellLines.length, 2) - 1) * 32;
   }
 
   // 6. Subtitle
-  if (payload.vibeSubtitle) {
+  const vibeSubtitle = localizedCaption(payload.vibeSubtitleEn, payload.vibeSubtitle);
+  if (vibeSubtitle) {
     y += 40;
-    ctx.font = '400 22px "Noto Sans SC", "Inter", sans-serif';
+    ctx.font = `400 22px ${EXPORT_FONT_STACK}`;
     ctx.fillStyle = colors.textDim;
-    const subLines = wrapCanvasText(ctx, payload.vibeSubtitle, contentW - 40);
-    subLines.slice(0, 2).forEach((line, i) => {
-      ctx.fillText(line, cx, y + i * 30);
+    const subLines = boundedWrappedLines(ctx, vibeSubtitle, contentW - 40, 2);
+    subLines.forEach((line, i) => {
+      drawCenteredText(ctx, line, cx, y + i * 30, contentW - 40);
     });
     y += (Math.min(subLines.length, 2) - 1) * 30;
   }
@@ -815,7 +1015,10 @@ async function renderFullExportCanvas(payload: ExportPayload): Promise<HTMLCanva
 
   const images = await imagesPromise;
   if (images.length !== results.length || images.some((image) => !image)) {
-    throw new Error('The share card could not load all nine approved images. Nothing was exported.');
+    throw new Error(translate(
+      'The share card could not load all nine approved images. Nothing was exported.',
+      '分享卡无法载入全部九张已批准的图片，没有导出文件。',
+    ));
   }
   for (let row = 0; row < rows; row++) {
     for (let col = 0; col < cols; col++) {
@@ -853,8 +1056,10 @@ async function renderTeaserExportCanvas(payload: ExportPayload): Promise<HTMLCan
   const results = allResults.slice(0, cols * rows);
   const dateStr = payload.date;
   const tier = classifyEditionTier(payload.chosen);
+  const actorName = localizedCaption(payload.actorNameEn, payload.actorName);
+  const vibeLabel = localizedCaption(payload.vibeLabelEn, payload.vibeLabel);
   const editionStamp = buildEditionStampLine(
-    dateStr, payload.actorName, payload.vibeLabel,
+    dateStr, actorName, vibeLabel,
     payload.rankIndex, payload.totalBatches, tier,
   );
   const editionCodeTag = editionCodeTagText(dateStr, editionStamp.rankNum, tier);
@@ -893,7 +1098,7 @@ async function renderTeaserExportCanvas(payload: ExportPayload): Promise<HTMLCan
 
   // 1. Series label
   y += 30;
-  ctx.font = '600 22px "Noto Sans SC", "Inter", sans-serif';
+  ctx.font = `600 22px ${EXPORT_FONT_STACK}`;
   ctx.fillStyle = colors.gold;
   ctx.fillText('今日氛围图鉴', cx, y);
 
@@ -905,24 +1110,24 @@ async function renderTeaserExportCanvas(payload: ExportPayload): Promise<HTMLCan
 
   // 2. Title
   y += 48;
-  ctx.font = '700 38px "Noto Sans SC", "Inter", sans-serif';
+  ctx.font = `700 38px ${EXPORT_FONT_STACK}`;
   ctx.fillStyle = colors.text;
-  ctx.fillText('🔮 今日之星 · 氛围格子', cx, y);
+  ctx.fillText(translate('🔮 Star of the Day · Vibe Grid', '🔮 今日之星 · 氛围格子'), cx, y);
 
   // 3. Actor name
-  if (payload.actorName) {
+  if (actorName) {
     y += 48;
-    ctx.font = '700 34px "Noto Sans SC", "Inter", sans-serif';
+    ctx.font = `700 34px ${EXPORT_FONT_STACK}`;
     ctx.fillStyle = accentColor;
-    ctx.fillText(payload.actorName, cx, y);
+    drawCenteredText(ctx, actorName, cx, y, contentW);
   }
 
   // 4. Vibe name
-  if (payload.vibeLabel) {
+  if (vibeLabel) {
     y += 40;
-    ctx.font = '600 26px "Noto Sans SC", "Inter", sans-serif';
+    ctx.font = `600 26px ${EXPORT_FONT_STACK}`;
     ctx.fillStyle = colors.text;
-    ctx.fillText((payload.vibeEmoji ? payload.vibeEmoji + ' ' : '') + payload.vibeLabel, cx, y);
+    drawCenteredText(ctx, (payload.vibeEmoji ? payload.vibeEmoji + ' ' : '') + vibeLabel, cx, y, contentW);
   }
 
   // 5. Image grid (2×3 or 2×2)
@@ -944,7 +1149,10 @@ async function renderTeaserExportCanvas(payload: ExportPayload): Promise<HTMLCan
 
   const imgArr = await imagesPromise;
   if (imgArr.length !== results.length || imgArr.some((image) => !image)) {
-    throw new Error('The share card could not load every approved image. Nothing was exported.');
+    throw new Error(translate(
+      'The share card could not load every approved image. Nothing was exported.',
+      '分享卡无法载入全部已批准的图片，没有导出文件。',
+    ));
   }
   for (let r = 0; r < rows; r++) {
     for (let c = 0; c < cols; c++) {
@@ -982,12 +1190,15 @@ async function renderSquareGridCanvas(
 ): Promise<HTMLCanvasElement> {
   const results = payload.chosen?.results?.slice(0, 9) ?? [];
   if (results.length < 9) {
-    throw new Error('A square grid requires all nine approved images.');
+    throw new Error(translate('A square grid requires all nine approved images.', '方形拼图需要九张已批准的图片。'));
   }
   await loadExportCardFonts();
   const images = await Promise.all(results.map(result => loadProxiedImage(result.thumbnail)));
   if (images.some(image => !image)) {
-    throw new Error('The square grid could not load all nine approved images.');
+    throw new Error(translate(
+      'The square grid could not load all nine approved images.',
+      '方形拼图无法载入全部九张已批准的图片。',
+    ));
   }
   const canvas = document.createElement('canvas');
   canvas.width = contract.width;
@@ -1009,8 +1220,12 @@ async function renderSquareGridCanvas(
   ctx.fillRect(0, 0, contract.width, contract.height);
   ctx.textAlign = 'center';
   ctx.fillStyle = heading;
-  ctx.font = `700 ${Math.round(contract.width * 0.021)}px "Inter", sans-serif`;
-  ctx.fillText(`${payload.actorName || 'Vibe Atlas'} · ${payload.vibeLabel || 'Grid'}`, contract.width / 2, pad + header * 0.58);
+  ctx.font = `700 ${Math.round(contract.width * 0.021)}px ${EXPORT_FONT_STACK}`;
+  const headerText = [
+    localizedCaption(payload.actorNameEn, payload.actorName) || 'Vibe Atlas',
+    localizedCaption(payload.vibeLabelEn, payload.vibeLabel) || translate('Grid', '氛围格子'),
+  ].join(' · ');
+  drawCenteredText(ctx, headerText, contract.width / 2, pad + header * 0.58, contract.width - pad * 2);
   results.forEach((_, index) => {
     const image = images[index]!;
     const x = pad + (index % 3) * (tile + gap);
@@ -1019,8 +1234,9 @@ async function renderSquareGridCanvas(
   });
   const sourceNames = [...new Set(results.map(result => result.source).filter(Boolean))];
   ctx.fillStyle = attribution;
-  ctx.font = `400 ${Math.round(contract.width * 0.0105)}px "Inter", sans-serif`;
-  const attributionLines = sourceCreditLines(ctx, sourceNames, contract.width - pad * 2);
+  ctx.font = `400 ${Math.round(contract.width * 0.0105)}px ${EXPORT_FONT_STACK}`;
+  const attributionWidth = Math.floor(contract.width - contract.width * 0.026 * 2);
+  const attributionLines = sourceCreditLines(ctx, sourceNames, attributionWidth);
   const attributionLineHeight = Math.round(contract.width * 0.014);
   const attributionBottom = contract.height - pad;
   const attributionTop = attributionBottom - (attributionLines.length - 1) * attributionLineHeight;
@@ -1036,9 +1252,15 @@ async function renderRawExportCanvas(payload: ExportPayload): Promise<HTMLCanvas
   const cols = allResults.length >= 12 ? 4 : 3;
   const rows = 3;
   const results = allResults.slice(0, cols * rows);
-  if (results.length < 9) throw new Error('This approved board is not complete yet. A share card requires at least nine images.');
+  if (results.length < 9) throw new Error(translate(
+    'This approved board is not complete yet. A share card requires at least nine images.',
+    '这期已批准的内容尚不完整。分享卡至少需要九张图片。',
+  ));
   const images = await Promise.all(results.map(r => loadProxiedImage(r.thumbnail)));
-  if (images.some(image => !image)) throw new Error('The share card could not load every approved image. Nothing was exported.');
+  if (images.some(image => !image)) throw new Error(translate(
+    'The share card could not load every approved image. Nothing was exported.',
+    '分享卡无法载入全部已批准的图片，没有导出文件。',
+  ));
   const tileSize = 360;
   const canvas = document.createElement('canvas'); canvas.width = cols * tileSize; canvas.height = rows * tileSize;
   const ctx = canvas.getContext('2d')!;
@@ -1123,10 +1345,10 @@ function notifyExportBlob(onBlob: ((blob: Blob) => void) | undefined, blob: Blob
 }
 
 function tierMessage(tier: string): string {
-  if (tier === 'misprint') return '已导出稀有错版 · Misprint exported';
-  if (tier === 'legendary') return '已导出传说级错版 · Legendary export';
-  if (tier === 'legendary-misprint') return '已导出传说错版 · Intentional Legendary Misprint exported';
-  return '分享卡已导出 ✓';
+  if (tier === 'misprint') return translate('Misprint exported', '已导出稀有错版');
+  if (tier === 'legendary') return translate('Legendary export', '已导出传说级藏品');
+  if (tier === 'legendary-misprint') return translate('Intentional Legendary Misprint exported', '已导出传说错版');
+  return translate('Share card exported ✓', '分享卡已导出 ✓');
 }
 
 
@@ -1155,7 +1377,10 @@ export async function exportShareCard(
   if (!canShareFiles) {
     downloadExportArtifact(artifact);
     return {
-      message: '此设备不支持直接分享图片，PNG 已下载 · File sharing unavailable; PNG downloaded',
+      message: translate(
+        'Direct image sharing is unavailable on this device. The PNG was downloaded.',
+        '此设备暂不支持直接分享图片，PNG 已下载。',
+      ),
       outcome: 'downloaded',
     };
   }
@@ -1163,15 +1388,18 @@ export async function exportShareCard(
   try {
     await navigator.share!({
       files: [artifact.file],
-      title: '今日氛围图鉴',
-      text: '🔮 今日之星 · 氛围格子',
+      title: translate('Vibe Atlas', '氛围图鉴'),
+      text: translate('🔮 Star of the Day · Vibe Grid', '🔮 今日之星 · 氛围格子'),
     });
-    return { message: '分享成功 ✓', outcome: 'shared' };
+    return { message: translate('Shared ✓', '分享成功 ✓'), outcome: 'shared' };
   } catch (error) {
     if (error instanceof DOMException && error.name === 'AbortError') {
-      throw new Error('分享已取消，未下载文件 · Share cancelled; nothing downloaded');
+      throw new Error(translate('Share cancelled; nothing was downloaded.', '分享已取消，没有下载文件。'));
     }
-    throw new Error('原生分享失败，请使用“下载 PNG” · Native sharing failed; use Download PNG');
+    throw new Error(translate(
+      'Native sharing failed. Use “Download PNG” instead.',
+      '系统分享失败，请改用“下载 PNG”。',
+    ));
   }
 }
 

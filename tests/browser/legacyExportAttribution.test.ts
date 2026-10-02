@@ -9,7 +9,9 @@ import {
 } from './browserEngines.ts';
 
 const LONG_PUBLISHERS = [
-  'The International Cafe\u0301 Cafe\u0301 Cafe\u0301 Cafe\u0301 Cafe\u0301 Archive of Dramatic Arts',
+  // CJK must occur before truncation; the English "Sources:" label no longer
+  // supplies Chinese glyphs as the old bilingual footer did.
+  '月下档案馆 · The International Cafe\u0301 Cafe\u0301 Cafe\u0301 Cafe\u0301 Cafe\u0301 Archive of Dramatic Arts',
   'أرشيف الفنون السينمائية الدولي للتراث البصري',
   'The Independent Moonlit Dramatic Arts Society 👩‍🎨 👩‍🎨 👩‍🎨 👩‍🎨 and Performance Archive',
   'The Museum of East Asian Television History 月下档案馆',
@@ -269,11 +271,16 @@ for (const browserEngine of BROWSER_ENGINES) {
       const portrait = await render('full');
       const teaser = await render('teaser');
       probeContext.font = '400 18px "Inter", "Noto Sans SC", sans-serif';
-      let boundaryPrefix = '来源：';
+      const localeModulePath = '/shared/locale.js';
+      const { getLocale } = await import(/* @vite-ignore */ localeModulePath);
+      const sourceLabel = getLocale() === 'zh-CN'
+        ? '来源（原始记录）：'
+        : 'Sources: ';
+      let boundaryPrefix = sourceLabel;
       while (probeContext.measureText(boundaryPrefix + '文界\u0301').width <= 1080 - 64 * 2) {
         boundaryPrefix += '文';
       }
-      data.rankedBatches[0].results[0].source = boundaryPrefix.slice('来源：'.length)
+      data.rankedBatches[0].results[0].source = boundaryPrefix.slice(sourceLabel.length)
         + '界\u0301' + 'Archive'.repeat(15);
       const boundaryCanvas = await render('full');
       return {
@@ -403,12 +410,12 @@ for (const browserEngine of BROWSER_ENGINES) {
       standard: {
         gridBottom: 1024.08,
         creditYs: [1037, 1052],
-        creditFont: '11px Inter, sans-serif',
+        creditFont: '11px Inter, "Noto Sans SC", sans-serif',
       },
       master: {
         gridBottom: 2048.16,
         creditYs: [2074, 2104],
-        creditFont: '23px Inter, sans-serif',
+        creditFont: '23px Inter, "Noto Sans SC", sans-serif',
       },
     } as const;
     assert.deepEqual(

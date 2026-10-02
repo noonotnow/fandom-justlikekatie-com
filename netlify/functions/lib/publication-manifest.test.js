@@ -10,6 +10,7 @@ import { createPublicSitemapHandler } from "../public-sitemap.js";
 import {
   acquireCorrectionPublicationLock,
   backfillPublicationReleaseDates,
+  reconcilePublicationReleaseReceipts,
   boardHash,
   diagnoseArchivedPublications,
   diagnosePublicationManifestCatalog,
@@ -28,7 +29,6 @@ import {
   ensurePublicationReleaseDates,
   readPublicationReleaseDates,
   publicationJoinReceipt,
-  pinnedPublicLookup,
   readPublicationManifests,
   isIndexablePublicationManifest,
   publicActorDirectory,
@@ -218,22 +218,13 @@ test("catalogue repair retains stale pending MEDIA receipt for an eventual retry
   assert.deepEqual(store.records.get(key).dates, []);
 });
 
-test("pinned HTTPS lookup returns the validated address in both Node callback shapes", () => {
-  const resolved = { address: "8.8.8.8", family: 4 };
-  const lookup = pinnedPublicLookup(resolved);
-  let all;
-  lookup("another.example", { all: true }, (...args) => { all = args; });
-  assert.deepEqual(all, [null, [resolved]]);
-  let single;
-  lookup("another.example", { all: false }, (...args) => { single = args; });
-  assert.deepEqual(single, [null, resolved.address, resolved.family]);
-});
-
 test("public projections are explicit allowlists with stable canonical paths", () => {
   const manifest = storedPublicationManifest("2026-09-03", "liu-xueyi");
   manifest.vibe.subtitleEn = "A beautiful ache held in perfect stillness.";
+  manifest.vibe.supportingCopy = "戏服会换，情绪废墟不换。";
   manifest.vibe.supportingCopyEn =
     "A carefully curated visual record of Liu Xueyi's restrained, moonlit melancholy.";
+  const unchangedManifest = structuredClone(manifest);
   assert.equal(isIndexablePublicationManifest(manifest), true);
   assert.equal(publicActorSlug(manifest.actor), "liu-xueyi");
   assert.equal(publicActorPath(manifest.actor), "/vibe-atlas/actors/liu-xueyi/");
@@ -247,6 +238,9 @@ test("public projections are explicit allowlists with stable canonical paths", (
   assert.equal(projection.previews.length, 9);
   assert.equal(projection.previews[0].thumbnailUrl, manifest.cards[0].media.thumbnailUrl);
   assert.equal(projection.previews[0].deliveryUrl, manifest.cards[0].media.deliveryUrl);
+  assert.equal(projection.vibe.copyZh, "戏服会换，情绪废墟不换。");
+  assert.equal(projection.vibe.copyEn, manifest.vibe.supportingCopyEn);
+  assert.deepEqual(manifest, unchangedManifest, "public projection must not mutate the immutable publication manifest");
   const serialized = JSON.stringify(projection);
   for (const forbidden of [
     "query", "prompt", "diagnostic", "confidence", "score", "audit",
@@ -289,6 +283,8 @@ test("only the reviewed September 3 manifest accepts its original short bilingua
   assert.equal(isIndexablePublicationManifest(approved), true);
   assert.equal(publicEditionPreview(approved).vibe.copy, "Approved line");
   assert.equal(publicEditionPreview(approved).vibe.subtitleEn, "Approved line");
+  assert.equal(publicEditionPreview(approved).vibe.copyZh, undefined);
+  assert.equal(publicEditionPreview(approved).vibe.copyEn, undefined);
 
   const other = storedPublicationManifest("2026-09-02", "actor-a");
   other.vibe = { ...approved.vibe };
@@ -364,7 +360,7 @@ test("publication inventory requires every catalog date to resolve to its exact 
 test("released-date history survives a valid empty catalog and refuses invalid or unsafe updates", async () => {
   const store = memoryStore();
   const date = "2026-09-03";
-  await ensurePublicationReleaseDates(store, [date]);
+  await ensurePublicationReleaseDates(store, [date], { publicationDate: date });
   await store.setJSON(publicationManifestCatalogKey(), {
     schemaVersion: 1, catalogVersion: "v1",
     kind: "vibe-atlas-publication-manifest-catalog", dates: [],
@@ -397,16 +393,22 @@ test("historical release baseline uses immutable manifests and Archive, not just
   const archive = [older, newer].map(date => ({
     date, actorName: "actor-a", vibeLabel: "氛围",
   }));
-  await ensurePublicationReleaseDates(store, [newer]);
+  await ensurePublicationReleaseDates(store, [newer], { publicationDate: newer });
   const history = await backfillPublicationReleaseDates(store, archive);
   assert.deepEqual(history.dates, [older, newer]);
   assert.equal(history.verifiedBaseline, true);
   assert.deepEqual(await backfillPublicationReleaseDates(store, archive), history);
+  await store.delete(publicationReleaseReceiptKey(newer));
   const handler = createPublicSitemapHandler({
     getStore: () => store,
     buildReleaseCatalog: async () => ({ complete: true, packs: [] }),
   });
   const sitemap = () => handler(new Request("https://fandom.justlikekatie.com/sitemap.xml"), {});
+  assert.equal((await sitemap()).headers["X-Public-Sitemap-Inventory"], "release-history-unavailable");
+  assert.deepEqual(await reconcilePublicationReleaseReceipts(store, archive),
+    { checked: 2, written: 2 });
+  assert.deepEqual(await reconcilePublicationReleaseReceipts(store, archive),
+    { checked: 2, written: 0 });
   assert.equal((await sitemap()).headers["X-Public-Sitemap-Inventory"], "complete");
   await store.setJSON(publicationManifestCatalogKey(), {
     schemaVersion: 1, catalogVersion: "v1",
@@ -415,7 +417,7 @@ test("historical release baseline uses immutable manifests and Archive, not just
   assert.equal((await sitemap()).headers["X-Public-Sitemap-Inventory"], "publication-history-mismatch");
 });
 
-test("stale Archive links do not certify legacy editions, but receipts still block missing manifests", async t => {
+test("legacy Archive links do not invent releases or prevent receipt reconciliation", async t => {
   const store = await blobsTestStore(t, "release-baseline-legacy-links");
   const legacyDate = "2026-07-31";
   const releasedDate = "2026-09-03";
@@ -435,11 +437,56 @@ test("stale Archive links do not certify legacy editions, but receipts still blo
   const history = await backfillPublicationReleaseDates(store, archive);
   assert.equal(history.verifiedBaseline, true);
   assert.deepEqual(history.dates, [releasedDate]);
+  assert.deepEqual(await reconcilePublicationReleaseReceipts(store, archive),
+    { checked: 2, written: 1 });
   await store.setJSON(publicationReleaseReceiptKey(legacyDate), {
     schemaVersion: 1, kind: "vibe-atlas-release-receipt", date: legacyDate,
   });
   await assert.rejects(backfillPublicationReleaseDates(store, archive),
     /publication evidence is missing for 2026-07-31/);
+  await assert.rejects(reconcilePublicationReleaseReceipts(store, archive),
+    /baseline omits 2026-07-31/);
+});
+
+test("receipt reconciliation requires a verified baseline and validates the whole bounded page", async t => {
+  const store = await blobsTestStore(t, "receipt-reconciliation-refusal");
+  const dates = ["2026-09-01", "2026-09-02"];
+  const archive = dates.map(date => ({ date, actorName: "actor-a", vibeLabel: "氛围" }));
+  for (const date of dates) {
+    await store.setJSON(gridManifestKey(date), storedPublicationManifest(date, "actor-a"));
+  }
+  await store.setJSON(publicationManifestCatalogKey(), {
+    schemaVersion: 1, catalogVersion: "v1",
+    kind: "vibe-atlas-publication-manifest-catalog", dates,
+  });
+  await assert.rejects(reconcilePublicationReleaseReceipts(store, archive), /baseline is not verified/);
+  await backfillPublicationReleaseDates(store, archive);
+  await assert.rejects(reconcilePublicationReleaseReceipts(store, Array(101).fill(archive[0])),
+    /batch is invalid/);
+  await assert.rejects(reconcilePublicationReleaseReceipts(store, [
+    archive[0], { ...archive[1], actorName: "wrong" },
+  ]), /evidence disagrees/);
+  assert.equal(await store.get(publicationReleaseReceiptKey(dates[0])), null);
+  await store.setJSON(publicationReleaseReceiptKey(dates[1]), { date: dates[0] });
+  await assert.rejects(reconcilePublicationReleaseReceipts(store, archive), /receipt disagrees/);
+  assert.equal(await store.get(publicationReleaseReceiptKey(dates[0])), null);
+  await store.delete(publicationReleaseReceiptKey(dates[1]));
+  assert.deepEqual(await reconcilePublicationReleaseReceipts(store, [archive[0]]),
+    { checked: 1, written: 1 });
+  assert.equal(await store.get(publicationReleaseReceiptKey(dates[1])), null);
+});
+
+test("ordinary release-history reads and updates cannot recreate a missing older receipt", async t => {
+  const store = await blobsTestStore(t, "receipt-reconciliation-ledger");
+  const older = "2026-09-01";
+  const newer = "2026-09-02";
+  await ensurePublicationReleaseDates(store, [older]);
+  await store.delete(publicationReleaseReceiptKey(older));
+  await ensurePublicationReleaseDates(store, [older]);
+  assert.equal(await store.get(publicationReleaseReceiptKey(older)), null);
+  await ensurePublicationReleaseDates(store, [newer], { publicationDate: newer });
+  assert.equal(await store.get(publicationReleaseReceiptKey(older)), null);
+  assert.equal((await store.get(publicationReleaseReceiptKey(newer), { type: "json" })).date, newer);
 });
 
 test("baseline refuses a shortened catalog or unverified Archive evidence", async t => {
@@ -481,7 +528,8 @@ test("a shortened ledger and catalog cannot hide a previously receipted edition"
     schemaVersion: 1, catalogVersion: "v1",
     kind: "vibe-atlas-publication-manifest-catalog", dates: [first, second],
   });
-  await ensurePublicationReleaseDates(store, [first, second]);
+  await ensurePublicationReleaseDates(store, [first, second], { publicationDate: first });
+  await ensurePublicationReleaseDates(store, [first, second], { publicationDate: second });
   await store.setJSON(PUBLICATION_RELEASE_DATES_KEY, {
     ...(await readPublicationReleaseDates(store)), verifiedBaseline: true,
   });
@@ -535,7 +583,7 @@ test("the sitemap refuses missing or invalid per-release evidence", async () => 
     schemaVersion: 1, catalogVersion: "v1",
     kind: "vibe-atlas-publication-manifest-catalog", dates: [date],
   });
-  await ensurePublicationReleaseDates(store, [date]);
+  await ensurePublicationReleaseDates(store, [date], { publicationDate: date });
   await store.setJSON(PUBLICATION_RELEASE_DATES_KEY, {
     ...(await readPublicationReleaseDates(store)), verifiedBaseline: true,
   });
@@ -558,7 +606,7 @@ test("the real Blobs listing verifies receipts across a live sitemap read", asyn
     schemaVersion: 1, catalogVersion: "v1",
     kind: "vibe-atlas-publication-manifest-catalog", dates: [date],
   });
-  await ensurePublicationReleaseDates(store, [date]);
+  await ensurePublicationReleaseDates(store, [date], { publicationDate: date });
   await store.setJSON(PUBLICATION_RELEASE_DATES_KEY, {
     ...(await readPublicationReleaseDates(store)), verifiedBaseline: true,
   });
@@ -1018,6 +1066,11 @@ test("publication reader-link repair fixes malformed paths and actor mismatches 
     ...(await readPublicationReleaseDates(store)),
     verifiedBaseline: true,
   });
+  for (const date of ["2026-09-02", "2026-09-03"]) {
+    await store.setJSON(publicationReleaseReceiptKey(date), {
+      schemaVersion: 1, kind: "vibe-atlas-release-receipt", date,
+    }, { onlyIfNew: true });
+  }
   const handler = createPublicSitemapHandler({
     getStore: () => store,
     buildReleaseCatalog: async () => ({ complete: true, packs: [] }),

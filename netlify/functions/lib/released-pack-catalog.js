@@ -54,7 +54,22 @@ export function inspectReleasedPackManifest(manifest) {
   if (cards.some(card => !card.thumbnailUrl || !card.deliveryUrl)) {
     return { safe: null, reasonCode: "malformed_media" };
   }
-  return { safe: { copy: copy.trim(), cards }, reasonCode: null };
+  const copyEn = typeof manifest.vibe.supportingCopyEn === "string"
+    ? manifest.vibe.supportingCopyEn.trim()
+    : "";
+  const copyZhSource = typeof manifest.vibe.supportingCopy === "string"
+    ? manifest.vibe.supportingCopy.trim()
+    : "";
+  const copyZh = /\p{Script=Han}/u.test(copyZhSource) ? copyZhSource : "";
+  return {
+    safe: {
+      copy: copy.trim(),
+      ...(copyEn ? { copyEn } : {}),
+      ...(copyZh ? { copyZh } : {}),
+      cards,
+    },
+    reasonCode: null,
+  };
 }
 function safeManifest(manifest) {
   return inspectReleasedPackManifest(manifest).safe;

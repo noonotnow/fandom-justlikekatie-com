@@ -1,10 +1,13 @@
 import assert from 'node:assert/strict';
 import { test } from 'node:test';
-import { type Page } from '@playwright/test';
+import { type BrowserContext, type Page } from '@playwright/test';
+// @ts-expect-error The Netlify handler is JavaScript without TypeScript declarations.
+import { createCollectionHandlers } from '../../netlify/functions/lib/collection-api.js';
 import {
   gotoTestPage,
   BROWSER_ENGINES,
   closeBrowserAndServer,
+  launchBrowserForServer,
   launchPageForServer,
   startViteTestServer,
 } from './browserEngines.ts';
@@ -17,8 +20,8 @@ async function startApp() {
   return startViteTestServer();
 }
 
-async function seedCollection(page: Page): Promise<void> {
-  await page.evaluate(async ({ accountId, gridId, cardUrl }) => {
+async function seedCollection(page: Page, merge = false): Promise<void> {
+  await page.evaluate(async ({ accountId, gridId, cardUrl, merge }) => {
     const request = indexedDB.open('vibe-atlas-collection', 3);
     request.onupgradeneeded = () => {
       const db = request.result;
@@ -36,6 +39,7 @@ async function seedCollection(page: Page): Promise<void> {
       schemaVersion: 1,
       rendererVersion: 'vibe-atlas-v1',
       id: gridId,
+      ...(merge ? { localId: 'published-grid' } : {}),
       actorId: 'cleanup-actor',
       actor: 'Grid cleanup actor',
       actorEn: 'Grid cleanup actor',
@@ -61,6 +65,7 @@ async function seedCollection(page: Page): Promise<void> {
     });
     transaction.objectStore('cards').put({
       imageUrl: cardUrl,
+      ...(merge ? { localId: 'published-card' } : {}),
       thumbnailUrl: 'https://images.example/pending-unmount-card-thumb.jpg',
       actor: 'Card cleanup actor',
       actorEn: 'Card cleanup actor',
@@ -76,7 +81,7 @@ async function seedCollection(page: Page): Promise<void> {
       clientId: 'collection-cleanup-browser-test',
       activeAccountId: accountId,
       cursors: {},
-      mergeDecisions: { [accountId]: false },
+      mergeDecisions: { [accountId]: merge },
       mappingsByAccount: {},
       pendingDeletesByAccount: {},
       acknowledgedUpsertsByAccount: {},
@@ -85,7 +90,7 @@ async function seedCollection(page: Page): Promise<void> {
       transaction.oncomplete = () => resolve();
       transaction.onerror = () => reject(transaction.error);
     });
-  }, { accountId: ACCOUNT_ID, gridId: GRID_ID, cardUrl: CARD_URL });
+  }, { accountId: ACCOUNT_ID, gridId: GRID_ID, cardUrl: CARD_URL, merge });
 }
 
 async function collectionContents(page: Page): Promise<{
@@ -120,69 +125,152 @@ async function collectionContents(page: Page): Promise<{
   }, { gridId: GRID_ID, cardUrl: CARD_URL });
 }
 
-test('Collection lets a signed-in reader discard a retained result and restore a retained grid', { timeout: 60_000 }, async () => {
-  const { server, origin } = await startApp();
-  const { browser, page } = await launchPageForServer(server);
-  try {
-    await page.route('**/api/auth/session', route => route.fulfill({
+for (const [discardKind, restoreKind] of [
+  ['card', 'grid'],
+  ['grid', 'card'],
+] as const) {
+  test(`Collection ${discardKind} discard and ${restoreKind} restore follow remote deletion across browser sessions`, { timeout: 90_000 }, async () => {
+    const { server, origin } = await startApp();
+    const browser = await launchBrowserForServer(server);
+    const deletingContext = await browser.newContext();
+    const staleContext = await browser.newContext();
+    const deletingPage = await deletingContext.newPage();
+    const stalePage = await staleContext.newPage();
+    const entries = new Map<string, { data: unknown; etag: string }>();
+    let version = 0;
+    const store = {
+      async get(key: string) { return structuredClone(entries.get(key)?.data ?? null); },
+      async getWithMetadata(key: string) {
+        const entry = entries.get(key);
+        return entry ? structuredClone(entry) : null;
+      },
+      async setJSON(key: string, data: unknown, options: { onlyIfNew?: boolean; onlyIfMatch?: string } = {}) {
+        const previous = entries.get(key);
+        if ((options.onlyIfNew && previous) || (options.onlyIfMatch && options.onlyIfMatch !== previous?.etag)) {
+          return { modified: false };
+        }
+        entries.set(key, { data: structuredClone(data), etag: `etag-${++version}` });
+        return { modified: true };
+      },
+    };
+    const handlers = createCollectionHandlers({
+      auth: {
+        authenticate: async () => ({ user: { accountId: ACCOUNT_ID } }),
+        authenticateAdmin: async () => ({ user: { accountId: ACCOUNT_ID } }),
+      },
+      getStore: () => store,
+    });
+    const calls: Array<{ device: string; operations: Array<{ type: string; item?: { kind: string } }> }> = [];
+    const installRoutes = async (context: BrowserContext, device: string) => {
+      await context.route('**/api/auth/session', route => route.fulfill({
       contentType: 'application/json',
       body: JSON.stringify({ user: { accountId: ACCOUNT_ID, email: 'reader@example.test' } }),
-    }));
-    await page.route('**/api/membership/status', route => route.fulfill({
-      contentType: 'application/json',
-      body: JSON.stringify({ state: 'active', isMember: true, capabilities: ['fandom_collector'] }),
-    }));
-    await gotoTestPage(page, origin);
-    await seedCollection(page);
-    await page.evaluate(async ({ gridId, cardUrl, accountId }) => {
-      const request = indexedDB.open('vibe-atlas-collection', 3);
-      const db = await new Promise<IDBDatabase>(resolve => { request.onsuccess = () => resolve(request.result); });
-      const tx = db.transaction(['cards', 'grids', 'sync'], 'readwrite');
-      const cards = tx.objectStore('cards');
-      const grids = tx.objectStore('grids');
-      const sync = tx.objectStore('sync');
-      const cardRequest = cards.get(cardUrl);
-      const gridRequest = grids.get(gridId);
-      const stateRequest = sync.get('state');
-      await new Promise<void>((resolve, reject) => {
-        stateRequest.onsuccess = () => {
-          cards.put({ ...cardRequest.result, localId: 'retained-card', serverId: 'deleted-card' });
-          grids.put({ ...gridRequest.result, localId: 'retained-grid', serverId: 'deleted-grid' });
-          sync.put({
-            ...stateRequest.result,
-            mappingsByAccount: { [accountId]: { 'retained-card': 'deleted-card', 'retained-grid': 'deleted-grid' } },
-            remoteDeletionConflictsByAccount: { [accountId]: { 'retained-card': 'card', 'retained-grid': 'grid' } },
-          });
-        };
-        tx.oncomplete = () => resolve();
-        tx.onerror = () => reject(tx.error);
+      }));
+      await context.route('**/api/membership/status', route => route.fulfill({
+        contentType: 'application/json',
+        body: JSON.stringify({ state: 'active', isMember: true, capabilities: ['fandom_collector'] }),
+      }));
+      await context.route('**/api/collection/sync', async route => {
+        const payload = route.request().postDataJSON() as { operations: Array<{ type: string; item?: { kind: string } }> };
+        calls.push({ device, operations: payload.operations });
+        const request = new Request(`${origin}/api/collection/sync`, {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json', Origin: origin },
+          body: route.request().postData()!,
+        });
+        const response = await handlers.sync(request);
+        await route.fulfill({ status: response.status, contentType: 'application/json', body: await response.text() });
       });
-    }, { gridId: GRID_ID, cardUrl: CARD_URL, accountId: ACCOUNT_ID });
-    await gotoTestPage(page, `${origin}/vibe-atlas?view=collection`);
-    await page.getByText('Deleted on another device').first().waitFor();
-    await page.getByRole('button', { name: 'Keep & restore' }).click();
-    await page.getByRole('button', { name: 'Saved results' }).click();
-    await page.getByText('Deleted on another device').waitFor();
-    await page.getByRole('button', { name: 'Discard this copy' }).click();
-    await expectEventually(async () => {
-      const contents = await collectionContents(page);
-      assert.equal(contents.card, undefined);
-      assert.equal((contents.grid as { serverId?: string }).serverId, undefined);
-    });
-    const syncState = await page.evaluate(async () => {
-      const request = indexedDB.open('vibe-atlas-collection', 3);
-      const db = await new Promise<IDBDatabase>(resolve => { request.onsuccess = () => resolve(request.result); });
-      const stateRequest = db.transaction('sync').objectStore('sync').get('state');
-      return new Promise<{ remoteDeletionConflictsByAccount: Record<string, Record<string, string>>; pendingDeletesByAccount: Record<string, unknown[]> }>(
-        resolve => { stateRequest.onsuccess = () => resolve(stateRequest.result); },
-      );
-    });
-    assert.deepEqual(syncState.remoteDeletionConflictsByAccount[ACCOUNT_ID], {});
-    assert.equal(syncState.pendingDeletesByAccount[ACCOUNT_ID]?.length || 0, 0);
-  } finally {
-    await closeBrowserAndServer(browser, server);
-  }
-});
+    };
+    try {
+      await Promise.all([installRoutes(deletingContext, 'deleting'), installRoutes(staleContext, 'stale')]);
+      await gotoTestPage(deletingPage, origin);
+      await seedCollection(deletingPage, true);
+      await gotoTestPage(deletingPage, `${origin}/vibe-atlas?view=collection`);
+      await expectEventually(async () => {
+        assert.equal(calls.filter(call => call.device === 'deleting').flatMap(call => call.operations).filter(op => op.type === 'upsert').length, 2);
+      });
+
+      await gotoTestPage(stalePage, `${origin}/vibe-atlas?view=collection`);
+      await stalePage.getByRole('button', { name: 'Merge and sync' }).click();
+      await stalePage.getByRole('article').filter({ hasText: 'Grid cleanup actor' }).waitFor();
+      await stalePage.getByRole('button', { name: 'Saved results' }).click();
+      await stalePage.getByRole('article').filter({ hasText: 'Card cleanup actor' }).waitFor();
+      // Model a device that downloaded the records before fingerprint baselines existed.
+      // Its real server identities and cursor remain intact.
+      await stalePage.evaluate(async accountId => {
+        const request = indexedDB.open('vibe-atlas-collection', 3);
+        const db = await new Promise<IDBDatabase>(resolve => { request.onsuccess = () => resolve(request.result); });
+        const tx = db.transaction('sync', 'readwrite');
+        const store = tx.objectStore('sync');
+        const read = store.get('state');
+        read.onsuccess = () => {
+          const state = read.result;
+          state.remoteUpsertFingerprintsByAccount = { ...state.remoteUpsertFingerprintsByAccount, [accountId]: {} };
+          store.put(state);
+        };
+        await new Promise<void>((resolve, reject) => {
+          tx.oncomplete = () => resolve();
+          tx.onerror = () => reject(tx.error);
+        });
+      }, ACCOUNT_ID);
+      await gotoTestPage(stalePage, 'about:blank'); // Device is offline while the other session deletes.
+
+      await deletingPage.getByRole('button', { name: 'Remove' }).first().click();
+      await deletingPage.getByRole('button', { name: 'Daily drop' }).click();
+      await gotoTestPage(deletingPage, `${origin}/vibe-atlas?view=collection`);
+      await deletingPage.getByRole('button', { name: 'Saved results' }).click();
+      await deletingPage.getByRole('button', { name: 'Remove' }).click();
+      await deletingPage.getByRole('button', { name: 'Daily drop' }).click();
+      await expectEventually(async () => {
+        assert.equal(calls.filter(call => call.device === 'deleting').flatMap(call => call.operations).filter(op => op.type === 'delete').length, 2);
+        const serverData = entries.get(`users/${ACCOUNT_ID}`)?.data as { items: Record<string, unknown> } | undefined;
+        assert.ok(serverData);
+        assert.equal(Object.keys(serverData.items).length, 0);
+      });
+
+      const reconnectAt = calls.length;
+      await gotoTestPage(stalePage, `${origin}/vibe-atlas?view=collection`);
+      await stalePage.getByRole('status').filter({ hasText: 'Deleted on another device' }).first().waitFor();
+      await stalePage.getByRole('button', { name: 'Saved results' }).click();
+      await stalePage.getByRole('status').filter({ hasText: 'Deleted on another device' }).first().waitFor();
+      assert.deepEqual(calls.slice(reconnectAt).filter(call => call.device === 'stale').flatMap(call => call.operations), [],
+        'reconnect must not upload either stale copy');
+
+      const choice = async (kind: 'card' | 'grid', name: string) => {
+        if (kind === 'grid') await stalePage.getByRole('button', { name: 'Saved grids' }).click();
+        else await stalePage.getByRole('button', { name: 'Saved results' }).click();
+        return stalePage.getByRole('article').filter({ hasText: kind === 'card' ? 'Card cleanup actor' : 'Grid cleanup actor' })
+          .getByRole('button', { name });
+      };
+      await (await choice(discardKind, 'Discard this copy')).click();
+      await expectEventually(async () => {
+        const contents = await collectionContents(stalePage);
+        assert.equal(contents[discardKind], undefined);
+        assert.notEqual(contents[restoreKind], undefined);
+      });
+      const afterDiscard = entries.get(`users/${ACCOUNT_ID}`)?.data as { items: Record<string, unknown> } | undefined;
+      assert.ok(afterDiscard);
+      assert.equal(Object.keys(afterDiscard.items).length, 0,
+        'discard must not revive either record');
+      await (await choice(restoreKind, 'Keep & restore')).click();
+      await expectEventually(async () => {
+        const serverData = entries.get(`users/${ACCOUNT_ID}`)?.data as { items: Record<string, { kind: string }> } | undefined;
+        assert.ok(serverData);
+        const items = Object.values(serverData.items);
+        assert.deepEqual(items.map(item => item.kind), [restoreKind]);
+      });
+      const contents = await collectionContents(stalePage);
+      assert.equal(contents[discardKind], undefined);
+      assert.notEqual(contents[restoreKind], undefined);
+      assert.deepEqual(calls.slice(reconnectAt).filter(call => call.device === 'stale').flatMap(call => call.operations)
+        .map(op => [op.type, op.item?.kind]), [['upsert', restoreKind]],
+      'only the explicit restore may publish a new record');
+    } finally {
+      await closeBrowserAndServer(browser, server);
+    }
+  });
+}
 
 test('Collection commits pending grid and saved-result removals when navigation unmounts it', { timeout: 60_000 }, async () => {
   const { server, origin } = await startApp();
@@ -216,12 +304,12 @@ test('Collection commits pending grid and saved-result removals when navigation 
     await seedCollection(page);
     await gotoTestPage(page, `${origin}/vibe-atlas?view=collection`);
     await page.getByRole('button', { name: 'Remove' }).first().click();
-    await page.getByRole('button', { name: '今日之星 · Daily' }).click();
+    await page.getByRole('button', { name: 'Daily drop' }).click();
 
-    await page.getByRole('button', { name: 'Your Collection · Saved Grids and Grid Builder' }).click();
+    await page.getByRole('button', { name: /^Your Collection/ }).click();
     await page.getByRole('button', { name: 'Saved results' }).click();
     await page.getByRole('button', { name: 'Remove' }).click();
-    await page.getByRole('button', { name: '今日之星 · Daily' }).click();
+    await page.getByRole('button', { name: 'Daily drop' }).click();
 
     await expectEventually(async () => {
       const contents = await collectionContents(page);

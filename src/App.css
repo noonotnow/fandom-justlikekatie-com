@@ -10,6 +10,11 @@
   color: #242d34;
 }
 
+/* Locale and theme controls occupy a utility row above the product links. */
+body:has(#fandom-language-selector) .fandom-atlas-page {
+  padding-top: 3.5rem;
+}
+
 .fandom-universe-nav {
   display: grid;
   grid-template-columns: auto minmax(0, 1fr);

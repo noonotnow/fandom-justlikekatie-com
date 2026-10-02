@@ -19,6 +19,14 @@
 
 [[edge_functions]]
   function = "seo-indexing"
+  path = "/zh-cn"
+
+[[edge_functions]]
+  function = "seo-indexing"
+  path = "/zh-cn/*"
+
+[[edge_functions]]
+  function = "seo-indexing"
   path = "/auth/*"
 
 [[edge_functions]]
@@ -124,6 +132,24 @@
 
 [[redirects]]
   from = "/vibe-atlas/packs/*"
+  to = "/.netlify/functions/public-records"
+  status = 200
+  force = true
+
+[[redirects]]
+  from = "/zh-cn/vibe-atlas/actors/*"
+  to = "/.netlify/functions/public-records"
+  status = 200
+  force = true
+
+[[redirects]]
+  from = "/zh-cn/vibe-atlas/editions/*"
+  to = "/.netlify/functions/public-records"
+  status = 200
+  force = true
+
+[[redirects]]
+  from = "/zh-cn/vibe-atlas/packs/*"
   to = "/.netlify/functions/public-records"
   status = 200
   force = true
@@ -383,6 +409,11 @@ status = 200
   from = "/c-drama-fandom/watch-journal/episodes-49-50"
   to = "/c-drama-fandom/watch-journal/episodes-49-50/index.html"
   status = 200
+
+[[redirects]]
+from = "/zh-cn/c-drama-fandom/trope-decoder"
+to = "/zh-cn/c-drama-fandom/trope-decoder/index.html"
+status = 200
 
 [[redirects]]
   from = "/c-drama-fandom/fandom-games/"

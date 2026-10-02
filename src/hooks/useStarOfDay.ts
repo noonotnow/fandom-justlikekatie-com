@@ -1,4 +1,6 @@
 import { useState, useEffect, useCallback, useRef } from 'react';
+import { getLocale, translate } from '../i18n/locale';
+import { localizedPublicArchiveMessage } from '../i18n/publicArchiveMessages';
 import type { GridItemData } from '../types';
 import { publicArchiveRecord } from '../contracts/publicArchiveRecord.js';
 import type { PublicArchiveRecord } from '../contracts/publicArchiveRecord.js';
@@ -236,7 +238,7 @@ export const useStarOfDay = (editionDate: string | null | undefined = null): Use
         throw new Error(body?.error || `API error: ${res.status}`);
       }
       if (!res.headers.get('content-type')?.includes('application/json')) {
-        throw new Error('Today’s Vibe Atlas data service is unavailable in this preview.');
+          throw new Error(translate('Today’s Vibe Atlas data service is unavailable in this preview.', '此预览暂时无法连接今日九宫格数据服务。'));
       }
       return projectPublicRecord(await res.json() as StarOfDayData);
     }
@@ -257,31 +259,35 @@ export const useStarOfDay = (editionDate: string | null | undefined = null): Use
               && typeof body.error === 'string'
               ? body.error
               : `The public Archive edition could not be loaded (HTTP ${response.status}).`;
-            throw new Error(message);
+            throw new Error(localizedPublicArchiveMessage(message, getLocale()));
           } else {
             if (!response.headers.get('content-type')?.toLowerCase().includes('application/json')) {
-              throw new Error('The public Archive returned a response that was not JSON.');
+              throw new Error(localizedPublicArchiveMessage('The public Archive returned a response that was not JSON.', getLocale()));
             }
-            data = normalizePublicArchiveEdition(body, editionDate);
+            try {
+              data = normalizePublicArchiveEdition(body, editionDate);
+            } catch (error) {
+              throw new Error(localizedPublicArchiveMessage(error instanceof Error ? error.message : 'The public Archive returned an invalid edition record.', getLocale()));
+            }
           }
         }
 
         if (cancelled || !data) return;
 
         if (data.building) {
-          setError('Today\'s grid is still being built — check back in a moment!');
+          setError(translate('Today\'s grid is still being built — check back in a moment!', '今日九宫格还在整理中，请稍后再来。'));
           setLoading(false);
           return;
         }
 
         if (data.error === 'no_acceptable_batch') {
-          setError('Today’s Star of the Day is waiting for the exact editorial board to be published. Use the private approval desk to publish the rescue board for this edition.');
+          setError(translate('Today’s Star of the Day is waiting for the exact editorial board to be published. Use the private approval desk to publish the rescue board for this edition.', '今日主角的九宫格尚待编辑确认发布，请稍后再来。'));
           setLoading(false);
           return;
         }
 
         if (!data.rankedBatches?.length) {
-          setError('No images found for today\'s vibe. Try refreshing!');
+          setError(translate('No images found for today\'s vibe. Try refreshing!', '暂未找到今日氛围的图片，请刷新重试。'));
           setLoading(false);
           return;
         }
@@ -305,7 +311,7 @@ export const useStarOfDay = (editionDate: string | null | undefined = null): Use
         setLoading(false);
       } catch (err) {
         if (cancelled) return;
-        setError(err instanceof Error ? err.message : 'Failed to load');
+        setError(err instanceof Error ? err.message : translate('Failed to load', '加载失败'));
         setLoading(false);
       }
     }
@@ -324,7 +330,7 @@ export const useStarOfDay = (editionDate: string | null | undefined = null): Use
       const res = await fetch(`/.netlify/functions/star-of-day?${query}`);
       if (!res.ok) throw new Error(`API error: ${res.status}`);
       if (!res.headers.get('content-type')?.includes('application/json')) {
-        throw new Error('The Vibe Atlas archive is unavailable in this preview.');
+        throw new Error(translate('The Vibe Atlas archive is unavailable in this preview.', '此预览暂时无法连接往期档案。'));
       }
       const data: {
         editions?: StarOfDayArchiveEntry[];
@@ -341,7 +347,7 @@ export const useStarOfDay = (editionDate: string | null | undefined = null): Use
       setArchiveHasMore(data.page?.hasMore === true);
       setArchiveTotal(Number.isInteger(data.page?.total) ? data.page!.total! : null);
     } catch (err) {
-      setArchiveError(err instanceof Error ? err.message : 'Failed to load the archive');
+      setArchiveError(err instanceof Error ? err.message : translate('Failed to load the archive', '往期档案加载失败'));
     } finally {
       archiveRequestCount.current -= 1;
       setArchiveLoading(archiveRequestCount.current > 0);

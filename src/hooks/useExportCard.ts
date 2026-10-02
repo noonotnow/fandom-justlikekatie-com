@@ -14,6 +14,7 @@ import { dbSaveGrid } from '../utils/collectionDB';
 import { collectionGridFromStar } from '../utils/collectionHistory';
 import { schedulePublicCollectionSync } from '../utils/publicAccount';
 import { notifyGridExportPersisted, uploadExportedCard } from '../utils/gridExportLog';
+import { translate } from '../i18n/locale';
 
 export interface UseExportCardReturn {
   exportCard: (
@@ -52,7 +53,7 @@ export function useExportCard(data: StarOfDayData): UseExportCardReturn {
     if (isExporting) return false;
     setIsExporting(true);
     setError(null);
-    setToastMessage('正在生成分享卡……');
+    setToastMessage(translate('Preparing share card…', '正在生成分享卡……'));
 
     try {
       // Pre-compute the grid so the same id is used for both dbSaveGrid and the upload.
@@ -80,10 +81,10 @@ export function useExportCard(data: StarOfDayData): UseExportCardReturn {
       await dbSaveGrid(grid);
       schedulePublicCollectionSync();
       // Law #2 Daily exception: auto-save is allowed here, but it must be visible.
-      setToastMessage(`${exportResult.message} · 已加入收藏记录 Added to collection history`);
+      setToastMessage(`${exportResult.message} · ${translate('Added to collection history', '已加入收藏记录')}`);
       return exportResult.outcome;
     } catch (err) {
-      const msg = err instanceof Error ? err.message : '分享卡生成失败，再试一次？';
+      const msg = err instanceof Error ? err.message : translate('Could not prepare the share card. Try again.', '分享卡生成失败，请重试。');
       setError(msg);
       setToastMessage(msg);
       return false;
@@ -96,7 +97,7 @@ export function useExportCard(data: StarOfDayData): UseExportCardReturn {
     if (isExporting) return false;
     setIsExporting(true);
     setError(null);
-    setToastMessage('正在准备发布交接…… · Preparing raw publishing grid…');
+    setToastMessage(translate('Preparing raw publishing grid…', '正在准备发布交接……'));
     let objectUrl = '';
 
     try {
@@ -112,21 +113,21 @@ export function useExportCard(data: StarOfDayData): UseExportCardReturn {
         || typeof navigator.canShare !== 'function'
         || !navigator.canShare(shareData)
       ) {
-        throw new Error('Native file sharing is unavailable here. Use Download Spell Sheet instead.');
+        throw new Error(translate('Native file sharing is unavailable here. Use Download Spell Sheet instead.', '此浏览器不支持文件分享，请改用下载。'));
       }
       await navigator.share(shareData);
       await dbSaveGrid(grid);
       schedulePublicCollectionSync();
       setToastMessage(
-        'Publishing handoff opened with the Publishing Grid · The editable Collection Grid is preserved',
+        translate('Publishing handoff opened with the Publishing Grid · The editable Collection Grid is preserved', '已打开发布交接，可编辑的收藏九宫格仍保留。'),
       );
       return 'shared';
     } catch (err) {
       const msg = err instanceof DOMException && err.name === 'AbortError'
-        ? 'Publishing handoff cancelled. Nothing was downloaded.'
+        ? translate('Publishing handoff cancelled. Nothing was downloaded.', '已取消发布交接，未下载任何文件。')
         : err instanceof Error
           ? err.message
-          : 'The publishing handoff could not be opened.';
+          : translate('The publishing handoff could not be opened.', '无法打开发布交接。');
       setError(msg);
       setToastMessage(msg);
       return false;

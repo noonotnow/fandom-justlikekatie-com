@@ -41,6 +41,22 @@ test('billing portal returns the management URL', async () => {
   }
 });
 
+test('membership service failures use the active Simplified Chinese locale', async () => {
+  const originalFetch = globalThis.fetch;
+  const originalWindow = globalThis.window;
+  globalThis.window = { location: { pathname: '/zh-cn/vibe-atlas' } } as typeof window;
+  globalThis.fetch = (async () => new Response(
+    JSON.stringify({ error: 'Billing is temporarily unavailable.' }),
+    { status: 503 },
+  )) as typeof fetch;
+  try {
+    await assert.rejects(getMembershipStatus(), /会员服务暂时不可用，请重试。/);
+  } finally {
+    globalThis.fetch = originalFetch;
+    globalThis.window = originalWindow;
+  }
+});
+
 test('portal return refreshes cached capability state until the webhook is visible', async () => {
   const originalFetch = globalThis.fetch;
   let calls = 0;
@@ -89,7 +105,10 @@ test('free sign-in permits Collection sync while Collector gates premium creatio
 
   assert.match(collectionSource, /shouldSync = canSyncCloud && decided && await shouldSyncCollection/);
   assert.match(collectionSource, /const canSyncCloud = !isMiddleEarth \|\| hasCollectorAccess/);
-  assert.match(collectionSource, /syncEnabled \? .*'Cloud sync enabled for'.* : 'Signed in as'/);
+  assert.match(
+    collectionSource,
+    /syncEnabled \? \(isMiddleEarth \? 'Middle-earth sync enabled for' : tr\('Cloud sync enabled for', '云端同步账户：'\)\) : tr\('Signed in as', '当前登录账户：'\)/,
+  );
   assert.match(collectionSource, /activeType === 'builder' \?/);
   assert.doesNotMatch(collectionSource, /Upgrade to use Grid Builder/);
   assert.doesNotMatch(collectionSource, /Cloud sync is available with Founding Member/);

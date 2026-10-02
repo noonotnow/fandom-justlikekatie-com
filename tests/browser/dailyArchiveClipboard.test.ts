@@ -227,8 +227,8 @@ function unapprovedPathEdition(fixture: typeof UNAPPROVED_PATH_FIXTURES[number])
 
 for (const engine of BROWSER_ENGINES) {
   test(`archived edition copy uses its date and announces clipboard success or failure in ${engine.name}`, { timeout: 45_000 }, async () => {
-    const [{ server, origin }, browser] = await launchBrowserWithServer(startApp(), engine.type);
-    try {
+  const [{ server, origin }, browser] = await launchBrowserWithServer(startApp(), engine.type);
+  try {
     const page = await browser.newPage();
     const legacyEditionRequests: string[] = [];
     await installClipboardHarness(page);
@@ -369,7 +369,7 @@ test('archive review pageviews follow in-app daily and archive surface transitio
     await page.getByRole('button', { name: 'Explore', exact: false }).click();
     await page.getByRole('button', { name: 'Vibe Atlas archive' }).click();
     await page.getByRole('heading', { name: 'The Star of the Day Archive' }).waitFor();
-    await page.getByRole('button', { name: '今日之星 · Daily' }).click();
+    await page.getByRole('button', { name: 'Daily drop' }).click();
     await page.getByText("Today's curated card drop").waitFor();
 
     assert.deepEqual(
@@ -398,6 +398,7 @@ test('approved public-record links work across today and the full archive while 
       body: JSON.stringify({ error: 'Sign in is required.' }),
     }));
     await page.route('**/.netlify/functions/image-proxy**', route => route.abort());
+    await routeLegacyArchiveFallback(page);
     await page.route('**/.netlify/functions/star-of-day**', async route => {
       const url = new URL(route.request().url());
       await route.fulfill({
@@ -427,7 +428,7 @@ test('approved public-record links work across today and the full archive while 
     await page.getByRole('heading', { name: 'The Star of the Day Archive' }).waitFor();
     const approvedCard = page.locator('.archive-card').filter({ hasText: 'Browser Archive Actor' });
     assert.equal(
-      await approvedCard.getByRole('link', { name: /Open Issue/ }).getAttribute('href'),
+      await approvedCard.getByRole('link', { name: /Open issue/ }).getAttribute('href'),
       EDITION_RECORD_PATH,
     );
     assert.equal(
@@ -440,7 +441,7 @@ test('approved public-record links work across today and the full archive while 
     );
 
     const fallbackCard = page.locator('.archive-card').filter({ hasText: 'Fallback Archive Actor' });
-    const fallbackMainLink = fallbackCard.getByRole('link', { name: /Open Issue/ });
+    const fallbackMainLink = fallbackCard.getByRole('link', { name: /Open issue/ });
     assert.equal(
       await fallbackMainLink.getAttribute('href'),
       `/vibe-atlas?date=${FALLBACK_DATE}`,
@@ -472,70 +473,76 @@ test('partial public-record metadata stays fail-closed across today, the locked 
     await routeLegacyArchiveFallback(page);
     await page.route('**/.netlify/functions/star-of-day**', async route => {
       const url = new URL(route.request().url());
-      if (url.searchParams.get('archive') === '1') {
+        if (url.searchParams.get('archive') === '1') {
+          await route.fulfill({
+            contentType: 'application/json',
+             body: JSON.stringify({ editions: [malformedArchiveEdition()] }),
+          });
+          return;
+        }
+         if (url.searchParams.get('date') === MALFORMED_DATE) {
+          await route.fulfill({
+            status: 401,
+            contentType: 'application/json',
+            body: JSON.stringify({
+              error: 'archive_access_required',
+              access: 'sign_in',
+              capability: 'fandom_collector',
+              edition: {
+                 ...malformedArchiveEdition(),
+                access: 'member',
+                previewThumbnails: ['https://images.browser-archive.test/malformed.jpg'],
+              },
+            }),
+          });
+          return;
+        }
         await route.fulfill({
-          contentType: 'application/json',
-          body: JSON.stringify({ editions: [malformedArchiveEdition()] }),
-        });
-        return;
-      }
-      if (url.searchParams.get('date') === MALFORMED_DATE) {
-        await route.fulfill({
-          status: 401,
           contentType: 'application/json',
           body: JSON.stringify({
-            error: 'archive_access_required',
-            access: 'sign_in',
-            capability: 'fandom_collector',
-            edition: {
-              ...malformedArchiveEdition(),
-              access: 'member',
-              previewThumbnails: ['https://images.browser-archive.test/partial.jpg'],
-            },
+             ...starOfDay('2026-09-02'),
+             publicRecord: { actorPath: '/vibe-atlas/actors/partial-record-actor' },
           }),
         });
-        return;
-      }
-      await route.fulfill({
-        contentType: 'application/json',
-        body: JSON.stringify({
-          ...starOfDay('2026-09-02'),
-          publicRecord: {
-            actorPath: '/vibe-atlas/actors/partial-record-actor',
-          },
-        }),
       });
-    });
 
-    await gotoTestPage(page, `${origin}/vibe-atlas`, { waitUntil: 'domcontentloaded' });
-    await page.getByText("Today's curated card drop").waitFor();
-    assert.equal(
-      await page.getByRole('navigation', { name: 'Curated public records' }).count(),
-      0,
-      'today must not render navigation for a partial record pair',
-    );
+      await gotoTestPage(page, `${origin}/vibe-atlas`, { waitUntil: 'domcontentloaded' });
+      await page.getByText("Today's curated card drop").waitFor();
+      assert.equal(
+        await page.getByRole('navigation', { name: 'Curated public records' }).count(),
+        0,
+         'today must not render navigation for a partial record pair',
+      );
 
-    await gotoTestPage(page, `${origin}/vibe-atlas?date=${MALFORMED_DATE}`, { waitUntil: 'domcontentloaded' });
-    await page.getByText(/Founding Members can unlock the complete nine-card board/).waitFor();
-    assert.equal(
-      await page.getByRole('navigation', { name: 'Curated public records' }).count(),
-      0,
-      'the locked preview must not render navigation for a partial record pair',
-    );
+       await gotoTestPage(page, `${origin}/vibe-atlas?date=${MALFORMED_DATE}`, { waitUntil: 'domcontentloaded' });
+      await page.getByText(/Founding Members can unlock the complete nine-card board/).waitFor();
+      assert.equal(
+        await page.getByRole('navigation', { name: 'Curated public records' }).count(),
+        0,
+         'the locked preview must not render navigation for a partial record pair',
+      );
 
-    await page.getByRole('button', { name: 'Explore', exact: false }).click();
-    await page.getByRole('button', { name: 'Vibe Atlas archive' }).click();
-    await page.getByRole('heading', { name: 'The Star of the Day Archive' }).waitFor();
-    const malformedCard = page.locator('.archive-card').filter({ hasText: 'Partial Record Actor' });
-    const boardFallback = malformedCard.getByRole('link', { name: /Open Issue/ });
-    assert.equal(
-      await boardFallback.getAttribute('href'),
-      `/vibe-atlas?date=${MALFORMED_DATE}`,
-      'the full archive must retain the ordinary board fallback',
-    );
-    assert.match(await boardFallback.textContent() ?? '', /Open the nine-card board/);
-    assert.equal(await malformedCard.getByRole('link', { name: 'Actor record' }).count(), 0);
-    assert.equal(await malformedCard.getByRole('link', { name: 'Edition record' }).count(), 0);
+      await page.getByRole('button', { name: 'Explore', exact: false }).click();
+      await page.getByRole('button', { name: 'Vibe Atlas archive' }).click();
+      await page.getByRole('heading', { name: 'The Star of the Day Archive' }).waitFor();
+       const malformedCard = page.locator('.archive-card').filter({ hasText: 'Partial Record Actor' });
+      const boardFallback = malformedCard.getByRole('link', { name: /Open issue/ });
+      assert.equal(
+        await boardFallback.getAttribute('href'),
+         `/vibe-atlas?date=${MALFORMED_DATE}`,
+        'the full archive must retain the ordinary board fallback',
+      );
+      assert.match(await boardFallback.textContent() ?? '', /Open the nine-card board/);
+      assert.equal(
+        await malformedCard.getByRole('link', { name: 'Actor record', exact: true }).count(),
+        0,
+         'the full archive must not render an actor link for a partial record pair',
+      );
+      assert.equal(
+        await malformedCard.getByRole('link', { name: 'Edition record', exact: true }).count(),
+        0,
+         'the full archive must not render an edition link for a partial record pair',
+      );
   } finally {
     await closeBrowserAndServer(browser, server);
   }
@@ -546,21 +553,21 @@ test('complete-looking public-record metadata with unapproved paths stays fail-c
   const [{ server, origin }, browser] = await launchBrowserWithServer(startApp(), engine.type);
   try {
     for (const fixture of UNAPPROVED_PATH_FIXTURES) {
-      const page = await browser.newPage();
-      await page.route('https://www.googletagmanager.com/**', route => route.abort());
-      await page.route('**/api/auth/session', route => route.fulfill({
-        contentType: 'application/json',
-        body: JSON.stringify({ user: null }),
-      }));
-      await page.route('**/api/membership/status', route => route.fulfill({
-        status: 401,
-        contentType: 'application/json',
-        body: JSON.stringify({ error: 'Sign in is required.' }),
-      }));
-      await page.route('**/.netlify/functions/image-proxy**', route => route.abort());
-      await routeLegacyArchiveFallback(page);
-      await page.route('**/.netlify/functions/star-of-day**', async route => {
-        const url = new URL(route.request().url());
+    const page = await browser.newPage();
+    await page.route('https://www.googletagmanager.com/**', route => route.abort());
+    await page.route('**/api/auth/session', route => route.fulfill({
+      contentType: 'application/json',
+      body: JSON.stringify({ user: null }),
+    }));
+    await page.route('**/api/membership/status', route => route.fulfill({
+      status: 401,
+      contentType: 'application/json',
+      body: JSON.stringify({ error: 'Sign in is required.' }),
+    }));
+    await page.route('**/.netlify/functions/image-proxy**', route => route.abort());
+    await routeLegacyArchiveFallback(page);
+    await page.route('**/.netlify/functions/star-of-day**', async route => {
+      const url = new URL(route.request().url());
         if (url.searchParams.get('archive') === '1') {
           await route.fulfill({
             contentType: 'application/json',
@@ -613,7 +620,7 @@ test('complete-looking public-record metadata with unapproved paths stays fail-c
       await page.getByRole('button', { name: 'Vibe Atlas archive' }).click();
       await page.getByRole('heading', { name: 'The Star of the Day Archive' }).waitFor();
       const malformedCard = page.locator('.archive-card').filter({ hasText: fixture.actorName });
-      const boardFallback = malformedCard.getByRole('link', { name: /Open Issue/ });
+      const boardFallback = malformedCard.getByRole('link', { name: /Open issue/ });
       assert.equal(
         await boardFallback.getAttribute('href'),
         `/vibe-atlas?date=${fixture.date}`,

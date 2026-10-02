@@ -9,6 +9,7 @@ import {
 import { schedulePublicCollectionSync } from '../utils/publicAccount';
 import { storage } from '../utils/storage';
 import { ArchiveImageSaveError, authorizeArchiveImageSave } from '../utils/archiveImageSave';
+import { translate } from '../i18n/locale';
 
 const SAVE_ITEM_STATE_CHANGE_EVENT = 'fandom-save-item-state-change';
 const saveItemStateVersions = new Map<string, number>();
@@ -69,7 +70,7 @@ export const useSaveItem = (
         const legacySaved = storage.isItemSaved(itemId);
         setIsSaved(legacySaved);
         setIsLegacySaved(legacySaved);
-        setToastMessage('Could not check this saved card. Please try again.');
+        setToastMessage(translate('Could not check this saved card. Please try again.', '无法检查这张卡片的收藏状态，请重试。'));
         setShowToast(true);
         setIsSavedStateLoading(false);
       }
@@ -97,7 +98,7 @@ export const useSaveItem = (
     setArchiveSaveFailure(null);
 
     try {
-      let nextToastMessage = 'Saved to Collection!';
+      let nextToastMessage = translate('Saved to Collection!', '已保存到收藏！');
       if (newSavedState) {
         // Authorization must succeed before either local persistence path is
         // touched. Store the same card record consumed by My Collection.
@@ -138,13 +139,13 @@ export const useSaveItem = (
           try {
             storage.removeItem(itemId);
           } catch {
-            nextToastMessage = 'Added to Collection on this device, but the old bookmark could not be removed.';
+            nextToastMessage = translate('Added to Collection on this device, but the old bookmark could not be removed.', '已加入本机收藏，但旧书签未能移除。');
           }
         }
       } else {
         storage.removeItem(itemId);
         await dbRemoveCard(item?.thumbnail || itemId);
-        nextToastMessage = 'Removed from Collection';
+        nextToastMessage = translate('Removed from Collection', '已从收藏中移除');
       }
 
       setIsSaved(newSavedState);
@@ -163,7 +164,7 @@ export const useSaveItem = (
       if (error instanceof ArchiveImageSaveError) {
         setArchiveSaveFailure(error.failure);
       } else {
-        setToastMessage('Could not update this save. Please try again.');
+        setToastMessage(translate('Could not update this save. Please try again.', '未能更新这项收藏，请重试。'));
         setShowToast(true);
       }
       return undefined;

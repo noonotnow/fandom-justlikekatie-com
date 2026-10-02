@@ -93,8 +93,10 @@ test('signed-out released-pack visitors see a public teaser without fetching pro
     await page.getByRole('heading', { name: 'The Vibe Atlas library.' }).waitFor();
     assert.equal(protectedRequests, 0);
     await page.getByRole('heading', { name: /Polished Danger/ }).waitFor();
-    await page.getByText('Public teaser · 公开预览').waitFor();
-    await page.getByText('This Vibe Pack / 氛围包 is the reusable editorial sourceboard.').waitFor();
+    await page.getByText('Public teaser').waitFor();
+    await page.getByText(
+      'This Vibe Pack is the reusable editorial sourceboard. Each grid is freshly generated from its search, safety, and ranking rules.',
+    ).waitFor();
     await page.getByText('Free today: this release is the current Star of the Day Vibe Pack on the Vibe Atlas homepage.').waitFor();
     assert.equal(await page.locator('img').count() >= 3, true);
     await page.getByRole('button', { name: 'Email sign-in link' }).waitFor();
