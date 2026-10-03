@@ -200,6 +200,11 @@ export interface GridRecord {
     misprint: boolean;
     legendary: boolean;
   };
+  /** Personal, additive fan reaction; never an editorial or official label. */
+  personalReaction?: {
+    tier: 'misprint' | 'legendary' | null;
+    reason?: 'nailed_vibe' | 'every_image_belongs' | 'unforgettable_set';
+  };
   /**
    * Label source for a saved grid. Cloud corrections may send `null` as the
    * explicit removal marker; dbApplySyncResponse removes it locally.
@@ -1323,6 +1328,7 @@ export function normalizeGridRecord(grid: Partial<GridRecord>): GridRecord {
       misprint: grid.edition?.misprint === true,
       legendary: grid.edition?.legendary === true,
     },
+    ...(grid.personalReaction ? { personalReaction: { ...grid.personalReaction } } : {}),
     ...(normalizedSourceProvenance ? { sourceProvenance: normalizedSourceProvenance } : {}),
     capturedDate: grid.capturedDate || new Date().toISOString().slice(0, 10),
     generatedAt: grid.generatedAt || grid.savedAt || new Date().toISOString(),

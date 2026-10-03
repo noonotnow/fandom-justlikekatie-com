@@ -48,6 +48,10 @@ export interface StarOfDayData {
   rankedBatches: RankedBatch[];
   displayResults?: StarOfDayResult[];
   date: string;
+  personalReaction?: {
+    tier: 'misprint' | 'legendary' | null;
+    reason?: 'nailed_vibe' | 'every_image_belongs' | 'unforgettable_set';
+  };
   generatedAt?: string;
   generationPrompt?: string;
   generationQuery?: string;

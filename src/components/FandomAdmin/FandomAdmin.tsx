@@ -12,19 +12,22 @@ import { ReleaseDesk } from './ReleaseDesk';
 import { ArchiveRepairHistory } from './ArchiveRepairHistory';
 import { ArchivePublicationReview } from './ArchivePublicationReview';
 import { VibingModeration } from './VibingModeration';
+import { DailyImageReportQueue } from './DailyImageReportQueue';
+import { useLocale } from '../../i18n/LocaleProvider';
 import styles from './FandomAdmin.module.css';
 
-type AdminView = 'court' | 'watch-journal' | 'actor-preflight' | 'release-desk' | 'archive-repairs' | 'archive-review' | 'vibing-moderation';
+type AdminView = 'court' | 'watch-journal' | 'actor-preflight' | 'release-desk' | 'archive-repairs' | 'archive-review' | 'vibing-moderation' | 'daily-image-reports';
 
 function requestedAdminView(fallback: AdminView): AdminView {
   const requested = new URLSearchParams(window.location.search).get('adminView');
-  return requested === 'actor-preflight' || requested === 'release-desk' || requested === 'archive-repairs' || requested === 'archive-review'
+  return requested === 'actor-preflight' || requested === 'release-desk' || requested === 'archive-repairs' || requested === 'archive-review' || requested === 'daily-image-reports'
     || requested === 'court' || requested === 'watch-journal' || requested === 'vibing-moderation'
     ? requested
     : fallback;
 }
 
 export const FandomAdmin: React.FC<{ initialView?: AdminView }> = ({ initialView = 'release-desk' }) => {
+  const { t } = useLocale();
   const [view, setView] = useState<AdminView>(() => requestedAdminView(initialView));
   return (
     <section className={styles.admin}>
@@ -35,12 +38,13 @@ export const FandomAdmin: React.FC<{ initialView?: AdminView }> = ({ initialView
           <button type="button" role="tab" aria-selected={view === 'court'} onClick={() => setView('court')}>Court rulings</button>
           <button type="button" role="tab" aria-selected={view === 'watch-journal'} onClick={() => setView('watch-journal')}>Field Journal</button>
           <button type="button" role="tab" aria-selected={view === 'vibing-moderation'} onClick={() => setView('vibing-moderation')}>Vibing Now review</button>
+          <button type="button" role="tab" aria-selected={view === 'daily-image-reports'} onClick={() => setView('daily-image-reports')}>{t('Daily image reports', '每日图片报告')}</button>
           <button type="button" role="tab" aria-selected={view === 'actor-preflight'} onClick={() => setView('actor-preflight')}>Actor Preflight Lab</button>
           <button type="button" role="tab" aria-selected={view === 'archive-repairs'} onClick={() => setView('archive-repairs')}>Archive repairs</button>
           <button type="button" id="archive-publication-review-tab" role="tab" aria-selected={view === 'archive-review'} aria-controls="archive-publication-review-panel" onClick={() => setView('archive-review')}>Archive review</button>
         </div>
       </header>
-      {view === 'release-desk' ? <ReleaseDesk /> : view === 'court' ? <CourtRulingsEditor /> : view === 'watch-journal' ? <WatchJournalCapture /> : view === 'vibing-moderation' ? <VibingModeration /> : view === 'archive-repairs' ? <ArchiveRepairHistory /> : view === 'archive-review' ? <ArchivePublicationReview /> : <ActorPreflightLab />}
+      {view === 'daily-image-reports' ? <DailyImageReportQueue /> : view === 'release-desk' ? <ReleaseDesk /> : view === 'court' ? <CourtRulingsEditor /> : view === 'watch-journal' ? <WatchJournalCapture /> : view === 'vibing-moderation' ? <VibingModeration /> : view === 'archive-repairs' ? <ArchiveRepairHistory /> : view === 'archive-review' ? <ArchivePublicationReview /> : <ActorPreflightLab />}
     </section>
   );
 };

@@ -53,6 +53,7 @@ export function collectionGridFromStar(
       misprint: chosen?.misprint === true,
       legendary: chosen?.legendary === true,
     },
+    ...(data.personalReaction ? { personalReaction: { ...data.personalReaction } } : {}),
     capturedDate: data.date,
     generatedAt: data.generatedAt || savedAt,
     savedAt,
@@ -140,6 +141,7 @@ export function starDataFromCollectionGrid(grid: GridRecord): StarOfDayData {
     ...(grid.ctaSeed ? { ctaSeed: grid.ctaSeed } : {}),
     ...(grid.presentation ? { presentation: { ...grid.presentation } } : {}),
     ...(grid.editorial ? { editorial: grid.editorial } : {}),
+    ...(grid.personalReaction ? { personalReaction: { ...grid.personalReaction } } : {}),
   };
 }
 

@@ -10,6 +10,7 @@ import { ArchiveImageSaveError, authorizeArchiveImageSave } from '../../utils/ar
 import { vibeAtlasPath } from '../../utils/fandomRoutes';
 import { notifySavedItemChanged } from '../../hooks/useSaveItem';
 import styles from './Lightbox.module.css';
+import { DailyImageReport } from './DailyImageReport';
 
 const SWIPE_THRESHOLD = 50;
 
@@ -24,6 +25,8 @@ interface LightboxProps {
   planData?: StarOfDayData;
   tier: ImageTier;
   onTierChange: (tier: ImageTier) => void;
+  recoverDailyReport?: boolean;
+  onDailyReportRecovered?: () => void;
 }
 
 export const Lightbox: React.FC<LightboxProps> = ({
@@ -35,6 +38,8 @@ export const Lightbox: React.FC<LightboxProps> = ({
   planData,
   tier,
   onTierChange,
+  recoverDailyReport = false,
+  onDailyReportRecovered,
 }) => {
   const { t, path } = useLocale();
   const total = images.length;
@@ -56,22 +61,27 @@ export const Lightbox: React.FC<LightboxProps> = ({
   // Focus trap: collect all focusable elements inside the lightbox
   const getFocusableElements = useCallback((): HTMLElement[] => {
     if (!overlayRef.current) return [];
-    return Array.from(
-      overlayRef.current.querySelectorAll<HTMLElement>(
-        'button:not([disabled]), [tabindex="0"]'
-      )
-    );
+    return Array.from(overlayRef.current.querySelectorAll<HTMLElement>(
+        'button:not([disabled]), a[href], input:not([disabled]), select:not([disabled]), textarea:not([disabled]), summary, [tabindex]:not([tabindex="-1"])'
+      )).filter(element => element.getClientRects().length > 0);
   }, []);
 
   // Keyboard navigation + focus trap
   useEffect(() => {
     const handleKeyDown = (e: KeyboardEvent) => {
+      const target = e.target;
+      const isEditing = target instanceof HTMLElement && (
+        target.isContentEditable
+        || target.matches('input, select, textarea, [role="textbox"]')
+      );
       switch (e.key) {
         case 'ArrowRight':
+          if (isEditing) return;
           e.preventDefault();
           goNext();
           break;
         case 'ArrowLeft':
+          if (isEditing) return;
           e.preventDefault();
           goPrev();
           break;
@@ -371,6 +381,19 @@ export const Lightbox: React.FC<LightboxProps> = ({
               </div>
             </div>
           </>
+        )}
+
+        {planData?.date && (
+          <DailyImageReport
+            key={`${planData.date}:${current.archiveImageId || current.id}`}
+            date={planData.date}
+            imageId={current.archiveImageId || current.id}
+            imageTitle={current.title}
+            actorName={cardMetadata?.actorName ?? planData.actorName}
+            vibeLabel={cardMetadata?.vibeLabel ?? planData.vibeLabel}
+            recoverAfterAuth={recoverDailyReport}
+            onRecoveryComplete={onDailyReportRecovered}
+          />
         )}
 
         {/* Thumbnail strip */}

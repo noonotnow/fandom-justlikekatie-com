@@ -1,4 +1,5 @@
 import { createHash, randomUUID } from "node:crypto";
+import { submitDailyReport, ownDailyReports, reportQueue } from "./daily-image-reports.js";
 import { hasValidReceiptTimestamp } from "./receipt-timestamp.js";
 import { json } from "./public-auth.js";
 import {
@@ -284,7 +285,11 @@ export function createActorAuditHandler({
         input = await readJson(req);
       }
       let operator;
-      if (input?.action === "mark_collection_misprint") {
+      const ownReports = req.method === "GET" && new URL(req.url).searchParams.get("reports") === "own";
+      if (input?.action === "report_daily_image" || ownReports) {
+        operator = await auth.authenticate(req, context);
+        collectionFeedbackTrusted = false;
+      } else if (input?.action === "mark_collection_misprint") {
         operator = await auth.authenticate(req, context);
         try {
           await auth.authenticateAdmin(req, context);
@@ -297,6 +302,36 @@ export function createActorAuditHandler({
       }
       const store = getStore(ELIGIBILITY_STORE, context);
       const url = new URL(req.url);
+      if (input?.action === "report_daily_image" || ownReports) {
+        const principal = operator?.user?.accountId;
+        if (!principal) return json(401, { error: "Sign in to report this image." });
+        const options = {
+          store, publicationStore: getPublicationStore(context), principal,
+          reasons: MISPRINT_REASONS, now, actorPacks,
+          ensureCatalog: ensureMisprintReceiptCatalog, applyDecisions: applyMisprintDecisions,
+        };
+        if (ownReports) {
+          return json(200, { reports: await ownDailyReports({
+            ...options, input: { date: url.searchParams.get("date"), imageId: url.searchParams.get("imageId") },
+          }) });
+        }
+        return json(200, { report: await submitDailyReport({ ...options, input }) });
+      }
+      if (req.method === "GET" && url.searchParams.get("reports") === "queue") {
+        const page = await reportQueue(store, url.searchParams, applyMisprintDecisions);
+        return json(200, {
+          ...page,
+          reports: page.reports.map(receipt => {
+            const actor = actorPacks.find(actor => actor.id === receipt.actorId);
+            const vibe = actor?.vibes?.[receipt.vibeIdx];
+            return {
+              ...receipt,
+              actorName: receipt.actorName || actor?.shortName_en || actor?.name || receipt.actorId,
+              vibeLabel: receipt.vibeLabel || vibe?.label_en || vibe?.label || receipt.vibeKey,
+            };
+          }),
+        });
+      }
       const requestedExport = url.searchParams.get("export");
       const requestedHistory = url.searchParams.get("history");
       if (requestedHistory === "repair-health-recoveries") {

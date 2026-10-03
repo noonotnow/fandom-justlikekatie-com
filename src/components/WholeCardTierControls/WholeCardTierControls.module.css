@@ -1,6 +1,7 @@
 .tierControls {
   display: grid;
   gap: 6px;
+  min-width: min(100%, 280px);
 }
 
 .label {
@@ -33,6 +34,42 @@
   border-radius: 10px;
   overflow: hidden;
 }
+
+.reason {
+  display: grid;
+  gap: 4px;
+  color: #8b8790;
+  font-size: 11px;
+}
+
+.reason select {
+  min-height: 36px;
+  border: 1px solid #77727b;
+  border-radius: 7px;
+  padding: 5px 8px;
+  color: inherit;
+  background: rgb(24 24 27 / 78%);
+  font: inherit;
+}
+
+.guide {
+  max-width: 420px;
+  color: #aaa5ad;
+  font-size: 11px;
+  line-height: 1.45;
+}
+
+.guide summary {
+  width: fit-content;
+  min-height: 30px;
+  display: flex;
+  align-items: center;
+  cursor: pointer;
+  color: #c9a96e;
+}
+
+.guide p { margin: 5px 0; }
+.guide strong { color: #e2dce4; }
 
 .buttons:focus-within {
   outline: 2px solid #c9a96e;
