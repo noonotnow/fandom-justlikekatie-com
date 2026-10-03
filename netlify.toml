@@ -326,6 +326,11 @@ to = "/c-dramas/love-between-fairy-and-devil/index.html"
 status = 200
 
 [[redirects]]
+from = "/c-dramas/love-between-fairy-and-devil/cast"
+to = "/c-dramas/love-between-fairy-and-devil/cast/index.html"
+status = 200
+
+[[redirects]]
 from = "/c-dramas/love-between-fairy-and-devil/relationships"
 to = "/c-dramas/love-between-fairy-and-devil/relationships/index.html"
 status = 200
