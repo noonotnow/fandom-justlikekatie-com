@@ -15,6 +15,7 @@ function preparationFixture(t) {
     "package.json", "netlify.toml", "shared/public-routes.js", "shared/locale.js",
     "netlify/functions/lib/public-routes.js",
     "scripts/generate-public-pages.js", "scripts/where-to-watch.js",
+    "scripts/untamed-name-key.js", "docs/untamed-three-character-name-key-review.md",
     "scripts/static-guide-public-inventory.js", "scripts/vibing-public-inventory.js",
     "docs/against-the-current-availability.json",
     "public/c-drama-fandom", "public/c-dramas", "public/zh-cn",
