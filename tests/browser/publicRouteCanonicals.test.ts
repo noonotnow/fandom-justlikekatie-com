@@ -78,7 +78,7 @@ function assertCanonicalMatchesRoute(hrefs: string[], route: AppRenderedRoute) {
   );
 }
 
-async function canonicalHrefs(page: import('playwright').Page) {
+async function canonicalHrefs(page: import('@playwright/test').Page) {
   await page.locator('link[rel~="canonical"]').first().waitFor({ state: 'attached' });
   return page.locator('link[rel~="canonical"]').evaluateAll(
     links => links.map(link => (link as HTMLLinkElement).href),
@@ -86,7 +86,7 @@ async function canonicalHrefs(page: import('playwright').Page) {
 }
 
 async function assertRouteMetadata(
-  page: import('playwright').Page,
+  page: import('@playwright/test').Page,
   route: AppRenderedRoute,
   expected: RouteMetadata,
 ) {

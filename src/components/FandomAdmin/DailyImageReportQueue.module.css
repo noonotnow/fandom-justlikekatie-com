@@ -1,0 +1,73 @@
+.queue {
+  margin: 18px 0;
+  color: #e6e0e8;
+  border: 1px solid rgba(201, 169, 110, .28);
+  border-radius: 14px;
+  padding: clamp(14px, 2.5vw, 24px);
+  background: rgba(35, 31, 38, .68);
+}
+
+.header {
+  display: flex;
+  align-items: end;
+  justify-content: space-between;
+  gap: 18px;
+  margin-bottom: 18px;
+}
+
+.header h3 { margin: 2px 0 5px; font-size: clamp(20px, 3vw, 28px); }
+.header p { max-width: 650px; margin: 0; color: #aaa4ad; font-size: 13px; line-height: 1.5; }
+.eyebrow { color: #d1ad6d !important; font-size: 10px !important; letter-spacing: .1em; text-transform: uppercase; }
+.controls { display: flex; align-items: end; gap: 8px; }
+.controls label { display: grid; gap: 4px; color: #aaa4ad; font-size: 11px; }
+.controls select, .controls button, .pagination button {
+  min-height: 38px;
+  border: 1px solid rgba(201, 169, 110, .35);
+  border-radius: 8px;
+  padding: 6px 10px;
+  background: #211e24;
+  color: #eee8ef;
+  font: inherit;
+}
+.controls button, .pagination button { cursor: pointer; }
+.controls button:disabled, .pagination button:disabled, .actions button:disabled { opacity: .5; cursor: wait; }
+.error, .notice { padding: 10px 12px; border-radius: 8px; }
+.error { color: #f3b8ac; background: rgba(132, 54, 48, .2); }
+.notice { color: #bfe0c1; background: rgba(55, 103, 64, .18); }
+.error button { margin-left: 8px; cursor: pointer; }
+.loading { display: flex; gap: 8px; padding: 30px; }
+.loading span { width: 100%; height: 66px; border-radius: 8px; background: linear-gradient(100deg, #332e36, #48414b, #332e36); animation: shimmer 1.2s ease-in-out infinite alternate; }
+@keyframes shimmer { from { opacity: .45; } to { opacity: .85; } }
+.empty { padding: 35px 16px; text-align: center; border: 1px dashed rgba(201,169,110,.35); border-radius: 10px; }
+.empty p { margin-bottom: 0; color: #aaa4ad; }
+.list { display: grid; gap: 14px; }
+.item { display: grid; grid-template-columns: minmax(140px, 220px) minmax(0, 1fr); gap: 16px; padding: 13px; border-radius: 11px; background: rgba(18, 17, 21, .62); }
+.imageCell { display: grid; align-content: start; gap: 6px; color: #a8a1aa; font-size: 11px; }
+.imageCell img, .noImage { width: 100%; aspect-ratio: 4 / 3; object-fit: contain; border-radius: 8px; background: #17151a; }
+.noImage { display: grid; place-items: center; }
+.details { min-width: 0; }
+.details h4 { margin: 0 0 6px; font-size: 17px; }
+.details p { margin: 5px 0; overflow-wrap: anywhere; color: #c2bbc5; font-size: 12px; line-height: 1.45; }
+.details blockquote { margin: 9px 0; padding: 8px 11px; border-left: 2px solid #c9a96e; color: #ded6df; background: rgba(201,169,110,.07); white-space: pre-wrap; overflow-wrap: anywhere; }
+.details dl { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 6px 14px; margin: 10px 0; font-size: 11px; }
+.details dl div { min-width: 0; }
+.details dt { color: #928b96; }
+.details dd { margin: 2px 0 0; overflow-wrap: anywhere; color: #d1cbd4; }
+.details a { color: #f0cc83; font-size: 12px; }
+.decisionNote { display: grid; gap: 4px; margin-top: 12px; color: #aaa4ad; font-size: 11px; }
+.decisionNote textarea { width: 100%; box-sizing: border-box; resize: vertical; min-height: 48px; border: 1px solid #514a55; border-radius: 7px; padding: 8px; background: #19171c; color: #eee8ef; font: inherit; }
+.actions { display: flex; gap: 8px; margin-top: 8px; }
+.actions button { min-height: 36px; padding: 6px 11px; border: 1px solid rgba(201,169,110,.45); border-radius: 7px; background: rgba(201,169,110,.12); color: #f0cc83; cursor: pointer; }
+.pagination { display: flex; align-items: center; justify-content: end; gap: 8px; margin-top: 15px; }
+.pagination span { margin-left: auto; color: #928b96; font-size: 11px; text-align: right; }
+
+@media (max-width: 680px) {
+  .header { align-items: stretch; flex-direction: column; }
+  .controls { justify-content: space-between; }
+  .item { grid-template-columns: 1fr; }
+  .imageCell { grid-template-columns: minmax(90px, 30%) 1fr; align-items: end; }
+  .imageCell img, .noImage { max-height: 150px; }
+  .details dl { grid-template-columns: 1fr; }
+  .pagination { flex-wrap: wrap; }
+  .pagination span { flex-basis: 100%; }
+}

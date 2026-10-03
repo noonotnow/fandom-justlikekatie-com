@@ -16,14 +16,18 @@
   align-items: center;
   max-width: 90vw;
   max-height: 90vh;
+  max-height: 90dvh;
+  overflow-y: auto;
+  overscroll-behavior: contain;
   gap: 12px;
 }
 
 .closeBtn {
-  position: absolute;
-  top: -40px;
-  right: -8px;
-  background: none;
+  position: sticky;
+  top: 0;
+  align-self: flex-end;
+  z-index: 20;
+  background: #18181d;
   border: none;
   color: #f3f3f5;
   font-size: 24px;
@@ -62,11 +66,11 @@
 }
 
 .navPrev {
-  left: -60px;
+  left: 8px;
 }
 
 .navNext {
-  right: -60px;
+  right: 8px;
 }
 
 .mainImage {
@@ -199,6 +203,96 @@
   margin: 0;
 }
 
+.report {
+  width: min(620px, calc(100vw - 32px));
+  max-height: min(36vh, 300px);
+  overflow-y: auto;
+  border: 1px solid rgba(201, 169, 110, .35);
+  border-radius: 10px;
+  padding: 8px 11px;
+  color: #e2dce4;
+  background: rgba(24, 24, 29, .96);
+  text-align: left;
+  overscroll-behavior: contain;
+}
+
+.report > summary {
+  min-height: 34px;
+  display: flex;
+  align-items: center;
+  cursor: pointer;
+  color: #f4d38c;
+  font-size: 13px;
+  font-weight: 600;
+}
+
+.reportContext, .reportFootnote, .reportStatus, .reportNotice, .reportError {
+  margin: 6px 0;
+  color: #c7c1ca;
+  font-size: 11px;
+  line-height: 1.45;
+}
+
+.reportStatus strong { color: #f4d38c; }
+.reportNotice { color: #bee1c1; }
+.reportError { color: #f1b1a8; }
+
+.reportForm {
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  gap: 8px;
+}
+
+.reportForm label, .reportSignIn label {
+  display: grid;
+  gap: 4px;
+  min-width: 0;
+  color: #c7c1ca;
+  font-size: 11px;
+}
+
+.reportForm label:nth-child(3) { grid-column: 1 / -1; }
+
+.reportForm input, .reportForm select, .reportForm textarea, .reportSignIn input {
+  width: 100%;
+  min-height: 38px;
+  box-sizing: border-box;
+  border: 1px solid rgba(255, 255, 255, .25);
+  border-radius: 7px;
+  padding: 7px 9px;
+  color: #f3f3f5;
+  background: #18181d;
+  font: inherit;
+}
+
+.reportForm textarea { resize: vertical; min-height: 56px; }
+.reportForm select option { background: #18181d; }
+.reportForm small { text-align: right; color: #9d97a1; }
+
+.reportActions {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 7px;
+  align-items: center;
+}
+
+.reportActions button, .reportSignIn button {
+  min-height: 36px;
+  padding: 6px 10px;
+  border: 1px solid rgba(201, 169, 110, .5);
+  border-radius: 7px;
+  color: #f4d38c;
+  background: rgba(201, 169, 110, .12);
+  cursor: pointer;
+  font: inherit;
+  font-size: 11px;
+}
+
+.reportActions button:disabled, .reportSignIn button:disabled { opacity: .55; cursor: wait; }
+.reportSignIn { display: flex; align-items: end; gap: 8px; margin-top: 8px; }
+.reportSignIn label { flex: 1; }
+.reportFootnote { color: #9d97a1; }
+
 .packetAction select {
   min-height: 42px;
   border: 1px solid rgba(255,255,255,.22);
@@ -214,6 +308,10 @@
 
 @media (max-width: 560px) {
   .packetAction { grid-template-columns: 1fr; }
+  .report { max-height: 30vh; }
+  .reportForm { grid-template-columns: 1fr; }
+  .reportForm label:nth-child(3) { grid-column: auto; }
+  .reportSignIn { align-items: stretch; flex-direction: column; }
 }
 
 .thumb {

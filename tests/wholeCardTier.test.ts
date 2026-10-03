@@ -3,6 +3,8 @@ import test from 'node:test';
 import type { RankedBatch, StarOfDayData } from '../src/hooks/useStarOfDay.ts';
 import { buildExportPayload, classifyEditionTier } from '../src/utils/exportCanvas.ts';
 import { renderGridCardPng } from '../src/utils/planHandoff.ts';
+import { collectionGridFromStar, starDataFromCollectionGrid } from '../src/utils/collectionHistoryModel.ts';
+import { normalizeGridRecord } from '../src/utils/collectionDB.ts';
 import {
   applyWholeCardTierOverride,
   boardIdentity,
@@ -55,8 +57,8 @@ const baseData: StarOfDayData = {
   rankedBatches: [standardBatch, autoLegendaryBatch],
 };
 
-test('boardIdentity is a stable key derived from date and actorId', () => {
-  assert.equal(boardIdentity(baseData), '2026-07-31::liu-xueyi');
+test('boardIdentity is stable and isolates date, actor, vibe, and exact displayed composition', () => {
+  assert.equal(boardIdentity(baseData), boardIdentity({ ...baseData }));
   assert.notEqual(
     boardIdentity(baseData),
     boardIdentity({ ...baseData, date: '2026-08-01' }),
@@ -64,6 +66,40 @@ test('boardIdentity is a stable key derived from date and actorId', () => {
   assert.notEqual(
     boardIdentity(baseData),
     boardIdentity({ ...baseData, actorId: 'other-actor' }),
+  );
+  assert.notEqual(
+    boardIdentity(baseData),
+    boardIdentity({ ...baseData, vibeLabel: 'Different vibe' }),
+  );
+  assert.notEqual(
+    boardIdentity(baseData),
+    boardIdentity({
+      ...baseData,
+      rankedBatches: [{
+        ...standardBatch,
+        results: standardBatch.results.map((result, index) => index === 0
+          ? { ...result, thumbnail: '/a-different-displayed-image' }
+          : result),
+      }, autoLegendaryBatch],
+    }),
+  );
+  const fallbackComposition = {
+    ...baseData,
+    rankedBatches: [
+      { ...standardBatch, results: standardBatch.results.slice(0, 1) },
+      { ...autoLegendaryBatch, results: [{ ...autoLegendaryBatch.results[0], thumbnail: '/fallback-image' }] },
+    ],
+  };
+  assert.notEqual(
+    boardIdentity(fallbackComposition),
+    boardIdentity({
+      ...fallbackComposition,
+      rankedBatches: [
+        fallbackComposition.rankedBatches[0],
+        { ...fallbackComposition.rankedBatches[1], results: [{ ...autoLegendaryBatch.results[0], thumbnail: '/different-fallback' }] },
+      ],
+    }),
+    'fallback batches after the first are part of the displayed composition',
   );
 });
 
@@ -80,6 +116,19 @@ test('applyWholeCardTierOverride does not mutate the original data or its ranked
     undefined,
     'original chosen batch must not gain a misprint flag',
   );
+});
+
+test('personal Legendary reason is additive grid metadata and survives Collection normalization and round-trip export', () => {
+  const reacted = {
+    ...baseData,
+    personalReaction: { tier: 'legendary' as const, reason: 'nailed_vibe' as const },
+  };
+  const saved = collectionGridFromStar(reacted, '/vibe-atlas', '2026-07-31T13:01:00.000Z');
+  assert.deepEqual(saved.personalReaction, { tier: 'legendary', reason: 'nailed_vibe' });
+  assert.equal(saved.images.length, 9, 'the board save contains its grid snapshot, not individual card saves');
+  const normalized = normalizeGridRecord(saved);
+  assert.deepEqual(normalized.personalReaction, saved.personalReaction);
+  assert.deepEqual(starDataFromCollectionGrid(normalized).personalReaction, saved.personalReaction);
 });
 
 test('applyWholeCardTierOverride only touches the chosen (first) ranked batch, never other batches or images', () => {

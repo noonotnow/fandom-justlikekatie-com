@@ -19,8 +19,27 @@ import type { ImageTier } from '../types';
 /** Stable identity for a generated board — changes only when a new board
  *  (new date and/or actor) has been generated. Used to reset any manual
  *  whole-card tier override so it never leaks between boards/actors/dates. */
-export function boardIdentity(data: Pick<StarOfDayData, 'date' | 'actorId'>): string {
-  return `${data.date}::${data.actorId}`;
+export function boardIdentity(data: Pick<StarOfDayData, 'date' | 'actorId' | 'vibeIdx' | 'vibeLabel' | 'vibeLabelEn' | 'rankedBatches' | 'displayResults'>): string {
+  const display = data.displayResults?.length
+    ? data.displayResults
+    : data.rankedBatches.flatMap(batch => batch.results);
+  const seen = new Set<string>();
+  const composition = display
+    .filter(result => {
+      const key = result.thumbnail;
+      if (!key || seen.has(key)) return false;
+      seen.add(key);
+      return true;
+    })
+    .slice(0, 9)
+    .map(result => [
+      result.imageId || '',
+      result.thumbnail,
+      result.title,
+      result.source,
+      result.link,
+    ]);
+  return JSON.stringify([data.date, data.actorId, data.vibeIdx ?? null, data.vibeLabel, data.vibeLabelEn, composition]);
 }
 
 /**

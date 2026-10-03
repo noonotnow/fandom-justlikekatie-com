@@ -415,7 +415,7 @@ test('Grid Builder keeps saved results but does not unpack saved grids into its 
   }
 });
 
-test('Collection result Misprints teach the curator before preserving the collectible receipt', { timeout: 60_000 }, async () => {
+test('Collection result reports retain reviewed receipts; personal Legendary Misprint preservation changes no decisions', { timeout: 60_000 }, async () => {
   const { server, origin } = await startApp();
   const { browser, page } = await launchPageForServer(server);
   let correctionRequest: Record<string, unknown> | null = null;
@@ -460,12 +460,15 @@ test('Collection result Misprints teach the curator before preserving the collec
     await gotoTestPage(page, origin);
     await seedCollection(page);
     await gotoTestPage(page, `${origin}/vibe-atlas?view=collection`);
+    await page.getByRole('button', { name: 'Mark Legendary Misprint', exact: true }).click();
+    await page.getByText(/No report or curator decision was changed/).waitFor();
+    assert.equal(correctionRequestCount, 0, 'preserving a personal grid never submits or approves evidence');
     await page.getByRole('button', { name: 'Saved results' }).click();
     await page.getByText('Card cleanup actor').first().waitFor();
     await page.getByText('Mark Misprint', { exact: true }).click();
     await page.getByLabel('Who wandered in?').fill('Zhang Linghe');
     await page.getByLabel(/Curator note/).fill('A beloved collectible, but absolutely not this actor.');
-    await page.getByRole('button', { name: 'Preserve & teach curator' }).click();
+    await page.getByRole('button', { name: 'Preserve & submit report' }).click();
     await page.getByText(/Some Other Man™ preserved/).waitFor();
 
     const submittedCorrection = correctionRequest as Record<string, unknown> | null;

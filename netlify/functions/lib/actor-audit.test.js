@@ -77,6 +77,207 @@ import { ARCHIVE_CATALOG_KEY } from "./archive-access.js";
 import { releasedPackCatalog } from "./released-pack-catalog.js";
 import { createStarOfDayHandler } from "../star-of-day.js";
 import { createPublicSitemapHandler } from "../public-sitemap.js";
+import { reserveDailyReport } from "./daily-image-reports.js";
+import { publicArchiveImageId } from "./public-archive-inventory.js";
+
+test("Daily Drop fan report is server-derived, pending, deduplicated, and private even without an indexable page", async () => {
+  const publicationStore = memoryStore();
+  const manifest = publicationManifest("2026-08-30");
+  publicationStore.records.set(gridManifestKey(manifest.publicationDate), manifest);
+  const before = structuredClone(manifest);
+  const { handler, store } = harness({ authorized: false, publicationStore });
+  const input = {
+    action: "report_daily_image", date: manifest.publicationDate,
+    imageId: publicArchiveImageId(manifest, manifest.cards[2]),
+    reason: "wrong_actor", actualIdentity: "Another actor", note: "Wrong person in this frame.",
+  };
+  const results = await Promise.all(Array.from({ length: 6 }, () =>
+    handler(request("POST", input), {})));
+  for (const response of results) assert.equal(response.status, 200);
+  const bodies = await Promise.all(results.map(response => response.json()));
+  assert.equal(new Set(bodies.map(body => body.report.receiptId)).size, 1);
+  assert.equal(bodies[0].report.status, "pending_review");
+  const receipts = [...store.records.values()].filter(value => value.action === "report_daily_image");
+  assert.equal(receipts.length, 1);
+  const receipt = receipts[0];
+  assert.equal(receipt.actorId, manifest.actor.id);
+  assert.equal(receipt.vibeKey, manifest.vibe.key);
+  assert.equal(receipt.candidate.imageDigest, manifest.cards[2].media.checksum);
+  assert.equal(receipt.candidate.publishedThumbnail, manifest.cards[2].media.thumbnailUrl);
+  const alias = manifest.cards[2].media.thumbnailUrl;
+  const aliasReport = await (await handler(request("POST", { ...input, imageId: alias }), {})).json();
+  assert.equal(aliasReport.report.receiptId, receipt.receiptId);
+  assert.equal(aliasReport.report.imageId, alias, "acknowledge only the server-verified submitted identity");
+  assert.equal(receipt.publication.imageId, input.imageId, "the frozen provenance retains its canonical identity");
+  assert.equal(receipt.publication.boardHash, manifest.boardHash);
+  assert.equal(receipt.publication.position, 2);
+  const query = `?reports=own&${new URLSearchParams({ date: input.date, imageId: input.imageId })}`;
+  const own = await (await handler(request("GET", undefined, query), {})).json();
+  assert.equal(own.reports.length, 1);
+  assert.doesNotMatch(JSON.stringify(own), /markedBy|candidate|imageDigest|boardHash|operator|decisionIds/);
+  const otherHandler = createActorAuditHandler({
+    auth: {
+      authenticate: async () => ({ user: { accountId: "another-reader" } }),
+      authenticateAdmin: async () => { throw Object.assign(new Error("Forbidden"), { status: 403 }); },
+    },
+    getStore: () => store, getPublicationStore: () => publicationStore,
+    actorPacks: [pairActor], now: () => new Date("2026-08-31T12:00:00Z"),
+  });
+  assert.deepEqual((await (await otherHandler(request("GET", undefined, query), {})).json()).reports, []);
+  assert.equal((await handler(request("GET", undefined, "?reports=queue"), {})).status, 403);
+  assert.deepEqual(publicationStore.records.get(gridManifestKey(input.date)), before);
+  assert.equal([...store.records.keys()].some(key => key.includes("collection")), false);
+});
+
+test("Daily image reports reject anonymous, forged, private, future, and malformed identities", async () => {
+  const publicationStore = memoryStore();
+  const manifest = publicationManifest("2026-08-30");
+  publicationStore.records.set(gridManifestKey(manifest.publicationDate), manifest);
+  const { handler, store } = harness({ authorized: false, publicationStore });
+  const input = { action: "report_daily_image", date: manifest.publicationDate,
+    imageId: publicArchiveImageId(manifest, manifest.cards[0]), reason: "wrong_actor" };
+  for (const [patch, status] of [
+    [{ actorId: "forged" }, 400],
+    [{ candidate: { thumbnail: "https://private.example/image.jpg" } }, 400],
+    [{ imageId: manifest.cards[0].candidateId }, 404],
+    [{ imageId: manifest.cards[0].sourceUrl }, 404],
+    [{ imageId: "https://private.example/image.jpg" }, 404],
+    [{ date: "2026-02-30" }, 400],
+    [{ date: "2099-01-01" }, 400],
+    [{ reason: "teach_identity" }, 400],
+    [{ note: "x".repeat(1001) }, 400],
+    [{ actualIdentity: "x".repeat(201) }, 400],
+  ]) assert.equal((await handler(request("POST", { ...input, ...patch }), {})).status, status);
+  assert.equal(store.records.size, 0);
+  const anonymous = harness({ publicAuthorized: false, publicationStore }).handler;
+  assert.equal((await anonymous(request("POST", input), {})).status, 401);
+  assert.equal((await anonymous(request("GET", undefined,
+    `?reports=own&${new URLSearchParams({ date: input.date, imageId: input.imageId })}`), {})).status, 401);
+  const crossOrigin = request("POST", input);
+  crossOrigin.headers.set("Origin", "https://evil.example");
+  assert.equal((await handler(crossOrigin, {})).status, 403);
+  publicationStore.records.delete(gridManifestKey(input.date));
+  assert.equal((await handler(request("POST", input), {})).status, 404);
+  publicationStore.get = async () => { throw new Error("Store unavailable"); };
+  assert.equal((await handler(request("POST", input), {})).status, 503);
+});
+
+test("Daily report quota is atomic, account-scoped, and duplicate retries do not consume slots", async () => {
+  const store = memoryStore();
+  const now = () => new Date("2026-08-31T12:00:00Z");
+  await Promise.all(Array.from({ length: 30 }, () => reserveDailyReport(store, "reader", "same", now)));
+  assert.equal(store.records.size, 1);
+  const outcomes = await Promise.allSettled(Array.from({ length: 30 }, (_, index) =>
+    reserveDailyReport(store, "reader", `new-${index}`, now)));
+  assert.equal(outcomes.filter(result => result.status === "fulfilled").length, 19);
+  for (const result of outcomes.filter(result => result.status === "rejected")) assert.equal(result.reason.status, 429);
+  await reserveDailyReport(store, "reader", "same", now);
+  await reserveDailyReport(store, "other-reader", "new", now);
+  await reserveDailyReport(store, "reader", "tomorrow", () => new Date("2026-09-01T12:00:00Z"));
+});
+
+test("Daily reports reuse reason-scoped approval/retraction without rewriting source or publication", async () => {
+  const publicationStore = memoryStore();
+  const manifest = publicationManifest("2026-08-30");
+  publicationStore.records.set(gridManifestKey(manifest.publicationDate), manifest);
+  const { handler, store } = harness({ publicationStore, actorPacks: [pairActorWithAlternateVibe] });
+  const input = { action: "report_daily_image", date: manifest.publicationDate,
+    imageId: publicArchiveImageId(manifest, manifest.cards[0]), reason: "wrong_vibe" };
+  // Even an operator acting through the fan endpoint submits inert evidence.
+  const { report } = await (await handler(request("POST", input), {})).json();
+  assert.equal(report.status, "pending_review");
+  const receiptEntry = [...store.records].find(([, value]) => value.receiptId === report.receiptId);
+  const source = structuredClone(receiptEntry[1]);
+  const decision = { action: "review_collection_misprint", actorId: pairActor.id,
+    vibeKey: `${pairActor.id}:0`, receiptId: report.receiptId, decision: "approved", note: "Verified wrong vibe." };
+  const approved = await handler(request("POST", decision), {});
+  assert.equal(approved.status, 200);
+  const approval = await approved.json();
+  assert.equal(approval.misprint.status, "active");
+  assert.equal(approval.misprint.correctionScope, "actor_vibe");
+  assert.equal(approval.affectedPublications.length, 1);
+  assert.deepEqual(publicationStore.records.get(gridManifestKey(input.date)), manifest);
+  const ownQuery = `?reports=own&${new URLSearchParams({ date: input.date, imageId: input.imageId })}`;
+  assert.equal((await (await handler(request("GET", undefined, ownQuery), {})).json()).reports[0].status, "approved");
+  assert.equal((await handler(request("POST", { ...decision, decision: "rejected" }), {})).status, 409);
+  const retract = { action: "retract_misprint", actorId: pairActor.id,
+    vibeKey: decision.vibeKey, receiptId: report.receiptId, note: "" };
+  assert.equal((await handler(request("POST", retract), {})).status, 400);
+  assert.equal((await handler(request("POST", { ...retract, note: "Rechecked the intended vibe." }), {})).status, 200);
+  assert.equal((await (await handler(request("GET", undefined, ownQuery), {})).json()).reports[0].status, "retracted");
+  assert.deepEqual(store.records.get(receiptEntry[0]), source);
+  assert.deepEqual(publicationStore.records.get(gridManifestKey(input.date)), manifest);
+});
+
+test("Report queue is bounded and paginated; diagnostic approvals and rejection remain truthful", async () => {
+  const publicationStore = memoryStore();
+  const manifest = publicationManifest("2026-08-30");
+  publicationStore.records.set(gridManifestKey(manifest.publicationDate), manifest);
+  const { handler } = harness({ publicationStore });
+  const input = { action: "report_daily_image", date: manifest.publicationDate,
+    imageId: publicArchiveImageId(manifest, manifest.cards[1]), reason: "duplicate" };
+  const { report } = await (await handler(request("POST", input), {})).json();
+  const second = await (await handler(request("POST", { ...input, reason: "ranking_bug" }), {})).json();
+  const firstPage = await (await handler(request("GET", undefined, "?reports=queue&limit=1"), {})).json();
+  assert.equal(firstPage.reports.length, 1);
+  assert.ok(firstPage.nextCursor);
+  const nextPage = await (await handler(request("GET", undefined,
+    `?reports=queue&limit=1&cursor=${encodeURIComponent(firstPage.nextCursor)}`), {})).json();
+  assert.equal(nextPage.reports.length, 1);
+  assert.notEqual(firstPage.reports[0].receiptId, nextPage.reports[0].receiptId);
+  assert.equal(nextPage.nextCursor, null);
+  for (const query of ["?reports=queue&limit=51", "?reports=queue&status=anything", "?reports=queue&cursor=private"])
+    assert.equal((await handler(request("GET", undefined, query), {})).status, 400);
+  const decision = { action: "review_collection_misprint", actorId: pairActor.id,
+    vibeKey: `${pairActor.id}:0`, receiptId: report.receiptId, decision: "approved", note: "Duplicate confirmed." };
+  const result = await (await handler(request("POST", decision), {})).json();
+  assert.equal(result.misprint.futureExclusion, false);
+  assert.equal(result.calibrationStatus, "recorded");
+  assert.deepEqual(result.affectedPublications, []);
+  const rejected = await handler(request("POST", {
+    ...decision, receiptId: second.report.receiptId, decision: "rejected", note: "Not reproduced.",
+  }), {});
+  assert.equal(rejected.status, 200);
+  const statuses = (await (await handler(request("GET", undefined,
+    `?reports=own&${new URLSearchParams({ date: input.date, imageId: input.imageId })}`), {})).json()).reports;
+  assert.deepEqual(statuses.map(item => item.status).sort(), ["approved", "rejected"]);
+});
+
+test("Only approved Daily Drop wrong-vibe evidence affects future runs at its pairing scope", async () => {
+  const publicationStore = memoryStore();
+  const manifest = publicationManifest("2026-08-30");
+  manifest.cards[0].sourceUrl = searchResults(pairActor.vibes[0].queries[0])[1].thumbnail;
+  publicationStore.records.set(gridManifestKey(manifest.publicationDate), manifest);
+  const { handler, store } = harness({ publicationStore, actorPacks: [pairActorWithAlternateVibe] });
+  const { report } = await (await handler(request("POST", {
+    action: "report_daily_image", date: manifest.publicationDate,
+    imageId: publicArchiveImageId(manifest, manifest.cards[0]), reason: "wrong_vibe",
+  }), {})).json();
+  const run = async (vibeIdx) => {
+    const response = await handler(request("POST", {
+      action: "run", actorId: pairActor.id, vibeKey: vibeKeyFor(pairActor.id, vibeIdx), scope: "full",
+    }), {});
+    assert.equal(response.status, 200);
+    const body = await response.json();
+    return store.records.get(auditRunKey(pairActor.id, vibeIdx, body.currentRun.runId));
+  };
+  const pendingRun = await run(0);
+  assert.equal(pendingRun.rawResults.some(item => item.misprintReceiptId === report.receiptId), false);
+  const decision = { action: "review_collection_misprint", actorId: pairActor.id,
+    vibeKey: vibeKeyFor(pairActor.id, 0), receiptId: report.receiptId, decision: "approved", note: "Confirmed." };
+  assert.equal((await handler(request("POST", decision), {})).status, 200);
+  const approvedRun = await run(0);
+  assert.equal(approvedRun.rawResults.find(item => item.misprintReceiptId === report.receiptId)?.dropReason, "curator_misprint");
+  const alternateRun = await run(1);
+  assert.equal(alternateRun.rawResults.some(item => item.misprintReceiptId === report.receiptId), false);
+  assert.equal((await handler(request("POST", {
+    action: "retract_misprint", actorId: pairActor.id, vibeKey: decision.vibeKey,
+    receiptId: report.receiptId, note: "Correction withdrawn after review.",
+  }), {})).status, 200);
+  const retractedRun = await run(0);
+  assert.equal(retractedRun.rawResults.some(item => item.misprintReceiptId === report.receiptId), false);
+  assert.deepEqual(publicationStore.records.get(gridManifestKey(manifest.publicationDate)), manifest);
+});
 
 test("run-scoped mutation policy defaults Legacy audits to read-only", () => {
   assert.deepEqual(legacyAuditMutationPolicy("verdict"), {

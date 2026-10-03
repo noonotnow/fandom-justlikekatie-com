@@ -113,32 +113,6 @@ function cardRecordKey(card: CardRecord): string {
   return card.localId || card.serverId || card.imageUrl;
 }
 
-async function correctLegendaryGridEvidence(grid: GridRecord): Promise<number> {
-  const response = await fetch('/.netlify/functions/actor-audits', {
-    method: 'POST',
-    headers: { 'Content-Type': 'application/json' },
-    credentials: 'include',
-    body: JSON.stringify({
-      action: 'mark_grid_misprint',
-      actorId: grid.actorId,
-      vibeLabel: grid.vibe,
-      gridId: grid.id,
-      note: 'Legendary Misprint grid: collectible preserved; source evidence remains negative.',
-      candidates: grid.images.map(image => ({
-        candidateId: image.resultId,
-        query: image.batchKey || grid.searchSpell,
-        title: image.title,
-        source: image.publisher,
-        link: image.sourceUrl,
-        thumbnail: image.imageUrl,
-      })),
-    }),
-  });
-  const result = await response.json().catch(() => null);
-  if (!response.ok) throw new Error(result?.error || 'The curator correction could not be recorded.');
-  return Number(result?.correctedCandidateCount) || 0;
-}
-
 export const Collection: React.FC<Props> = ({
   scope = 'vibe-atlas',
   initialType = 'grids',
@@ -558,12 +532,7 @@ export const Collection: React.FC<Props> = ({
       await loadCollection(user?.accountId);
       if (canSyncCloud) schedulePublicCollectionSync();
       setFilterActor(MISPRINT_FILTER);
-      try {
-        const correctedCount = await correctLegendaryGridEvidence(grid);
-      setAccountNotice(tr(`Legendary Misprint preserved. ${correctedCount} source result${correctedCount === 1 ? '' : 's'} will stay out of future curator evidence.`, `已保留为「传奇误印」。这 ${correctedCount} 条来源结果将不会进入今后的策展判断。`));
-      } catch (correctionError) {
-        setAccountNotice(tr('Legendary Misprint preserved, but curator learning was not recorded: ', '已保留为「传奇误印」，但策展修正未记录：') + errorText(correctionError, 'open Actor Preflight to correct its source evidence.', '请打开 Actor Preflight 修正来源证据。'));
-      }
+      setAccountNotice(tr('Legendary Misprint preserved as your personal collectible. No report or curator decision was changed. Report a specific Daily Drop image separately if it needs review.', '已将传奇误印保留为你的个人收藏；没有提交报告，也没有更改策展决定。如需审核，请另行报告每日精选中的具体图片。'));
     } catch (error) {
       setAccountNotice(errorText(error, 'The grid could not be marked as a Legendary Misprint.', '无法将此网格标记为「传奇误印」。'));
     } finally {
@@ -646,7 +615,7 @@ export const Collection: React.FC<Props> = ({
         return next;
       });
       setAccountNotice(payload.calibrationStatus === 'applied'
-        ? tr(`${payload.misprint.label} preserved. The collectible stays visible while its correction teaches future curation.`, `已保留为「${sourceCopy(payload.misprint.label)}」。这件收藏会继续显示，同时将修正用于改进后续策展。`)
+        ? tr(`${payload.misprint.label} preserved. An approved correction is active at its reason-specific scope for future runs; the published edition is unchanged.`, `已保留为「${sourceCopy(payload.misprint.label)}」。审核通过的更正将按对应原因的范围影响后续生成；已发布版本保持不变。`)
         : payload.calibrationStatus === 'recorded'
           ? tr(`${payload.misprint.label} preserved. The collectible stays visible and its diagnostic evidence was recorded.`, `已保留为「${sourceCopy(payload.misprint.label)}」。这件收藏会继续显示，诊断证据也已记录。`)
           : payload.calibrationStatus === 'rejected' || payload.calibrationStatus === 'retracted'
@@ -1108,6 +1077,15 @@ export const Collection: React.FC<Props> = ({
                   </div>
                   {grid.searchSpell && <p className={styles.spell}>⌕ {sourceCopy(grid.searchSpell)}</p>}
                   {grid.vibeSubtitle && <p className={styles.subtitle}>{sourceCopy(grid.vibeSubtitle)}</p>}
+                  {grid.personalReaction?.tier && <p className={styles.subtitle}>
+                    {tr('Your saved reaction: ', '你保存的个人感受：')}
+                    {grid.personalReaction.tier === 'legendary' ? tr('Legendary', '传说') : tr('Misprint', '错版')}
+                    {grid.personalReaction.reason && ` · ${({
+                      nailed_vibe: tr('Nailed the vibe', '氛围拿捏得刚好'),
+                      every_image_belongs: tr('Every image belongs', '每张图都很合适'),
+                      unforgettable_set: tr('An unforgettable set', '令人难忘的一组'),
+                    })[grid.personalReaction.reason]}`}
+                  </p>}
                   {historicalEditionHref(grid) && (
                     <p className={styles.editionSource}>
                       {tr('Historical Daily Drop · ', '历史每日卡组 · ')}
@@ -1374,7 +1352,7 @@ export const Collection: React.FC<Props> = ({
                         disabled={Boolean(busyKey) || Boolean(pendingRemoval)}
                         onClick={() => void markCardMisprint(card, misprintDraft)}
                       >
-                        {busyKey === misprintKey ? tr('Teaching curator…', '正在更新策展依据…') : tr('Preserve & teach curator', '保留并用于改进策展')}
+                        {busyKey === misprintKey ? tr('Submitting report…', '正在提交报告…') : tr('Preserve & submit report', '保留并提交报告')}
                       </button>
                       </div>
                     </details>

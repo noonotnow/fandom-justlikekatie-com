@@ -349,6 +349,11 @@ function VibeAtlasApp({ archiveEntry = false }: { archiveEntry?: boolean }) {
     [rawData],
   );
   const [imageTiers, setImageTiers] = useState<Record<string, ImageTier>>({});
+  const [personalReaction, setPersonalReaction] = useState<{
+    boardKey: string | null;
+    reason: 'nailed_vibe' | 'every_image_belongs' | 'unforgettable_set' | null;
+  }>({ boardKey: null, reason: null });
+  const [recoveredReportTarget, setRecoveredReportTarget] = useState<{ date: string; imageId: string } | null>(null);
   const [membershipCapabilities, setMembershipCapabilities] = useState<MembershipCapability[]>([]);
   const [membershipStatus, setMembershipStatus] = useState<MembershipStatus | null>(null);
   const canUsePremiumTools = hasCollectorCapability({ capabilities: membershipCapabilities })
@@ -385,7 +390,14 @@ function VibeAtlasApp({ archiveEntry = false }: { archiveEntry?: boolean }) {
   // date/actor) is generated; see useWholeCardTier for reset semantics.
   const boardKey = rawData ? boardIdentity(rawData) : null;
   const { tier: wholeCardTier, setTier: setWholeCardTier } = useWholeCardTier(boardKey);
-  const exportData = rawData ? applyWholeCardTierOverride(rawData, wholeCardTier) : null;
+  const personalReason = personalReaction.boardKey === boardKey ? personalReaction.reason : null;
+  const exportData = rawData ? {
+    ...applyWholeCardTierOverride(rawData, wholeCardTier),
+    personalReaction: {
+      tier: wholeCardTier,
+      ...(wholeCardTier === 'legendary' && personalReason ? { reason: personalReason } : {}),
+    },
+  } : null;
   const refreshMembership = useCallback(async () => {
     setMembershipResolved(false);
     try {
@@ -419,6 +431,22 @@ function VibeAtlasApp({ archiveEntry = false }: { archiveEntry?: boolean }) {
             archiveReturnDate
             && isValidVibeAtlasEditionDate(archiveReturnDate)
           ) {
+            try {
+              const returnedReport = JSON.parse(localStorage.getItem('fandom_daily_report_return') || 'null') as { date?: string; imageId?: string; expiresAt?: number } | null;
+              if (
+                returnedReport?.date === archiveReturnDate
+                && returnedReport.imageId
+                && typeof returnedReport.expiresAt === 'number'
+                && returnedReport.expiresAt > Date.now()
+                && returnedReport.expiresAt <= Date.now() + 6 * 60 * 60 * 1000
+              ) {
+                setRecoveredReportTarget({ date: returnedReport.date, imageId: returnedReport.imageId });
+              } else {
+                localStorage.removeItem('fandom_daily_report_return');
+              }
+            } catch {
+              localStorage.removeItem('fandom_daily_report_return');
+            }
             syncVibeAtlasEditionUrl(archiveReturnDate, true, path);
             setSelectedEditionDate(archiveReturnDate);
             setView('daily');
@@ -466,6 +494,28 @@ function VibeAtlasApp({ archiveEntry = false }: { archiveEntry?: boolean }) {
         setView('collection');
       });
   }, [locale, path, refreshMembership, t]);
+
+  useEffect(() => {
+    if (!recoveredReportTarget || loading || rawData?.date !== recoveredReportTarget.date) return;
+    const index = gridImages.findIndex(image => image.archiveImageId === recoveredReportTarget.imageId
+      || image.id === recoveredReportTarget.imageId);
+    if (index >= 0) {
+      const returnedImageId = gridImages[index].archiveImageId || gridImages[index].id;
+      // Daily payloads can use a public MEDIA URL while Archive payloads use a
+      // canonical card id. Both must name the same displayed immutable image.
+      if (returnedImageId !== recoveredReportTarget.imageId) {
+        try {
+          const oldKey = `fandom_daily_report_draft:${recoveredReportTarget.date}:${recoveredReportTarget.imageId}`;
+          const draft = localStorage.getItem(oldKey);
+          if (draft) localStorage.setItem(`fandom_daily_report_draft:${recoveredReportTarget.date}:${returnedImageId}`, draft);
+          const target = JSON.parse(localStorage.getItem('fandom_daily_report_return') || 'null');
+          if (target) localStorage.setItem('fandom_daily_report_return', JSON.stringify({ ...target, imageId: returnedImageId }));
+        } catch { /* The form remains usable when local recovery storage fails. */ }
+        setRecoveredReportTarget({ date: recoveredReportTarget.date, imageId: returnedImageId });
+      }
+      setLightboxIndex(index);
+    }
+  }, [gridImages, loading, rawData?.date, recoveredReportTarget]);
 
   useEffect(() => {
     if (
@@ -1073,7 +1123,15 @@ function VibeAtlasApp({ archiveEntry = false }: { archiveEntry?: boolean }) {
             {rawData && exportData && (
               <div className="daily-actions">
                 <div className="daily-actions__classification">
-                  <WholeCardTierControls tier={wholeCardTier} onTierChange={setWholeCardTier} />
+                  <WholeCardTierControls
+                    tier={wholeCardTier}
+                    onTierChange={tier => {
+                      setWholeCardTier(tier);
+                      if (tier !== 'legendary') setPersonalReaction({ boardKey, reason: null });
+                    }}
+                    reason={personalReason}
+                    onReasonChange={reason => setPersonalReaction({ boardKey, reason })}
+                  />
                   <WholeCardTierBadge tier={wholeCardTier} />
                 </div>
                 <div className="daily-actions__primary">
@@ -1181,6 +1239,12 @@ function VibeAtlasApp({ archiveEntry = false }: { archiveEntry?: boolean }) {
             const imageId = gridImages[lightboxIndex]?.id;
             if (imageId) setImageTiers((current) => ({ ...current, [imageId]: tier }));
           }}
+          recoverDailyReport={Boolean(
+            recoveredReportTarget
+            && recoveredReportTarget.date === rawData?.date
+            && (gridImages[lightboxIndex]?.archiveImageId || gridImages[lightboxIndex]?.id) === recoveredReportTarget.imageId,
+          )}
+          onDailyReportRecovered={() => setRecoveredReportTarget(null)}
           cardMetadata={meta ? {
             actorName: meta.actorName,
             vibeEmoji: meta.vibeEmoji,
