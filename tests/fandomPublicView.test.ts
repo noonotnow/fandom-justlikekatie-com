@@ -440,12 +440,11 @@ test('public Vibe Atlas copy names the daily card-drop promise', () => {
   assert.match(appSource, /A daily C-drama card drop/);
   assert.match(appSource, /'Vibe Atlas \| Daily C-Drama Collectible Cards \| Fandom Vibes'/);
   assert.match(appSource, /One star\. One vibe\. Nine pieces of evidence\./);
-  assert.match(appSource, /one very specific kind of heartthrob energy/);
-  assert.match(appSource, /nine collectible pieces of evidence/);
+  assert.match(appSource, /One C-drama star, one distinct vibe, nine cards to collect and make your own/);
   assert.match(appSource, /Today's star/);
   assert.match(appSource, /Today's vibe/);
-  assert.match(appSource, /<h2>\{t\('Today’s evidence', '今日心动证据'\)\}<\/h2>/);
-  assert.match(appSource, /t\('Nine cards from today’s star × Vibe Pack\.', '来自今日之星 × 氛围包的九张卡片。'\)/);
+  assert.match(appSource, /id="daily-evidence"/);
+  assert.match(appSource, /t\('Daily Drop', '每日卡组'\)/);
   assert.match(rootHtml, /Vibe Atlas’s curated daily C-drama collectible/);
   assert.match(rootHtml, /browse today’s Vibe Atlas card drop/);
   assert.doesNotMatch(appSource, /worldbuilding instrument|emotional weather/i);

@@ -743,13 +743,14 @@ test('released library pageview uses canonical location without duplicating dire
   }
 });
 
-test('only today’s homepage exposes the current released Vibe Pack for free', async () => {
+test('today’s homepage separates the interactive Drop from permanent publication discovery', async () => {
   const app = await readFile(new URL('../src/App.tsx', import.meta.url), 'utf8');
   assert.match(app, /id="todays-released-pack"/);
-  assert.match(app, /Free today · Star of the Day released Vibe Pack/);
+  assert.match(app, /The interactive board above is today’s Drop/);
   assert.match(app, /rawData && !selectedEditionDate/);
-  assert.match(app, /href="#todays-released-pack"/);
-  assert.match(app, /The full released-pack library stays available to Fandom Collectors/);
+  assert.match(app, /Publication & related packs/);
+  assert.match(app, /Browse other released work in the Collector library/);
+  assert.match(app, /source: 'daily_star', actorId: rawData\.actorId, vibeIdx: rawData\.vibeIdx/);
 });
 
 
