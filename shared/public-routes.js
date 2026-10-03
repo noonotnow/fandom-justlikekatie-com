@@ -66,6 +66,7 @@ export const PUBLIC_STATIC_ROUTES = Object.freeze([
   editorial("/c-drama-fandom/getting-started/"),
   editorial("/c-drama-fandom/glossary/"),
   editorial("/c-drama-fandom/untamed-name-board/"),
+  editorial("/c-drama-fandom/untamed-names-and-performers/"),
   editorial("/c-drama-fandom/place-names/"),
   editorial("/c-drama-fandom/glossary/cp/"),
   editorial("/c-drama-fandom/glossary/cultivation/"),

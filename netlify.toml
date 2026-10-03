@@ -216,6 +216,11 @@ to = "/c-drama-fandom/untamed-name-board/index.html"
 status = 200
 
 [[redirects]]
+from = "/c-drama-fandom/untamed-names-and-performers"
+to = "/c-drama-fandom/untamed-names-and-performers/index.html"
+status = 200
+
+[[redirects]]
 from = "/c-drama-fandom/place-names"
 to = "/c-drama-fandom/place-names/index.html"
 status = 200
