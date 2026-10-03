@@ -108,3 +108,9 @@ The approved reader-copy block is now staged locally at the proposed route with 
 ### Production release authorization
 
 On October 3, 2026, Katie affirmatively chose **“Authorize production release”** for the verified two-lead guide, with no additional comments. The authorization explicitly covers the separate guide, its sitemap entry, and the exact secondary links from the group board and Field Journal. **Wen Qing is not included.** This is separate from copy approval and the September 28 companion approvals. Production verification will be recorded after the authorized release is deployed.
+
+### Separately authorized combined destination replacement
+
+The two-lead version was published and verified through [release PR 178](https://github.com/noonotnow/fandom-justlikekatie-com/pull/178). Katie subsequently and separately authorized staging and production publication of the three-character version at the same destination in [the combined review](untamed-three-character-name-key-review.md), choosing **“Authorize combined-version staging”** and then **“Authorize production publication”** after verification. Those explicit decisions—not either copy approval—authorize replacement of the destination and labels.
+
+This original reader-copy block, its approval, evidence ledger, and two-lead review preview remain intact as the record of the distinct two-lead release. The later combined release does not retroactively add Wen Qing to this original approval.
