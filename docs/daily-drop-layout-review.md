@@ -7,7 +7,9 @@ Review prepared October 3, 2026. This is a layout-only release, separate from th
 - English: https://6ac053a1f800e64b68e905d0--earnest-gecko-17eb0c.netlify.app/vibe-atlas
 - Simplified Chinese: https://6ac053a1f800e64b68e905d0--earnest-gecko-17eb0c.netlify.app/zh-cn/vibe-atlas
 
-These are immutable Netlify draft URLs. No production deployment or GitHub merge was performed. Creator approval is required before publishing this layout.
+These are immutable Netlify draft URLs. The creator explicitly approved the layout-only production release in chat on October 3, 2026, then confirmed that it should be pushed to the live production site. This approval does not cover the separate Chinese voice or participation releases.
+
+The clean release branch is based on current GitHub main and contains only the reviewed layout, its focused test/check, and this review record. Required GitHub checks and independent post-push approval remain mandatory. Production publication and signed-in hosted save/export verification are still pending; do not describe this layout as live yet.
 
 ## Layout
 
