@@ -398,6 +398,7 @@ function VibeAtlasApp({ archiveEntry = false }: { archiveEntry?: boolean }) {
       ...(wholeCardTier === 'legendary' && personalReason ? { reason: personalReason } : {}),
     },
   } : null;
+  const canReactToDisplayedBoard = Boolean(rawData && exportData && !loading && !error && gridImages.length > 0);
   const refreshMembership = useCallback(async () => {
     setMembershipResolved(false);
     try {
@@ -1034,28 +1035,14 @@ function VibeAtlasApp({ archiveEntry = false }: { archiveEntry?: boolean }) {
           </div>
           <p className="atlas-hero__thesis">{t('One star. One vibe. Nine pieces of evidence.', '一位明星，一种氛围，九份心动证据。')}</p>
         </div>
-         <p className="atlas-hero__hook">
-           <em>{t('Collect the evidence. Confirm your type.', '收集心动证据，确认你的偏爱。')}</em><br />
-           <span lang="zh-CN">九张证据，一眼心动</span>
-         </p>
-         <p className="atlas-hero__intro">{t('Every day, Vibe Atlas pairs one C-drama star with one very specific kind of heartthrob energy. Browse nine collectible pieces of evidence, save the ones that understand your type, and build your own 3×3.', '每天，氛围图鉴都会为一位中剧明星配上一种独特的心动气质。浏览九份可收藏的视觉证据，保存最懂你偏爱的卡片，再拼出专属 3×3 九宫格。')}</p>
+         <p className="atlas-hero__intro">{t('One C-drama star, one distinct vibe, nine cards to collect and make your own.', '一位中剧演员，一种鲜明氛围，九张卡片，等你收藏并拼成专属九宫格。')}</p>
          <div className="atlas-hero__actions" aria-label={t('Vibe Atlas actions', '氛围图鉴操作')}>
-           <a href="#daily-evidence">{t('Browse today’s drop', '浏览今日卡组')}</a>
-           <a href={path(`${PUBLIC_ROUTE_PATHS.vibeAtlas}?view=builder&source=daily`)}>{t('Open the Grid Builder', '打开九宫格创作器')}</a>
-            {rawData?.actorId && !selectedEditionDate && (
-              <a href="#todays-released-pack">{t('Open today’s free released pack', '查看今日免费氛围包')}</a>
-            )}
-            {rawData?.actorId && (
-              <a href={path(vibeAtlasPath({
-                view: 'released',
-                source: 'daily_star',
-                actorId: rawData.actorId,
-                vibeIdx: rawData.vibeIdx,
-              }))}>
-                {t('Explore released packs for', '探索此演员的已发布氛围包：')} {locale === 'zh-CN' ? rawData.actorName : rawData.actorShortNameEn || rawData.actorName}
-              </a>
-            )}
+            <a href={gate ? '#archive-gate-title' : '#daily-evidence'}>{selectedEditionDate ? t('Go to this edition', '前往本期卡组') : t('Go to today’s Drop', '前往今日卡组')}</a>
+           <a href={path(selectedEditionDate
+             ? `${PUBLIC_ROUTE_PATHS.vibeAtlas}?view=builder&source=edition&date=${encodeURIComponent(selectedEditionDate)}`
+             : `${PUBLIC_ROUTE_PATHS.vibeAtlas}?view=builder&source=daily`)}>{t('Open Grid Builder', '打开九宫格创作器')}</a>
          </div>
+        </header>
         {gate && selectedEditionDate ? (
           <ArchiveLockedEdition
             gate={gate}
@@ -1067,61 +1054,94 @@ function VibeAtlasApp({ archiveEntry = false }: { archiveEntry?: boolean }) {
             onCheckout={startArchiveCheckout}
             onIntent={() => trackArchiveAccess('gated_intent', selectedEditionDate, gate.reason)}
           />
-        ) : meta && (
-          <div className="atlas-edition">
-            <div className="atlas-edition__meta">
+        ) : (
+          <section
+            className="atlas-edition daily-drop"
+            id="daily-evidence"
+            aria-labelledby={meta ? 'daily-drop-title' : undefined}
+            aria-label={!meta ? (selectedEditionDate ? t('Archived edition', '典藏期') : t('Daily Drop', '每日卡组')) : undefined}
+          >
+            {meta && <div className="atlas-edition__meta">
               <div className="atlas-edition__label">
                 {selectedEditionDate ? `${t('Archived card drop', '典藏卡组')} · ${formatEditionDate(meta.date, dateLocale)}` : t("Today's curated card drop", '今日精选卡组')}
               </div>
+              <h2 className="atlas-edition__name" id="daily-drop-title">
+                <span>{selectedEditionDate ? t('Star in this edition', '本期演员') : t("Today's star", '今日之星')}</span> {meta.vibeEmoji} {locale === 'zh-CN' ? meta.actorName : meta.actorNameEn}
+              </h2>
               <div className="atlas-edition__name">
-                <span>{t("Today's star", '今日之星')}</span> {meta.vibeEmoji} {meta.actorName}
-              </div>
-              <div className="atlas-edition__name">
-                <span>{t("Today's vibe", '今日氛围')}</span> {meta.vibeLabel}
+                <span>{selectedEditionDate ? t('Vibe in this edition', '本期氛围') : t("Today's vibe", '今日氛围')}</span> {locale === 'zh-CN' ? meta.vibeLabel : meta.vibeLabelEn}
               </div>
               <div className="atlas-edition__subline">
-                {locale === 'zh-CN' ? `英文：${meta.vibeLabelEn} — ${meta.vibeSubtitleEn}` : `${meta.vibeLabelEn} — ${meta.vibeSubtitleEn}`}
+                {locale === 'zh-CN' ? meta.vibeSubtitle : `${meta.vibeLabelEn} — ${meta.vibeSubtitleEn}`}
               </div>
-                {rawData?.publicRecord && (
-                  <VisibleArchiveRecordPlacement
-                    as="nav"
-                    className="atlas-edition__records"
-                    ariaLabel={t('Curated public records', '精选公开档案')}
-                    location="daily"
-                    recordTypes={['actor', 'edition']}
-                    presentationKey={`daily:${rawData.publicRecord.actorPath}:${rawData.publicRecord.editionPath}`}
-                  >
-                    <a href={path(rawData.publicRecord.actorPath)} onClick={() => trackArchiveRecordOpened('actor', 'daily')}>{t('Explore actor record', '查看演员档案')} · {meta.actorName}</a>
-                    <a href={path(rawData.publicRecord.editionPath)} onClick={() => trackArchiveRecordOpened('edition', 'daily')}>{t('Read this edition’s permanent record', '阅读本期永久档案')}</a>
-                  </VisibleArchiveRecordPlacement>
-                )}
-              {meta.vibeSupportingCopyEn && (
-                <div className="atlas-edition__supporting-copy">{locale === 'zh-CN' ? `英文说明：${meta.vibeSupportingCopyEn}` : meta.vibeSupportingCopyEn}</div>
+              {(meta.vibeSupportingCopy || meta.vibeSupportingCopyEn) && (
+                <div className="atlas-edition__supporting-copy">
+                  {locale === 'zh-CN'
+                    ? meta.vibeSupportingCopy || `英文说明：${meta.vibeSupportingCopyEn}`
+                    : meta.vibeSupportingCopyEn || meta.vibeSupportingCopy}
+                </div>
+              )}
+              {rawData?.publicRecord && (
+                <VisibleArchiveRecordPlacement
+                  as="nav"
+                  className="atlas-edition__records"
+                  ariaLabel={t('Curated public records', '精选公开档案')}
+                  location="daily"
+                  recordTypes={['actor', 'edition']}
+                  presentationKey={`daily:${rawData.publicRecord.actorPath}:${rawData.publicRecord.editionPath}`}
+                >
+                  <a href={path(rawData.publicRecord.actorPath)} onClick={() => trackArchiveRecordOpened('actor', 'daily')}>{t('Explore actor record', '查看演员档案')} · {meta.actorName}</a>
+                  <a href={path(rawData.publicRecord.editionPath)} onClick={() => trackArchiveRecordOpened('edition', 'daily')}>{t('Read this edition’s permanent record', '阅读本期永久档案')}</a>
+                </VisibleArchiveRecordPlacement>
               )}
               {meta.stale && (
                 <div className="atlas-edition__stale">
-                  ⏳ {t("Showing yesterday's picks while today's grid builds", '今日九宫格正在生成，暂时显示昨日精选')}
+                  ⏳ {selectedEditionDate
+                    ? t('This edition is temporarily showing its saved picks while the grid rebuilds.', '本期九宫格正在重建，暂时显示已保存的精选图片。')
+                    : t("Showing yesterday's picks while today's grid builds", '今日九宫格正在生成，暂时显示昨日精选')}
                 </div>
               )}
-            </div>
-            {selectedEditionDate && isValidVibeAtlasEditionDate(selectedEditionDate) && (
-              <div className="daily-edition-share">
-                <button
-                  type="button"
-                  onClick={() => openEditionBuilder(selectedEditionDate, 'edition_detail')}
-                >
-                  {t('Rebuild this edition', '重建本期九宫格')}
-                </button>
-                <button type="button" onClick={copyArchivedEditionLink}>
-                  {t('Copy archived edition link', '复制本期典藏链接')}
-                </button>
-                <p className="daily-edition-share__notice" role="status" aria-live="polite" aria-atomic="true">
-                  {editionShareNotice}
-                </p>
+            </div>}
+            {!gate && (
+              <div className="daily-grid">
+                <div className="daily-grid__header">
+                  <h2>{selectedEditionDate ? t('The nine-card edition', '本期九张卡片') : t('The nine-card board', '九张卡片')}</h2>
+                  <p>{selectedEditionDate
+                    ? t('This is the interactive board for this archived edition. Save cards individually, or react to the whole board after viewing it.', '这是本期典藏的互动九宫格。可单独收藏卡片，也可先浏览整组，再为整张卡组表达感受。')
+                    : t('The board below is today’s interactive edition. Save cards individually, or react to the whole board after viewing it.', '下方是今日可互动的九宫格。可单独收藏卡片，也可先浏览整组，再为整张卡组表达感受。')}
+                  </p>
+                </div>
+                {!loading && !error && gridImages.length > 0 && (
+                  <button type="button" className="daily-grid__zoom" onClick={() => setDailyGridZoomOpen(true)}>
+                    ⛶ {t('View whole grid', '查看完整九宫格')}
+                  </button>
+                )}
+                <div className="grid">
+                  {loading
+                    ? Array.from({ length: 9 }).map((_, i) => <GridItemSkeleton key={i} />)
+                    : error
+                      ? <div className="col-span-3 text-center py-8 text-gray-500">
+                          {publicApiErrorMessage(
+                            error,
+                            locale,
+                            t,
+                            selectedEditionDate ? 'This archived edition could not be loaded. Please try again later.' : 'Today’s Vibe Atlas card drop could not be loaded. Please try again later.',
+                            selectedEditionDate ? '本期典藏暂时无法加载，请稍后重试。' : '今日 Vibe Atlas 卡组暂时无法加载，请稍后重试。',
+                          )}
+                        </div>
+                      : gridImages.length > 0
+                        ? renderGridItems()
+                        : <div className="daily-grid__empty" role="status">
+                            {selectedEditionDate
+                              ? t('No cards are available for this archived edition.', '本期典藏暂无可用卡片。')
+                              : t('No cards are available for today’s Drop yet. Please check back soon.', '今日卡组暂时没有可用卡片，请稍后再来查看。')}
+                          </div>
+                  }
+                </div>
               </div>
             )}
-            {rawData && exportData && (
-              <div className="daily-actions">
+            {canReactToDisplayedBoard && exportData && (
+              <div className="daily-actions" aria-label={t('Actions for this whole board', '整张卡组的操作')}>
                 <div className="daily-actions__classification">
                   <WholeCardTierControls
                     tier={wholeCardTier}
@@ -1135,87 +1155,55 @@ function VibeAtlasApp({ archiveEntry = false }: { archiveEntry?: boolean }) {
                   <WholeCardTierBadge tier={wholeCardTier} />
                 </div>
                 <div className="daily-actions__primary">
-                  <ExportButton
-                    rawData={exportData}
-                    onShareComplete={() => trackDailyDropShared(exportData.date, 'image')}
-                  />
+                  <ExportButton rawData={exportData} onShareComplete={() => trackDailyDropShared(exportData.date, 'image')} />
                 </div>
               </div>
             )}
-          </div>
+            {canReactToDisplayedBoard && selectedEditionDate && isValidVibeAtlasEditionDate(selectedEditionDate) && (
+              <div className="daily-edition-share" aria-label={t('Archived edition actions', '典藏期操作')}>
+                <button type="button" onClick={() => openEditionBuilder(selectedEditionDate, 'edition_detail')}>{t('Rebuild this edition', '重建本期九宫格')}</button>
+                <button type="button" onClick={copyArchivedEditionLink}>{t('Copy archived edition link', '复制本期典藏链接')}</button>
+                <p className="daily-edition-share__notice" role="status" aria-live="polite" aria-atomic="true">{editionShareNotice}</p>
+              </div>
+            )}
+          </section>
         )}
-      </header>
 
-       {!gate && rawData && !selectedEditionDate && (
-         <section className="daily-released-pack" id="todays-released-pack" aria-labelledby="todays-released-pack-title">
-           <div className="daily-released-pack__intro">
-             <p className="membership__label">{t('Free today · Star of the Day released Vibe Pack', '今日免费 · 今日之星已发布氛围包')}</p>
-             <h2 id="todays-released-pack-title">{rawData.vibeEmoji} {locale === 'zh-CN' ? rawData.actorName : rawData.actorShortNameEn || rawData.actorName} · {locale === 'zh-CN' ? rawData.vibeLabel : rawData.vibeLabelEn || rawData.vibeLabel}</h2>
-             <p>{locale === 'zh-CN' ? rawData.vibeSubtitle : rawData.vibeSubtitleEn || rawData.vibeSubtitle}</p>
-             {(rawData.vibeSupportingCopyEn || rawData.vibeSupportingCopy) && (
-               <p>{locale === 'zh-CN' ? rawData.vibeSupportingCopy || (rawData.vibeSupportingCopyEn ? `英文说明：${rawData.vibeSupportingCopyEn}` : '') : rawData.vibeSupportingCopyEn || rawData.vibeSupportingCopy}</p>
-             )}
-           </div>
-           <div className="daily-released-pack__access">
-             <strong>{t('Today’s pack is free on this homepage.', '今日氛围包可在此首页免费浏览。')}</strong>
-             {visibleDailyPublication.status === 'published' ? (
-               <p>{t('This first daily grid also has a permanent public record.', '今日首个九宫格也有永久公开档案。')} <a href={path(visibleDailyPublication.canonical)}>{t('View the released pack', '查看已发布氛围包')}</a>.</p>
-             ) : visibleDailyPublication.status === 'snapshot' ? (
-               <p>{t('Today’s first grid is saved as a public snapshot. A permanent editorial page is not published yet.', '今日首个九宫格已保存为公开快照，永久编辑页面尚未发布。')}</p>
-             ) : visibleDailyPublication.status === 'unpublished' ? (
-               <p>{t('A permanent public preview has not been published for this pairing. Today’s nine cards remain free here.', '这组演员与氛围尚未发布永久公开预览。今日九张卡片仍可在此免费浏览。')}</p>
-             ) : (
-               <p>{t('Permanent preview status is', '永久预览状态：')} {visibleDailyPublication.status === 'checking' ? t('being checked', '正在检查') : t('temporarily unavailable', '暂时无法使用')}{t('. Today’s nine cards remain free here.', '。今日九张卡片仍可在此免费浏览。')}</p>
-             )}
-             <p>{t('The full released-pack library stays available to Fandom Collectors.', '完整的已发布氛围包图书馆仅向 Fandom 收藏会员开放。')}</p>
-              <a href={path(vibeAtlasPath({
-                view: 'released',
-                source: 'daily_star',
-                actorId: rawData.actorId,
-                vibeIdx: rawData.vibeIdx,
-              }))}>
-               {t('Open fresh grids in the Collector library', '在收藏会员图书馆中打开新九宫格')}
-             </a>
-           </div>
-           {(visibleDailyPublication.status === 'published' || visibleDailyPublication.status === 'snapshot') && (
-             <div className="daily-released-pack__teaser" aria-label={t('First daily grid teaser', '今日首个九宫格预览')}>
-               {visibleDailyPublication.cards.slice(0, 6).map((card, index) => (
-                 <img key={index} src={card.thumbnailUrl} alt={card.title || `${locale === 'zh-CN' ? rawData.vibeLabel : rawData.vibeLabelEn || rawData.vibeLabel} ${t('card', '卡片')} ${index + 1}`} loading="lazy" />
-               ))}
-             </div>
-           )}
-         </section>
-       )}
-
-       {!gate && (
-         <div className="daily-grid" id="daily-evidence">
-          <div className="daily-grid__header">
-            <h2>{t('Today’s evidence', '今日心动证据')}</h2>
-            <p>{t('Nine cards from today’s star × Vibe Pack.', '来自今日之星 × 氛围包的九张卡片。')}</p>
-          </div>
-          {!loading && !error && gridImages.length > 0 && (
-            <button type="button" className="daily-grid__zoom" onClick={() => setDailyGridZoomOpen(true)}>
-              ⛶ {t('View whole grid', '查看完整九宫格')}
-            </button>
-          )}
-          <div className="grid">
-            {loading
-              ? Array.from({ length: 9 }).map((_, i) => <GridItemSkeleton key={i} />)
-              : error
-                ? <div className="col-span-3 text-center py-8 text-gray-500">
-                    {publicApiErrorMessage(
-                      error,
-                      locale,
-                      t,
-                      'Today’s Vibe Atlas card drop could not be loaded. Please try again later.',
-                      '今日 Vibe Atlas 卡组暂时无法加载，请稍后重试。',
-                    )}
-                  </div>
-                : renderGridItems()
-            }
-          </div>
-        </div>
-       )}
+        {!gate && rawData && !selectedEditionDate && (
+          <section className="daily-released-pack" id="todays-released-pack" aria-labelledby="todays-released-pack-title">
+            <div className="daily-released-pack__intro">
+              <p className="membership__label">{t('More from this pairing', '探索这组演员与氛围')}</p>
+              <h2 id="todays-released-pack-title">{t('Publication & related packs', '发布状态与相关氛围包')}</h2>
+              <p>{t('The interactive board above is today’s Drop. Look for released work for this star and vibe in the Collector library.', '上方可互动的九宫格就是今日卡组。可在收藏会员图书馆中查找这位演员与此氛围的已发布作品。')}</p>
+            </div>
+            <div className="daily-released-pack__access">
+              {visibleDailyPublication.status === 'published' ? (
+                <p><strong>{t('Published editorial pack', '已发布编辑氛围包')}</strong><br />{t('A separately preserved editorial composition with its own permanent public record.', '另行保存的编辑作品，拥有独立的永久公开档案。')} <a href={path(visibleDailyPublication.canonical)}>{t('View the released pack', '查看已发布氛围包')}</a>.</p>
+              ) : visibleDailyPublication.status === 'snapshot' ? (
+                <p><strong>{t('Preserved first-grid snapshot', '已保存的首个九宫格快照')}</strong><br />{t('This preserved first-grid snapshot may or may not match the interactive board above; a permanent editorial pack page is not published yet.', '这份首个九宫格快照可能与上方互动卡组相同，也可能不同；目前尚未发布永久编辑氛围包页面。')}</p>
+              ) : visibleDailyPublication.status === 'unpublished' ? (
+                <p>{t('No permanent public pack has been published for this pairing yet.', '这组演员与氛围尚未发布永久公开氛围包。')}</p>
+              ) : (
+                <p>{t('Permanent pack status:', '永久氛围包状态：')} {visibleDailyPublication.status === 'checking' ? t('checking', '正在检查') : t('temporarily unavailable', '暂时无法使用')}{t('. The interactive Drop above remains available.', '。上方互动卡组仍可使用。')}</p>
+              )}
+              <p>{t('Browse other released work in the Collector library.', '在收藏会员图书馆中浏览其他已发布作品。')}</p>
+              <a href={path(vibeAtlasPath({ view: 'released', source: 'daily_star', actorId: rawData.actorId, vibeIdx: rawData.vibeIdx }))}>
+                {t('Explore this star’s released packs', '探索这位演员的已发布氛围包')}
+              </a>
+            </div>
+            {visibleDailyPublication.status === 'snapshot' && (
+              <details className="daily-released-pack__snapshot">
+                <summary>{t('Show the immutable first-grid snapshot', '展开查看不可更改的首个九宫格快照')}</summary>
+                <p>{t('This preserved first-grid snapshot may or may not match the interactive board shown above; it is displayed as a permanent reference.', '这份首个九宫格快照可能与上方互动卡组相同，也可能不同；此处展示的是永久保存的参考版本。')}</p>
+                <div className="daily-released-pack__teaser" aria-label={t('Immutable first-grid snapshot', '不可更改的首个九宫格快照')}>
+                  {visibleDailyPublication.cards.map((card, index) => (
+                    <img key={index} src={card.thumbnailUrl} alt={card.title || `${locale === 'zh-CN' ? rawData.vibeLabel : rawData.vibeLabelEn || rawData.vibeLabel} ${t('snapshot card', '快照卡片')} ${index + 1}`} loading="lazy" />
+                  ))}
+                </div>
+              </details>
+            )}
+          </section>
+        )}
 
       {dailyGridZoomOpen && meta && (
         <ArtifactZoomDialog

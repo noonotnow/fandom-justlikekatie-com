@@ -1534,3 +1534,128 @@ button:hover {
   .membership__plans { grid-template-columns: 1fr; }
   .membership__sign-in div { flex-direction: column; }
 }
+
+/* The interactive board and its whole-board tools now read as one edition. */
+body:has(.daily-drop) .atlas-hero {
+  padding-bottom: clamp(1.4rem, 3vw, 2.5rem);
+}
+
+body:has(.daily-drop) .atlas-hero__intro {
+  max-width: 440px;
+  margin-top: 1.2rem;
+}
+
+.atlas-edition.daily-drop {
+  max-width: none;
+  margin: 1rem 0 0;
+  padding: clamp(1rem, 2.8vw, 2rem);
+  gap: clamp(1.25rem, 2.8vw, 2rem);
+  border-radius: 12px;
+  background: rgba(211, 174, 98, .12);
+}
+
+.daily-drop .atlas-edition__meta {
+  max-width: 760px;
+}
+
+.daily-drop .atlas-edition__name {
+  margin: 0;
+}
+
+.daily-drop .atlas-edition__name + .atlas-edition__name {
+  margin-top: .15rem;
+}
+
+.daily-drop .daily-grid {
+  min-width: 0;
+}
+
+.daily-grid__empty {
+  grid-column: 1 / -1;
+  padding: clamp(1.5rem, 4vw, 2.5rem);
+  border: 1px dashed rgba(36, 62, 64, .24);
+  color: #74807d;
+  font-size: .82rem;
+  line-height: 1.55;
+  text-align: center;
+}
+
+.daily-drop .grid {
+  margin-bottom: 0;
+}
+
+.daily-drop .daily-actions {
+  align-items: start;
+  margin: 0;
+  padding-top: clamp(1rem, 2.2vw, 1.5rem);
+  border-top: 1px solid rgba(36, 62, 64, .18);
+}
+
+.daily-drop .daily-edition-share {
+  padding-top: .9rem;
+  border-top: 1px solid rgba(36, 62, 64, .12);
+}
+
+.daily-released-pack__snapshot {
+  grid-column: 1 / -1;
+  padding-top: .75rem;
+  border-top: 1px solid rgba(179, 95, 73, .22);
+  color: #687371;
+  font-size: .76rem;
+  line-height: 1.55;
+}
+
+.daily-released-pack__snapshot summary {
+  width: fit-content;
+  min-height: 44px;
+  display: flex;
+  align-items: center;
+  color: #8d4939;
+  font-weight: 700;
+  text-underline-offset: .2rem;
+  cursor: pointer;
+}
+
+.daily-released-pack__snapshot > p {
+  max-width: 65ch;
+  margin: .2rem 0 .8rem;
+}
+
+.daily-released-pack__teaser {
+  max-width: 520px;
+  grid-template-columns: repeat(3, minmax(0, 1fr));
+}
+
+.dark .daily-drop .daily-actions,
+.dark .daily-drop .daily-edition-share,
+.dark .daily-released-pack__snapshot {
+  border-color: rgba(236, 231, 221, .16);
+}
+
+.dark .daily-released-pack__snapshot {
+  color: #b3b7b1;
+}
+
+.dark .daily-grid__empty {
+  border-color: rgba(236, 231, 221, .2);
+  color: #b3b7b1;
+}
+
+.dark .daily-released-pack__snapshot summary {
+  color: #e18a70;
+}
+
+@media (max-width: 600px) {
+  .atlas-edition.daily-drop {
+    margin-top: .5rem;
+    padding: 1rem;
+  }
+
+  .daily-drop .daily-actions {
+    display: grid;
+  }
+
+  .daily-drop .daily-actions__primary {
+    min-width: 0;
+  }
+}
