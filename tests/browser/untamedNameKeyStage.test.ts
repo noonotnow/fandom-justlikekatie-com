@@ -2,6 +2,7 @@ import assert from 'node:assert/strict';
 import { test } from 'node:test';
 import { readFileSync } from 'node:fs';
 import { chromium } from '@playwright/test';
+import { gotoTestPage } from './browserEngines.ts';
 import { createStagingServer, stageUntamedNameKey, NAME_KEY_ROUTE, BOARD_LABEL, JOURNAL_LABEL } from '../../scripts/stage-untamed-name-key.js';
 
 test('three-character staging preserves exact copy, mobile readability and Journal boundaries', { timeout: 60_000 }, async () => {
@@ -23,7 +24,7 @@ test('three-character staging preserves exact copy, mobile readability and Journ
         journal: { schemaVersion: 1, series: { id: 'the-untamed', title: 'The Untamed' }, entries: [], predictions: [], evidence: [] },
       }) });
     });
-    await page.goto(`${origin}${NAME_KEY_ROUTE}`);
+    await gotoTestPage(page, `${origin}${NAME_KEY_ROUTE}`);
     await page.evaluate(() => localStorage.setItem('fandom-watch-journal-safe-through:the-untamed', '999'));
     const copy = readFileSync('docs/untamed-three-character-name-key-review.md', 'utf8')
       .split('<!-- reader-copy:start -->')[1].split('<!-- reader-copy:end -->')[0];
@@ -50,10 +51,10 @@ test('three-character staging preserves exact copy, mobile readability and Journ
     assert.ok(performer && performer.x >= 0 && performer.x + performer.width <= 390, 'lead performer can be read after scrolling');
     assert.deepEqual(journalRequests, [], 'reference must not load Journal data');
     assert.equal(await page.evaluate(() => localStorage.getItem('fandom-watch-journal-safe-through:the-untamed')), '999');
-    await page.goto(`${origin}/c-drama-fandom/untamed-name-board/`);
+    await gotoTestPage(page, `${origin}/c-drama-fandom/untamed-name-board/`);
     await page.getByRole('link', { name: BOARD_LABEL }).click();
     assert.equal(new URL(page.url()).pathname, NAME_KEY_ROUTE);
-    await page.goto(`${origin}/c-drama-fandom/watch-journal/episodes-1-4/`);
+    await gotoTestPage(page, `${origin}/c-drama-fandom/watch-journal/episodes-1-4/`);
     await page.getByText('Showing only approved records safe through Episode 4.').waitFor();
     assert.deepEqual(journalRequests, ['4']);
     await page.locator('#safe-through').fill('5');
