@@ -88,6 +88,7 @@ export const PUBLIC_STATIC_ROUTES = Object.freeze([
   { ...editorial("/c-drama-fandom/where-to-watch/against-the-current/", "0.8"), changefreq: "weekly" },
   { ...editorial("/c-drama-fandom/soundtrack/against-the-current/", "0.8"), changefreq: "weekly" },
   editorial("/c-dramas/love-between-fairy-and-devil/", "0.9"),
+  editorial("/c-dramas/love-between-fairy-and-devil/cast/"),
   editorial("/c-dramas/love-between-fairy-and-devil/relationships/"),
   editorial("/c-dramas/love-between-fairy-and-devil/themes-symbolism/"),
   editorial("/c-dramas/love-between-fairy-and-devil/what-to-watch-next/"),

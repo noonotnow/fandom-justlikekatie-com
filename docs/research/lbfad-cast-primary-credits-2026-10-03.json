@@ -1,0 +1,19 @@
+{
+  "checkedOn": "2026-10-03",
+  "source": "https://www.iqiyi.com/a_fxzcys7jh5.html",
+  "method": "Direct HTTP retrieval of the official series HTML; character/name/id fields in embedded credit objects, corroborated with visible 演职员表 where present.",
+  "scope": "Selected seven live-action roles. Only the premise-level character label is retained; later-role aliases in provider credits are intentionally omitted.",
+  "rows": [
+    { "character": "小兰花", "performer": "虞书欣", "performerId": 234131205, "displayCharacter": "Orchid / Xiao Lanhua", "displayPerformer": "Esther Yu" },
+    { "character": "东方青苍", "performer": "王鹤棣", "performerId": 237321805, "displayCharacter": "Dongfang Qingcang", "displayPerformer": "Dylan Wang" },
+    { "character": "长珩", "performer": "张凌赫", "performerId": 9000000001014605, "displayCharacter": "Changheng", "displayPerformer": "Zhang Linghe", "verifiedDisplayVariant": "Zhang Ling He" },
+    { "character": "觞阙", "performer": "林柏叡", "performerId": 237837405, "displayCharacter": "Shangque", "displayPerformer": "Charles Lin", "verifiedDisplayVariant": "Lin Bai Rui" },
+    { "character": "结黎", "performer": "洪潇", "performerId": 241308405, "displayCharacter": "Jieli", "displayPerformer": "Hong Xiao" },
+    { "character": "容昊", "performer": "徐海乔", "performerId": 203679605, "displayCharacter": "Rong Hao", "displayPerformer": "Xu Haiqiao", "verifiedDisplayVariant": "Xu Hai Qiao" },
+    { "character": "赤地女子", "performer": "郭晓婷", "performerId": 214856105, "displayCharacter": "Chidi Nüzi", "displayPerformer": "Guo Xiaoting", "verifiedDisplayVariant": "Guo Xiao Ting" }
+  ],
+  "internationalListing": "https://www.iq.com/album/love-between-fairy-and-devil-2022-ld8e5pprpl?lang=en_us",
+  "vikiListing": "https://www.viki.com/tv/38664c-love-between-fairy-and-devil?locale=en#about",
+  "variantEvidence": "Viki series Cast uses Zhang Ling He, Xu Hai Qiao, Guo Xiao Ting, and Lin Bai Rui. iQIYI's international cast links reuse the Chinese credit IDs; its synopsis names Xu Haiqiao and Guo Xiaoting in full rather than only Joe and Cristy.",
+  "animatedListing": "https://www.iq.com/album/love-between-fairy-and-devil-cang-lan-jue-2022-ffsxk2apr1?lang=en_us"
+}
