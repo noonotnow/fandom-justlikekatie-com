@@ -4,6 +4,13 @@ import type { SaveItemMetadata } from '../../hooks/useSaveItem';
 import type { GridItemData } from '../../types';
 import styles from './InlinePreview.module.css';
 import { useLocale } from '../../i18n/LocaleProvider';
+import { DailyImageReport } from '../Lightbox/DailyImageReport';
+
+function isValidArchiveDate(value?: string): value is string {
+  if (!value || !/^\d{4}-\d{2}-\d{2}$/.test(value)) return false;
+  const parsed = new Date(`${value}T00:00:00.000Z`);
+  return Number.isFinite(parsed.getTime()) && parsed.toISOString().slice(0, 10) === value;
+}
 
 interface InlinePreviewProps {
   item: GridItemData;
@@ -28,6 +35,10 @@ export const InlinePreview: React.FC<InlinePreviewProps> = ({
 }) => {
   const { t } = useLocale();
   const rowRef = useRef<HTMLDivElement>(null);
+  const reportDate = item.archiveDate || saveMetadata?.date;
+  const canReport = isValidArchiveDate(reportDate)
+    && Boolean(saveMetadata?.actorName.trim())
+    && Boolean(saveMetadata?.vibeLabel.trim());
 
   // Close on click-away
   useEffect(() => {
@@ -115,6 +126,17 @@ export const InlinePreview: React.FC<InlinePreviewProps> = ({
               onSaveChange={onSaveChange}
             />
           </div>
+          {canReport && reportDate && saveMetadata && (
+            <div className={styles.reportWrap} onMouseDown={event => event.stopPropagation()}>
+              <DailyImageReport
+                date={reportDate}
+                imageId={item.archiveImageId || item.id}
+                imageTitle={item.title}
+                actorName={saveMetadata.actorName}
+                vibeLabel={saveMetadata.vibeLabel}
+              />
+            </div>
+          )}
         </div>
       </div>
     </div>
