@@ -52,6 +52,21 @@ function localizedReason(reason: MisprintReason, t: (english: string, chinese: s
   return t(`${def.label} — ${descriptions[reason].split(' — ').slice(-1)[0]}`, descriptions[reason]);
 }
 
+function reasonOptionLabel(reason: MisprintReason, t: (english: string, chinese: string) => string): string {
+  const labels: Record<MisprintReason, string> = {
+    wrong_actor: t('Wrong actor', '演员认错了'),
+    wrong_vibe: t('Wrong vibe', '氛围不对'),
+    query_mismatch: t('Does not match the search', '图片与搜索不符'),
+    misleading_metadata: t('Misleading listing details', '图片信息有误导性'),
+    composite_or_collage: t('Collage or composite', '拼贴或合成图'),
+    bad_asset: t('Broken or unusable image', '图片破损或无法使用'),
+    duplicate: t('Duplicate image in this board', '本期九宫格内重复'),
+    ranking_bug: t('Product or ranking issue', '产品或排序问题'),
+    other: t('Other issue', '其他问题'),
+  };
+  return labels[reason];
+}
+
 export function DailyImageReport({ date, imageId, imageTitle, actorName, vibeLabel, recoverAfterAuth = false, onRecoveryComplete }: Props) {
   const { t, locale } = useLocale();
   const key = useMemo(() => recoveryKey(date, imageId), [date, imageId]);
@@ -256,8 +271,9 @@ export function DailyImageReport({ date, imageId, imageTitle, actorName, vibeLab
         <label>
           <span>{t('What went wrong?', '问题类型')}</span>
           <select value={reason} onChange={event => setReason(event.target.value as MisprintReason)}>
-            {MISPRINT_REASONS.map(item => <option key={item.value} value={item.value}>{localizedReason(item.value, t)}</option>)}
+            {MISPRINT_REASONS.map(item => <option key={item.value} value={item.value}>{reasonOptionLabel(item.value, t)}</option>)}
           </select>
+          <span className={styles.reasonDescription}>{localizedReason(reason, t)}</span>
         </label>
         <label>
           <span>{t('Actual identity, if known (optional)', '实际人物（如知道，选填）')}</span>

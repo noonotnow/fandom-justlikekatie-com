@@ -1,6 +1,6 @@
 import assert from 'node:assert/strict';
 import { test } from 'node:test';
-import type { Page } from '@playwright/test';
+import type { Locator, Page } from '@playwright/test';
 import {
   BROWSER_ENGINES,
   closeBrowserAndServer,
@@ -36,7 +36,9 @@ const dailyData = {
     distinctSources: 4,
     results: Array.from({ length: 9 }, (_, index) => ({
       imageId: `published-image-${index}`,
-      title: `Report image ${index}`,
+      title: index === 0
+        ? `${REPORT_IMAGE} · ${'A long public source title with credits and tags '.repeat(8)}`
+        : `Report image ${index}`,
       thumbnail: `https://images.report-test/${index}.jpg`,
       link: `https://source.report-test/${index}`,
       source: `Publisher ${index % 4}`,
@@ -58,6 +60,40 @@ async function savedConstituentCardCount(page: Page): Promise<number> {
       request.onerror = () => reject(request.error);
     });
   });
+}
+
+async function assertReadableReportControl(control: Locator): Promise<void> {
+  await control.scrollIntoViewIfNeeded();
+  const dimensions = await control.evaluate(element => {
+    const box = element.getBoundingClientRect();
+    let top = Math.max(0, box.top);
+    let bottom = Math.min(window.innerHeight, box.bottom);
+    let left = Math.max(0, box.left);
+    let right = Math.min(window.innerWidth, box.right);
+    for (let parent = element.parentElement; parent; parent = parent.parentElement) {
+      const style = getComputedStyle(parent);
+      const bounds = parent.getBoundingClientRect();
+      if (['auto', 'scroll', 'hidden', 'clip'].includes(style.overflowY)) {
+        top = Math.max(top, bounds.top + parent.clientTop);
+        bottom = Math.min(bottom, bounds.top + parent.clientTop + parent.clientHeight);
+      }
+      if (['auto', 'scroll', 'hidden', 'clip'].includes(style.overflowX)) {
+        left = Math.max(left, bounds.left + parent.clientLeft);
+        right = Math.min(right, bounds.left + parent.clientLeft + parent.clientWidth);
+      }
+    }
+    return {
+      height: box.height,
+      width: box.width,
+      visibleHeight: bottom - top,
+      visibleWidth: right - left,
+      fontSize: Number.parseFloat(getComputedStyle(element).fontSize),
+    };
+  });
+  assert.ok(dimensions.height >= 42, 'report controls must not flex-shrink into a narrow strip');
+  assert.ok(dimensions.fontSize >= 14, 'report controls must use readable text');
+  assert.ok(dimensions.visibleHeight >= dimensions.height - 2, 'the entire control must be reachable, not clipped by a parent');
+  assert.ok(dimensions.visibleWidth >= dimensions.width - 2, 'report controls must fit without horizontal clipping');
 }
 
 test('an unsaved Daily Drop image can be reported on mobile, keeps keyboard editing, and recovers exact draft after magic-link auth', { timeout: 90_000 }, async () => {
@@ -171,23 +207,53 @@ test('an unsaved Daily Drop image can be reported on mobile, keeps keyboard edit
     assert.equal(await reactions.getByRole('button', { name: '◇ Misprint', exact: true }).getAttribute('aria-pressed'), 'false');
     await reactions.locator('summary').press('Enter');
     await page.getByRole('button', { name: new RegExp(`View ${REPORT_IMAGE}`) }).click();
+    const preview = page.getByRole('region', { name: new RegExp(`Preview of ${REPORT_IMAGE}`) });
+    const inlineReport = preview.locator('details').filter({ has: page.getByText('Report an image issue') });
+    await inlineReport.locator('summary').click();
+    for (const viewport of [{ width: 390, height: 844 }, { width: 1024, height: 768 }, { width: 844, height: 390 }]) {
+      await page.setViewportSize(viewport);
+      await assertReadableReportControl(inlineReport.getByLabel('What went wrong?'));
+      await assertReadableReportControl(inlineReport.getByLabel('Add context (optional)'));
+      await assertReadableReportControl(inlineReport.getByRole('button', { name: 'Send report', exact: true }));
+      await assertReadableReportControl(inlineReport.getByLabel('Email for a sign-in link'));
+      if (process.env.REPORT_LAYOUT_SCREENSHOTS === '1') {
+        await inlineReport.screenshot({ path: `screenshots/daily-report-inline-${viewport.width}x${viewport.height}.png` });
+      }
+    }
+    await inlineReport.getByLabel('What went wrong?').selectOption('other');
+    await inlineReport.getByLabel('Add context (optional)').fill('Diagnostic preview draft only.');
+    await inlineReport.locator('summary').click();
+    await page.setViewportSize({ width: 390, height: 844 });
     await page.getByRole('button', { name: 'View Full Screen' }).click();
     const close = page.getByRole('button', { name: 'Close lightbox' });
     const closeBox = await close.boundingBox();
     assert.ok(closeBox && closeBox.y >= 0 && closeBox.y < 844, 'close control stays visibly inside the scrollable mobile viewer');
-    const reportDetails = page.locator('details').filter({ has: page.getByText('Report an image issue') });
+    const dialog = page.getByRole('dialog');
+    const reportDetails = dialog.locator('details').filter({ has: page.getByText('Report an image issue') });
     await reportDetails.locator('summary').click();
-    await page.getByLabel('Actual identity, if known (optional)').fill('A different performer');
-    await page.getByLabel('Add context (optional)').fill(CONTEXT_NOTE);
-    await page.getByLabel('What went wrong?').selectOption('wrong_actor');
+    assert.equal(await reportDetails.getByLabel('What went wrong?').inputValue(), 'other', 'the inline draft is retained when switching to the full-screen viewer');
+    assert.equal(await reportDetails.getByLabel('Add context (optional)').inputValue(), 'Diagnostic preview draft only.');
+    for (const viewport of [{ width: 1024, height: 768 }, { width: 844, height: 390 }, { width: 390, height: 844 }]) {
+      await page.setViewportSize(viewport);
+      await assertReadableReportControl(reportDetails.getByLabel('What went wrong?'));
+      await assertReadableReportControl(reportDetails.getByLabel('Add context (optional)'));
+      await assertReadableReportControl(reportDetails.getByRole('button', { name: 'Send report', exact: true }));
+      await assertReadableReportControl(reportDetails.getByLabel('Email for a sign-in link'));
+      if (process.env.REPORT_LAYOUT_SCREENSHOTS === '1') {
+        await reportDetails.screenshot({ path: `screenshots/daily-report-lightbox-${viewport.width}x${viewport.height}.png` });
+      }
+    }
+    await reportDetails.getByLabel('Actual identity, if known (optional)').fill('A different performer');
+    await reportDetails.getByLabel('Add context (optional)').fill(CONTEXT_NOTE);
+    await reportDetails.getByLabel('What went wrong?').selectOption('wrong_actor');
 
     const initialCounter = await page.locator('text=1 / 9').count();
-    await page.getByLabel('Add context (optional)').press('ArrowRight');
+    await reportDetails.getByLabel('Add context (optional)').press('ArrowRight');
     assert.equal(await page.locator('text=1 / 9').count(), initialCounter, 'ArrowRight while editing must not navigate the lightbox');
 
     await page.getByRole('button', { name: 'Send report' }).click();
     assert.equal(await savedConstituentCardCount(page), 0, 'opening and reporting must never save the constituent image');
-    await page.getByLabel('Email for a sign-in link').fill('member@example.test');
+    await reportDetails.getByLabel('Email for a sign-in link').fill('member@example.test');
     await page.getByRole('button', { name: 'Send sign-in link' }).click();
     const recovery = await page.evaluate(() => ({
       target: JSON.parse(localStorage.getItem('fandom_daily_report_return') || 'null'),

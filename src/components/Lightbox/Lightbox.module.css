@@ -14,9 +14,12 @@
   display: flex;
   flex-direction: column;
   align-items: center;
-  max-width: 90vw;
-  max-height: 90vh;
-  max-height: 90dvh;
+  width: min(1100px, calc(100vw - 32px));
+  max-height: calc(100vh - 24px);
+  max-height: calc(100dvh - 24px);
+  min-height: 0;
+  box-sizing: border-box;
+  padding: 8px 0;
   overflow-y: auto;
   overscroll-behavior: contain;
   gap: 12px;
@@ -76,9 +79,16 @@
 .mainImage {
   max-width: 70vw;
   max-height: 60vh;
+  flex: 0 0 auto;
   object-fit: contain;
   border-radius: 8px;
   box-shadow: 0 8px 32px rgba(0, 0, 0, 0.6);
+}
+
+/* When the report is expanded, give the form priority over the artwork.
+   The lightbox content remains the one scroll container for the whole view. */
+.content:has(.report[open]) .mainImage {
+  max-height: 30dvh;
 }
 
 .counter {
@@ -89,6 +99,8 @@
 
 .info {
   text-align: center;
+  width: min(100%, 920px);
+  overflow-wrap: anywhere;
 }
 
 .actions {
@@ -166,6 +178,8 @@
   font-size: 16px;
   font-weight: 600;
   color: #f3f3f5;
+  line-height: 1.4;
+  overflow-wrap: anywhere;
 }
 
 .publisher {
@@ -204,33 +218,33 @@
 }
 
 .report {
-  width: min(620px, calc(100vw - 32px));
-  max-height: min(36vh, 300px);
-  overflow-y: auto;
+  width: min(760px, 100%);
+  flex: 0 0 auto;
+  box-sizing: border-box;
   border: 1px solid rgba(201, 169, 110, .35);
   border-radius: 10px;
-  padding: 8px 11px;
+  padding: 10px 14px;
   color: #e2dce4;
   background: rgba(24, 24, 29, .96);
   text-align: left;
-  overscroll-behavior: contain;
 }
 
 .report > summary {
-  min-height: 34px;
+  min-height: 42px;
   display: flex;
   align-items: center;
   cursor: pointer;
   color: #f4d38c;
-  font-size: 13px;
+  font-size: 15px;
   font-weight: 600;
 }
 
 .reportContext, .reportFootnote, .reportStatus, .reportNotice, .reportError {
   margin: 6px 0;
   color: #c7c1ca;
-  font-size: 11px;
-  line-height: 1.45;
+  font-size: 13px;
+  line-height: 1.5;
+  overflow-wrap: anywhere;
 }
 
 .reportStatus strong { color: #f4d38c; }
@@ -240,58 +254,73 @@
 .reportForm {
   display: grid;
   grid-template-columns: repeat(2, minmax(0, 1fr));
-  gap: 8px;
+  gap: 12px;
 }
 
 .reportForm label, .reportSignIn label {
   display: grid;
-  gap: 4px;
+  gap: 6px;
   min-width: 0;
-  color: #c7c1ca;
-  font-size: 11px;
+  color: #e2dce4;
+  font-size: 14px;
+  line-height: 1.4;
 }
 
 .reportForm label:nth-child(3) { grid-column: 1 / -1; }
+.reportForm label:first-child { grid-column: 1 / -1; }
+.reasonDescription { color: #c7c1ca; font-size: 13px; line-height: 1.5; }
 
 .reportForm input, .reportForm select, .reportForm textarea, .reportSignIn input {
   width: 100%;
-  min-height: 38px;
+  min-height: 44px;
   box-sizing: border-box;
-  border: 1px solid rgba(255, 255, 255, .25);
-  border-radius: 7px;
-  padding: 7px 9px;
-  color: #f3f3f5;
-  background: #18181d;
+  border: 1px solid rgba(244, 211, 140, .48);
+  border-radius: 8px;
+  padding: 9px 11px;
+  color: #f8f2e8;
+  background: #222127;
   font: inherit;
+  font-size: 16px;
 }
 
-.reportForm textarea { resize: vertical; min-height: 56px; }
-.reportForm select option { background: #18181d; }
-.reportForm small { text-align: right; color: #9d97a1; }
+.reportForm select { white-space: normal; }
+.reportForm textarea { resize: vertical; min-height: 84px; }
+.reportForm select option { background: #222127; }
+.reportForm small { text-align: right; color: #c7c1ca; font-size: 12px; }
 
 .reportActions {
   display: flex;
   flex-wrap: wrap;
-  gap: 7px;
+  gap: 9px;
   align-items: center;
 }
 
 .reportActions button, .reportSignIn button {
-  min-height: 36px;
-  padding: 6px 10px;
+  min-height: 42px;
+  padding: 8px 14px;
   border: 1px solid rgba(201, 169, 110, .5);
-  border-radius: 7px;
+  border-radius: 8px;
   color: #f4d38c;
   background: rgba(201, 169, 110, .12);
   cursor: pointer;
   font: inherit;
-  font-size: 11px;
+  font-size: 14px;
 }
 
 .reportActions button:disabled, .reportSignIn button:disabled { opacity: .55; cursor: wait; }
-.reportSignIn { display: flex; align-items: end; gap: 8px; margin-top: 8px; }
+.reportSignIn { display: flex; align-items: end; gap: 10px; margin-top: 12px; }
 .reportSignIn label { flex: 1; }
-.reportFootnote { color: #9d97a1; }
+.reportFootnote { color: #c0bac4; }
+
+.report :focus-visible {
+  outline: 3px solid #f4d38c;
+  outline-offset: 2px;
+}
+
+.reportActions button:hover:not(:disabled),
+.reportSignIn button:hover:not(:disabled) {
+  background: rgba(201, 169, 110, .22);
+}
 
 .packetAction select {
   min-height: 42px;
@@ -308,10 +337,16 @@
 
 @media (max-width: 560px) {
   .packetAction { grid-template-columns: 1fr; }
-  .report { max-height: 30vh; }
+  .content {
+    width: calc(100vw - 20px);
+    max-height: calc(100vh - 16px);
+    max-height: calc(100dvh - 16px);
+  }
+  .report { padding: 8px 10px; }
   .reportForm { grid-template-columns: 1fr; }
   .reportForm label:nth-child(3) { grid-column: auto; }
   .reportSignIn { align-items: stretch; flex-direction: column; }
+  .reportSignIn button { align-self: flex-start; }
 }
 
 .thumb {
@@ -360,6 +395,19 @@
     max-width: 85vw;
     max-height: 50vh;
   }
+}
+
+@media (max-height: 560px) and (orientation: landscape) {
+  .content {
+    max-height: calc(100vh - 12px);
+    max-height: calc(100dvh - 12px);
+    gap: 8px;
+  }
+
+  .mainImage { max-height: 38dvh; }
+  .content:has(.report[open]) .mainImage { max-height: 18dvh; }
+  .reportForm { gap: 8px 12px; }
+  .reportForm textarea { min-height: 64px; }
 }
 
 @media (prefers-reduced-motion: reduce) {
