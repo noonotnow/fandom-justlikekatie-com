@@ -535,6 +535,7 @@ test("robots and sitemap expose only intended public surfaces", () => {
     "https://fandom.justlikekatie.com/c-drama-fandom/getting-started/",
     "https://fandom.justlikekatie.com/c-drama-fandom/glossary/",
     "https://fandom.justlikekatie.com/c-drama-fandom/untamed-name-board/",
+    "https://fandom.justlikekatie.com/c-drama-fandom/untamed-names-and-performers/",
     "https://fandom.justlikekatie.com/c-drama-fandom/place-names/",
     "https://fandom.justlikekatie.com/c-drama-fandom/glossary/cp/",
     "https://fandom.justlikekatie.com/c-drama-fandom/glossary/cultivation/",

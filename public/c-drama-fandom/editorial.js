@@ -1,5 +1,6 @@
 (() => {
   const sourcePages = new Set([
+    "untamed-names-and-performers",
     "c-drama-fandom-hub",
     "glossary-index",
     "glossary-cp",
