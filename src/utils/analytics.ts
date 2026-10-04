@@ -527,6 +527,74 @@ export function trackGridBuilderPreviewOpened(isMember: boolean): void {
   trackEvent('grid_builder_preview_opened', { is_member: isMember });
 }
 
+export type ArchiveDiscoveryFailure = 'transport' | 'http' | 'invalid_response' | 'unavailable';
+export type ArchiveDiscoveryResult = 'verified' | 'verified_empty' | 'partial';
+export interface ArchiveInventoryOutcome {
+  actorId: string;
+  phase: 'initial' | 'more';
+  result: ArchiveDiscoveryResult | 'failed';
+  failure?: ArchiveDiscoveryFailure;
+  editionCount: number;
+  hasMore: boolean;
+}
+
+export function trackArchiveActorDirectoryOutcome(
+  result: ArchiveDiscoveryResult | 'failed',
+  actorCount: number,
+  failure?: ArchiveDiscoveryFailure,
+): void {
+  trackEvent(result === 'failed' ? 'archive_actor_directory_failed' : 'archive_actor_directory_ready', {
+    result,
+    actor_count: actorCount,
+    ...(failure ? { failure } : {}),
+  });
+}
+
+/**
+ * One Builder mount, no storage, visitor key, account, image, or Collection data.
+ * The opaque object stays in memory solely to reject stale async completions.
+ */
+export function createArchiveActorDiscovery() {
+  let selection: { actorId: string | null; verified: boolean } = { actorId: null, verified: true };
+  return {
+    select(actorId: string, publicActorIds: readonly string[]) {
+      selection = { actorId: null, verified: !actorId };
+      if (!actorId || actorId.length > 80 || !/^[a-z0-9]+(?:-[a-z0-9]+)*$/.test(actorId)
+        || !publicActorIds.includes(actorId)) return;
+      selection = { actorId, verified: false };
+      trackEvent('archive_actor_selected', { actor_id: actorId });
+    },
+    inventory(outcome: ArchiveInventoryOutcome) {
+      if (!selection.actorId || selection.actorId !== outcome.actorId) return;
+      if (outcome.phase === 'initial') selection.verified = false;
+      if (outcome.result !== 'failed' && outcome.editionCount > 0) selection.verified = true;
+      trackEvent(outcome.result === 'failed' ? 'archive_actor_page_failed' : 'archive_actor_page_verified', {
+        actor_id: selection.actorId,
+        phase: outcome.phase,
+        result: outcome.result,
+        edition_count: outcome.editionCount,
+        has_more: outcome.hasMore,
+        ...(outcome.failure ? { failure: outcome.failure } : {}),
+      });
+    },
+    capture() {
+      return selection.verified ? selection : null;
+    },
+    complete(context: ReturnType<typeof this.capture>, completion: 'saved' | 'exported') {
+      if (!context || context !== selection || !context.verified) return;
+      if (!context.actorId) {
+        trackEvent('archive_grid_completed', { discovery_source: 'unfiltered_archive', completion });
+        return;
+      }
+      trackEvent('archive_grid_completed', {
+        actor_id: context.actorId,
+        discovery_source: 'published_actor_directory',
+        completion,
+      });
+    },
+  };
+}
+
 export function trackArchiveRebuildLaunched(
   editionDate: string,
   placement: ArchiveRebuildPlacement,

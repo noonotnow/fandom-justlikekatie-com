@@ -10,6 +10,7 @@ import {
 } from "./publication-manifest.js";
 import { getShanghaiDateString } from "./date-seed.js";
 import { assertPublicArchiveRecord } from "../../../src/contracts/publicArchiveRecord.js";
+import { readVerifiedActorDirectory } from "./public-archive-directory.js";
 
 export const PUBLIC_ARCHIVE_PAGE_SIZE = 24;
 export const PUBLIC_ARCHIVE_MAX_PAGE_SIZE = 50;
@@ -234,6 +235,10 @@ export function createPublicArchiveInventoryHandler({
       });
     }
     const actorId = url.searchParams.get("actorId");
+    const directory = url.searchParams.get("directory");
+    if (directory !== null && (directory !== "actors" || actorId !== null)) {
+      return jsonResponse(400, { error: "Archive directory request is invalid." });
+    }
     if (actorId !== null && (actorId.length === 0 || actorId.length > 120)) {
       return jsonResponse(400, { error: "Actor id is invalid." });
     }
@@ -244,8 +249,11 @@ export function createPublicArchiveInventoryHandler({
 
     let today;
     let catalog;
+    let timestamp;
     try {
-      today = getShanghaiDateString(now());
+      const clock = now();
+      timestamp = clock.getTime();
+      today = getShanghaiDateString(clock);
       catalog = await store.get(publicationManifestCatalogKey(), {
         type: "json",
         consistency: "strong",
@@ -255,6 +263,19 @@ export function createPublicArchiveInventoryHandler({
     }
     if (!isPublicationManifestCatalog(catalog)) {
       return jsonResponse(503, { error: "Public Archive inventory is not ready." });
+    }
+
+    if (directory === "actors") {
+      const body = await readVerifiedActorDirectory({
+        store,
+        dates: catalog.dates.filter(candidate => candidate <= today).reverse(),
+        timestamp, cursor,
+        maxScan: PUBLIC_ARCHIVE_MAX_SCAN,
+        readManifest: readPublicManifestForDate,
+      });
+      // Never serve a partial pass or an expired directory from an HTTP cache.
+      // The derived snapshot itself supplies bounded caching and freshness.
+      return jsonResponse(200, body, { "Cache-Control": "no-store" });
     }
 
     const candidates = catalog.dates
@@ -268,7 +289,7 @@ export function createPublicArchiveInventoryHandler({
     let storageUnavailable = false;
     while (index < candidates.length
       && scanned < PUBLIC_ARCHIVE_MAX_SCAN
-      && editions.length < limit) {
+      && (directory === "actors" || editions.length < limit)) {
       const candidate = candidates[index];
       index += 1;
       scanned += 1;
@@ -295,7 +316,7 @@ export function createPublicArchiveInventoryHandler({
         : null)
       : null;
     return jsonResponse(200, {
-      editions,
+      ...(directory === "actors" ? {} : { editions }),
       page: {
         nextCursor,
         hasMore,
@@ -308,9 +329,11 @@ export function createPublicArchiveInventoryHandler({
       },
       actors: actorSummaries(editions),
       actorInventory: {
-        complete: false,
-        scope: "verified-page",
-        reason: "A complete global actor directory is not part of this bounded page read.",
+        complete: directory === "actors" && !hasMore && !partial,
+        scope: directory === "actors" ? "verified-directory" : "verified-page",
+        ...(directory === "actors" ? {} : {
+          reason: "A complete global actor directory is not part of this bounded page read.",
+        }),
       },
     });
   };

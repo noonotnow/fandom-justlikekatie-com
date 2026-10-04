@@ -34,6 +34,7 @@ import {
   trackActorSourceNotesLoadSucceeded,
   trackActorSourceNotesOpened,
   trackHistoricalGridSaved,
+  createArchiveActorDiscovery,
 } from '../../utils/analytics';
 import {
   applyLens,
@@ -130,9 +131,17 @@ export const GridBuilder: React.FC<Props> = ({
   const isCollectionSource = sourceKind === 'collection';
   const isPublicArchiveSource = sourceKind === 'archive' || sourceKind === 'edition';
   const externalSourcePool = isCollectionSource || isPublicArchiveSource ? null : sourcePool;
+  const [archiveActorId, setArchiveActorId] = useState('');
+  const [archiveDiscovery] = useState(createArchiveActorDiscovery);
+  useEffect(() => {
+    if (sourceKind !== 'archive') archiveDiscovery.select('', []);
+    return () => archiveDiscovery.select('', []);
+  }, [sourceKind, archiveDiscovery]);
   const publicArchive = usePublicArchiveInventory({
     date: sourceKind === 'edition' ? sourceEditionDate : undefined,
     enabled: isPublicArchiveSource,
+    actorId: sourceKind === 'archive' ? archiveActorId || undefined : undefined,
+    onInventoryOutcome: archiveDiscovery.inventory,
   });
   const publicArchivePool = useMemo(
     () => isPublicArchiveSource ? buildPublicArchivePool(publicArchive.editions) : [],
@@ -169,7 +178,13 @@ export const GridBuilder: React.FC<Props> = ({
   // the proposal.  When the user saves after swapping, the stale record is
   // removed first so only the latest version lives in the store.
   const [priorSavedGridId, setPriorSavedGridId] = useState<string | null>(null);
-  const [handoffState, setHandoffState] = useState<{ objectUrl: string; file: File; tier: string; expiresAt: number } | null>(null);
+  const [handoffState, setHandoffState] = useState<{
+    objectUrl: string;
+    file: File;
+    tier: string;
+    expiresAt: number;
+    discoveryContext: ReturnType<ReturnType<typeof createArchiveActorDiscovery>['capture']>;
+  } | null>(null);
   const [handoffExpanded, setHandoffExpanded] = useState(false);
   const [handoffDestination, setHandoffDestination] = useState<'rednote' | 'weibo' | 'instagram' | 'facebook' | null>('rednote');
   const [now, setNow] = useState(Date.now());
@@ -361,6 +376,20 @@ export const GridBuilder: React.FC<Props> = ({
     setPendingNavAfterSave(false);
   }
 
+  function chooseArchiveActor(id: string) {
+    if (id === archiveActorId) return;
+    archiveDiscovery.select(id, publicArchive.directoryActors.map(actor => actor.id));
+    setArchiveActorId(id);
+    setLens({});
+    setProposal(null);
+    setSwapSlot(null);
+    setIsGridSaved(false);
+    setSavedGridId(null);
+    setPriorSavedGridId(null);
+    setShowSaveNudge(false);
+    setPendingNavAfterSave(false);
+  }
+
   function chooseBuilderMode(mode: 'smart' | 'manual') {
     setBuilderMode(mode);
     setProposal(null);
@@ -512,6 +541,7 @@ export const GridBuilder: React.FC<Props> = ({
   /** Persist the current grid to the local collection without rendering or sharing. */
   async function saveGrid() {
     if (!proposal || !proposalComplete || busy) return;
+    const discoveryContext = sourceKind === 'archive' ? archiveDiscovery.capture() : null;
     if (!isGridSaved && !priorSavedGridId && savedCanvasCount >= benefits.canvasAllowance) {
       setNotice(hasCollectorAccess
         ? tr(`Collector includes ${benefits.canvasAllowance} active canvases. Remove one before saving another.`, `Collector 可保存 ${benefits.canvasAllowance} 个有效网格。请先移除一个，再保存其他网格。`)
@@ -536,6 +566,7 @@ export const GridBuilder: React.FC<Props> = ({
         setPriorSavedGridId(null);
       }
       await dbSaveGrid(grid);
+      if (sourceKind === 'archive') archiveDiscovery.complete(discoveryContext, 'saved');
       if (sourceKind === 'edition' && sourceEditionDate) {
         trackHistoricalGridSaved(sourceEditionDate);
       }
@@ -591,6 +622,7 @@ export const GridBuilder: React.FC<Props> = ({
    */
   async function exportGrid(action: 'rednote' | 'download_raw' | 'full' = 'full') {
     if (!proposal || !proposalComplete || busy) return;
+    const discoveryContext = sourceKind === 'archive' ? archiveDiscovery.capture() : null;
     // Synchronous re-entrant guard: setBusy schedules a React update but does
     // not mutate the captured closure value until the next render.  A second
     // call that arrives in the same event-loop tick (double-click) would pass
@@ -671,6 +703,7 @@ export const GridBuilder: React.FC<Props> = ({
             console.warn('Post-export logging failed (export succeeded):', bookkeepingErr);
           }
         }
+        if (sourceKind === 'archive') archiveDiscovery.complete(discoveryContext, 'exported');
         setNotice(message);
         if (!wasGridSaved) {
           setShowSaveNudge(true);
@@ -681,7 +714,10 @@ export const GridBuilder: React.FC<Props> = ({
         const preparedProposal = proposal;
         prepared = await prepareShareCard(starData, 'raw', blob => { renderedBlob = blob; });
         if (!mountedRef.current || proposalRef.current !== preparedProposal) { URL.revokeObjectURL(prepared.objectUrl); return; }
-        setHandoffState({ objectUrl: prepared.objectUrl, file: prepared.file, tier: prepared.tier, expiresAt: Date.now() + 120_000 });
+        setHandoffState({
+          objectUrl: prepared.objectUrl, file: prepared.file, tier: prepared.tier,
+          expiresAt: Date.now() + 120_000, discoveryContext,
+        });
         setNotice(tr('Handoff prepared.', '发布交接文件已准备好。'));
       }
     } catch (caught) {
@@ -699,9 +735,44 @@ export const GridBuilder: React.FC<Props> = ({
     const shareData = { files: [handoffState.file], title: 'Vibe Atlas Grid' };
     const canShareFiles = typeof navigator !== 'undefined' && typeof navigator.share === 'function' && typeof navigator.canShare === 'function' && navigator.canShare(shareData);
     if (!canShareFiles) { setNotice(tr('Sharing not supported on this device.', '此设备不支持分享文件。')); return; }
-    try { await navigator.share(shareData); setNotice(tr('Share request completed. Please verify in RedNote.', '分享请求已完成，请在小红书中确认。')); }
+    try {
+      await navigator.share(shareData);
+      archiveDiscovery.complete(handoffState.discoveryContext, 'exported');
+      setNotice(tr('Share request completed. Please verify in RedNote.', '分享请求已完成，请在小红书中确认。'));
+    }
     catch (error) { setNotice(error instanceof DOMException && error.name === 'AbortError' ? tr('Share cancelled.', '已取消分享。') : tr('Native sharing failed.', '原生分享失败。')); }
   }
+
+  const actorDirectory = sourceKind === 'archive' ? (
+    <section className={styles.archiveInventory} aria-label={tr('Published actor directory', '已公开演员目录')}>
+      <label>
+        {tr('Browse published actor', '按已公开演员浏览')}
+        <select value={archiveActorId} onChange={event => chooseArchiveActor(event.target.value)}>
+          <option value="">{tr('All published actors', '所有已公开演员')}</option>
+          {publicArchive.directoryActors.map(actor => <option key={actor.id} value={actor.id}>{actor.name}</option>)}
+          {archiveActorId && !publicArchive.directoryActors.some(actor => actor.id === archiveActorId) && (
+            <option value={archiveActorId}>{archiveActorId}</option>
+          )}
+        </select>
+      </label>
+      <span role="status">{publicArchive.directoryLoading
+        ? tr('Verifying published actors…', '正在核验已公开演员…')
+        : publicArchive.directoryComplete
+          ? tr(`${publicArchive.directoryActors.length} verified published actors`, `${publicArchive.directoryActors.length} 位已核验的公开演员`)
+          : tr('Actor directory is incomplete; only verified actors are listed.', '演员目录尚不完整；仅列出已核验的演员。')}</span>
+      {publicArchive.directoryFreshness && <span role="status">
+        {tr(
+          `Manifest verification: ${publicArchive.directoryFreshness.verifiedCandidates} of ${publicArchive.directoryFreshness.totalCandidates} candidates. Checked ${new Date(publicArchive.directoryFreshness.verifiedAt).toLocaleString('en-US')}; refresh due ${new Date(publicArchive.directoryFreshness.expiresAt).toLocaleString('en-US')}.`,
+          `发布记录核验：${publicArchive.directoryFreshness.verifiedCandidates} / ${publicArchive.directoryFreshness.totalCandidates} 个候选。核验时间：${new Date(publicArchive.directoryFreshness.verifiedAt).toLocaleString('zh-CN')}；下次更新：${new Date(publicArchive.directoryFreshness.expiresAt).toLocaleString('zh-CN')}。`,
+        )}
+      </span>}
+      {publicArchive.directoryNotices.map(message => <p role="status" key={message}>{localizedPublicArchiveMessage(message, locale)}</p>)}
+      {publicArchive.directoryError && <p role="alert">{localizedPublicArchiveMessage(publicArchive.directoryError, locale)}</p>}
+      {!publicArchive.directoryLoading && !publicArchive.directoryComplete && (
+        <button type="button" onClick={publicArchive.retryDirectory}>{tr('Retry actor directory', '重试演员目录')}</button>
+      )}
+    </section>
+  ) : null;
 
   if (loadError) {
     const loadErrorMessage = locale === 'zh-CN'
@@ -713,16 +784,17 @@ export const GridBuilder: React.FC<Props> = ({
       : loadError;
     return <div className={styles.notice} role="alert">{loadErrorMessage}</div>;
   }
-  if (isPublicArchiveSource && publicArchive.loading && publicArchive.editions.length === 0) {
-    return <div className={styles.loading} aria-label={sourceKind === 'edition'
+  if (isPublicArchiveSource && publicArchive.loading) {
+    return <>{actorDirectory}<div className={styles.loading} aria-label={sourceKind === 'edition'
       ? tr('Loading public historical edition inventory', '正在加载本期公开素材')
       : tr('Loading public Archive inventory', '正在加载公开典藏素材')
-    }><span /><span /><span /></div>;
+    }><span /><span /><span /></div></>;
   }
   if (isPublicArchiveSource && publicArchive.error && (!pool || pool.length === 0)) {
-    return <div className={styles.notice} role="alert">
+    return <>{actorDirectory}<div className={styles.notice} role="alert">
       <strong>{tr('Public Archive inventory unavailable.', '公开典藏素材暂时不可用。')}</strong> {localizedPublicArchiveMessage(publicArchive.error, locale)}
-    </div>;
+      <button type="button" onClick={publicArchive.retryInventory}>{tr('Retry loading editions', '重试加载卡组')}</button>
+    </div></>;
   }
   if (!pool || !savedOptions || !smartOptions) {
     return <div className={styles.loading} aria-label={
@@ -737,30 +809,37 @@ export const GridBuilder: React.FC<Props> = ({
   }
   if (pool.length === 0) {
     return (
-      <div className={styles.empty}>
+      <>{actorDirectory}<div className={styles.empty}>
         <strong>{isCollectionSource
           ? tr('The shelf is empty.', '收藏架还是空的。')
           : isPublicArchiveSource
             ? sourceKind === 'edition'
               ? tr(`No public inventory is available for ${sourceEditionDate || 'this edition'}.`, `${sourceEditionDate || '本期卡组'}暂无公开素材。`)
-              : tr('No public Archive inventory is available yet.', '暂时还没有可用的公开典藏素材。')
+              : archiveActorId
+                ? tr('No verified editions were found for this actor on this page.', '本页未找到该演员已核验的卡组。')
+                : tr('No public Archive inventory is available yet.', '暂时还没有可用的公开典藏素材。')
             : tr('Today’s inventory is not ready yet.', '今日素材尚未准备好。')}</strong>
         <span>{isCollectionSource
           ? tr('Save cards or grids first — the Grid Builder assembles editorial sets from saved material.', '先收藏单张图片或网格，再用网格构建器将这些素材编排成专题。')
           : isPublicArchiveSource
             ? sourceKind === 'edition'
               ? tr('This edition is not available in the public inventory. No Collection images were substituted.', '公开素材中暂时没有本期卡组。没有用“我的收藏”中的图片替代。')
-              : tr('There are no publicly verified editions to build from. No Collection images were substituted.', '暂时没有已核验的公开卡组可供创作。没有用“我的收藏”中的图片替代。')
+              : archiveActorId || publicArchive.hasMore
+                ? tr('No verified images are loaded for this selection. Choose another actor or load more editions. No Collection images were substituted.', '当前选择尚未加载已核验的图片。请选择其他演员或加载更多卡组。没有用“我的收藏”中的图片替代。')
+                : tr('There are no publicly verified editions to build from. No Collection images were substituted.', '暂时没有已核验的公开卡组可供创作。没有用“我的收藏”中的图片替代。')
             : tr('Return to today’s drop while its approved images finish loading.', '请先返回今日卡组，等待已审核的图片完成加载。')}</span>
         {isPublicArchiveSource && publicArchive.notices.map(message => (
           <span role="status" key={message}>{localizedPublicArchiveMessage(message, locale)}</span>
         ))}
+        {isPublicArchiveSource && publicArchive.error && (
+          <p role="alert">{localizedPublicArchiveMessage(publicArchive.error, locale)}</p>
+        )}
         {sourceKind === 'archive' && publicArchive.hasMore && (
           <button type="button" onClick={() => void publicArchive.loadMore()} disabled={publicArchive.loadingMore}>
             {publicArchive.loadingMore ? tr('Loading editions…', '正在加载卡组…') : tr('Load more editions', '加载更多卡组')}
           </button>
         )}
-      </div>
+      </div></>
     );
   }
 
@@ -794,6 +873,7 @@ export const GridBuilder: React.FC<Props> = ({
         </section>
       )}
 
+      {actorDirectory}
       <div className={styles.benefitBar} role="note">
         {hasCollectorAccess ? (
           <>

@@ -9,6 +9,10 @@ import {
   publicArchiveGrid,
 } from "./public-archive-inventory.js";
 import { createArchiveImageSaveHandler } from "../archive-image-save.js";
+import {
+  PUBLIC_ARCHIVE_DIRECTORY_KEY,
+  PUBLIC_ARCHIVE_DIRECTORY_MAX_AGE_MS,
+} from "./public-archive-directory.js";
 
 const today = "2026-08-10";
 
@@ -88,12 +92,27 @@ function catalog(dates) {
 function memoryStore(values = {}) {
   const records = new Map(Object.entries(values));
   const reads = [];
+  let revision = 0;
   return {
     records,
     reads,
     async get(key, options) {
       reads.push({ key, options });
       return structuredClone(records.get(key) ?? null);
+    },
+    async getWithMetadata(key, options) {
+      reads.push({ key, options });
+      return records.has(key)
+        ? { data: structuredClone(records.get(key)), etag: String(revision) } : null;
+    },
+    async setJSON(key, value, options = {}) {
+      if ((options.onlyIfNew && records.has(key))
+        || (options.onlyIfMatch && options.onlyIfMatch !== String(revision))) {
+        return { modified: false };
+      }
+      revision += 1;
+      records.set(key, structuredClone(value));
+      return { modified: true };
     },
     async list() {
       throw new Error("Archive image authorization must not enumerate publication history.");
@@ -111,6 +130,143 @@ function inventoryHandler(store, clock = new Date(`${today}T04:00:00.000Z`)) {
 async function inventoryRequest(handler, query = "") {
   return handler(new Request(`https://fandom.test/.netlify/functions/public-archive-inventory${query}`), {});
 }
+
+test("actor directory verifies manifests independently and exposes only published actor summaries", async () => {
+  const good = manifest("2026-08-01", "older-actor");
+  const invalidMedia = manifest("2026-08-02", "private-actor");
+  invalidMedia.cards[0].media.association.id = "unpublished-pack";
+  const invalidRecord = manifest("2026-08-03", "invalid-record");
+  invalidRecord.publicRecord.editionPath = "/private/pack";
+  const future = manifest("2026-08-11", "future-actor");
+  const recent = manifest(today, "recent-actor");
+  const store = memoryStore({
+    [publicationManifestCatalogKey()]: catalog([good, invalidMedia, invalidRecord, recent, future].map(item => item.publicationDate)),
+    ...Object.fromEntries([good, invalidMedia, invalidRecord, recent, future].map(item => [gridManifestKey(item.publicationDate), item])),
+    "private-packs": { actor: "never-public" },
+  });
+  const handler = inventoryHandler(store);
+  const first = responseJson(await inventoryRequest(handler, "?limit=1"));
+  assert.deepEqual(first.actors, [{ id: "recent-actor", name: "recent-actor" }]);
+  const directory = responseJson(await inventoryRequest(handler, "?directory=actors&limit=1"));
+  assert.deepEqual(directory.actors, [
+    { id: "older-actor", name: "older-actor" },
+    { id: "recent-actor", name: "recent-actor" },
+  ]);
+  assert.equal("editions" in directory, false);
+  assert.equal(directory.actorInventory.scope, "verified-directory");
+  assert.equal(directory.actorInventory.complete, false);
+  assert.equal(directory.page.unavailableCount, 2);
+  assert.equal(JSON.stringify(directory).includes("media.example"), false);
+  assert.equal(store.reads.some(read => read.key === gridManifestKey(future.publicationDate)), false);
+  assert.equal(store.reads.some(read => read.key === "private-packs"), false);
+});
+
+test("actor directory scans are bounded, resumable, deduplicated and complete only after verification", async () => {
+  const dates = Array.from({ length: PUBLIC_ARCHIVE_MAX_SCAN + 1 }, (_, index) =>
+    new Date(Date.UTC(2026, 0, 1 + index)).toISOString().slice(0, 10));
+  const store = memoryStore({
+    [publicationManifestCatalogKey()]: catalog(dates),
+    ...Object.fromEntries(dates.map((date, index) => [
+      gridManifestKey(date), manifest(date, index === 0 ? "oldest-actor" : "recent-actor"),
+    ])),
+  });
+  const handler = inventoryHandler(store);
+  const first = responseJson(await inventoryRequest(handler, "?directory=actors"));
+  assert.equal(first.page.scanned, PUBLIC_ARCHIVE_MAX_SCAN);
+  assert.equal(first.page.hasMore, true);
+  assert.equal(first.actorInventory.complete, false);
+  assert.deepEqual(first.actors, [{ id: "recent-actor", name: "recent-actor" }]);
+  const second = responseJson(await inventoryRequest(handler, `?directory=actors&cursor=${first.page.nextCursor}`));
+  assert.deepEqual(second.actors, [
+    { id: "oldest-actor", name: "oldest-actor" },
+    { id: "recent-actor", name: "recent-actor" },
+  ]);
+  assert.equal(second.page.hasMore, false);
+  assert.equal(second.actorInventory.complete, true);
+  const filtered = responseJson(await inventoryRequest(handler, "?actorId=oldest-actor"));
+  assert.equal(filtered.page.hasMore, true);
+  const older = responseJson(await inventoryRequest(handler, `?actorId=oldest-actor&cursor=${filtered.page.nextCursor}`));
+  assert.deepEqual(older.editions.map(edition => edition.actorId), ["oldest-actor"]);
+});
+
+test("actor directory storage failures stay explicit and retryable, including empty directories", async () => {
+  const store = memoryStore({ [publicationManifestCatalogKey()]: catalog([today]) });
+  const originalGet = store.get.bind(store);
+  store.get = async (key, options) => {
+    if (key === gridManifestKey(today)) throw new Error("storage unavailable");
+    return originalGet(key, options);
+  };
+  const body = responseJson(await inventoryRequest(inventoryHandler(store), "?directory=actors"));
+  assert.deepEqual(body.actors, []);
+  assert.equal(body.page.unavailable, true);
+  assert.equal(body.actorInventory.complete, false);
+  assert.equal(body.page.hasMore, true);
+  const empty = memoryStore({ [publicationManifestCatalogKey()]: catalog([]) });
+  const emptyBody = responseJson(await inventoryRequest(inventoryHandler(empty), "?directory=actors"));
+  assert.deepEqual(emptyBody.actors, []);
+  assert.equal(emptyBody.actorInventory.complete, true);
+  assert.equal((await inventoryRequest(inventoryHandler(empty), "?directory=private")).statusCode, 400);
+  assert.equal((await inventoryRequest(inventoryHandler(empty), "?directory=actors&actorId=a")).statusCode, 400);
+});
+
+test("directory snapshot expiry revalidates MEDIA, public links and missing-manifest repairs", async () => {
+  const date = "2026-08-01";
+  const store = memoryStore({
+    [publicationManifestCatalogKey()]: catalog([date]),
+    [gridManifestKey(date)]: manifest(date),
+  });
+  const clock = new Date(`${today}T04:00:00Z`);
+  const first = responseJson(await inventoryRequest(inventoryHandler(store, clock), "?directory=actors"));
+  assert.equal(first.actorInventory.complete, true);
+  assert.equal(store.records.has(PUBLIC_ARCHIVE_DIRECTORY_KEY), true);
+  const warmReadCount = store.reads.length;
+  const warm = await inventoryRequest(inventoryHandler(store, clock), "?directory=actors");
+  assert.equal(responseJson(warm).actorInventory.source, "snapshot");
+  assert.equal(store.reads.length - warmReadCount, 2);
+  assert.equal(warm.headers["Cache-Control"], "no-store");
+
+  const invalidMedia = manifest(date);
+  invalidMedia.cards[0].media.association.itemId = "card-8";
+  store.records.set(gridManifestKey(date), invalidMedia);
+  // Discovery may briefly cache names, but edition/image authority never does.
+  assert.equal((await inventoryRequest(inventoryHandler(store, clock), `?date=${date}`)).statusCode, 404);
+  const expiredClock = new Date(clock.getTime() + PUBLIC_ARCHIVE_DIRECTORY_MAX_AGE_MS);
+  const revoked = responseJson(await inventoryRequest(inventoryHandler(store, expiredClock), "?directory=actors"));
+  assert.deepEqual(revoked.actors, []);
+  assert.equal(revoked.actorInventory.complete, false);
+  assert.equal(revoked.page.unavailableCount, 1);
+
+  const invalidLink = manifest(date);
+  invalidLink.publicRecord.editionPath = "/private/packs";
+  store.records.set(gridManifestKey(date), invalidLink);
+  const linkCheck = responseJson(await inventoryRequest(inventoryHandler(store, expiredClock), "?directory=actors"));
+  assert.deepEqual(linkCheck.actors, []);
+  store.records.delete(gridManifestKey(date));
+  const missing = responseJson(await inventoryRequest(inventoryHandler(store, expiredClock), "?directory=actors"));
+  assert.equal(missing.actorInventory.complete, false);
+  store.records.set(gridManifestKey(date), manifest(date));
+  const repaired = responseJson(await inventoryRequest(inventoryHandler(store, expiredClock), "?directory=actors"));
+  assert.equal(repaired.actorInventory.complete, true);
+  assert.deepEqual(repaired.actors, [{ id: "actor-a", name: "actor-a" }]);
+});
+
+test("Shanghai rollover makes a future manifest eligible without trusting catalogue actor names", async () => {
+  const nextDate = "2026-08-11";
+  const store = memoryStore({
+    [publicationManifestCatalogKey()]: { ...catalog([today, nextDate]), actors: [{ id: "private", name: "Private Pack" }] },
+    [gridManifestKey(today)]: manifest(today, "today-actor"),
+    [gridManifestKey(nextDate)]: manifest(nextDate, "tomorrow-actor"),
+  });
+  const first = responseJson(await inventoryRequest(inventoryHandler(store, new Date("2026-08-10T15:59:00Z")), "?directory=actors"));
+  assert.deepEqual(first.actors, [{ id: "today-actor", name: "today-actor" }]);
+  const rollover = responseJson(await inventoryRequest(inventoryHandler(store, new Date("2026-08-10T16:00:00Z")), "?directory=actors"));
+  assert.notEqual(rollover.actorInventory.generation, first.actorInventory.generation);
+  assert.deepEqual(rollover.actors, [
+    { id: "today-actor", name: "today-actor" },
+    { id: "tomorrow-actor", name: "tomorrow-actor" },
+  ]);
+  assert.equal(rollover.actorInventory.source, "verification");
+});
 
 function responseJson(response) {
   return JSON.parse(response.body);
