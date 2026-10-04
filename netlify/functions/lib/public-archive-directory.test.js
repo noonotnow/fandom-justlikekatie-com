@@ -8,6 +8,7 @@ import { BlobsServer } from "@netlify/blobs/server";
 import {
   PUBLIC_ARCHIVE_DIRECTORY_KEY,
   PUBLIC_ARCHIVE_DIRECTORY_MAX_AGE_MS,
+  PUBLIC_ARCHIVE_DIRECTORY_COALESCE_MS,
   readVerifiedActorDirectory,
 } from "./public-archive-directory.js";
 
@@ -205,7 +206,8 @@ test("an overlapping slower write cannot erase newer verified progress", async (
   const candidates = dates(201);
   const slow = directory(store, candidates);
   await waiting;
-  const faster = await directory(store, candidates);
+  // Independent server scopes still rely on the deterministic CAS contract.
+  const faster = await directory(store, candidates, { refreshScope: {} });
   const ahead = await directory(store, candidates, { cursor: faster.page.nextCursor });
   assert.equal(ahead.actorInventory.verifiedCandidates, 200);
   release();
@@ -214,6 +216,188 @@ test("an overlapping slower write cannot erase newer verified progress", async (
   const completed = await directory(store, candidates, { cursor: old.page.nextCursor });
   assert.equal(completed.actorInventory.complete, true);
   assert.equal(completed.actorInventory.verifiedCandidates, 201);
+});
+
+function gate() {
+  let resolve;
+  const promise = new Promise(done => { resolve = done; });
+  return { promise, resolve };
+}
+
+test("simultaneous cold, progressive and expired readers share one bounded authoritative scan", async () => {
+  const store = memoryStore();
+  const candidates = dates(201);
+  for (const [clock, expected] of [
+    [timestamp, 100], [timestamp + 1, 200],
+    [timestamp + PUBLIC_ARCHIVE_DIRECTORY_MAX_AGE_MS, 100],
+  ]) {
+    const entered = gate();
+    const release = gate();
+    let reads = 0;
+    let active = 0;
+    let peak = 0;
+    const readManifest = async (_store, date) => {
+      reads++;
+      peak = Math.max(peak, ++active);
+      entered.resolve();
+      await release.promise;
+      active--;
+      return { status: "available", edition: { actorId: date, actorName: date } };
+    };
+    const owner = directory(store, candidates, { timestamp: clock, readManifest });
+    await entered.promise;
+    const followers = Array.from({ length: 20 }, () =>
+      directory(store, candidates, { timestamp: clock + 1, readManifest }));
+    release.resolve();
+    const results = await Promise.all([owner, ...followers]);
+    assert.equal(reads, 100, "21 readers cost one chunk, not 2,100 manifest/MEDIA verifications");
+    assert.equal(peak, 10);
+    for (const result of results) {
+      assert.deepEqual(result, results[0]);
+      assert.equal(result.actorInventory.verifiedCandidates, expected);
+    }
+    results[1].actors.pop();
+    assert.equal(results[0].actors.length, expected, "responses are not shared mutable objects");
+  }
+});
+
+test("request sharing works across per-request store wrappers but never crosses storage scopes", async () => {
+  const backing = memoryStore();
+  const scope = {};
+  const entered = gate();
+  const release = gate();
+  let reads = 0;
+  const readManifest = async () => {
+    reads++;
+    entered.resolve();
+    await release.promise;
+    return { status: "available", edition: { actorId: "public", actorName: "Public" } };
+  };
+  const owner = directory({ ...backing }, dates(1), { refreshScope: scope, readManifest });
+  await entered.promise;
+  const follower = directory({ ...backing }, dates(1), { refreshScope: scope, readManifest });
+  const separate = await directory(memoryStore(), dates(1));
+  assert.notEqual(separate.actors[0].id, "public");
+  release.resolve();
+  assert.deepEqual(await follower, await owner);
+  assert.equal(reads, 1);
+});
+
+test("an owner rejection releases request sharing and leaves already verified choices retryable", async () => {
+  const store = memoryStore();
+  const candidates = dates(101);
+  const first = await directory(store, candidates);
+  const entered = gate();
+  const release = gate();
+  const owner = directory(store, candidates, {
+    readManifest: async () => {
+      entered.resolve();
+      await release.promise;
+      throw new Error("owner failed");
+    },
+  });
+  await entered.promise;
+  const follower = directory(store, candidates);
+  const results = Promise.allSettled([owner, follower]);
+  release.resolve();
+  assert.ok((await results).every(result => result.status === "rejected"));
+  assert.deepEqual(store.value.actors, first.actors);
+  const retry = await directory(store, candidates);
+  assert.equal(retry.actorInventory.complete, true);
+});
+
+test("abandoned work expires and its late write/cleanup cannot erase the replacement", async () => {
+  const store = memoryStore();
+  const candidates = dates(201);
+  const entered = gate();
+  const release = gate();
+  const abandoned = directory(store, candidates, {
+    readManifest: async () => {
+      entered.resolve();
+      await release.promise;
+      return { status: "available", edition: { actorId: "late", actorName: "Late" } };
+    },
+  });
+  await entered.promise;
+  const recovered = await directory(store, candidates, {
+    timestamp: timestamp + PUBLIC_ARCHIVE_DIRECTORY_COALESCE_MS,
+  });
+  const ahead = await directory(store, candidates, {
+    timestamp: timestamp + PUBLIC_ARCHIVE_DIRECTORY_COALESCE_MS,
+    cursor: recovered.page.nextCursor,
+  });
+  release.resolve();
+  await abandoned;
+  assert.equal(store.value.scanned, 200);
+  assert.deepEqual(store.value.actors, ahead.actors);
+  assert.equal((await directory(store, candidates, {
+    timestamp: timestamp + PUBLIC_ARCHIVE_DIRECTORY_COALESCE_MS,
+  })).actorInventory.complete, true);
+});
+
+test("sharing cannot carry a warm snapshot across its original evidence expiry", async () => {
+  const store = memoryStore();
+  await directory(store, dates(1));
+  const originalGet = store.get.bind(store);
+  const entered = gate();
+  const release = gate();
+  let hold = true;
+  store.get = async (...args) => {
+    const data = await originalGet(...args);
+    if (hold) {
+      hold = false;
+      entered.resolve();
+      await release.promise;
+    }
+    return data;
+  };
+  const owner = directory(store, dates(1), {
+    timestamp: timestamp + PUBLIC_ARCHIVE_DIRECTORY_MAX_AGE_MS - 1,
+  });
+  await entered.promise;
+  let reads = 0;
+  const expired = Array.from({ length: 10 }, () => directory(store, dates(1), {
+    timestamp: timestamp + PUBLIC_ARCHIVE_DIRECTORY_MAX_AGE_MS,
+    readManifest: async () => {
+      reads++;
+      return { status: "not_public" };
+    },
+  }));
+  release.resolve();
+  assert.equal((await owner).actors.length, 1);
+  assert.ok((await Promise.all(expired)).every(body => body.actors.length === 0));
+  assert.equal(reads, 1, "expiry followers must also share the replacement scan");
+});
+
+test("shared partial storage failures retain verified names and never suppress a later retry", async () => {
+  const store = memoryStore();
+  const candidates = dates(101);
+  const first = await directory(store, candidates);
+  const saved = store.value;
+  const entered = gate();
+  const release = gate();
+  const owner = directory(store, candidates, {
+    readManifest: async () => {
+      entered.resolve();
+      await release.promise;
+      return { status: "unavailable" };
+    },
+  });
+  await entered.promise;
+  const follower = directory(store, candidates);
+  release.resolve();
+  const failed = await follower;
+  assert.deepEqual(await owner, failed);
+  assert.equal(failed.page.unavailable, true);
+  assert.deepEqual(failed.actors, first.actors);
+  assert.deepEqual(store.value, saved);
+  const originalSet = store.setJSON.bind(store);
+  store.setJSON = async () => { throw new Error("write failed"); };
+  const unwritten = await Promise.all(Array.from({ length: 10 }, () => directory(store, candidates)));
+  assert.ok(unwritten.every(body => body.actorInventory.cacheAvailable === false));
+  assert.deepEqual(store.value, saved);
+  store.setJSON = originalSet;
+  assert.equal((await directory(store, candidates)).actorInventory.complete, true);
 });
 
 test("the installed Netlify Blobs SDK retains progressive snapshots and resolves missing etags", async t => {

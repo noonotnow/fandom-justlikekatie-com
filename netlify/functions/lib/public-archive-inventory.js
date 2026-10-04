@@ -186,6 +186,7 @@ export function createPublicArchiveInventoryHandler({
     throw new Error("A publication store is required.");
   },
   now = () => new Date(),
+  refreshScope = {},
 } = {}) {
   return async (request, context) => {
     if (request.method && request.method !== "GET") {
@@ -272,6 +273,7 @@ export function createPublicArchiveInventoryHandler({
         timestamp, cursor,
         maxScan: PUBLIC_ARCHIVE_MAX_SCAN,
         readManifest: readPublicManifestForDate,
+        refreshScope,
       });
       // Never serve a partial pass or an expired directory from an HTTP cache.
       // The derived snapshot itself supplies bounded caching and freshness.

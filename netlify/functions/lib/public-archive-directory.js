@@ -3,7 +3,10 @@ import { getWithResolvedEtag } from "./blob-store.js";
 
 export const PUBLIC_ARCHIVE_DIRECTORY_KEY = "derived/public-archive-actors-v1";
 export const PUBLIC_ARCHIVE_DIRECTORY_MAX_AGE_MS = 15 * 60 * 1000;
+export const PUBLIC_ARCHIVE_DIRECTORY_COALESCE_MS = 30 * 1000;
 const KIND = "verified-public-archive-actors";
+const refreshes = new WeakMap();
+const MAX_PENDING_REFRESHES = 64;
 
 function validSnapshot(value, fingerprint, dates, timestamp) {
   return value?.kind === KIND
@@ -38,6 +41,46 @@ function projectActors(actors) {
  * verification's TTL invalidate the entire derivation, including omissions.
  */
 export async function readVerifiedActorDirectory({
+  store, dates, timestamp, maxScan, readManifest, cursor, refreshScope = store,
+}) {
+  // Share only identical requests within one server instance/storage scope.
+  // A distributed lease would add writes and require a new browser waiting
+  // protocol. CAS remains the cross-instance progress safeguard, not a lock.
+  let pending = refreshes.get(refreshScope);
+  if (!pending) {
+    pending = new Map();
+    refreshes.set(refreshScope, pending);
+  }
+  for (const [key, work] of pending) {
+    if (timestamp >= work.timestamp + PUBLIC_ARCHIVE_DIRECTORY_COALESCE_MS) pending.delete(key);
+  }
+  const key = JSON.stringify([dates, maxScan, cursor || null]);
+  const work = pending.get(key);
+  if (work && timestamp >= work.timestamp) {
+    const result = await work.promise;
+    // A request crossing the evidence TTL must reverify, not inherit freshness
+    // from an earlier reader. Coalescing never extends verification authority.
+    if (timestamp < Date.parse(result.actorInventory.expiresAt)) return structuredClone(result);
+    if (pending.get(key) === work) pending.delete(key);
+    return readVerifiedActorDirectory({
+      store, dates, timestamp, maxScan, readManifest, cursor, refreshScope,
+    });
+  }
+  const current = {
+    timestamp,
+    promise: scanVerifiedActorDirectory({ store, dates, timestamp, maxScan, readManifest, cursor }),
+  };
+  // Bound memory even if storage/manifest calls never settle. Expired work is
+  // replaceable; its eventual CAS still cannot overwrite newer saved progress.
+  if (pending.size < MAX_PENDING_REFRESHES) pending.set(key, current);
+  try {
+    return structuredClone(await current.promise);
+  } finally {
+    if (pending.get(key) === current) pending.delete(key);
+  }
+}
+
+async function scanVerifiedActorDirectory({
   store, dates, timestamp, maxScan, readManifest, cursor,
 }) {
   const fingerprint = createHash("sha256").update(JSON.stringify(dates)).digest("hex");
