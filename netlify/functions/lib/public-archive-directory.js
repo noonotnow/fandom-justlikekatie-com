@@ -41,7 +41,7 @@ function projectActors(actors) {
  * verification's TTL invalidate the entire derivation, including omissions.
  */
 export async function readVerifiedActorDirectory({
-  store, dates, timestamp, maxScan, readManifest, cursor, refreshScope = store,
+  store, dates, timestamp, maxScan, readManifest, cursor, refreshScope = store, diagnostics,
 }) {
   // Share only identical requests within one server instance/storage scope.
   // A distributed lease would add writes and require a new browser waiting
@@ -57,18 +57,29 @@ export async function readVerifiedActorDirectory({
   const key = JSON.stringify([dates, maxScan, cursor || null]);
   const work = pending.get(key);
   if (work && timestamp >= work.timestamp) {
-    const result = await work.promise;
+    const stopWait = diagnostics?.join(work.workId);
+    let result;
+    try {
+      result = await work.promise;
+    } finally {
+      stopWait?.();
+    }
     // A request crossing the evidence TTL must reverify, not inherit freshness
     // from an earlier reader. Coalescing never extends verification authority.
     if (timestamp < Date.parse(result.actorInventory.expiresAt)) return structuredClone(result);
     if (pending.get(key) === work) pending.delete(key);
     return readVerifiedActorDirectory({
-      store, dates, timestamp, maxScan, readManifest, cursor, refreshScope,
+      store, dates, timestamp, maxScan, readManifest, cursor, refreshScope, diagnostics,
     });
   }
+  const workId = randomUUID();
+  diagnostics?.work(workId, "owner");
   const current = {
+    workId,
     timestamp,
-    promise: scanVerifiedActorDirectory({ store, dates, timestamp, maxScan, readManifest, cursor }),
+    promise: scanVerifiedActorDirectory({
+      store, dates, timestamp, maxScan, readManifest, cursor, workId, diagnostics,
+    }),
   };
   // Bound memory even if storage/manifest calls never settle. Expired work is
   // replaceable; its eventual CAS still cannot overwrite newer saved progress.
@@ -81,34 +92,68 @@ export async function readVerifiedActorDirectory({
 }
 
 async function scanVerifiedActorDirectory({
-  store, dates, timestamp, maxScan, readManifest, cursor,
+  store, dates, timestamp, maxScan, readManifest, cursor, workId, diagnostics,
 }) {
   const fingerprint = createHash("sha256").update(JSON.stringify(dates)).digest("hex");
+  const metrics = diagnostics?.beginChunk(workId, fingerprint, dates.length);
+  try {
+    return await verifyActorDirectory({
+      store, dates, timestamp, maxScan, readManifest, cursor, fingerprint, metrics,
+    });
+  } finally {
+    metrics?.finish();
+  }
+}
+
+function snapshotOutcome(value, fingerprint, dates, timestamp) {
+  if (!value) return "missing";
+  if (value.fingerprint !== fingerprint) return "changed";
+  if (Number.isFinite(value.startedAt)
+    && timestamp >= value.startedAt + PUBLIC_ARCHIVE_DIRECTORY_MAX_AGE_MS) return "expired";
+  if (value.scanned === dates.length && value.unavailableCount > 0) return "partial_exhausted";
+  if (!validSnapshot(value, fingerprint, dates, timestamp)) return "invalid";
+  return value.scanned === dates.length ? "complete" : "progress";
+}
+
+async function verifyActorDirectory({
+  store, dates, timestamp, maxScan, readManifest, cursor, fingerprint, metrics,
+}) {
+  const deliver = (snapshot, options) => {
+    const body = response(snapshot, dates, options);
+    metrics?.generation(snapshot.generation);
+    metrics?.outcome(body.actorInventory.freshness);
+    metrics?.result(body.actorInventory, body.page);
+    return body;
+  };
   let entry = null;
   let cached = null;
   let cacheAvailable = typeof store.setJSON === "function"
     && typeof store.getWithMetadata === "function";
   try {
     cached = await store.get(PUBLIC_ARCHIVE_DIRECTORY_KEY, { type: "json", consistency: "strong" });
+    metrics?.snapshot(snapshotOutcome(cached, fingerprint, dates, timestamp));
   } catch {
     cacheAvailable = false;
+    metrics?.snapshot("unavailable");
   }
   if (validSnapshot(cached, fingerprint, dates, timestamp)
     && cached.scanned === dates.length) {
-    return response(cached, dates, { scanned: 0, source: "snapshot", cacheAvailable: true });
+    return deliver(cached, { scanned: 0, source: "snapshot", cacheAvailable: true });
   }
   if (cacheAvailable) {
     try {
       entry = await getWithResolvedEtag(store, PUBLIC_ARCHIVE_DIRECTORY_KEY, { type: "json" });
       cached = entry?.data;
+      metrics?.snapshot(snapshotOutcome(cached, fingerprint, dates, timestamp));
       if (entry && !entry.etag) cacheAvailable = false;
     } catch {
       cacheAvailable = false;
+      metrics?.snapshot("unavailable");
     }
   }
   let snapshot = cacheAvailable && validSnapshot(cached, fingerprint, dates, timestamp) ? cached : null;
   if (snapshot?.scanned === dates.length) {
-    return response(snapshot, dates, { scanned: 0, source: "snapshot", cacheAvailable });
+    return deliver(snapshot, { scanned: 0, source: "snapshot", cacheAvailable });
   }
   // A read-only store can still deliver the original bounded, date-paged scan.
   // It cannot certify the complete history from a caller-supplied cursor.
@@ -125,6 +170,7 @@ async function scanVerifiedActorDirectory({
     kind: KIND, fingerprint, generation: randomUUID(), startedAt: timestamp,
     scanned: fallbackOffset, unavailableCount: 0, actors: [],
   };
+  metrics?.generation(snapshot.generation);
   const actors = new Map(snapshot.actors.map(actor => [actor.id, actor]));
   let scanned = 0;
   let unavailable = false;
@@ -133,7 +179,10 @@ async function scanVerifiedActorDirectory({
     // multiply serial network latency until a refresh outlives its own TTL.
     const batch = dates.slice(snapshot.scanned,
       snapshot.scanned + Math.min(10, maxScan - scanned));
-    const foundBatch = await Promise.all(batch.map(date => readManifest(store, date)));
+    const foundBatch = await Promise.all(batch.map((date, index) => {
+      metrics?.scanRead(snapshot.scanned + index);
+      return readManifest(store, date);
+    }));
     scanned += batch.length;
     for (const found of foundBatch) {
       if (found.status === "unavailable") {
@@ -152,18 +201,22 @@ async function scanVerifiedActorDirectory({
     }
     if (unavailable) break;
   }
+  metrics?.scanFinished(snapshot.scanned);
   snapshot.actors = [...actors.values()].sort((a, b) => a.name.localeCompare(b.name));
   // Never persist a temporary storage failure as a verified omission.
   if (cacheAvailable && !unavailable) {
     try {
-      await store.setJSON(PUBLIC_ARCHIVE_DIRECTORY_KEY, snapshot,
+      metrics?.casStart();
+      const result = await store.setJSON(PUBLIC_ARCHIVE_DIRECTORY_KEY, snapshot,
         entry?.etag ? { onlyIfMatch: entry.etag } : { onlyIfNew: true });
+      metrics?.casFinished(result);
       // A losing CAS is safe: the winning request retained independent progress.
     } catch {
       cacheAvailable = false;
+      metrics?.casError();
     }
   }
-  return response(snapshot, dates, {
+  return deliver(snapshot, {
     scanned, unavailable, restart, source: "verification", cacheAvailable,
     sharedGeneration: fallbackOffset === 0 && cacheAvailable,
     incompletePrefix: fallbackOffset > 0,

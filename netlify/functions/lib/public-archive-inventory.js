@@ -187,8 +187,13 @@ export function createPublicArchiveInventoryHandler({
   },
   now = () => new Date(),
   refreshScope = {},
+  createDiagnostics,
 } = {}) {
-  return async (request, context) => {
+  async function handleInventory(request, context, diagnostics) {
+    const readManifest = (store, date) => {
+      diagnostics?.manifestRead();
+      return readPublicManifestForDate(store, date);
+    };
     if (request.method && request.method !== "GET") {
       return jsonResponse(405, { error: "Method not allowed" }, { Allow: "GET" });
     }
@@ -214,7 +219,7 @@ export function createPublicArchiveInventoryHandler({
       if (date > today) {
         return jsonResponse(404, { error: "That public Archive edition is not available." });
       }
-      const found = await readPublicManifestForDate(store, date);
+      const found = await readManifest(store, date);
       if (found.status === "unavailable") {
         return jsonResponse(503, { error: "The public Archive edition could not be verified." });
       }
@@ -272,8 +277,9 @@ export function createPublicArchiveInventoryHandler({
         dates: catalog.dates.filter(candidate => candidate <= today).reverse(),
         timestamp, cursor,
         maxScan: PUBLIC_ARCHIVE_MAX_SCAN,
-        readManifest: readPublicManifestForDate,
+        readManifest,
         refreshScope,
+        diagnostics,
       });
       // Never serve a partial pass or an expired directory from an HTTP cache.
       // The derived snapshot itself supplies bounded caching and freshness.
@@ -295,7 +301,7 @@ export function createPublicArchiveInventoryHandler({
       const candidate = candidates[index];
       index += 1;
       scanned += 1;
-      const found = await readPublicManifestForDate(store, candidate);
+      const found = await readManifest(store, candidate);
       if (found.status === "unavailable") {
         storageUnavailable = true;
         break;
@@ -338,6 +344,19 @@ export function createPublicArchiveInventoryHandler({
         }),
       },
     });
+  }
+  return async (request, context) => {
+    let diagnostics;
+    try {
+      diagnostics = createDiagnostics?.(request);
+    } catch { /* A diagnostic setup failure must not prevent the inventory read. */ }
+    let result;
+    try {
+      result = await handleInventory(request, context, diagnostics);
+      return result;
+    } finally {
+      diagnostics?.finish(result?.statusCode);
+    }
   };
 }
 
