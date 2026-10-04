@@ -77,3 +77,4 @@
 - [Release-history baseline](release-history-baseline.md) — certify historical release coverage only after immutable manifests agree with Archive; never seed from the mutable public catalog alone.
 - [Release receipt rollout](release-receipt-rollout.md) — never seed old per-release evidence from a mutable history on public reads; audit historical manifests first.
 - [Netlify Blobs list pagination](netlify-blobs-list-pagination.md) — paginate:true returns an async iterator, not a blobs array; test list-dependent checks against real Blobs.
+- [Actor-directory freshness](actor-directory-freshness.md) — bounded public-name caching is not permission to cache edition authorization or release approvals.

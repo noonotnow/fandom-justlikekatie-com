@@ -23,7 +23,7 @@ const EDITION_DATES = [
   '2026-08-17',
 ] as const;
 
-type ArchiveActor = (typeof ACTORS)[number];
+type ArchiveActor = { id: string; name: string; slug: string };
 
 function publishedEdition(date: string, actor: ArchiveActor) {
   const appearance = `${actor.slug}-${date}`;
@@ -207,6 +207,30 @@ async function installPublicArchiveRoutes(page: Page, options: {
       });
       return;
     }
+    if (query.get('directory') === 'actors') {
+      await route.fulfill({
+        contentType: 'application/json',
+        body: JSON.stringify({
+          actors: options.inventoryEmpty ? [] : ACTORS.map(({ id, name }) => ({ id, name })),
+          page: { hasMore: false, nextCursor: null },
+          actorInventory: { complete: true, scope: 'verified-directory' },
+        }),
+      });
+      return;
+    }
+    if (query.get('actorId')) {
+      const editions = EDITIONS.filter(edition => edition.actorId === query.get('actorId')
+        && (!query.get('cursor') || edition.date < query.get('cursor')!));
+      await route.fulfill({
+        contentType: 'application/json',
+        body: JSON.stringify({
+          editions: editions.slice(0, 1),
+          actors: ACTORS.filter(actor => actor.id === query.get('actorId')),
+          page: { hasMore: editions.length > 1, nextCursor: editions.length > 1 ? editions[0].date : null },
+        }),
+      });
+      return;
+    }
     const page = query.get('cursor') === 'page-2'
       ? SECOND_PAGE
       : query.get('cursor') === 'page-3'
@@ -350,6 +374,344 @@ async function readActiveAccountId(page: Page): Promise<string | null> {
 }
 
 for (const engine of BROWSER_ENGINES) {
+  test(`snapshot refresh keeps actor selection usable during discovery and retry in ${engine.name}`, { timeout: 150_000 }, async () => {
+    const { server, origin } = await startViteTestServer();
+    const { browser, page } = await launchPageForServer(server, engine.type);
+    const firstGate = createPromiseGate();
+    const finalGate = createPromiseGate();
+    const retryGate = createPromiseGate();
+    let directoryRequests = 0;
+    let restartedPass = false;
+    let retryRequested = false;
+    const queries: URLSearchParams[] = [];
+    const olderActor = { id: 'older-actor', name: 'Older Published Actor', slug: 'older-actor' };
+    try {
+      await installPublicArchiveRoutes(page);
+      await page.route('**/.netlify/functions/public-archive-inventory*', async route => {
+        const query = new URL(route.request().url()).searchParams;
+        queries.push(query);
+        if (query.get('directory') === 'actors') {
+          // StrictMode can repeat the initial request. Gate by pagination
+          // stage, not request count, so a cancelled root cannot hold discovery.
+          const index = query.has('cursor') ? restartedPass ? 3 : 2 : retryRequested ? 4 : 1;
+          directoryRequests = index;
+          if (index === 2) {
+            await firstGate.promise;
+            restartedPass = true;
+          }
+          if (index === 3) await finalGate.promise;
+          if (index === 4) await retryGate.promise;
+          const complete = index >= 3;
+          await route.fulfill({
+            contentType: 'application/json',
+            body: JSON.stringify({
+              actors: index === 1 ? [ACTORS[0]] : complete ? [ACTORS[1], olderActor] : [ACTORS[1]],
+              page: { hasMore: !complete, nextCursor: complete ? null : '2026-08-11',
+                unavailableCount: index === 3 ? 1 : 0 },
+              actorInventory: {
+                scope: 'verified-directory', complete: index >= 4, restart: index === 2,
+                generation: index === 1 ? 'expired-pass' : 'current-pass',
+                source: index === 4 ? 'snapshot' : 'verification',
+                freshness: index >= 4 ? 'verified' : complete ? 'partial' : 'refreshing',
+                verifiedAt: '2026-10-03T00:00:00Z', expiresAt: '2026-10-03T00:15:00Z',
+                verifiedCandidates: complete ? 201 : 100, totalCandidates: 201,
+              },
+            }),
+          });
+          return;
+        }
+        if (query.get('actorId') === olderActor.id) {
+          await route.fulfill({ contentType: 'application/json', body: JSON.stringify({
+            editions: [publishedEdition('2026-08-10', olderActor)], actors: [olderActor],
+            page: { hasMore: false, nextCursor: null },
+          }) });
+          return;
+        }
+        await route.fallback();
+      });
+      await gotoTestPage(page, `${origin}/vibe-atlas?view=builder&source=archive`, { waitUntil: 'domcontentloaded' });
+      const selector = page.getByRole('combobox', { name: 'Browse published actor' });
+      await selector.locator(`option[value="${ACTORS[0].id}"]`).waitFor({ state: 'attached' });
+      await waitForCondition(() => directoryRequests === 2, 'second directory request should be held');
+      assert.equal(await selector.isEnabled(), true);
+      await selector.selectOption(ACTORS[0].id);
+      await page.getByText('9 public Archive images match this lens').waitFor();
+      assert.equal(directoryRequests, 2, 'selection must not restart directory discovery');
+      firstGate.release();
+      await selector.locator(`option[value="${ACTORS[1].id}"]`).waitFor({ state: 'attached' });
+      await waitForCondition(() => directoryRequests === 3, 'new generation should resume despite a repeated date cursor');
+      await selector.selectOption(ACTORS[1].id);
+      await page.getByText('9 public Archive images match this lens').waitFor();
+      assert.equal(await selector.locator(`option[value="${ACTORS[0].id}"]`).count(), 0,
+        'the refreshed directory must not retain the previous generation actor');
+      finalGate.release();
+      await page.getByText('The actor directory is partial; some public actors could not be verified.').waitFor();
+      await page.getByText(/Manifest verification: 201 of 201 candidates/).waitFor();
+      await page.getByRole('button', { name: 'Retry actor directory' }).waitFor();
+      retryRequested = true;
+      await page.getByRole('button', { name: 'Retry actor directory' }).click();
+      await waitForCondition(() => directoryRequests === 4, 'retry should remain pending');
+      assert.equal(await selector.locator('option[value="older-actor"]').count(), 1,
+        'retry must not blank already verified choices');
+      await selector.selectOption(ACTORS[1].id);
+      await page.getByText('9 public Archive images match this lens').waitFor();
+      retryGate.release();
+      await page.getByText('2 verified published actors', { exact: true }).waitFor();
+      assert.equal(queries.filter(query => !query.has('directory') && query.has('cursor') && !query.has('actorId')).length, 0);
+    } finally {
+      firstGate.release();
+      finalGate.release();
+      retryGate.release();
+      await closeBrowserAndServer(browser, server);
+    }
+  });
+
+  test(`Archive handoff counts only successful current-selection native sharing in ${engine.name}`, { timeout: 150_000 }, async () => {
+    const { server, origin } = await startViteTestServer();
+    const { browser, page } = await launchPageForServer(server, engine.type);
+    const url = `${origin}/vibe-atlas?view=builder&source=archive`;
+    try {
+      // Plain JS avoids injecting tsx helper references into browser callbacks.
+      await page.addInitScript(`
+        window.archiveDiscoveryEvents = [];
+        window.umami = { track(name, data) { window.archiveDiscoveryEvents.push({ name, data }); } };
+        window.shareOutcome = 'success';
+        window.sharePending = false;
+        Object.defineProperty(navigator, 'canShare', { configurable: true, value: () => true });
+        Object.defineProperty(navigator, 'share', { configurable: true, value: async () => {
+          if (window.shareOutcome === 'cancel') throw new DOMException('cancelled', 'AbortError');
+          if (window.shareOutcome === 'fail') throw new Error('share failed');
+          if (window.shareOutcome === 'hold') {
+            window.sharePending = true;
+            await new Promise(resolve => { window.resolveShare = resolve; });
+          }
+        } });
+      `);
+      await installPublicArchiveRoutes(page);
+      const completions = () => page.evaluate(() => (window as unknown as {
+        archiveDiscoveryEvents: { name: string; data: Record<string, string | number | boolean> }[];
+      }).archiveDiscoveryEvents.filter(event => event.name === 'archive_grid_completed'));
+      const prepare = async () => {
+        await gotoTestPage(page, url, { waitUntil: 'domcontentloaded' });
+        const actor = page.getByRole('combobox', { name: 'Browse published actor' });
+        await actor.locator(`option[value="${ACTORS[0].id}"]`).waitFor({ state: 'attached' });
+        await actor.selectOption(ACTORS[0].id);
+        await page.getByText('9 public Archive images match this lens').waitFor();
+        await page.getByRole('button', { name: /^Propose Compiled 3×3$/ }).click();
+        await page.getByRole('button', { name: 'Handoff Publishing Grid', exact: true }).click();
+        await page.getByRole('button', { name: '1. Prepare RedNote Handoff', exact: true }).click();
+        await page.getByText('Handoff prepared.', { exact: true }).waitFor();
+        assert.equal((await completions()).length, 0, 'preparation is not a completion');
+      };
+      await prepare();
+      const share = page.getByRole('button', { name: '2a. Share to Device', exact: true });
+      for (const outcome of ['cancel', 'fail'] as const) {
+        await page.evaluate(value => { Object.assign(window, { shareOutcome: value }); }, outcome);
+        await share.click();
+        await page.getByText(outcome === 'cancel' ? 'Share cancelled.' : 'Native sharing failed.', { exact: true }).waitFor();
+        assert.equal((await completions()).length, 0);
+      }
+      await page.evaluate(() => { Object.assign(window, { shareOutcome: 'success' }); });
+      await share.click();
+      await page.getByText('Share request completed. Please verify in RedNote.', { exact: true }).waitFor();
+      assert.deepEqual(await completions(), [{
+        name: 'archive_grid_completed',
+        data: { actor_id: ACTORS[0].id, discovery_source: 'published_actor_directory', completion: 'exported' },
+      }]);
+
+      // Fresh documents ensure each stale test starts with a currently verified context.
+      for (const change of ['actor', 'source', 'unmount'] as const) {
+        await prepare();
+        await page.evaluate(() => { Object.assign(window, { shareOutcome: 'hold' }); });
+        await share.click();
+        await page.waitForFunction(() => Boolean((window as unknown as { sharePending: boolean }).sharePending));
+        if (change === 'actor') {
+          await page.getByRole('combobox', { name: 'Browse published actor' }).selectOption(ACTORS[1].id);
+          await page.getByText('9 public Archive images match this lens').waitFor();
+        } else {
+          await page.evaluate(value => {
+            window.history.pushState({}, '', value === 'source'
+              ? '/vibe-atlas?view=builder&source=collection' : '/vibe-atlas?view=collection');
+            window.dispatchEvent(new PopStateEvent('popstate'));
+          }, change);
+          await page.getByRole('combobox', { name: 'Browse published actor' }).waitFor({ state: 'detached' });
+        }
+        await page.evaluate(async () => {
+          (window as unknown as { resolveShare: () => void }).resolveShare();
+          // A macrotask follows the sharing promise's completion continuation.
+          await new Promise(resolve => setTimeout(resolve, 0));
+        });
+        assert.equal((await completions()).length, 0, `${change} must invalidate a pending native-share completion`);
+      }
+    } finally { await closeBrowserAndServer(browser, server); }
+  });
+
+  test(`published actor directory discovers unloaded actors and isolates filtered pagination in ${engine.name}`, { timeout: 150_000 }, async () => {
+    const { server, origin } = await startViteTestServer();
+    const { browser, page } = await launchPageForServer(server, engine.type);
+    const requests: URLSearchParams[] = [];
+    const gate = createPromiseGate();
+    let holdAlpha = false;
+    let failDirectory = true;
+    let partialDirectory = true;
+    let emptyFilteredPage = false;
+    let failFilteredPage = false;
+    let filteredResponseMode: 'normal' | 'empty' | 'transport' | 'wrong_actor' = 'normal';
+    const olderActor = { id: 'older-actor', name: 'Older Published Actor', slug: 'older-actor' };
+    const olderEditions = [
+      publishedEdition('2026-08-10', olderActor),
+      publishedEdition('2026-08-09', olderActor),
+    ];
+    try {
+      await page.addInitScript(() => {
+        const events: { name: string; data?: Record<string, string | number | boolean> }[] = [];
+        Object.assign(window, { archiveDiscoveryEvents: events });
+        Object.assign(window, { umami: { track(name: string, data?: Record<string, string | number | boolean>) { events.push({ name, data }); } } });
+      });
+      await installPublicArchiveRoutes(page);
+      await page.route('**/.netlify/functions/public-archive-inventory*', async route => {
+        const query = new URL(route.request().url()).searchParams;
+        requests.push(query);
+        if (query.get('directory') === 'actors') {
+          if (failDirectory) {
+            await route.fulfill({ status: 503, contentType: 'application/json', body: JSON.stringify({ error: 'The actor directory could not be loaded.' }) });
+            return;
+          }
+          await route.fulfill({
+            contentType: 'application/json',
+            body: JSON.stringify({
+              actors: query.has('cursor') ? [olderActor] : ACTORS,
+              page: { hasMore: !query.has('cursor'), nextCursor: query.has('cursor') ? null : '2026-08-11',
+                scanLimitReached: !query.has('cursor'), unavailableCount: partialDirectory && !query.has('cursor') ? 1 : 0 },
+              actorInventory: { scope: 'verified-directory', complete: query.has('cursor') },
+            }),
+          });
+          return;
+        }
+        if (holdAlpha && query.get('actorId') === ACTORS[0].id) {
+          await gate.promise;
+          await route.fulfill({ contentType: 'application/json', body: JSON.stringify({
+            editions: [EDITIONS[0]], actors: [ACTORS[0]], page: { hasMore: false, nextCursor: null },
+          }) });
+          return;
+        }
+        if (query.get('actorId') === olderActor.id) {
+          const next = query.has('cursor');
+          if (filteredResponseMode === 'transport') { await route.abort('failed'); return; }
+          if (failFilteredPage) {
+            failFilteredPage = false;
+            await route.fulfill({ status: 503, contentType: 'application/json', body: JSON.stringify({ error: 'The public Archive inventory could not be loaded.' }) });
+            return;
+          }
+          await route.fulfill({
+            contentType: 'application/json',
+            body: JSON.stringify({
+              editions: filteredResponseMode === 'empty' ? []
+                : filteredResponseMode === 'wrong_actor' ? [EDITIONS[0]]
+                  : emptyFilteredPage && !next ? [] : [olderEditions[next ? 1 : 0]], actors: [olderActor],
+              page: { hasMore: filteredResponseMode === 'empty' ? false : !next,
+                nextCursor: filteredResponseMode === 'empty' || next ? null : olderEditions[0].date,
+                ...(emptyFilteredPage && !next ? { partial: true, scanLimitReached: true } : {}) },
+            }),
+          });
+          return;
+        }
+        await route.fallback();
+      });
+      await gotoTestPage(page, `${origin}/vibe-atlas?view=builder&source=archive`, { waitUntil: 'domcontentloaded' });
+      await page.getByText('18 public Archive images match this lens').waitFor();
+      await seedSavedCollection(page);
+      await page.getByRole('button', { name: 'Retry actor directory' }).waitFor();
+      failDirectory = false;
+      await page.getByRole('button', { name: 'Retry actor directory' }).click();
+      const selector = page.getByRole('combobox', { name: 'Browse published actor' });
+      await selector.locator('option[value="older-actor"]').waitFor({ state: 'attached' });
+      await page.getByText('The actor directory is partial; some public actors could not be verified.').waitFor();
+      assert.equal(await selector.locator('option[value="collection-only-actor"]').count(), 0);
+      partialDirectory = false;
+      await page.getByRole('button', { name: 'Retry actor directory' }).click();
+      await page.getByText('3 verified published actors', { exact: true }).waitFor();
+      const events = () => page.evaluate(() => (window as unknown as {
+        archiveDiscoveryEvents: { name: string; data: Record<string, string | number | boolean> }[];
+      }).archiveDiscoveryEvents);
+      assert.deepEqual((await events()).filter(event => event.name.startsWith('archive_actor_')), [
+        { name: 'archive_actor_directory_failed', data: { result: 'failed', actor_count: 0, failure: 'http' } },
+        { name: 'archive_actor_directory_ready', data: { result: 'partial', actor_count: 3 } },
+        { name: 'archive_actor_directory_ready', data: { result: 'verified', actor_count: 3 } },
+      ], 'automatic directory pagination emits only one diagnostic per attempt, never selections or page engagement');
+      assert.equal(requests.filter(query => !query.has('directory') && !query.has('actorId') && query.has('cursor')).length, 0,
+        'directory discovery must not download unrelated edition pages');
+      assert.equal(await page.getByRole('button', { name: /^Older Published Actor \d/ }).count(), 0,
+        'older actor is not yet in the image pool');
+      holdAlpha = true;
+      await selector.selectOption(ACTORS[0].id);
+      await waitForCondition(() => requests.some(query => query.get('actorId') === ACTORS[0].id), 'alpha request should be held');
+      await selector.selectOption(olderActor.id);
+      await page.getByText('9 public Archive images match this lens').waitFor();
+      gate.release();
+      await page.getByRole('button', { name: 'Load more editions' }).click();
+      await page.getByText('18 public Archive images match this lens').waitFor();
+      assert.equal(await page.getByRole('button', { name: /^Public Archive Alpha \d/ }).count(), 0, 'stale responses must not replace the selected actor');
+      assert.equal(await page.getByRole('button', { name: /^Collection-Only Actor/ }).count(), 0);
+      const filteredQueries = requests.filter(query => query.get('actorId') === olderActor.id);
+      assert.equal(filteredQueries.length, 2);
+      assert.equal(filteredQueries[0].has('cursor'), false, 'actor selection resets pagination');
+      assert.equal(filteredQueries[1].get('cursor'), olderEditions[0].date);
+      assert.equal((await events()).filter(event => event.name === 'archive_actor_page_verified'
+        && event.data.actor_id === ACTORS[0].id).length, 0, 'cancelled responses must not report success');
+      await page.getByRole('button', { name: /^Propose Compiled 3×3$/ }).click();
+      assert.equal((await events()).filter(event => event.name === 'archive_grid_completed').length, 0,
+        'a proposal is not a saved or exported grid');
+      await page.getByRole('button', { name: 'Save grid' }).click();
+      await page.getByText('Grid saved to your collection.', { exact: true }).waitFor();
+      assert.deepEqual((await events()).filter(event => event.name === 'archive_grid_completed'), [
+        { name: 'archive_grid_completed', data: { actor_id: olderActor.id, discovery_source: 'published_actor_directory', completion: 'saved' } },
+      ]);
+      await selector.selectOption('');
+      await page.getByRole('button', { name: /^Public Archive Alpha 9$/ }).waitFor();
+      assert.equal(requests.at(-1)?.has('actorId'), false);
+      failFilteredPage = true;
+      await selector.selectOption(olderActor.id);
+      await page.getByRole('button', { name: 'Retry loading editions' }).waitFor();
+      assert.equal(await selector.inputValue(), olderActor.id, 'actor controls remain usable after a filtered request fails');
+      emptyFilteredPage = true;
+      await page.getByRole('button', { name: 'Retry loading editions' }).click();
+      await page.getByText('No verified editions were found for this actor on this page.').waitFor();
+      await page.getByText('The safe Archive scan limit was reached; additional editions may be available on later pages.').waitFor();
+      await page.getByRole('button', { name: 'Load more editions' }).click();
+      await page.getByText('9 public Archive images match this lens').waitFor();
+      const filteredEvents = (await events()).filter(event => event.name === 'archive_actor_page_failed'
+        || event.name === 'archive_actor_page_verified');
+      assert.ok(filteredEvents.some(event => event.data.result === 'failed' && event.data.failure === 'http'));
+      assert.ok(filteredEvents.some(event => event.data.result === 'partial' && event.data.edition_count === 0));
+      assert.ok(filteredEvents.some(event => event.data.phase === 'more' && event.data.result === 'verified'));
+      emptyFilteredPage = false;
+      for (const mode of ['empty', 'transport', 'wrong_actor'] as const) {
+        await selector.selectOption('');
+        await page.getByRole('button', { name: /^Public Archive Alpha 9$/ }).waitFor();
+        filteredResponseMode = mode;
+        await selector.selectOption(olderActor.id);
+        if (mode === 'empty') {
+          await page.getByText('No verified editions were found for this actor on this page.').waitFor();
+        } else {
+          await page.getByRole('button', { name: 'Retry loading editions' }).waitFor();
+        }
+        const last = (await events()).filter(event => event.name === 'archive_actor_page_failed'
+          || event.name === 'archive_actor_page_verified').at(-1)!;
+        assert.equal(last.data.result, mode === 'empty' ? 'verified_empty' : 'failed');
+        if (mode !== 'empty') assert.equal(last.data.failure, mode === 'transport' ? 'transport' : 'invalid_response');
+      }
+      assert.equal((await events()).filter(event => event.name === 'archive_grid_completed').length, 1,
+        'empty, failed, and invalid actor responses must not produce completions');
+      assert.equal(await page.getByRole('button', { name: /^Collection-Only Actor/ }).count(), 0);
+      await page.getByLabel('Language').selectOption('zh-CN');
+      await page.getByRole('combobox', { name: '按已公开演员浏览' }).waitFor();
+    } finally {
+      gate.release();
+      await closeBrowserAndServer(browser, server);
+    }
+  });
+
   test(`public Archive inventory paginates through actor lenses and preserves manual and smart grids for free exports in ${engine.name}`, { timeout: 150_000 }, async () => {
     const { server, origin } = await startViteTestServer();
     const { browser, page } = await launchPageForServer(server, engine.type);
