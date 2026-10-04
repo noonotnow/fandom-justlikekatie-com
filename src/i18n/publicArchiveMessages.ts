@@ -1,6 +1,11 @@
 import type { Locale } from './locale';
 
 const messages: Readonly<Record<string, string>> = {
+  'The public Archive returned an invalid actor directory.': '公开典藏返回的演员目录无效，请重试。',
+  'The actor directory is partial; some public actors could not be verified.': '演员目录不完整；部分公开演员未能通过核验。',
+  'The actor directory could not finish loading. Retry to verify missing actors.': '演员目录未能加载完成，请重试以核验缺少的演员。',
+  'The actor directory could not be loaded.': '无法加载演员目录，请重试。',
+  'The public Archive returned editions for a different actor.': '公开典藏返回了其他演员的卡组，请重试。',
   'The public Archive returned an invalid edition record.': '公开典藏返回的期次记录无效。',
   'The public Archive did not return its actor inventory.': '公开典藏未返回演员素材列表。',
   'The public Archive returned an invalid actor inventory.': '公开典藏返回的演员素材列表无效。',

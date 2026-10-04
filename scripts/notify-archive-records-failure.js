@@ -1,7 +1,7 @@
 import assert from "node:assert/strict";
 import { pathToFileURL } from "node:url";
 
-function isValidOperatorEmail(email) {
+export function isValidOperatorEmail(email) {
   if (email.length > 254) return false;
   const match = /^([a-z0-9!#$%&'*+/=?^_`{|}~.-]+)@([a-z0-9-]+(?:\.[a-z0-9-]+)+)$/i.exec(email);
   if (!match) return false;

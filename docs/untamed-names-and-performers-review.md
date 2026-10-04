@@ -1,6 +1,6 @@
 # The Untamed: names, characters, and performers — creator review
 
-**Status: COPY APPROVED — NOT RELEASED TO PRODUCTION.** Prepared October 3, 2026; exact two-lead reader copy approved by Katie on October 3, 2026. This is a new editorial unit, not an amendment covered by the September 28 approval of the three-group board. Production release remains separately gated.
+**Status: RELEASED TO PRODUCTION — APPROVED TWO-LEAD VERSION.** Prepared October 3, 2026; exact two-lead reader copy approved by Katie on October 3, 2026, separately authorized for production release, and verified live that day. This is a new editorial unit, not an amendment covered by the September 28 approval of the three-group board.
 
 **Review preview:** [Standalone, text-only HTML](editorial/untamed-names-and-performers.html). This file is outside the site's publish directory; it is a review deliverable, not a live public guide.
 
@@ -108,6 +108,12 @@ The approved reader-copy block is now staged locally at the proposed route with 
 ### Production release authorization
 
 On October 3, 2026, Katie affirmatively chose **“Authorize production release”** for the verified two-lead guide, with no additional comments. The authorization explicitly covers the separate guide, its sitemap entry, and the exact secondary links from the group board and Field Journal. **Wen Qing is not included.** This is separate from copy approval and the September 28 companion approvals. Production verification will be recorded after the authorized release is deployed.
+
+**Release handoff (October 3, 2026):** [Release PR](https://github.com/noonotnow/fandom-justlikekatie-com/pull/178) contains only this unit and its links, based on the current production branch rather than unrelated workspace history. All GitHub checks passed, including the full browser suite; the Netlify preview build passed. [The deployed preview](https://deploy-preview-178--earnest-gecko-17eb0c.netlify.app/c-drama-fandom/untamed-names-and-performers/) serves the exact authored head and article, both slash/no-slash routes, the sitemap entry, and working destinations. Preview mobile verification confirms two rows, horizontal table scrolling, an unchanged saved episode boundary, no journal requests from the name key, and working Daily Drop navigation.
+
+**Resolved release gate:** GitHub initially rejected the administrator merge because independent approval of the last push was required. Katie subsequently reported “approved and merged”; the PR merge was independently confirmed on October 3, 2026 at 18:04:49 UTC. Branch protection was not weakened, and no manual deployment bypassed the production branch.
+
+**Production verification (October 3, 2026):** [The live two-lead name key](https://fandom.justlikekatie.com/c-drama-fandom/untamed-names-and-performers/) is served by Netlify production deploy `6ac143c34fcf930008939b0f`, matching merged commit `44da58fba857f5ba02ad0ecf92238026f94b6f2c`. Its authored head and main article exactly match the approved release. Both slash/no-slash URLs, the group board, journal landing and Episode 1–4 route, place-name note, Daily Drop and sitemap return HTTP 200. The sitemap contains this guide once; both exact secondary links are live. A real 375px browser verified two table rows, keyboard horizontal scrolling without page overflow, no journal load from the key, an unchanged saved safe-through setting, the three unchanged group panels and return link, and successful Daily Drop continuation. Production screenshot: `screenshots/untamed-name-key-production.png`. Wen Qing is excluded; any three-character replacement remains a separate authorized release.
 
 ### Separately authorized combined destination replacement
 

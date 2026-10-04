@@ -67,7 +67,11 @@ export function createCompanionReport({ auth, getStore, now = () => new Date() }
       ];
       for (const key of engagementKeys) {
         const row = await engagement.get(key, { type: "json", consistency: "strong" });
-        if (!within(row?.timestamp) || !PILOT_PATHS.has(row.pilotPath) || !EVENTS.has(row.event)) continue;
+        // Defense for already-stored, explicitly marked QA rows; new marked
+        // requests are discarded at ingestion. Unmarked older visits cannot
+        // be identified or removed retroactively.
+        if (!within(row?.timestamp) || !PILOT_PATHS.has(row.pilotPath)
+          || !EVENTS.has(row.event) || row.internalPilot === true) continue;
         const field = row.event === "companion_path_view" ? "pathEventRequests"
           : row.event === "companion_qualified_view" ? "qualifiedSessionVisits"
           : row.event === "membership_view" ? "membershipViews" : "checkoutStarts";

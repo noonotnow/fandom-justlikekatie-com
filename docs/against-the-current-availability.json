@@ -11,34 +11,62 @@
       "name": "United States",
       "status": "verified",
       "note": "The US Viki listing below distinguishes free Episodes 1–6 from Viki Pass episodes. Check the current episode tile and subtitle track before subscribing.",
+      "checkOrigin": "US",
+      "playbackEvidence": "US-scoped Viki episode metadata: geo=false, paywall and English subtitle fields; actual player playback was not tested.",
       "sourceUrl": "https://www.viki.com/tv/41705c-against-the-current?locale=en",
       "checkedAt": "2026-09-28T12:16:32Z"
     },
     {
       "name": "United Kingdom",
       "status": "unverified",
-      "note": "No UK-specific playback, access tier, episode range or English-subtitle availability was established. Open the official Viki or WeTV listing from the UK to check.",
+      "note": "Viki's title listing was reachable from a US connection; this does not establish UK playback, access tier, episode range or English subtitles. Check the official listing and an episode player from the UK.",
+      "checkOrigin": "US",
+      "playbackEvidence": null,
       "sourceUrl": "https://www.viki.com/tv/41705c-against-the-current?locale=en",
       "checkedAt": "2026-09-28T12:16:32Z"
     },
     {
       "name": "Australia",
       "status": "unverified",
-      "note": "No Australia-specific playback, access tier, episode range or English-subtitle availability was established. Open the official Viki or WeTV listing from Australia to check.",
+      "note": "WeTV's English-language title listing was reachable from a US connection; this does not establish Australian playback, access tier, episode range or English subtitles. Check a local episode player.",
+      "checkOrigin": "US",
+      "playbackEvidence": null,
       "sourceUrl": "https://wetv.vip/en/play/94jt6sxiwsjw5n6",
       "checkedAt": "2026-09-28T12:16:32Z"
     },
     {
-      "name": "Europe (country by country)",
+      "name": "Germany",
       "status": "unverified",
-      "note": "Europe is not one streaming-rights territory. No country-wide or Europe-wide access claim is verified here. Check the official Viki or WeTV listing in your own country.",
+      "note": "The US-viewed Viki listing does not establish playback, access tier, episode range or English subtitles in Germany. Check the official listing and player from Germany.",
+      "checkOrigin": "US",
+      "playbackEvidence": null,
+      "sourceUrl": "https://www.viki.com/tv/41705c-against-the-current?locale=en",
+      "checkedAt": "2026-09-28T12:16:32Z"
+    },
+    {
+      "name": "France",
+      "status": "unverified",
+      "note": "The US-viewed Viki listing does not establish playback, access tier, episode range or English subtitles in France. Check the official listing and player from France.",
+      "checkOrigin": "US",
+      "playbackEvidence": null,
+      "sourceUrl": "https://www.viki.com/tv/41705c-against-the-current?locale=en",
+      "checkedAt": "2026-09-28T12:16:32Z"
+    },
+    {
+      "name": "Spain",
+      "status": "unverified",
+      "note": "The US-viewed Viki listing does not establish playback, access tier, episode range or English subtitles in Spain. Check the official listing and player from Spain.",
+      "checkOrigin": "US",
+      "playbackEvidence": null,
       "sourceUrl": "https://www.viki.com/tv/41705c-against-the-current?locale=en",
       "checkedAt": "2026-09-28T12:16:32Z"
     },
     {
       "name": "Mainland China",
       "status": "unverified",
-      "note": "The title is listed on Tencent Video, but mainland playback, episode range, subscription terms and English subtitles were not independently established. Check the official listing locally.",
+      "note": "Tencent Video's title URL was reachable from a US connection, but mainland playback, episode range, subscription terms and English subtitles were not established. Check an episode player locally.",
+      "checkOrigin": "US",
+      "playbackEvidence": null,
       "sourceUrl": "https://v.qq.com/x/cover/mzc00200803dr6b.html",
       "checkedAt": "2026-09-28T12:16:32Z"
     }
@@ -90,9 +118,37 @@
       "advanceFinaleAt": null,
       "state": "unknown",
       "conflict": "WeTV's 'All 47 EPs' label is catalog length, not proof that 47 subtitled episodes can be played in the US or another country. Search labels say English subtitles, but player/region access was not established.",
-      "evidence": "Official WeTV English series listing only. No country-specific episode or subtitle guarantee."
+      "evidence": "This general listing was not player-tested by the editor. See the separately dated US Express viewer report below; that report does not establish all episodes, other tiers or other countries."
     }
   ],
+  "playbackReports": [
+    {
+      "provider": "WeTV",
+      "countryCode": "US",
+      "countryName": "United States",
+      "sourceType": "viewer-report",
+      "reportedAt": "2026-10-01T17:43:03Z",
+      "url": "https://wetv.vip/en/play/94jt6sxiwsjw5n6",
+      "episode": 39,
+      "accessTier": "Express",
+      "englishSubtitles": true
+    }
+  ],
+  "calendarNote": {
+    "provider": "Tencent Video",
+    "sourceType": "reader-supplied-calendar",
+    "reviewedAt": "2026-10-01T17:43:03Z",
+    "note": "Transcribed from a Tencent Video-branded calendar supplied by a reader who obtained it from Tencent online. The original post URL, year and current validity were not independently authenticated. Date labels below are as printed in the image; they are planned releases, not observed playback. Tencent VIP/SVIP must not be treated as WeTV Express, and this is not a country-specific access, subtitle or finale claim.",
+    "rows": [
+      { "dateLabel": "September 28", "vip": "36", "svip": "37" },
+      { "dateLabel": "September 29", "vip": "37", "svip": "38" },
+      { "dateLabel": "September 30", "vip": "No update", "svip": "No update" },
+      { "dateLabel": "October 1", "vip": "38", "svip": "39" },
+      { "dateLabel": "October 2", "vip": "39", "svip": "40" },
+      { "dateLabel": "October 3", "vip": "40", "svip": "41" },
+      { "dateLabel": "October 4", "vip": "41", "svip": "42" }
+    ]
+  },
   "schedule": {
     "state": "unknown",
     "timeZone": null,
@@ -102,6 +158,16 @@
     "windows": []
   },
   "history": [
+    {
+      "checkedAt": "2026-10-01T17:43:03Z",
+      "note": "A viewer directly confirmed watching WeTV Episode 39 from the USA using Express access and English subtitles. Recorded as a narrow viewer report, not an independently tested episode range or another country's access. Transcribed the supplied Tencent calendar separately without equating its VIP/SVIP rows to WeTV Express.",
+      "sources": []
+    },
+    {
+      "checkedAt": "2026-09-30T00:46:08Z",
+      "note": "A user-supplied Tencent Video online calendar image (exact source URL not supplied) shows dated episode rows and VIP labels. It does not show a viewer country, a successful episode-player check, a subscription entitlement or a subtitle selector. No country-specific playback, tier, episode-range or English-subtitle claim was promoted from it.",
+      "sources": []
+    },
     {
       "checkedAt": "2026-09-28T02:47:54Z",
       "note": "Initial listing review: Viki showed 33 released episodes versus 35 episode tiles; WeTV said All 47 EPs. Country-specific access not checked.",

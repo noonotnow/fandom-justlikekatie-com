@@ -3,7 +3,14 @@
   if (!section) return;
   const path = section.dataset.companionPath;
   if (!['discover', 'context', 'collect'].includes(path)) return;
+  // Staff/QA opt out on each browser profile before visiting pilot pages.
+  // This flag stays on the device; it is never sent as an identifier.
+  const internalPilot = (() => {
+    try { return localStorage.getItem('companion-pilot-internal') === '1'; }
+    catch { return false; }
+  })();
   const record = event => {
+    if (internalPilot) return;
     try {
       fetch('/.netlify/functions/log-engagement', {
         method: 'POST', headers: { 'Content-Type': 'application/json' },
@@ -16,7 +23,7 @@
   // One visible ten-second visit per tab session and path; no visitor identifier
   // leaves the browser. The server excludes known crawlers and signed-in staff.
   const qualifiedKey = `companion-qualified:${path}`;
-  if (!sessionStorage.getItem(qualifiedKey)) {
+  if (!internalPilot && !sessionStorage.getItem(qualifiedKey)) {
     let visibleMs = 0;
     const timer = setInterval(() => {
       if (document.visibilityState !== 'visible') return;
@@ -28,8 +35,10 @@
     }, 1000);
   }
   section.querySelectorAll('a[data-companion-next]').forEach(link => link.addEventListener('click', () => {
-    sessionStorage.setItem('companion-pilot-path', path);
-    sessionStorage.setItem('companion-pilot-time', String(Date.now()));
+    if (!internalPilot) {
+      sessionStorage.setItem('companion-pilot-path', path);
+      sessionStorage.setItem('companion-pilot-time', String(Date.now()));
+    }
     record('companion_collection_click');
   }));
   const form = section.querySelector('form');

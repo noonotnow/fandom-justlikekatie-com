@@ -1,6 +1,7 @@
 import assert from 'node:assert/strict';
 import { test } from 'node:test';
 import { expect, type Page } from '@playwright/test';
+import { assertDailyDropRenderedLayout } from './dailyDropLayoutChecks.ts';
 import {
   BROWSER_ENGINES, closeBrowserAndServer, gotoTestPage,
   launchPageForServer, startViteTestServer,
@@ -89,12 +90,12 @@ async function collectionCounts(page: Page) {
 }
 
 for (const locale of ['en', 'zh-CN'] as const) {
-  for (const width of [390, 1280]) {
-    test(`Daily Drop content and keyboard order stay unified in ${locale} at ${width}px`, { timeout: 60_000 }, async () => {
+  for (const { width, height } of [390, 1280].flatMap(width => [900, 480].map(height => ({ width, height })))) {
+    test(`Daily Drop content and keyboard order stay unified in ${locale} at ${width}×${height}px`, { timeout: 60_000 }, async () => {
       const { server, origin } = await startViteTestServer();
       const { browser, page } = await launchPageForServer(server, BROWSER_ENGINES[0].type);
       try {
-        await page.setViewportSize({ width, height: 900 });
+        await page.setViewportSize({ width, height });
         await installFixtures(page);
         await gotoTestPage(page, `${origin}/${locale === 'zh-CN' ? 'zh-cn/' : ''}vibe-atlas`);
         const drop = page.locator('.daily-drop');
@@ -116,6 +117,8 @@ for (const locale of ['en', 'zh-CN'] as const) {
           };
         });
         assert.deepEqual(order, { contextFirst: true, gridFirst: true, actionsFirst: true, noOverflow: true });
+        await expect(page.locator('.daily-released-pack__snapshot')).toBeVisible();
+        await assertDailyDropRenderedLayout(page);
         await expect(drop.locator('.atlas-edition__supporting-copy')).toHaveText(locale === 'en'
           ? board.vibeSupportingCopyEn : board.vibeSupportingCopy);
         const guide = actions.locator('details');
@@ -135,6 +138,8 @@ for (const locale of ['en', 'zh-CN'] as const) {
         const snapshot = page.locator('.daily-released-pack__snapshot');
         await expect(snapshot).toBeVisible();
         assert.equal(await snapshot.evaluate(el => (el as HTMLDetailsElement).open), false);
+        // Expanded guide and selected reaction can increase the actions' height.
+        await assertDailyDropRenderedLayout(page);
         await snapshot.locator('summary').click();
         await expect(snapshot.locator('img')).toHaveCount(9);
         await expect(actions.getByRole('combobox')).toHaveValue('every_image_belongs');
@@ -149,6 +154,41 @@ for (const locale of ['en', 'zh-CN'] as const) {
     });
   }
 }
+
+test('Rendered layout guard rejects CSS reordering and overlap despite unchanged DOM order', { timeout: 60_000 }, async () => {
+  const { server, origin } = await startViteTestServer();
+  const { browser, page } = await launchPageForServer(server, BROWSER_ENGINES[0].type);
+  try {
+    await page.setViewportSize({ width: 390, height: 480 });
+    await installFixtures(page);
+    await gotoTestPage(page, `${origin}/vibe-atlas`);
+    await expect(page.locator('.daily-released-pack__snapshot')).toBeVisible();
+    await assertDailyDropRenderedLayout(page);
+    for (const fixture of [
+      { name: 'CSS order', css: '.daily-drop { display: flex !important; flex-direction: column !important; } .daily-actions { order: -1 !important; }', error: /Whole-board actions must follow/ },
+      { name: 'actions overlap', css: '.daily-actions { transform: translateY(-150px) !important; }', error: /Whole-board actions must follow/ },
+      { name: 'escaped control', css: '.daily-actions__primary button:first-child { position: absolute !important; top: 0 !important; } .daily-drop { position: relative !important; }', error: /Whole-board control must follow/ },
+      { name: 'discovery overlap', css: '.daily-released-pack { transform: translateY(-150px) !important; }', error: /Related-pack discovery must follow/ },
+      { name: 'snapshot overlap', css: '.daily-released-pack__snapshot { position: fixed !important; top: 0 !important; }', error: /Collapsed snapshot must follow/ },
+    ]) {
+      const style = await page.addStyleTag({ content: fixture.css });
+      try {
+        assert.equal(await page.locator('.daily-grid').evaluate(grid => Boolean(
+          grid.compareDocumentPosition(document.querySelector('.daily-actions')!)
+          & Node.DOCUMENT_POSITION_FOLLOWING,
+        )), true, `${fixture.name} preserves the old DOM-order check`);
+        assert.equal(await page.evaluate(() => document.documentElement.scrollWidth <= window.innerWidth),
+          true, `${fixture.name} preserves the old overflow check`);
+        await assert.rejects(() => assertDailyDropRenderedLayout(page), fixture.error, fixture.name);
+      } finally {
+        await style.evaluate(el => el.parentNode!.removeChild(el));
+      }
+      await assertDailyDropRenderedLayout(page);
+    }
+  } finally {
+    await closeBrowserAndServer(browser, server);
+  }
+});
 
 for (const locale of ['en', 'zh-CN'] as const) {
   test(`Attached board actions retain deliberate card saves and distinct exports in ${locale}`, { timeout: 60_000 }, async () => {

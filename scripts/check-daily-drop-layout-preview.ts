@@ -2,17 +2,25 @@ import assert from 'node:assert/strict';
 import { mkdir } from 'node:fs/promises';
 import { expect } from '@playwright/test';
 import { launchBrowser } from '../tests/browser/browserEngines.ts';
+import { assertDailyDropRenderedLayout } from '../tests/browser/dailyDropLayoutChecks.ts';
 
 // Read-only hosted verification: no sign-in links, reports, saves, or exports.
 const origin = new URL(process.argv[2] || '');
-assert.match(origin.hostname, /^[a-f0-9]+--.+\.netlify\.app$/, 'Use an immutable draft preview URL, not production.');
+const productionCheck = process.argv[4] === '--production';
+assert.equal(origin.protocol, 'https:', 'Hosted checks require HTTPS.');
+assert.equal(origin.username + origin.password, '', 'Do not put credentials in the hosted URL.');
+if (productionCheck) {
+  assert.equal(origin.origin, 'https://fandom.justlikekatie.com', 'Production checks are limited to the verified site origin.');
+} else {
+  assert.match(origin.hostname, /^[a-f0-9]+--.+\.netlify\.app$/, 'Use an immutable draft URL, or explicitly request --production for the verified live site.');
+}
 const output = process.argv[3] || '/tmp/daily-drop-hosted-review';
 await mkdir(output, { recursive: true });
 const browser = await launchBrowser();
 try {
   for (const locale of ['en', 'zh-CN'] as const) {
-    for (const width of [390, 1280]) {
-      const page = await browser.newPage({ viewport: { width, height: 1000 } });
+    for (const { width, height } of [390, 1280].flatMap(width => [1000, 480].map(height => ({ width, height })))) {
+      const page = await browser.newPage({ viewport: { width, height } });
       const crashes: string[] = [];
       page.on('pageerror', error => crashes.push(error.message));
       await page.goto(`${origin.origin}/${locale === 'zh-CN' ? 'zh-cn/' : ''}vibe-atlas`);
@@ -40,7 +48,8 @@ try {
         };
       });
       assert.deepEqual(layout, { contextFirst: true, actionsAfter: true, discoveryAfter: true, overflow: false, loadedCards: 9 });
-      await page.screenshot({ path: `${output}/${locale}-${width}.png`, fullPage: true });
+      const renderedLayout = await assertDailyDropRenderedLayout(page);
+      await page.screenshot({ path: `${output}/${locale}-${width}-${height}.png`, fullPage: true });
       const guide = actions.locator('details');
       assert.equal(await guide.evaluate(el => (el as HTMLDetailsElement).open), false);
       await actions.getByRole('button', { name: locale === 'en' ? '★ Legendary' : '★ 传说', exact: true }).click();
@@ -48,6 +57,7 @@ try {
       await guide.locator('summary').focus();
       await page.keyboard.press('Enter');
       assert.equal(await guide.evaluate(el => (el as HTMLDetailsElement).open), true);
+      await assertDailyDropRenderedLayout(page);
       await grid.getByRole('button', { name: locale === 'en' ? /View whole grid/ : /查看完整九宫格/ }).click();
       await expect(page.getByRole('dialog')).toBeVisible();
       await page.keyboard.press('Escape');
@@ -67,7 +77,7 @@ try {
       await expect(page.locator('details').filter({ hasText: locale === 'en' ? 'Report an image issue' : '报告图片问题' })).toBeVisible();
       await page.keyboard.press('Escape');
       assert.deepEqual(crashes, []);
-      console.log(JSON.stringify({ locale, width, ...layout, pageErrors: crashes, screenshot: `${output}/${locale}-${width}.png` }));
+      console.log(JSON.stringify({ locale, width, height, ...layout, renderedLayout, pageErrors: crashes, screenshot: `${output}/${locale}-${width}-${height}.png` }));
       await page.close();
     }
   }

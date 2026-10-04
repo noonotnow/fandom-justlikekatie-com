@@ -48,6 +48,37 @@ test("companion pilot events accept only bounded paths and do not store visitor 
   assert.equal(store._values("c-drama-companion-pilot:companion_qualified_view:").length, 1);
 });
 
+test("explicit internal pilot visits are discarded without storing identifiers", async () => {
+  const { store, context } = makeStoreContext();
+  for (const event of ["companion_path_view", "companion_qualified_view", "companion_collection_click"]) {
+    const result = await handler(req({
+      event, batchKey: "c-drama-companion-pilot", pilotPath: "collect",
+      internalPilot: true, email: "staff@example.com", token: "not-for-analytics",
+    }), context);
+    assert.deepEqual(await result.json(), { ok: true, excluded: true });
+    assert.equal(store._values(`c-drama-companion-pilot:${event}:`).length, 0);
+  }
+  assert.deepEqual(await (await handler(req({
+    event: "checkout_started", batchKey: "vibe-atlas-membership",
+    pilotPath: "collect", internalPilot: true,
+  }), context)).json(), { ok: true, excluded: true });
+  assert.equal(store._values("vibe-atlas-membership:checkout_started:").length, 0);
+  for (const invalid of ["yes", { email: "staff@example.com" }, 1]) {
+    assert.equal((await handler(req({
+      event: "companion_qualified_view", batchKey: "c-drama-companion-pilot",
+      pilotPath: "collect", internalPilot: invalid,
+    }), context)).status, 400);
+  }
+  assert.equal((await handler(req({
+    event: "save", batchKey: "other", internalPilot: true,
+  }), context)).status, 400);
+  assert.equal((await handler(req({
+    event: "companion_qualified_view", batchKey: "c-drama-companion-pilot",
+    pilotPath: "collect", internalPilot: false, email: "staff@example.com",
+  }), context)).status, 200);
+  assert.equal(store._values("c-drama-companion-pilot:companion_qualified_view:")[0].email, undefined);
+});
+
 // ---------------------------------------------------------------------------
 // In-memory blob store stub
 // ---------------------------------------------------------------------------

@@ -1,6 +1,6 @@
 # The Untamed: three-character name key — combined copy approval
 
-**Status: COMBINED READER COPY AND INTEGRATION LABELS CREATOR APPROVED; STAGING, DESTINATION REPLACEMENT, AND PRODUCTION PUBLICATION SEPARATELY AUTHORIZED — DEPLOYED VERIFICATION PENDING.** Prepared and separately approved by Katie on October 3, 2026 (America/New_York).
+**Status: COMBINED READER COPY AND INTEGRATION LABELS CREATOR APPROVED; STAGING, DESTINATION REPLACEMENT, AND PRODUCTION PUBLICATION SEPARATELY AUTHORIZED — RELEASED AND VERIFIED ON PRODUCTION.** Prepared, separately approved, and verified on October 3, 2026 (America/New_York).
 
 The [two-lead reader copy](untamed-names-and-performers-review.md) and the [exact Wen Qing single-entry addition](untamed-wen-qing-performer-review.md) were separately approved by Katie on October 3, 2026. Neither component approval covers this combined draft's changed title, introduction, section structure, scope, or proposed inbound link labels. Katie separately approved the exact combined reader block and proposed integration labels below on October 3, 2026. None of these approvals is release authorization. This document does not replace the approved two-lead copy or its HTML preview.
 
@@ -12,7 +12,7 @@ The [two-lead reader copy](untamed-names-and-performers-review.md) and the [exac
 - The title and introduction now describe three characters rather than two. The existing lead table and its naming explanations are unchanged.
 - The exact approved Wen Qing block, including the source warning, follows the lead-name explanation unchanged.
 - Original text and typography only; no images, actor likenesses, or other borrowed media. External source pages can contain spoilers.
-- This draft stays outside `public/`, public generation, route registration, redirects, sitemap, and public discovery. Proposed links below are review text only, not activated links.
+- Before separate staging and production authorization, this draft stayed outside `public/`, public generation, route registration, redirects, sitemap, and public discovery. The separately authorized activation and production verification are recorded below; copy approval alone activated nothing.
 
 ## Combined reader copy — separately creator approved
 
@@ -80,9 +80,9 @@ The personal/courtesy-name distinctions and Chinese character spellings are chec
 - No on-screen closing credits were inspected; no source biography or image is reproduced. Verification date is not a source publication date or a streaming availability claim.
 - This combined key remains an optional editorial pre-watch naming boundary, not proof of when any name is spoken on screen. Field Journal gates and saved watch boundaries remain unchanged.
 
-## Proposed integration labels — separately creator approved, not implemented
+## Approved integration labels — activated only after separate release authorization
 
-The proposed destination remains `/c-drama-fandom/untamed-names-and-performers/`. Do not activate or replace anything through this document.
+The approved destination is `/c-drama-fandom/untamed-names-and-performers/`. Copy approval alone did not authorize activation or replacement; the separate staging and production decisions below did.
 
 - Existing three-group board: **“Looking for character and actor names? Read the three-character name key →”**. Leave its approved panels and scope unchanged.
 - Field Journal “Before an episode” side card: **“Three characters and their performers — pre-watch names only →”**. Leave all safe-through parameters, storage, episode caps, and reader APIs unchanged.
@@ -117,3 +117,39 @@ Verified October 3, 2026:
 - Seven editorial/staging assertions, the staging browser scenario, 42 existing public-page checks, 24 Journal server/moderation checks, and the TypeScript check pass.
 
 **Subsequent gate decision:** production publication authorization was explicitly granted above. Activation may now proceed, but staging verification alone is not a production availability claim.
+
+## Merged release and live production verification
+
+[Release PR 179](https://github.com/noonotnow/fandom-justlikekatie-com/pull/179) is merged. GitHub initially required an independent post-push approval and refused the automated merge; that safeguard was not bypassed. After Katie reported the merge, GitHub and Netlify metadata independently confirmed the merged release and its active production deployment.
+
+- **Merged and active production commit:** `589ccd1fa6bf8c4b153d2f4c4971a677267cba2e`.
+- **Active Netlify deployment:** `6ac15b9d02dbe3000885af00`, state `ready`.
+- **Verified production destination:** https://fandom.justlikekatie.com/c-drama-fandom/untamed-names-and-performers/
+
+Live verification on October 3, 2026:
+
+- Twenty route checks returned HTTP 200: both slash forms of the name-key destination, the group board, place-name note, Vibe Atlas, sitemap, and all fourteen Journal pages.
+- The live reader block exactly matches the approved renderer, including every heading, paragraph, table cell, source warning, citation and outgoing link. The title, canonical URL and indexing directive are correct. The guide appears exactly once in the sitemap.
+- The group board and every Journal page display their exact approved inbound labels. The three group panels retain their original digest. All fourteen inline Journal scripts retain the pre-release digest `75f0cb29fbbc8f573467be91597d709e385c86478b1277c4624cdd11c010a910`.
+- Live Chromium checks passed at widths 320, 390, 768 and 1280 with no page-wide overflow. Exactly three pairings are rendered. Keyboard scrolling exposes the lead performer column, and the Wen Qing / Meng Ziyi entry fits without horizontal scrolling. Its visible mobile capture was inspected after the existing scroll-reveal animation completed.
+- The Nix verification browser lacks a native Chinese fallback font. Chinese glyph ink was additionally inspected using the already-shipped, licensed Noto Sans SC asset as a **verification-only** CJK face in that browser. Both Chinese names were legible and the table still fit. This transient test override changed neither production CSS nor approved copy; it is not proof of native Safari/Firefox font rendering.
+- Both approved inbound links navigate correctly. Opening or returning to the name key makes no Journal request and does not change the saved watch boundary.
+- Against the actual production reader API, the Episodes 1–4 page capped a saved Episode 999 preference at 4. Attempting Episode 5 displayed the existing cap warning and made no further request; the only Journal request was safe-through Episode 4.
+- The public reader API rejected a missing safe-through boundary with HTTP 400 and no Journal data. The administrative endpoint continued to require sign-in with HTTP 401. No sign-in gate was bypassed; signed-in administration UI was not verified.
+- No browser script errors occurred. The production page was visually inspected. Internal pilot opt-out was set and engagement tracking was blocked in the interactive verification browser.
+
+The original two-lead reader block, component evidence, approvals and review preview remain intact. This release relies on the separately recorded combined staging and production authorizations, not on the two-lead authorization. Safari/Firefox-specific coverage remains the distinct already-proposed follow-up; it is not claimed by the Chromium verification.
+
+## Production release submission and repository approval blocker
+
+The separately authorized implementation is submitted in [release PR 179](https://github.com/noonotnow/fandom-justlikekatie-com/pull/179), based on the already published two-lead release rather than unrelated workspace history.
+
+Verified October 3, 2026:
+
+- The production build, TypeScript check, all script tests (559 passed, two intentionally skipped), focused mobile/navigation checks, and all GitHub release checks passed. The isolated preparation fixtures include the new renderer and its approved-copy document; browser navigation uses the existing project helper.
+- The Netlify deploy preview serves the exact approved reader block, warnings and citations, both slash forms of the destination, the approved group-board link, and all fourteen approved Journal link labels. All fourteen Journal scripts remain unchanged. Outgoing destinations return HTTP 200, and the guide occurs exactly once in the sitemap.
+- The public Journal reader endpoint rejects a missing safe-through boundary with HTTP 400 and no Journal data. The administrative endpoint still requires sign-in. Signed-in production UI was not verified or bypassed.
+- GitHub refused the merge with: **“New changes require approval from someone other than the last pusher.”** In-chat production authorization does not satisfy this separate repository review safeguard. No safeguard was disabled or bypassed.
+- PR 179 remains open and unmerged. Netlify production remains on the verified two-lead release, commit `44da58fba857f5ba02ad0ecf92238026f94b6f2c`, deploy `6ac143c34fcf930008939b0f`. The combined version is not claimed to be live.
+
+**Next step:** an independent authorized repository reviewer must approve PR 179 after its latest push. Then resume the authorized merge, confirm the active production deployment, and verify the live copy, destinations, citations, mobile readability and unchanged Journal behavior before completing this release.

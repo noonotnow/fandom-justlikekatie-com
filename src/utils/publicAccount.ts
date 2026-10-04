@@ -17,6 +17,7 @@ import {
 } from './collectionDB';
 import { uploadCollectionImage } from './collectionMedia';
 import { trackEvent } from './analytics';
+import { setDailyParticipationAuthority } from './dailyParticipation';
 
 type DeletionKind = 'card' | 'grid';
 type CollectionScope = 'vibe-atlas' | 'middle-earth';
@@ -77,10 +78,12 @@ export async function getPublicSession(): Promise<PublicUser | null> {
   const response = await fetch('/api/auth/session', { credentials: 'same-origin' });
   const isJson = response.headers.get('content-type')?.toLowerCase().includes('application/json');
   if (!response.ok || !isJson) {
+    if (response.status === 401) setDailyParticipationAuthority(false);
     await dbSetActiveAccount();
     return null;
   }
   const user = (await response.json()).user as PublicUser | null;
+  setDailyParticipationAuthority(user?.isAdmin === true);
   await dbSetActiveAccount(user?.accountId);
   return user;
 }

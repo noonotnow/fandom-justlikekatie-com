@@ -3,7 +3,7 @@ import assert from 'node:assert/strict';
 import { readFile } from 'node:fs/promises';
 import { IDBFactory } from 'fake-indexeddb';
 import { createCollectionHandlers } from '../netlify/functions/lib/collection-api.js';
-import { syncPublicCollection } from '../src/utils/publicAccount.ts';
+import { resolvePublicCollectionDeletion, syncPublicCollection } from '../src/utils/publicAccount.ts';
 import {
   activateSyncState,
   batchCollectionSyncOperations,
@@ -42,9 +42,13 @@ test('a pre-baseline device can sync intentional offline card and grid edits aft
   await checkTwoDeviceDeletion(true);
 });
 
-async function checkTwoDeviceDeletion(editOffline: boolean): Promise<void> {
+test('MemeForge conflicts report only scope and outcome, not saved content', async () => {
+  await checkTwoDeviceDeletion(false, true);
+});
+
+async function checkTwoDeviceDeletion(editOffline: boolean, memeCard = false): Promise<void> {
   const accountId = 'two-device-account';
-  const user = { accountId, email: 'member@example.test' };
+  const user = { accountId, email: 'member@example.test', isAdmin: memeCard };
   const originalKeys = ['indexedDB', 'fetch', 'window', 'navigator', 'localStorage'] as const;
   const originals = originalKeys.map(key => [key, Object.getOwnPropertyDescriptor(globalThis, key)] as const);
   const devices = { a: new IDBFactory(), b: new IDBFactory() };
@@ -66,19 +70,23 @@ async function checkTwoDeviceDeletion(editOffline: boolean): Promise<void> {
     },
   };
   const handlers = createCollectionHandlers({
-    auth: { authenticate: async () => ({ user }) },
+    auth: { authenticate: async () => ({ user }), authenticateAdmin: async () => ({ user }) },
     getStore: () => store,
   });
   const requests: Array<{
     device: string; clientId: string; cursor: number; operations: Array<Record<string, unknown>>;
   }> = [];
+  const analytics: Array<{ name: string; data: Record<string, string> }> = [];
   let activeDevice: 'a' | 'b' = 'b';
   const select = (device: 'a' | 'b') => {
     activeDevice = device;
     Object.defineProperty(globalThis, 'indexedDB', { configurable: true, value: devices[device] });
   };
   try {
-    Object.defineProperty(globalThis, 'window', { configurable: true, value: {} });
+    Object.defineProperty(globalThis, 'window', {
+      configurable: true,
+      value: { umami: { track(name: string, data: Record<string, string>) { analytics.push({ name, data }); } } },
+    });
     Object.defineProperty(globalThis, 'navigator', { configurable: true, value: { onLine: true } });
     Object.defineProperty(globalThis, 'localStorage', { configurable: true, value: { setItem() {} } });
     Object.defineProperty(globalThis, 'fetch', {
@@ -106,7 +114,7 @@ async function checkTwoDeviceDeletion(editOffline: boolean): Promise<void> {
     select('b');
     await dbSetActiveAccount(accountId);
     await dbSetMergeDecision(accountId, true);
-    await dbSaveCard(card(171));
+    await dbSaveCard({ ...card(171), ...(memeCard ? { collectionScope: 'middle-earth' as const } : {}) });
     await dbSaveGrid({ ...grid(), releaseCandidateProvenance: undefined });
     await syncPublicCollection(user);
     const bCursor = (await dbGetSyncState()).cursors[accountId];
@@ -180,8 +188,13 @@ async function checkTwoDeviceDeletion(editOffline: boolean): Promise<void> {
         [localCard.localId!]: 'card',
         [localGrid.localId!]: 'grid',
       });
+      assert.deepEqual(analytics.filter(event => event.name === 'collection_deletion_conflict_discovered'), [
+        { name: 'collection_deletion_conflict_discovered', data: { kind: 'card', scope: memeCard ? 'middle-earth' : 'vibe-atlas' } },
+        { name: 'collection_deletion_conflict_discovered', data: { kind: 'grid', scope: 'vibe-atlas' } },
+      ]);
       await syncPublicCollection(user);
       assert.deepEqual(requests.slice(reconnectStart).flatMap(call => call.operations), []);
+      assert.equal(analytics.filter(event => event.name === 'collection_deletion_conflict_discovered').length, 2);
     }
     const readFromB = await handlers.sync(new Request('https://fandom.example/api/collection/sync', {
       method: 'POST',
@@ -194,6 +207,17 @@ async function checkTwoDeviceDeletion(editOffline: boolean): Promise<void> {
     const serverDelta = await readFromB.json();
     assert.equal(serverDelta.cursor, editOffline ? deletedCursor + 2 : deletedCursor);
     assert.equal(serverDelta.items.length, editOffline ? 2 : 0, 'server must not revive untouched stale copies');
+    if (!editOffline) {
+      await assert.rejects(resolvePublicCollectionDeletion(user, 'card', 'not-a-conflict', 'restore'));
+      assert.equal(analytics.filter(event => event.name === 'collection_deletion_conflict_resolved').length, 0);
+      await resolvePublicCollectionDeletion(user, 'card', localCard.localId!, 'restore');
+      await resolvePublicCollectionDeletion(user, 'grid', localGrid.localId!, 'discard');
+      assert.deepEqual(analytics.filter(event => event.name === 'collection_deletion_conflict_resolved'), [
+        { name: 'collection_deletion_conflict_resolved', data: { kind: 'card', scope: memeCard ? 'middle-earth' : 'vibe-atlas', decision: 'restore' } },
+        { name: 'collection_deletion_conflict_resolved', data: { kind: 'grid', scope: 'vibe-atlas', decision: 'discard' } },
+      ]);
+      assert.ok(analytics.every(event => Object.keys(event.data).every(key => ['kind', 'scope', 'decision'].includes(key))));
+    }
     if (editOffline) {
       assert.equal(serverDelta.items.find((item: { kind: string }) => item.kind === 'card')?.title, 'Edited on A while offline');
       assert.equal(serverDelta.items.find((item: { kind: string }) => item.kind === 'grid')?.generationPrompt, 'Edited on A while offline');

@@ -2,6 +2,7 @@ import assert from 'node:assert/strict';
 import { test } from 'node:test';
 import type { Browser, BrowserType } from '@playwright/test';
 import {
+  replitNixEglVendorPath,
   assertBrowserEnginesInstalled,
   assertBrowserEnginesLaunchable,
   BROWSER_ENGINES,
@@ -107,6 +108,21 @@ test('Replit WebKit runtime reports missing declared package paths', () => {
       assert.match(String(error), /reload the Replit environment/);
       return true;
     },
+  );
+});
+
+test('Replit WebKit EGL discovery uses the declared Mesa vendor manifest', () => {
+  const manifest = '/nix/mesa/share/glvnd/egl_vendor.d/50_mesa.json';
+  assert.equal(
+    replitNixEglVendorPath('/nix/other/lib:/nix/mesa/lib', path => path === manifest),
+    manifest,
+  );
+});
+
+test('Replit WebKit EGL discovery reports a missing declared Mesa vendor', () => {
+  assert.throws(
+    () => replitNixEglVendorPath('/nix/unrelated/lib', () => false),
+    /Missing declared Mesa EGL vendor path.*\.replit declares mesa.*reload/,
   );
 });
 

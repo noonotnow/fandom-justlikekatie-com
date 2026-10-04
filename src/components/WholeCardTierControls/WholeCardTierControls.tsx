@@ -2,6 +2,7 @@ import type React from 'react';
 import type { ImageTier } from '../../types';
 import { useLocale } from '../../i18n/LocaleProvider';
 import styles from './WholeCardTierControls.module.css';
+import { trackDailyParticipationStage } from '../../utils/dailyParticipation';
 
 type PersonalLegendaryReason = 'nailed_vibe' | 'every_image_belongs' | 'unforgettable_set';
 
@@ -65,7 +66,9 @@ export const WholeCardTierControls: React.FC<WholeCardTierControlsProps> = ({
           </select>
         </label>
       )}
-      <details className={styles.guide}>
+      <details className={styles.guide} onToggle={event => {
+        if (event.currentTarget.open) trackDailyParticipationStage('guide_opened');
+      }}>
         <summary>{t('What do these labels mean?', '这些标记代表什么？')}</summary>
         <p><strong>{t('Legendary', '传说')}</strong> {t('is your personal appreciation for a strong actor × vibe board—not a vote, community consensus, or editorial approval.', '是你对演员 × 氛围组合的个人喜爱，不代表投票、社群共识或编辑认可。')}</p>
         <p><strong>{t('Misprint', '错版')}</strong> {t('means you noticed something off. It does not report or train anything by itself.', '表示你发现了问题；单独标记不会提交报告或训练系统。')}</p>

@@ -760,7 +760,7 @@ test("archive pages load only the year buckets and edition records needed for th
     today: () => "2026-09-30",
   });
   const editions = [
-    "2026-10-01",
+    "2099-01-01",
     "2026-09-20",
     "2026-09-19",
     "2025-12-31",
@@ -933,7 +933,7 @@ test("deep archive totals exclude future editions without reading the newest-yea
     today: () => "2026-09-30",
   });
   const editions = [
-    "2026-10-01",
+    "2099-01-01",
     "2026-09-20",
     "2026-09-19",
     "2006-06-30",
@@ -972,7 +972,7 @@ test("deep archive totals exclude future editions without reading the newest-yea
     "2006-06-30",
     "2006-01-01",
   ]);
-  assert.equal(reads.includes(`${ARCHIVE_CATALOG_YEAR_PREFIX}2026`), false);
+  assert.equal(reads.includes(`${ARCHIVE_CATALOG_YEAR_PREFIX}2099`), false);
 });
 
 test("archive totals remain global when a cursor moves into an older year", async () => {

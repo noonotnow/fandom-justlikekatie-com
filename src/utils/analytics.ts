@@ -1,6 +1,7 @@
 import { PUBLIC_ROUTE_PATHS } from '../../shared/public-routes.js';
 import { vibeAtlasPath } from './fandomRoutes';
 import type { CreatorPlatform } from './creatorDraft';
+import { validateParticipationEvent } from '../../shared/daily-participation.js';
 
 type AnalyticsData = Record<string, string | number | boolean>;
 type DailyDropEngagementReason = 'three_cards' | 'twenty_seconds';
@@ -193,6 +194,23 @@ function recordDailyDropEvent(event: DailyDropServerEvent): void {
   } catch {
     // Analytics must never interrupt the visitor's action.
   }
+}
+
+/** Private aggregate destination only: third-party trackers may inherit URL/referrer context. */
+export function recordDailyParticipationEvent(input: Record<string, unknown>): void {
+  if (typeof window === 'undefined') return;
+  const event = validateParticipationEvent(input);
+  if (!event) return;
+  try {
+    void window.fetch('/.netlify/functions/log-engagement', {
+      method: 'POST',
+      credentials: 'same-origin',
+      referrerPolicy: 'no-referrer',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify(event),
+      keepalive: true,
+    }).catch(() => undefined);
+  } catch { /* Participation works without analytics. */ }
 }
 
 function recordArchiveReviewEvent(event: ArchiveReviewServerEvent): void {
@@ -525,6 +543,74 @@ export function trackCollectionOpened(lastSavedEdition?: string): void {
 
 export function trackGridBuilderPreviewOpened(isMember: boolean): void {
   trackEvent('grid_builder_preview_opened', { is_member: isMember });
+}
+
+export type ArchiveDiscoveryFailure = 'transport' | 'http' | 'invalid_response' | 'unavailable';
+export type ArchiveDiscoveryResult = 'verified' | 'verified_empty' | 'partial';
+export interface ArchiveInventoryOutcome {
+  actorId: string;
+  phase: 'initial' | 'more';
+  result: ArchiveDiscoveryResult | 'failed';
+  failure?: ArchiveDiscoveryFailure;
+  editionCount: number;
+  hasMore: boolean;
+}
+
+export function trackArchiveActorDirectoryOutcome(
+  result: ArchiveDiscoveryResult | 'failed',
+  actorCount: number,
+  failure?: ArchiveDiscoveryFailure,
+): void {
+  trackEvent(result === 'failed' ? 'archive_actor_directory_failed' : 'archive_actor_directory_ready', {
+    result,
+    actor_count: actorCount,
+    ...(failure ? { failure } : {}),
+  });
+}
+
+/**
+ * One Builder mount, no storage, visitor key, account, image, or Collection data.
+ * The opaque object stays in memory solely to reject stale async completions.
+ */
+export function createArchiveActorDiscovery() {
+  let selection: { actorId: string | null; verified: boolean } = { actorId: null, verified: true };
+  return {
+    select(actorId: string, publicActorIds: readonly string[]) {
+      selection = { actorId: null, verified: !actorId };
+      if (!actorId || actorId.length > 80 || !/^[a-z0-9]+(?:-[a-z0-9]+)*$/.test(actorId)
+        || !publicActorIds.includes(actorId)) return;
+      selection = { actorId, verified: false };
+      trackEvent('archive_actor_selected', { actor_id: actorId });
+    },
+    inventory(outcome: ArchiveInventoryOutcome) {
+      if (!selection.actorId || selection.actorId !== outcome.actorId) return;
+      if (outcome.phase === 'initial') selection.verified = false;
+      if (outcome.result !== 'failed' && outcome.editionCount > 0) selection.verified = true;
+      trackEvent(outcome.result === 'failed' ? 'archive_actor_page_failed' : 'archive_actor_page_verified', {
+        actor_id: selection.actorId,
+        phase: outcome.phase,
+        result: outcome.result,
+        edition_count: outcome.editionCount,
+        has_more: outcome.hasMore,
+        ...(outcome.failure ? { failure: outcome.failure } : {}),
+      });
+    },
+    capture() {
+      return selection.verified ? selection : null;
+    },
+    complete(context: ReturnType<typeof this.capture>, completion: 'saved' | 'exported') {
+      if (!context || context !== selection || !context.verified) return;
+      if (!context.actorId) {
+        trackEvent('archive_grid_completed', { discovery_source: 'unfiltered_archive', completion });
+        return;
+      }
+      trackEvent('archive_grid_completed', {
+        actor_id: context.actorId,
+        discovery_source: 'published_actor_directory',
+        completion,
+      });
+    },
+  };
 }
 
 export function trackArchiveRebuildLaunched(

@@ -43,3 +43,47 @@ test('Episode 21 renders approved text safely and holds new reader submissions f
     await closeBrowserAndServer(browser, server);
   }
 });
+
+test('later installments submit and display only their own approved responses', { timeout: 60_000 }, async () => {
+  const { server, origin } = await startViteTestServer();
+  const { browser, page } = await launchPageForServer(server);
+  const posted: Record<string, unknown>[] = [];
+  try {
+    await page.route('**/api/vibing-discussion*', route => {
+      const requestedId = new URL(route.request().url()).searchParams.get('discussionId');
+      if (route.request().method() === 'GET') {
+        const boundary = requestedId?.endsWith('22-25') ? 25 : 30;
+        return route.fulfill({
+          contentType: 'application/json',
+          body: JSON.stringify({
+            discussion: { id: requestedId, safeThroughEpisode: boundary },
+            responses: [{ id: `approved-${boundary}`, text: `Approved through ${boundary}.` }],
+          }),
+        });
+      }
+      posted.push(route.request().postDataJSON());
+      return route.fulfill({
+        contentType: 'application/json',
+        body: JSON.stringify({ message: 'Thanks. Your response is awaiting editorial review.' }),
+      });
+    });
+    for (const [slug, boundary] of [
+      ['against-the-current-episodes-22-25', 25],
+      ['against-the-current-episodes-26-30', 30],
+    ] as const) {
+      await gotoTestPage(page, `${origin}/c-drama-fandom/vibing-now/${slug}/`);
+      await page.getByText('1 approved reader responses.').waitFor();
+      assert.match(await page.locator('#discussion-responses').innerText(), new RegExp(`^Approved through ${boundary}\\.\\s+Report this response$`));
+      await page.locator('#discussion-text').fill('Lanxiang should be free to decide.');
+      await page.getByLabel(`I will discuss Episode ${boundary} or earlier only.`).check();
+      await page.getByRole('button', { name: 'Send for review' }).click();
+      await page.getByText('Thanks. Your response is awaiting editorial review.').waitFor();
+      assert.deepEqual(posted.at(-1), {
+        action: 'submit', discussionId: slug, safeThroughEpisode: boundary,
+        text: 'Lanxiang should be free to decide.', acceptBoundary: true, website: '',
+      });
+    }
+  } finally {
+    await closeBrowserAndServer(browser, server);
+  }
+});

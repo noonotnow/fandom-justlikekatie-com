@@ -215,6 +215,21 @@ export function missingBrowserEngines(
   return engines.filter(engine => !executableExists(engine.type.executablePath()));
 }
 
+export function replitNixEglVendorPath(
+  runtimePath = process.env.REPLIT_LD_LIBRARY_PATH,
+  pathExists: (path: string) => boolean = existsSync,
+): string {
+  const vendorPath = runtimePath?.split(':').filter(Boolean)
+    .map(directory => join(directory, '..', 'share', 'glvnd', 'egl_vendor.d', '50_mesa.json'))
+    .find(pathExists);
+  if (!vendorPath) {
+    throw new Error(
+      'Missing declared Mesa EGL vendor path. Ensure .replit declares mesa, then reload the Replit environment.',
+    );
+  }
+  return vendorPath;
+}
+
 export function assertBrowserEnginesInstalled(
   engines: readonly BrowserEngine[] = BROWSER_ENGINES,
   executableExists: (path: string) => boolean = existsSync,
@@ -352,6 +367,9 @@ export async function launchBrowser(browserType: BrowserType = chromium): Promis
         WEBKIT_EXEC_PATH: join(miniBrowserRoot, 'bin'),
         WEBKIT_INJECTED_BUNDLE_PATH: join(miniBrowserRoot, 'lib'),
         WEBKIT_INSPECTOR_RESOURCES_PATH: join(miniBrowserRoot, 'share'),
+        // Replit's inherited EGL setting can point at a stale vendor manifest.
+        // Use the declared runtime's Mesa manifest for this browser only.
+        __EGL_VENDOR_LIBRARY_FILENAMES: replitNixEglVendorPath(),
       },
     });
   }

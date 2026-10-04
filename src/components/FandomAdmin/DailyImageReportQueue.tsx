@@ -116,6 +116,17 @@ export function DailyImageReportQueue() {
 
   const linkFor = (report: QueueReport) => safeHttpUrl(report.candidate?.link);
 
+  async function copyReceipt(receiptId: string) {
+    setError('');
+    setNotice('');
+    try {
+      await navigator.clipboard.writeText(receiptId);
+      setNotice(t('Receipt reference copied.', '报告凭据编号已复制。'));
+    } catch {
+      setError(t('Could not copy the receipt reference. Select the reference and copy it manually.', '无法复制报告凭据编号。请选择该编号并手动复制。'));
+    }
+  }
+
   return (
     <section className={styles.queue} aria-label={t('Daily image report review', '每日图片报告审核')}>
       <header className={styles.header}>
@@ -161,6 +172,15 @@ export function DailyImageReportQueue() {
                   {report.actualIdentity && <p>{t('Suggested identity', '建议身份')}: {report.actualIdentity}</p>}
                   {report.note && <blockquote>{report.note}</blockquote>}
                   <dl>
+                    <div className={styles.receipt}>
+                      <dt>{t('Receipt reference', '报告凭据编号')}</dt>
+                      <dd>
+                        <code>{report.receiptId}</code>
+                        <button type="button" aria-label={`${t('Copy receipt reference', '复制报告凭据编号')} ${report.receiptId}`} onClick={() => void copyReceipt(report.receiptId)}>
+                          {t('Copy reference', '复制编号')}
+                        </button>
+                      </dd>
+                    </div>
                     <div><dt>{t('Source query', '来源搜索')}</dt><dd>{report.candidate?.query || t('Unavailable', '不可用')}</dd></div>
                     {report.publication && <>
                       <div><dt>{t('Image ID', '图片 ID')}</dt><dd>{report.publication.imageId}</dd></div>

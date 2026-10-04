@@ -1,6 +1,6 @@
 import assert from "node:assert/strict";
 import test from "node:test";
-import { checkPublicRecords, PUBLIC_ORIGIN } from "./check-public-records.js";
+import { checkPublicRecords, checkSitemapInventory, PUBLIC_ORIGIN } from "./check-public-records.js";
 
 const actor = `${PUBLIC_ORIGIN}/vibe-atlas/actors/example-actor/`;
 const edition = `${PUBLIC_ORIGIN}/vibe-atlas/editions/2026-09-01/example-actor/`;
@@ -65,6 +65,16 @@ test("accepts a complete empty publication inventory without fetching records", 
     await checkPublicRecords(fetchImpl);
     assert.deepEqual(calls.map(([url]) => url), [`${PUBLIC_ORIGIN}/sitemap.xml`]);
   }
+});
+
+test("scheduled inventory check distinguishes healthy empty catalogs from public fallback statuses", async () => {
+  for (const status of ["complete", "release-history-unavailable", "publication-history-mismatch", "publication-incomplete", "release-catalog-incomplete", "unavailable"]) {
+    const { calls, fetchImpl } = fixture({ xml: sitemap([]), inventory: status });
+    assert.equal(await checkSitemapInventory(fetchImpl), status);
+    assert.equal(calls.length, 1);
+  }
+  assert.equal(await checkSitemapInventory(fixture({ inventory: null }).fetchImpl), "unverified");
+  assert.equal(await checkSitemapInventory(fixture({ inventory: "private payload" }).fetchImpl), "unverified");
 });
 
 test("rejects missing or incomplete sitemap inventory evidence even with no records", async () => {
@@ -156,6 +166,21 @@ test("fails on a one-sided actor or edition sitemap", async () => {
   for (const urls of [[actor], [edition]]) {
     await assert.rejects(checkPublicRecords(fixture({ xml: sitemap(urls) }).fetchImpl), /actors and editions inconsistently/);
   }
+});
+
+test("fails when a second sitemap actor has no edition despite other valid releases", async () => {
+  const { calls, fetchImpl } = fixture({
+    xml: sitemap([actor, secondActor, edition]),
+    additional: {
+      [secondActor]: new Response(page(secondActor), { headers: { "Content-Type": "text/html" } }),
+    },
+  });
+  await assert.rejects(checkPublicRecords(fetchImpl), error => {
+    assert.match(error.message, /no edition for actor/);
+    assert.ok(error.message.includes(secondActor));
+    return true;
+  });
+  assert.deepEqual(calls.map(([url]) => url), [`${PUBLIC_ORIGIN}/sitemap.xml`]);
 });
 
 test("fails when the sitemap is malformed rather than an empty urlset", async () => {

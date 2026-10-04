@@ -24,6 +24,130 @@ function workflowStep(job, name) {
   );
 }
 
+function environmentEntries(block, indentation) {
+  const lines = block.split("\n");
+  const header = lines.findIndex((line) => line === `${" ".repeat(indentation)}env:`);
+  if (header === -1) return new Map();
+
+  const entries = new Map();
+  for (const line of lines.slice(header + 1)) {
+    if (!line.trim()) continue;
+    const spaces = line.match(/^ */)[0].length;
+    if (spaces <= indentation) break;
+    if (spaces !== indentation + 2) continue;
+    const entry = line.trim().match(/^([A-Za-z_][A-Za-z0-9_]*):\s*(.*)$/);
+    assert.ok(entry, `Invalid environment entry: ${line.trim()}`);
+    entries.set(entry[1], entry[2]);
+  }
+  return entries;
+}
+
+function assertNotificationKeyBoundary(workflow) {
+  const jobsStart = workflow.search(/^jobs:$/m);
+  assert.notEqual(jobsStart, -1, "Expected jobs section");
+  const jobs = workflow.slice(jobsStart);
+  const jobHeaders = [...jobs.matchAll(/^  ([a-zA-Z0-9_-]+):$/gm)];
+  assert.ok(jobHeaders.length > 0, "Expected workflow jobs");
+  const workflowEnv = environmentEntries(workflow.slice(0, jobsStart), 0);
+  assert.ok(!workflowEnv.has("RESEND_DOMAIN_READ_API_KEY"), "Domain-read key cannot be workflow-wide");
+
+  const notifications = new Map([
+    ["production-launchpad-preview", "Notify operators about failed launchpad preview"],
+    ["production-archive-records", "Notify operators about failed Archive record verification"],
+    ["migration-next-major", "Notify operators about failed PostgreSQL candidate migration"],
+    ["shared-stripe-audit-consistency", "Notify operators about failed shared Stripe audit consistency check"],
+  ]);
+  const authorizedStep = "Check Resend credentials and verified sender without emailing";
+  const authorizedJob = "operator-alert-configuration";
+  let approvedStep;
+
+  for (const [index, match] of jobHeaders.entries()) {
+    const jobName = match[1];
+    const job = jobs.slice(match.index, jobHeaders[index + 1]?.index);
+    const stepHeaders = [...job.matchAll(/^      - (?:name:|uses:)/gm)];
+    assert.ok(stepHeaders.length > 0, `Expected steps in ${jobName}`);
+    assert.ok(
+      !environmentEntries(job.slice(0, stepHeaders[0].index), 4).has("RESEND_DOMAIN_READ_API_KEY"),
+      `Domain-read key cannot be inherited by steps in ${jobName}`,
+    );
+
+    for (const [stepIndex, stepHeader] of stepHeaders.entries()) {
+      const step = job.slice(stepHeader.index, stepHeaders[stepIndex + 1]?.index);
+      const name = step.match(/^      - name: (.+)$/m)?.[1];
+      const env = environmentEntries(step, 8);
+      const isApproved = jobName === authorizedJob && name === authorizedStep;
+      if (isApproved) {
+        assert.equal(approvedStep, undefined, "Duplicate sender verification step");
+        approvedStep = step;
+        assert.equal(env.get("RESEND_DOMAIN_READ_API_KEY"), "${{ secrets.RESEND_DOMAIN_READ_API_KEY }}");
+      } else {
+        assert.ok(!env.has("RESEND_DOMAIN_READ_API_KEY"), `Domain-read key exposed to ${jobName}: ${name ?? "unnamed step"}`);
+      }
+
+      if (name?.startsWith("Notify ") || /--notify-failure|run: node scripts\/notify-/.test(step)) {
+        assert.equal(env.get("RESEND_API_KEY"), "${{ secrets.RESEND_API_KEY }}", `Notification step ${jobName}: ${name} must use send-only key`);
+        assert.ok(!env.has("RESEND_DOMAIN_READ_API_KEY"), `Notification step ${jobName}: ${name} has domain-read key`);
+      }
+    }
+
+    if (notifications.has(jobName)) {
+      const notification = workflowStep(job, notifications.get(jobName));
+      assert.equal(environmentEntries(notification, 8).get("RESEND_API_KEY"), "${{ secrets.RESEND_API_KEY }}");
+    }
+  }
+
+  assert.ok(approvedStep, "Missing protected sender verification step");
+  // Also catch references passed under another variable name, in a run script, or at workflow scope.
+  assert.ok(
+    !workflow.replace(approvedStep, "").includes("RESEND_DOMAIN_READ_API_KEY"),
+    "Domain-read key referenced outside protected sender verification step",
+  );
+}
+
+test("notification jobs cannot inherit or use the domain-read credential", async () => {
+  assertNotificationKeyBoundary(await readFile(workflowPath, "utf8"));
+});
+
+test("notification credential boundary rejects misplaced keys and missing send-only keys", async () => {
+  const workflow = await readFile(workflowPath, "utf8");
+  const notification = "      - name: Notify operators about failed launchpad preview\n        if: failure()\n        env:\n";
+  assert.throws(
+    () => assertNotificationKeyBoundary(workflow.replace(
+      notification,
+      `${notification}          RESEND_DOMAIN_READ_API_KEY: \${{ secrets.RESEND_DOMAIN_READ_API_KEY }}\n`,
+    )),
+    /Domain-read key exposed/,
+  );
+  assert.throws(
+    () => assertNotificationKeyBoundary(workflow.replace(
+      "  production-launchpad-preview:\n",
+      "  production-launchpad-preview:\n    env:\n      RESEND_DOMAIN_READ_API_KEY: ${{ secrets.RESEND_DOMAIN_READ_API_KEY }}\n",
+    )),
+    /cannot be inherited/,
+  );
+  assert.throws(
+    () => assertNotificationKeyBoundary(workflow.replace(
+      "jobs:\n",
+      "env:\n  RESEND_DOMAIN_READ_API_KEY: ${{ secrets.RESEND_DOMAIN_READ_API_KEY }}\njobs:\n",
+    )),
+    /cannot be workflow-wide/,
+  );
+  assert.throws(
+    () => assertNotificationKeyBoundary(workflow.replace(
+      "        run: npm run check:launchpad-preview -- --notify-failure",
+      "        run: npm run check:launchpad-preview -- --notify-failure ${{ secrets.RESEND_DOMAIN_READ_API_KEY }}",
+    )),
+    /referenced outside protected sender verification step/,
+  );
+  assert.throws(
+    () => assertNotificationKeyBoundary(workflow.replace(
+      "      - name: Notify operators about failed Archive record verification\n        if: failure()\n        env:\n          RESEND_API_KEY: ${{ secrets.RESEND_API_KEY }}",
+      "      - name: Notify operators about failed Archive record verification\n        if: failure()\n        env:\n          RESEND_API_KEY: ${{ secrets.RESEND_DOMAIN_READ_API_KEY }}",
+    )),
+    /must use send-only key/,
+  );
+});
+
 test("Netlify compatibility proposals keep their dedicated overlap protection", async () => {
   const workflow = await readFile(workflowPath, "utf8");
   const compatibilityJob = indentedBlock(
@@ -85,6 +209,17 @@ test("launchpad preview smoke check runs after successful production deployments
     notificationStep,
     /^        run: npm run check:launchpad-preview -- --notify-failure$/m,
   );
+});
+
+test("homepage guide smoke check reads the live bundle and rendered menu after production deploys", async () => {
+  const workflow = await readFile(workflowPath, "utf8");
+  const job = indentedBlock(workflow, /^  production-homepage-guides:$/m, /^  [a-zA-Z0-9_-]+:$/m);
+  assert.match(job, /github\.event_name == 'deployment_status'/);
+  assert.match(job, /github\.event\.deployment_status\.state == 'success'/);
+  assert.match(job, /github\.event\.deployment\.environment == 'production' \|\| github\.event\.deployment\.environment == 'Production'/);
+  assert.match(job, /run: npx playwright install --with-deps chromium/);
+  assert.match(job, /run: npm run check:homepage-guides/);
+  assert.doesNotMatch(job, /schedule|workflow_dispatch|POST|deploy --prod/);
 });
 
 test("operator alert configuration is checked on a schedule without sending email", async () => {

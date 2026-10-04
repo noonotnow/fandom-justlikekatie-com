@@ -1,4 +1,5 @@
 import assert from "node:assert/strict";
+import { createHash } from "node:crypto";
 import { pathToFileURL } from "node:url";
 import { XMLParser, XMLValidator } from "fast-xml-parser";
 import { PUBLIC_ORIGIN } from "../shared/public-routes.js";
@@ -13,6 +14,20 @@ const MEDIA_ORIGINS = new Set([
 ]);
 const IMAGE_COUNT = 9;
 const IMAGE_SIGNATURE_BYTES = 16;
+// Weekly rotation: at most 36 thumbnails, 2 MiB each, two concurrent downloads.
+export const THUMBNAIL_AUDIT_LIMIT = 36;
+export const THUMBNAIL_AUDIT_MAX_BYTES = 2 * 1024 * 1024;
+const AUDIT_WEEK_MS = 7 * 24 * 60 * 60 * 1000;
+const THUMBNAIL_DIGEST_PATH = /^\/images\/sha256\/(?:(?<shardA>[a-f0-9]{2})\/(?<shardB>[a-f0-9]{2})\/)?(?<digest>[a-f0-9]{64})\.(?:jpg|jpeg|png|webp)$/i;
+
+function thumbnailAddressDigest(url) {
+  const match = new URL(url).pathname.match(THUMBNAIL_DIGEST_PATH);
+  assert.ok(match, `Published Archive thumbnail has no SHA-256 address: ${url}`);
+  const { shardA, shardB, digest } = match.groups;
+  assert.ok(!shardA || `${shardA}${shardB}`.toLowerCase() === digest.slice(0, 4).toLowerCase(),
+    `Published Archive thumbnail has mismatched SHA-256 shards: ${url}`);
+  return digest.toLowerCase();
+}
 
 function hasImageSignature(bytes, type) {
   if (type === "jpeg") {
@@ -60,7 +75,7 @@ function editionImages(html, recordUrl) {
   const fullSize = tags.map(tag => mediaUrl(tag.match(/\bdata-media-delivery-url="([^"]*)"/i)?.[1], "full-size image"));
   assert.equal(new Set(thumbnails).size, IMAGE_COUNT, `Archive edition does not show nine distinct images: ${recordUrl}`);
   assert.equal(new Set(fullSize).size, IMAGE_COUNT, `Archive edition does not show nine distinct full-size images: ${recordUrl}`);
-  return [...thumbnails, ...fullSize];
+  return { thumbnails, all: [...thumbnails, ...fullSize] };
 }
 
 async function checkImage(url, fetchImpl) {
@@ -87,7 +102,7 @@ async function checkImage(url, fetchImpl) {
   }
 }
 
-export async function checkArchiveRecords(fetchImpl = fetch, origin = PUBLIC_ORIGIN) {
+async function collectArchiveRecords(fetchImpl, origin) {
   const sitemap = await get(`${origin}/sitemap.xml`, fetchImpl);
   assert.match(sitemap.headers.get("content-type") ?? "", /^(?:application|text)\/xml\b/i, "Production sitemap is not XML");
   const inventoryStatus = sitemap.headers.get("x-public-sitemap-inventory");
@@ -152,6 +167,7 @@ export async function checkArchiveRecords(fetchImpl = fetch, origin = PUBLIC_ORI
   let next = 0;
   const urls = [...advertised.keys()];
   const imageUrls = new Set();
+  const thumbnails = new Set();
   await Promise.all(Array.from({ length: Math.min(4, urls.length) }, async () => {
     while (next < urls.length) {
       const url = urls[next++];
@@ -159,18 +175,84 @@ export async function checkArchiveRecords(fetchImpl = fetch, origin = PUBLIC_ORI
       const html = await result.text();
       assertIndexableRecord(result, html, url, "Archive");
       if (EDITION_PATH.test(advertised.get(url))) {
-        for (const imageUrl of editionImages(html, url)) imageUrls.add(imageUrl);
+        const images = editionImages(html, url);
+        for (const imageUrl of images.all) imageUrls.add(imageUrl);
+        for (const thumbnail of images.thumbnails) thumbnails.add(thumbnail);
       }
     }
   }));
-  const images = [...imageUrls];
-  next = 0;
+  return { advertisedRecords: urls.length, imageUrls: [...imageUrls], thumbnails: [...thumbnails] };
+}
+
+export async function checkArchiveRecords(fetchImpl = fetch, origin = PUBLIC_ORIGIN) {
+  const { advertisedRecords, imageUrls: images } = await collectArchiveRecords(fetchImpl, origin);
+  let next = 0;
   await Promise.all(Array.from({ length: Math.min(4, images.length) }, async () => {
     while (next < images.length) await checkImage(images[next++], fetchImpl);
   }));
-  return { advertisedRecords: urls.length };
+  return { advertisedRecords };
+}
+
+async function auditThumbnail(url, fetchImpl) {
+  const expected = thumbnailAddressDigest(url);
+  const response = await get(url, fetchImpl);
+  const type = response.headers.get("content-type")?.match(/^image\/(png|jpeg|webp)(?:\s*;|$)/i)?.[1]?.toLowerCase();
+  assert.ok(type, `Archive thumbnail is not an image: ${url}`);
+  const extension = new URL(url).pathname.split(".").at(-1).toLowerCase();
+  assert.ok(type === extension || (type === "jpeg" && extension === "jpg"),
+    `Archive thumbnail MIME type differs from its address: ${url}`);
+  const claimedLength = response.headers.get("content-length");
+  if (claimedLength !== null) {
+    assert.ok(/^\d+$/.test(claimedLength) && Number(claimedLength) <= THUMBNAIL_AUDIT_MAX_BYTES,
+      `Archive thumbnail exceeds ${THUMBNAIL_AUDIT_MAX_BYTES} byte audit limit: ${url}`);
+  }
+  assert.ok(response.body, `Archive thumbnail is empty: ${url}`);
+  const reader = response.body.getReader();
+  const digest = createHash("sha256");
+  let size = 0;
+  const header = new Uint8Array(IMAGE_SIGNATURE_BYTES);
+  try {
+    while (true) {
+      const { done, value } = await reader.read();
+      if (done) break;
+      size += value.byteLength;
+      assert.ok(size <= THUMBNAIL_AUDIT_MAX_BYTES,
+        `Archive thumbnail exceeds ${THUMBNAIL_AUDIT_MAX_BYTES} byte audit limit: ${url}`);
+      if (size - value.byteLength < header.length) {
+        header.set(value.subarray(0, Math.min(value.byteLength, header.length - (size - value.byteLength))),
+          size - value.byteLength);
+      }
+      digest.update(value);
+    }
+    assert.ok(size >= header.length && hasImageSignature(header, type),
+      `Archive thumbnail has an invalid ${type} signature: ${url}`);
+    assert.equal(digest.digest("hex"), expected, `Archive thumbnail SHA-256 mismatch (body truncated or changed): ${url}`);
+  } finally {
+    await reader.cancel();
+  }
+}
+
+export async function auditArchiveThumbnails(fetchImpl = fetch, origin = PUBLIC_ORIGIN, now = Date.now()) {
+  const { thumbnails } = await collectArchiveRecords(fetchImpl, origin);
+  const sorted = thumbnails.sort();
+  // Each week advances by one full batch; modulo the count eventually visits
+  // every thumbnail, including when the inventory is larger than one batch.
+  const start = sorted.length ? (Math.floor(now / AUDIT_WEEK_MS) * THUMBNAIL_AUDIT_LIMIT) % sorted.length : 0;
+  const selected = Array.from({ length: Math.min(THUMBNAIL_AUDIT_LIMIT, sorted.length) },
+    (_, index) => sorted[(start + index) % sorted.length]);
+  // Fail on malformed addresses even if they are outside this week's byte budget.
+  for (const url of sorted) {
+    thumbnailAddressDigest(url);
+  }
+  let next = 0;
+  await Promise.all(Array.from({ length: Math.min(2, selected.length) }, async () => {
+    while (next < selected.length) await auditThumbnail(selected[next++], fetchImpl);
+  }));
+  return { publishedThumbnails: sorted.length, auditedThumbnails: selected.length, maxBytesPerThumbnail: THUMBNAIL_AUDIT_MAX_BYTES };
 }
 
 if (process.argv[1] && import.meta.url === pathToFileURL(process.argv[1]).href) {
-  console.log(await checkArchiveRecords());
+  console.log(process.argv.includes("--audit-thumbnails")
+    ? await auditArchiveThumbnails()
+    : await checkArchiveRecords());
 }

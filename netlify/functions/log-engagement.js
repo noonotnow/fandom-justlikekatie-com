@@ -1,6 +1,8 @@
 import { getBlobStore } from "./lib/blob-store.js";
 import { validateGridPayload } from "./lib/grid-export-validation.js";
 import { createPublicAuth } from "./lib/public-auth.js";
+import { createParticipationCollector } from "./lib/daily-participation-analytics.js";
+import { PARTICIPATION_EVENTS } from "../../shared/daily-participation.js";
 
 /**
  * Log engagement events to Netlify Blobs.
@@ -32,6 +34,7 @@ const VALID_EVENTS = [
 ];
 const COMPANION_EVENTS = new Set(["companion_path_view", "companion_qualified_view", "companion_interest_click", "companion_collection_click"]);
 const COMPANION_PATHS = new Set(["discover", "context", "collect"]);
+const PILOT_MEMBERSHIP_EVENTS = new Set(["membership_view", "upgrade_click", "checkout_started", "membership_activated"]);
 const PUBLIC_GAME_EVENTS = new Set([
   "fandom_game_start", "fandom_game_reveal", "fandom_game_share",
   "fandom_share_open",
@@ -59,6 +62,7 @@ const LG01_OUTCOMES = new Set([
 const STORE_NAME = "engagement";
 const MAX_CONTEXT_TEXT = 500;
 const publicAuth = createPublicAuth({ getStore: getBlobStore });
+const collectParticipation = createParticipationCollector({ auth: publicAuth, getStore: getBlobStore });
 
 function optionalContextText(value) {
   return typeof value === "string" && value.length > 0 && value.length <= MAX_CONTEXT_TEXT
@@ -96,8 +100,12 @@ export default async (req, context) => {
   const {
     event, batchKey, imageUrl, actor, vibe, editionTier, resultPositions, grid,
     contentId, outcomeId, source, editionDate, position, saved, engagementReason,
-    shareMethod, capturedDate, pagePath, recordType, location, pilotPath,
+    shareMethod, capturedDate, pagePath, recordType, location, pilotPath, internalPilot,
   } = body;
+
+  if (PARTICIPATION_EVENTS.includes(event)) {
+    return collectParticipation(req, context, body);
+  }
 
   if (!event || !VALID_EVENTS.includes(event)) {
     return new Response(
@@ -106,9 +114,8 @@ export default async (req, context) => {
     );
   }
 
-  if ((COMPANION_EVENTS.has(event) || (pilotPath !== undefined && [
-    "membership_view", "upgrade_click", "checkout_started", "membership_activated",
-  ].includes(event))) && (!COMPANION_PATHS.has(pilotPath)
+  if ((COMPANION_EVENTS.has(event) || (pilotPath !== undefined && PILOT_MEMBERSHIP_EVENTS.has(event)))
+    && (!COMPANION_PATHS.has(pilotPath)
     || (COMPANION_EVENTS.has(event) && batchKey !== "c-drama-companion-pilot"))) {
     return new Response(JSON.stringify({ error: "Invalid companion path." }), {
       status: 400, headers: { "Content-Type": "application/json" },
@@ -130,6 +137,21 @@ export default async (req, context) => {
       JSON.stringify({ error: "batchKey is required" }),
       { status: 400, headers: { "Content-Type": "application/json" } },
     );
+  }
+
+  // A self-declared, bounded QA flag is only accepted for pilot events.
+  // No email, token, browser ID or arbitrary label enters the engagement store.
+  const pilotEvent = COMPANION_EVENTS.has(event)
+    || (PILOT_MEMBERSHIP_EVENTS.has(event) && COMPANION_PATHS.has(pilotPath));
+  if (internalPilot !== undefined && (!pilotEvent || typeof internalPilot !== "boolean")) {
+    return new Response(JSON.stringify({ error: "Invalid pilot exclusion flag." }), {
+      status: 400, headers: { "Content-Type": "application/json" },
+    });
+  }
+  if (pilotEvent && internalPilot === true) {
+    return new Response(JSON.stringify({ ok: true, excluded: true }), {
+      status: 200, headers: { "Content-Type": "application/json" },
+    });
   }
 
   if (DAILY_DROP_EVENTS.has(event)) {

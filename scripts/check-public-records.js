@@ -1,4 +1,5 @@
 import assert from "node:assert/strict";
+import { appendFile } from "node:fs/promises";
 import { pathToFileURL } from "node:url";
 import { XMLParser, XMLValidator } from "fast-xml-parser";
 import { PUBLIC_ORIGIN } from "../shared/public-routes.js";
@@ -10,6 +11,23 @@ const ROUTES = {
   releasedActor: /^\/vibe-atlas\/packs\/[^/]+\/$/,
   releasedPack: /^\/vibe-atlas\/packs\/[^/]+\/[^/]+\/$/,
 };
+const INVENTORY_STATUSES = new Set([
+  "complete", "publication-incomplete", "release-history-unavailable",
+  "publication-history-mismatch", "release-catalog-incomplete", "unavailable",
+]);
+
+export function publicInventoryStatus(response) {
+  const status = response.headers.get("x-public-sitemap-inventory");
+  return INVENTORY_STATUSES.has(status) ? status : "unverified";
+}
+
+// Only public sitemap headers are inspected; private Archive and Collector data
+// are deliberately outside this health check.
+export async function checkSitemapInventory(fetchImpl = fetch, origin = PUBLIC_ORIGIN) {
+  const response = await get(`${origin}/sitemap.xml`, fetchImpl);
+  assert.match(response.headers.get("content-type") ?? "", /^(?:application|text)\/xml\b/i, "Production sitemap is not XML");
+  return publicInventoryStatus(response);
+}
 
 function attribute(tag, name) {
   return tag.match(new RegExp(`\\b${name}\\s*=\\s*(?:"([^"]*)"|'([^']*)')`, "i"))?.slice(1).find(value => value !== undefined);
@@ -57,6 +75,12 @@ function listedRecordUrls(xml, origin) {
     recordsByKind.edition.length > 0,
     "Production sitemap lists actors and editions inconsistently",
   );
+  const editionActorPaths = new Set(recordsByKind.edition.map(url =>
+    `/vibe-atlas/actors/${url.pathname.split("/")[4]}/`,
+  ));
+  for (const actor of recordsByKind.actor) {
+    assert.ok(editionActorPaths.has(actor.pathname), `Production sitemap has no edition for actor ${actor.href}`);
+  }
   // The public sitemap derives both released-pack groups from the same indexable pack catalog.
   // An empty catalog is valid; a partial one is not.
   assert.equal(
@@ -90,11 +114,7 @@ export async function checkPublicRecords(fetchImpl = fetch, origin = PUBLIC_ORIG
   const sitemapUrl = `${origin}/sitemap.xml`;
   const sitemap = await get(sitemapUrl, fetchImpl);
   assert.match(sitemap.headers.get("content-type") ?? "", /^(?:application|text)\/xml\b/i, "Production sitemap is not XML");
-  assert.equal(
-    sitemap.headers.get("x-public-sitemap-inventory"),
-    "complete",
-    "Production sitemap inventory is missing or incomplete",
-  );
+  assert.equal(publicInventoryStatus(sitemap), "complete", "Production sitemap inventory is missing or incomplete");
   const records = listedRecordUrls(await sitemap.text(), origin);
   const routes = Object.entries(records).flatMap(([kind, urls]) => urls.map(url => ({ kind, url })));
   let next = 0;
@@ -109,5 +129,17 @@ export async function checkPublicRecords(fetchImpl = fetch, origin = PUBLIC_ORIG
 }
 
 if (process.argv[1] && import.meta.url === pathToFileURL(process.argv[1]).href) {
-  await checkPublicRecords();
+  if (process.argv.includes("--inventory-only")) {
+    let status = "unverified";
+    try {
+      status = await checkSitemapInventory();
+    } finally {
+      // Only a fixed status token crosses into the notification step.
+      if (process.env.GITHUB_OUTPUT) await appendFile(process.env.GITHUB_OUTPUT, `status=${status}\n`);
+    }
+    assert.equal(status, "complete", `Production sitemap inventory is ${status}; reconcile public release receipts`);
+    console.log("Production sitemap inventory is complete (an empty catalog is valid).");
+  } else {
+    await checkPublicRecords();
+  }
 }

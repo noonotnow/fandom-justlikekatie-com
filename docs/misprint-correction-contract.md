@@ -47,8 +47,9 @@ the finished grid. Automatic export heuristics remain separate. Neither a reacti
 an export imports constituent cards. Legendary Misprint preservation in Collection is
 a separate intentional act; retaining or deleting it cannot review or retract evidence.
 
-The enlarged Daily Drop image offers a free, signed-in report without a Collection save
-or Collector purchase. `report_daily_image` accepts only date, publicly delivered image
+The ordinary Daily Drop image preview and full-screen viewer offer a free, signed-in
+report without a Collection save or Collector purchase. `report_daily_image` accepts
+only date, publicly delivered image
 identity, taxonomy reason, optional actual identity (200 characters), and note (1000
 characters). The server strong-reads the exact immutable publication manifest, including
 complete MEDIA-backed boards without indexable Archive pages. Candidate URLs, private
@@ -72,7 +73,21 @@ directly; source detail retains intended actor/vibe, exact MEDIA preview, upstre
 query when retained, and frozen publication hash/position. Approve, reject, and reasoned
 retraction reuse the existing append-only decision and publication-lock paths.
 
+Every queue row displays its full opaque receipt reference as selectable text with
+a copy control, including legacy Collection evidence and active corrections.
+Identical edition/image/reason/note reports from different fans retain distinct
+references; review actions target that exact receipt, not the image or row order.
+The reference exposes neither a reporter account identifier nor an email address.
+Clipboard failures are explicit and leave the reference available for manual copying.
+This display change does not alter operator-only access, pagination, or correction scope.
+
 ### Verification boundary
+
+Private aggregate participation and same-browser return measurement is defined
+in [Daily Drop participation measurement](daily-drop-participation-measurement.md).
+It never includes reaction reasons or report content and has no curation,
+training, public voting, or reward authority. A pending receipt acknowledgement
+is distinct from a failed submission and from operator approval.
 
 Local verification covers the real handler and in-memory conditional-write publication
 fixtures, the full function/app suites, and browser flows with explicitly mocked
@@ -81,13 +96,24 @@ magic-link recovery across MEDIA/canonical aliases, inert reactions, failed subm
 approved retry acknowledgements, account-status clearing, operator pagination and
 retraction, and Collection preservation/removal independence.
 
+Explicit local operator fixtures also cover two same-image/same-reason/same-note
+receipts, full-reference copying (and clipboard failure), and reviewing one while
+the other remains pending. These mocked browser checks are not production evidence
+and do not authorize a release; separate creator approval is still required.
+
 The normal workspace workflow serves Vite, not Netlify functions; it truthfully shows
 the data-service-unavailable message when no Daily Drop backend is present. A screenshot
-of that preview is not live reporting or signed-in operator evidence. No production
-deployment, live submission, or real operator decision is authorized by this change.
-After creator-approved release, verify the authenticated Netlify participation loop
-separately before claiming live success. Reports themselves have no email notifications;
-an explicitly requested authentication magic link is separate.
+of that preview is not live reporting or signed-in operator evidence. The initial
+implementation did not authorize a production deployment, live submission, or real
+operator decision. A subsequent creator-approved release and user-assisted live check
+are recorded in [Daily image report verification](daily-image-report-live-verification.md).
+That check includes authenticated draft recovery, receipt retries, account isolation,
+small-page operator API pagination, approval/retraction, and independent immutable
+storage comparisons. The ordinary queue's Next page control remains local-fixture
+evidence because the live catalog was smaller than its default page.
+This completed check does not authorize future deployments or further live mutations.
+Reports themselves have no email notifications; an explicitly requested authentication
+magic link is separate.
 
 The effective status is derived from the source receipt and its decisions. A retracted correction
 stops affecting future runs, but it does not restore an approval invalidated while the correction
