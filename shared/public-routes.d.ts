@@ -23,6 +23,11 @@ export const PUBLIC_ROUTE_PATHS: Readonly<{
 
 export const PUBLIC_LOCALIZABLE_PATHS: readonly string[];
 export const PUBLIC_STATIC_ROUTES: readonly PublicStaticRoute[];
+export const PUBLIC_EDITORIAL_REDIRECTS: readonly {
+  readonly from: string;
+  readonly to: string;
+  readonly status: 301;
+}[];
 export const PUBLIC_STATIC_PATHS: readonly string[];
 
 export const PUBLIC_LOCALIZED_STATIC_ROUTES: readonly PublicStaticRoute[];

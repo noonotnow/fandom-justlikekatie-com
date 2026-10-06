@@ -312,7 +312,35 @@ status = 200
 
 [[redirects]]
 from = "/c-drama-fandom/vibing-now/against-the-current-episodes-26-30"
-to = "/c-drama-fandom/vibing-now/against-the-current-episodes-26-30/index.html"
+to = "/c-drama-fandom/vibing-now/against-the-current-episodes-26-29/"
+status = 301
+force = true
+
+[[redirects]]
+from = "/c-drama-fandom/vibing-now/against-the-current-episodes-26-30/"
+to = "/c-drama-fandom/vibing-now/against-the-current-episodes-26-29/"
+status = 301
+force = true
+
+[[redirects]]
+from = "/c-drama-fandom/vibing-now/against-the-current-episodes-26-30/index.html"
+to = "/c-drama-fandom/vibing-now/against-the-current-episodes-26-29/"
+status = 301
+force = true
+
+[[redirects]]
+from = "/c-drama-fandom/vibing-now/against-the-current-episodes-26-29"
+to = "/c-drama-fandom/vibing-now/against-the-current-episodes-26-29/index.html"
+status = 200
+
+[[redirects]]
+from = "/c-drama-fandom/vibing-now/against-the-current-episodes-30-31"
+to = "/c-drama-fandom/vibing-now/against-the-current-episodes-30-31/index.html"
+status = 200
+
+[[redirects]]
+from = "/c-drama-fandom/vibing-now/against-the-current-episodes-32-33"
+to = "/c-drama-fandom/vibing-now/against-the-current-episodes-32-33/index.html"
 status = 200
 
 [[redirects]]

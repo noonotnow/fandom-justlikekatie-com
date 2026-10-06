@@ -554,7 +554,9 @@ test("robots and sitemap expose only intended public surfaces", () => {
     "https://fandom.justlikekatie.com/c-drama-fandom/vibing-now/",
     "https://fandom.justlikekatie.com/c-drama-fandom/vibing-now/against-the-current-episode-21/",
     "https://fandom.justlikekatie.com/c-drama-fandom/vibing-now/against-the-current-episodes-22-25/",
-    "https://fandom.justlikekatie.com/c-drama-fandom/vibing-now/against-the-current-episodes-26-30/",
+    "https://fandom.justlikekatie.com/c-drama-fandom/vibing-now/against-the-current-episodes-26-29/",
+    "https://fandom.justlikekatie.com/c-drama-fandom/vibing-now/against-the-current-episodes-30-31/",
+    "https://fandom.justlikekatie.com/c-drama-fandom/vibing-now/against-the-current-episodes-32-33/",
     "https://fandom.justlikekatie.com/c-drama-fandom/where-to-watch/against-the-current/",
     "https://fandom.justlikekatie.com/c-drama-fandom/soundtrack/against-the-current/",
   ];
@@ -885,7 +887,6 @@ test("Against the Current follow-ups keep their declared boundaries and public r
   const netlify = read("netlify.toml");
   const pages = [
     { suffix: "episodes-22-25", boundary: 25, source: "drama-against-the-current-episodes-22-25" },
-    { suffix: "episodes-26-30", boundary: 30, source: "drama-against-the-current-episodes-26-30" },
   ];
   for (const { suffix, boundary, source } of pages) {
     const path = `/c-drama-fandom/vibing-now/against-the-current-${suffix}/`;
@@ -907,12 +908,12 @@ test("Against the Current follow-ups keep their declared boundaries and public r
     assert.equal(new Map(publicStaticPreviewRoutes()).get(path.slice(0, -1)), `${path}index.html`);
   }
   const first = read("public/c-drama-fandom/vibing-now/against-the-current-episodes-22-25/index.html");
-  const second = read("public/c-drama-fandom/vibing-now/against-the-current-episodes-26-30/index.html");
   // These strings catch known regressions, not whether a plot claim happened before
   // the boundary. Editorial sign-off follows docs/vibing-now-publication-review.md.
   assert.doesNotMatch(first, /The state does not become just|Episode 26 also widens|music house|slaps him|drugging her/);
-  assert.match(second, /Zheng family’s downfall/);
-  assert.match(second, /He can move her body\. He cannot manufacture arrival\./);
+  const revised = read("public/c-drama-fandom/vibing-now/against-the-current-episodes-26-29/index.html");
+  assert.match(revised, /Zheng family’s downfall/);
+  assert.match(revised, /He can move her body\. He cannot manufacture arrival\./);
 });
 
 test("episode boundary notices use the approved event-free copy", () => {
@@ -1016,24 +1017,27 @@ test("Against the Current discovery path and search snippets preserve episode bo
   const paths = [
     { slug: "episode-21", label: "Episode 21", boundary: "21" },
     { slug: "episodes-22-25", label: "Episodes 22–25", boundary: "25" },
-    { slug: "episodes-26-30", label: "Episodes 26–30", boundary: "30" },
+    { slug: "episodes-26-29", label: "Episodes 26–29", boundary: "29", headline: "He Asked the Emperor for a Wife. The Drama Keeps Asking Whether She Chose Him." },
+    { slug: "episodes-30-31", label: "Episodes 30–31", boundary: "31", headline: "Lanxiang Comes Home. Then She Shows Jinqi How She Works." },
+    { slug: "episodes-32-33", label: "Episodes 32–33", boundary: "33", headline: "Lanxiang Starts Writing Justice. Lin Jinqi Has No Choice but to Come Along." },
   ];
   const pages = [{ path: shelfPath, html: shelf }];
 
   assert.ok(guide.indexOf("Featured series / Currently Vibing") < guide.indexOf("01 / Fandom literacy"),
     "the show feature must lead the guide choices");
   assert.match(guide, /<h3><a href="\/c-drama-fandom\/vibing-now\/"[^>]*>Against the Current: Vibing Now<\/a><\/h3>/);
-  assert.match(shelf, /<h1>Against the Current <em>on Vibing Now\.<\/em><\/h1>/);
-  assert.match(shelf, /Vibing Now is our spoiler-bounded shelf for dramas we are tracking/);
+  assert.match(shelf, /<h1>Against the Current · Choose by last episode watched<\/h1>/);
+  assert.match(shelf, /Start with the last episode you’ve finished, not the platform you use/);
 
-  for (const { slug, label, boundary } of paths) {
+  for (const { slug, label, boundary, headline } of paths) {
     const path = `${shelfPath}against-the-current-${slug}/`;
     const html = read(`public${path}index.html`);
     pages.push({ path, html });
     assert.match(shelf, new RegExp(`href="${path}"`));
     assert.match(shelf, new RegExp(`Safe through ${label}`));
     assert.match(html, /<p class="eyebrow">Vibing Now · Against the Current/);
-    assert.match(html, /<h1>Against the Current/);
+    if (headline) assert.ok(html.includes(`<h1>${headline}</h1>`), `${path}: approved headline`);
+    else assert.match(html, /<h1>Against the Current/);
     assert.match(html, new RegExp(`Contains spoilers through Episode ${boundary} only`));
   }
 
@@ -1054,7 +1058,9 @@ test("Against the Current discovery path and search snippets preserve episode bo
     assert.match(html, /<meta name="twitter:description" content="[^"]*"/);
     const json = JSON.parse(html.match(/<script type="application\/ld\+json">\s*([\s\S]*?)\s*<\/script>/)?.[1]);
     assert.equal(json.mainEntityOfPage, `${PUBLIC_ORIGIN}${path}`);
-    assert.match(json.headline, /Against the Current/);
+    const approvedHeadline = paths.find((entry) => path.endsWith(`against-the-current-${entry.slug}/`))?.headline;
+    if (approvedHeadline) assert.equal(json.headline, approvedHeadline);
+    else assert.match(json.headline, /Against the Current/);
     assert.equal(sitemap.split(`<loc>${PUBLIC_ORIGIN}${path}</loc>`).length - 1, 1);
     titles.add(title);
     descriptions.add(description);
@@ -1063,10 +1069,16 @@ test("Against the Current discovery path and search snippets preserve episode bo
   assert.equal(titles.size, pages.length);
   assert.equal(descriptions.size, pages.length);
   assert.equal(urls.size, pages.length);
-  for (const { html } of pages) {
+  for (const { path, html } of pages) {
     const snippets = [...html.matchAll(/<meta (?:name="(?:description|twitter:description)"|property="og:description") content="([^"]+)"/g)]
       .map(([, content]) => content).join(" ");
-    assert.doesNotMatch(snippets, /marriage decree|assassination|drugged|beaten|trafficking|wedding/i);
+    // The supplied 26–29 metadata explicitly names its wedding topic. Its
+    // complete wording is frozen in vibing-revised-readings.test.js; this is
+    // not permission to add outcomes or treat keyword checks as source review.
+    assert.doesNotMatch(snippets, /marriage decree|assassination|drugged|beaten|trafficking/i);
+    if (!path.endsWith("against-the-current-episodes-26-29/")) {
+      assert.doesNotMatch(snippets, /wedding/i);
+    }
   }
 });
 

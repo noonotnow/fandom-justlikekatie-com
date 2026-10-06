@@ -49,13 +49,26 @@ const input = (text = "I think Jialan should decide for herself.") => ({
 });
 const query = `?discussionId=${id}`;
 
+test("retired wedding discussion and replacement readings reject stale submissions", async () => {
+  const { handler, storage } = setup();
+  for (const range of ["26-30", "26-29", "30-31", "32-33"]) {
+    const discussionId = `against-the-current-episodes-${range}`;
+    assert.equal(ACTIVE_DISCUSSIONS[discussionId], undefined);
+    assert.equal((await handler(req("GET", undefined, `?discussionId=${discussionId}`))).status, 404);
+    const response = await handler(req("POST", {
+      ...input(), discussionId, safeThroughEpisode: Number(range.split("-")[1]),
+    }));
+    assert.equal(response.status, 404);
+  }
+  assert.equal(storage.records.size, 0, "retirement must not create, migrate or delete archive records");
+});
+
 test("only the explicitly activated article and fixed episode boundary are accepted", async () => {
   const { handler } = setup();
-  assert.equal(Object.keys(ACTIVE_DISCUSSIONS).length, 3);
+  assert.equal(Object.keys(ACTIVE_DISCUSSIONS).length, 2);
   for (const [discussionId, boundary] of [
     ["against-the-current-episode-21", 21],
     ["against-the-current-episodes-22-25", 25],
-    ["against-the-current-episodes-26-30", 30],
   ]) {
     assert.equal(ACTIVE_DISCUSSIONS[discussionId].safeThroughEpisode, boundary);
     const response = await handler(req("GET", undefined, `?discussionId=${discussionId}`));
