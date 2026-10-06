@@ -3,7 +3,8 @@ import { reviewArchivedPublication } from "./lib/archive-publication-review.js";
 import { ACTOR_PACKS as actorPacks } from "./lib/actor-packs.js";
 import { searchOneQuery } from "./preview-search.js";
 import { evaluateCandidates, rankCandidates, RANKED_BATCH_LIMIT } from "./lib/ranking.js";
-import { getShanghaiDateString, shanghaiYesterday } from "./lib/date-seed.js";
+import { shanghaiYesterday } from "./lib/date-seed.js";
+import { getDailyDropDateString } from "./lib/daily-drop-clock.js";
 import { candidateIdForResult, curateDisplayResults } from "./lib/grid-curation.js";
 import {
   AESTHETIC_CLUSTER_VERSION,
@@ -60,23 +61,22 @@ import {
 } from "./lib/archive-access-operations.js";
 import { capabilitiesForMembership } from "./lib/capabilities.js";
 import { candidateFingerprint } from "./lib/search-candidate-fingerprint.js";
+import { dispatchDailyDropRefresh, isPublishedProduction } from "./lib/daily-drop-refresh.js";
 
 // Server-side daily cache for "Star of the Day".
 //
 // Goal: the expensive search+rank flow (Brave -> SerpAPI cascade, per candidate
-// query, then ranking) should run at most once per Asia/Shanghai calendar day,
+// query, then ranking) should run at most once per noon-Eastern edition,
 // shared across every visitor — not once per browser session like before.
 //
-// Cache key: `starOfDay:v1:<Asia/Shanghai date>`. The "v1" prefix is a payload/
+// Cache key: `starOfDay:v<version>:<edition date>`. The version prefix is a payload/
 // generation-logic version: bump it (v2, v3, ...) if the shape of what's stored
 // changes, so old-format entries are never read back as if they were current.
 //
-// Concurrency: a short-lived lock key (`<cacheKey>:lock`) is written before
-// doing the expensive work using Netlify Blobs' conditional writes. Only the
-// request that wins the lock computes; everyone else briefly polls the real
-// cache key and reads whatever the winner produced. This stops simultaneous
-// requests right after midnight from each independently re-running the
-// whole search+rank ladder.
+// Public cache misses enqueue a signed background worker and return 202.
+// The scheduled trigger starts it at noon Eastern without waiting
+// for a visitor. A durable dispatch lease and the worker's generation lock
+// cover the background runtime, rather than expiring mid-search.
 export const STAR_OF_DAY_VERSION = "v11";
 const VERSION = STAR_OF_DAY_VERSION;
 export const RECENT_DAILY_DROP_WINDOW_DAYS = 30;
@@ -236,14 +236,17 @@ export async function buildPayloadForDate(
     excludedCollectorThumbnails = [],
     excludedCollectorChecksums = [],
     refreshCollectorSearch = false,
+    onProgress = () => {},
   } = {},
 ) {
+  onProgress("eligibility", {});
   if (!selectedPair && !await hasReleaseReadyCohort(packs, eligibilityStore, MIN_RELEASE_READY_PAIRS)) return null;
   const recentHistory = publicationStore
     ? await readRecentDailyDropHistory(publicationStore, dateString)
     : [];
   const excluded = new Set();
   while (true) {
+    onProgress("select_pair", {});
     const seed = selectedPair
       ? (() => {
         const aIdx = packs.findIndex(actor => actor?.id === selectedPair.actorId);
@@ -285,6 +288,7 @@ export async function buildPayloadForDate(
       generatedAt,
     });
     const searchQueries = searchQueriesFor(actor, seed.vIdx, approval.calibrationProfile);
+    onProgress("search", { actorId: actor.id, vibeIdx: seed.vIdx });
     const promise = vibePromiseFor(actor, seed.vIdx);
     const excludedThumbnails = new Set(excludedCollectorThumbnails);
     const excludedChecksums = new Set(excludedCollectorChecksums);
@@ -354,6 +358,7 @@ export async function buildPayloadForDate(
         ).unseen,
       }))
       : ranked;
+    onProgress("curation", { actorId: actor.id, vibeIdx: seed.vIdx });
     let { displayResults, curation } = await curate(freshRanked, curationOptions);
     if (selectedPair && (excludedThumbnails.size || excludedChecksums.size) && displayResults.length < 9) {
       const mixedRanked = ranked.map(batch => {
@@ -491,6 +496,7 @@ export async function buildPayloadForDate(
     }
 
     if (publicationStore && materializePublication) {
+      onProgress("materialization", { actorId: actor.id, vibeIdx: seed.vIdx });
       try {
         const publicationBoard = {
           mode: curation?.mode || "compiled",
@@ -914,13 +920,14 @@ function dailyPayload({
 // returned `{ modified }` flag (per @netlify/blobs' documented API), but the
 // Blobs store instance obtained via the V2 function `context.blobs` on this
 // project's deploy previews does not return that result object at all
-export async function tryAcquireLock(store, dateString) {
+export async function tryAcquireLock(store, dateString, ttlMs = LOCK_TTL_MS) {
   const lockKey = lockKeyFor(dateString);
   const now = Date.now();
   const token = `${now}-${Math.random().toString(36).slice(2)}`;
   const lock = {
     startedAt: now,
     token,
+    expiresAt: now + ttlMs,
   };
 
   // Conditional writes are the compare-and-swap primitive exposed by
@@ -929,7 +936,8 @@ export async function tryAcquireLock(store, dateString) {
   const existing = typeof store.getWithMetadata === "function"
     ? await store.getWithMetadata(lockKey, { type: "json", consistency: "strong" })
     : null;
-  if (existing?.data?.startedAt && now - existing.data.startedAt <= LOCK_TTL_MS) {
+  if (existing?.data?.startedAt
+    && now <= (existing.data.expiresAt ?? existing.data.startedAt + LOCK_TTL_MS)) {
     return null;
   }
   const write = await store.setJSON(
@@ -964,8 +972,11 @@ export function createStarOfDayHandler({
   repairPublicationLinks = repairPublicationManifestPublicRecords,
   backfillReleaseHistory = backfillPublicationReleaseDates,
   reconcileReleaseReceipts = reconcilePublicationReleaseReceipts,
-  today = getShanghaiDateString,
+  today = getDailyDropDateString,
   now = () => new Date(),
+  startRefresh = null,
+  lockTtlMs = LOCK_TTL_MS,
+  onBuildProgress = () => {},
 } = {}) {
   return async (req, context) => {
   if (req.method && req.method !== "GET") {
@@ -975,7 +986,7 @@ export function createStarOfDayHandler({
   try {
     const store = getStore(STORE_NAME, context);
     const eligibilityStore = getStore(ELIGIBILITY_STORE, context);
-    const todayStr = today();
+    const todayStr = today(now());
     const url = new URL(req.url || "https://fandom.local/.netlify/functions/star-of-day");
 
     if (url.searchParams.get("releaseHistoryBackfill") === "1") {
@@ -1365,9 +1376,35 @@ export function createStarOfDayHandler({
     )) {
       return jsonResponse(200, cached);
     }
-    if (cached) await store.delete(todayKey);
+    if (cached && (!startRefresh || isPublishedProduction(context))) await store.delete(todayKey);
 
-    const lock = await tryAcquireLock(store, todayStr);
+    if (startRefresh) {
+      let job;
+      try {
+        job = await startRefresh(req, context, store, todayStr);
+      } catch {
+        return jsonResponse(503, {
+          error: "Today’s grid could not start preparing. Please try again shortly.",
+          rankedBatches: [],
+        }, { "Cache-Control": "no-store", "Retry-After": "30" });
+      }
+      if (job.status === "no_acceptable_batch") {
+        return jsonResponse(200, {
+          version: VERSION, date: todayStr, error: "no_acceptable_batch", rankedBatches: [],
+        }, { "Cache-Control": "no-store" });
+      }
+      if (job.status === "failed") {
+        return jsonResponse(503, {
+          error: "Today’s grid could not finish preparing. Please try again shortly.",
+          rankedBatches: [],
+        }, { "Cache-Control": "no-store", "Retry-After": "30" });
+      }
+      return jsonResponse(202, {
+        version: VERSION, date: todayStr, building: true, rankedBatches: [],
+      }, { "Cache-Control": "no-store", "Retry-After": "5" });
+    }
+
+    const lock = await tryAcquireLock(store, todayStr, lockTtlMs);
 
     if (lock) {
       try {
@@ -1375,6 +1412,7 @@ export function createStarOfDayHandler({
           publicationStore: store,
           materializePublication: materializePublicationManifest,
           mediaEnv: process.env,
+          onProgress: onBuildProgress,
         });
         if (payload) {
           // First-write-wins re-check: because tryAcquireLock() is a best-effort
@@ -1464,7 +1502,7 @@ async function recordArchiveDiagnostic(getStore, event, date) {
   }
 }
 
-export default createStarOfDayHandler();
+export default createStarOfDayHandler({ startRefresh: dispatchDailyDropRefresh });
 
 function isUsableDate(value) {
   if (!DATE_RE.test(value)) return false;
