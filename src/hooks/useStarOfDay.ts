@@ -5,6 +5,7 @@ import type { GridItemData } from '../types';
 import { publicArchiveRecord } from '../contracts/publicArchiveRecord.js';
 import type { PublicArchiveRecord } from '../contracts/publicArchiveRecord.js';
 import { normalizePublicArchiveEdition } from './usePublicArchiveInventory';
+import { fetchDailyDropWithPolling } from '../utils/dailyDropRefresh';
 
 export interface StarOfDayResult {
   imageId?: string;
@@ -206,6 +207,7 @@ export const useStarOfDay = (editionDate: string | null | undefined = null): Use
 
   useEffect(() => {
     let cancelled = false;
+    const controller = new AbortController();
     setItems([]);
     setMeta(null);
     setRawData(null);
@@ -220,7 +222,10 @@ export const useStarOfDay = (editionDate: string | null | undefined = null): Use
 
     async function fetchLegacyStarOfDay(): Promise<StarOfDayData | null> {
       const query = editionDate ? `?date=${encodeURIComponent(editionDate)}` : '';
-      const res = await fetch(`/.netlify/functions/star-of-day${query}`);
+      const endpoint = `/.netlify/functions/star-of-day${query}`;
+      const res = editionDate
+        ? await fetch(endpoint, { signal: controller.signal })
+        : await fetchDailyDropWithPolling(endpoint, controller.signal);
       if (!res.ok) {
         const body = await res.json().catch(() => null) as {
           access?: ArchiveGate['reason'];
@@ -321,7 +326,7 @@ export const useStarOfDay = (editionDate: string | null | undefined = null): Use
     }
 
     fetchStarOfDay();
-    return () => { cancelled = true; };
+    return () => { cancelled = true; controller.abort(); };
   }, [editionDate]);
 
   const fetchArchivePage = useCallback(async (cursor: string | null, append: boolean) => {

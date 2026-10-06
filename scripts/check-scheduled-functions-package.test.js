@@ -8,10 +8,10 @@ import {
 
 function expectedManifest() {
   return {
-    functions: Array.from(
+    functions: [...Array.from(
       EXPECTED_SCHEDULED_FUNCTIONS,
       ([name, schedule]) => ({ name, schedule }),
-    ),
+    ), { name: "star-of-day-refresh-background", invocationMode: "background" }],
   };
 }
 
@@ -40,6 +40,15 @@ test("reports a packaged maintenance function with a changed cadence", () => {
   assert.throws(
     () => validateScheduledFunctionsManifest(manifest),
     /SCHEDULED_JOB_CADENCE_MISMATCH: prune-rate-limits packaged schedule is "@daily"; expected "@hourly"/,
+  );
+});
+
+test("rejects a Daily Drop worker accidentally packaged as a synchronous function", () => {
+  const manifest = expectedManifest();
+  manifest.functions.find(entry => entry.name === "star-of-day-refresh-background").invocationMode = "stream";
+  assert.throws(
+    () => validateScheduledFunctionsManifest(manifest),
+    /DAILY_DROP_BACKGROUND_MODE_MISSING/,
   );
 });
 

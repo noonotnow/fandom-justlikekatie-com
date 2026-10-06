@@ -6,6 +6,7 @@ export const EXPECTED_SCHEDULED_FUNCTIONS = new Map([
   ["archive-access-retention", "@daily"],
   ["prune-rate-limits", "@hourly"],
   ["receipt-index-health-scheduled", "@hourly"],
+  ["star-of-day-refresh-scheduled", "0 16,17 * * *"],
 ]);
 
 export function validateScheduledFunctionsManifest(manifest) {
@@ -43,6 +44,12 @@ export function validateScheduledFunctionsManifest(manifest) {
         `SCHEDULED_JOB_CADENCE_MISMATCH: ${name} packaged schedule is ${JSON.stringify(packagedFunction.schedule ?? null)}; expected ${JSON.stringify(expectedSchedule)}`,
       );
     }
+  }
+
+  if (packagedFunctions.get("star-of-day-refresh-background")?.invocationMode !== "background") {
+    errors.push(
+      "DAILY_DROP_BACKGROUND_MODE_MISSING: star-of-day-refresh-background must be packaged in background mode, not as a synchronous function",
+    );
   }
 
   if (errors.length > 0) {
