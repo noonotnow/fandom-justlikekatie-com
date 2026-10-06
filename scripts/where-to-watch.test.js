@@ -31,7 +31,8 @@ const fixture = () => ({
 
 test("source-reviewed page is registered once; unreviewed updates fail publication", () => {
   const record = loadWatchRecord();
-  const gate = evaluateWatchRecord(record, now);
+  const reviewTime = new Date(record.checkedAt);
+  const gate = evaluateWatchRecord(record, reviewTime);
   assert.equal(gate.publishable, true, gate.issues.join("; "));
   assert.equal(PUBLIC_STATIC_ROUTES.filter(({ path }) => path === WATCH_ROUTE).length, 1);
   assert.equal(publicStaticNetlifyRedirects().filter(({ from }) => from === WATCH_ROUTE.slice(0, -1)).length, 1);
@@ -41,8 +42,8 @@ test("source-reviewed page is registered once; unreviewed updates fail publicati
   }
   const unreviewed = structuredClone(record);
   unreviewed.rightsReviewed = false;
-  assert.equal(evaluateWatchRecord(unreviewed, now).publishable, false);
-  assert.throws(() => renderWatchPage(unreviewed, now), /publication blocked/);
+  assert.equal(evaluateWatchRecord(unreviewed, reviewTime).publishable, false);
+  assert.throws(() => renderWatchPage(unreviewed, reviewTime), /publication blocked/);
 });
 
 test("claims require current, complete, non-contradictory provider evidence", () => {
@@ -119,7 +120,8 @@ test("approved document has one safe canonical, source links and a narrow-screen
 
 test("published US observations do not imply another country or a finale date", () => {
   const record = loadWatchRecord();
-  const html = renderWatchPage(record, now);
+  const reviewTime = new Date(record.checkedAt);
+  const html = renderWatchPage(record, reviewTime);
   assert.match(html, /Listing only:/);
   assert.match(html, /We have not verified access for the UK, Australia, individual European countries or mainland China/);
   for (const region of ["United Kingdom", "Australia", "Europe (country by country)", "Mainland China"]) {
@@ -128,9 +130,15 @@ test("published US observations do not imply another country or a finale date", 
   assert.match(html, /href="https:\/\/v\.qq\.com\/x\/cover\/mzc00200803dr6b\.html"/);
   assert.match(html, /country-specific playback and subtitles have not been verified/);
   assert.match(html, /original-platform, standard, VIP\/express and English-subtitled regional finale times are unknown/);
-  assert.equal(releaseAdvisory(record, now).broadlyReleased, false);
-  assert.equal(releaseAdvisory(record, now).evergreenSafe, false);
-  assert.match(releaseAdvisory(record, now, { targetEpisode: 37 }).behind.join("; "), /Viki · Viki Pass episodes \(US\): through Episode 33/);
+  assert.equal(releaseAdvisory(record, reviewTime).broadlyReleased, false);
+  assert.equal(releaseAdvisory(record, reviewTime).evergreenSafe, false);
+  const pass = record.platforms.find((item) => item.name === "Viki · Viki Pass episodes");
+  assert.ok(pass?.episodes?.through > 0);
+  assert.ok(releaseAdvisory(record, reviewTime, { targetEpisode: pass.episodes.through + 1 }).behind
+    .includes(`Viki · Viki Pass episodes (US): through Episode ${pass.episodes.through}`));
+  assert.equal(releaseAdvisory(record, reviewTime, { targetEpisode: pass.episodes.through }).behind
+    .some((item) => item.startsWith("Viki · Viki Pass episodes")), false);
+  assert.equal(evaluateWatchRecord(record, new Date(reviewTime.getTime() + 8 * 86400000)).publishable, false);
   assert.equal(existsSync(WATCH_PAGE), true);
   assert.equal(readFileSync(WATCH_PAGE, "utf8"), html);
 });
