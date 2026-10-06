@@ -7,6 +7,7 @@ import {
   PUBLIC_ROUTE_PATHS,
   publicRouteUrl,
   publicStaticPreviewRoutes,
+  PUBLIC_EDITORIAL_REDIRECTS,
 } from './shared/public-routes.js'
 import { localizedPath, stripLocalePath } from './shared/locale.js'
 
@@ -97,6 +98,7 @@ export function injectAppRouteMetadata(html: string, requestPath: string) {
     .replace(/<meta name="twitter:image" content="[^"]*" \/>/, `<meta name="twitter:image" content="${socialImage}" />`)
 }
 const editorialRouteFiles = new Map(publicStaticPreviewRoutes())
+const editorialRedirects = new Map(PUBLIC_EDITORIAL_REDIRECTS.map(({ from, to }) => [from, to]))
 
 // https://vite.dev/config/
 export default defineConfig({
@@ -116,9 +118,16 @@ export default defineConfig({
     {
       name: 'fandom-editorial-clean-routes',
       configureServer(server) {
-        server.middlewares.use((request, _response, next) => {
+        server.middlewares.use((request, response, next) => {
           if (!request.url) return next()
           const url = new URL(request.url, 'http://fandom.local')
+          const redirect = editorialRedirects.get(url.pathname)
+          if (redirect) {
+            response.statusCode = 301
+            response.setHeader('Location', `${redirect}${url.search}`)
+            response.end()
+            return
+          }
           const localizedRequestPath = url.pathname.replace(/\/+$/, '') || '/'
           const normalizedPath = stripLocalePath(localizedRequestPath).replace(/\/+$/, '') || '/'
           const publicFile = editorialRouteFiles.get(localizedRequestPath)

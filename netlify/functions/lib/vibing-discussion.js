@@ -20,13 +20,6 @@ export const ACTIVE_DISCUSSIONS = Object.freeze({
     safeThroughEpisode: 25,
     question: "Can Jinqi's commitment count as care when the decree takes Lanxiang's choice away?",
   }),
-  "against-the-current-episodes-26-30": Object.freeze({
-    id: "against-the-current-episodes-26-30",
-    seriesId: "against-the-current",
-    articlePath: "/c-drama-fandom/vibing-now/against-the-current-episodes-26-30/",
-    safeThroughEpisode: 30,
-    question: "Can Jinqi learn to be chosen without deciding for Lanxiang first?",
-  }),
 });
 const WINDOW = 15 * 60 * 1000;
 const MAX_RECORDS = 2000;

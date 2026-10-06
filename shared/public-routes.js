@@ -85,7 +85,9 @@ export const PUBLIC_STATIC_ROUTES = Object.freeze([
   { ...editorial("/c-drama-fandom/vibing-now/", "0.9"), changefreq: "weekly" },
   { ...editorial("/c-drama-fandom/vibing-now/against-the-current-episode-21/", "0.9"), changefreq: "weekly" },
   { ...editorial("/c-drama-fandom/vibing-now/against-the-current-episodes-22-25/", "0.9"), changefreq: "weekly" },
-  { ...editorial("/c-drama-fandom/vibing-now/against-the-current-episodes-26-30/", "0.9"), changefreq: "weekly" },
+  { ...editorial("/c-drama-fandom/vibing-now/against-the-current-episodes-26-29/", "0.9"), changefreq: "weekly" },
+  { ...editorial("/c-drama-fandom/vibing-now/against-the-current-episodes-30-31/", "0.9"), changefreq: "weekly" },
+  { ...editorial("/c-drama-fandom/vibing-now/against-the-current-episodes-32-33/", "0.9"), changefreq: "weekly" },
   { ...editorial("/c-drama-fandom/where-to-watch/against-the-current/", "0.8"), changefreq: "weekly" },
   { ...editorial("/c-drama-fandom/soundtrack/against-the-current/", "0.8"), changefreq: "weekly" },
   editorial("/c-dramas/love-between-fairy-and-devil/", "0.9"),
@@ -179,6 +181,15 @@ export function vibingNowArticleRoutes(routes = PUBLIC_STATIC_ROUTES) {
   const shelf = "/c-drama-fandom/vibing-now/";
   return routes.filter(({ path }) => path.startsWith(shelf) && path !== shelf);
 }
+
+// Retired URLs are redirects, never additional public article/sitemap records.
+export const PUBLIC_EDITORIAL_REDIRECTS = Object.freeze([
+  "/c-drama-fandom/vibing-now/against-the-current-episodes-26-30",
+  "/c-drama-fandom/vibing-now/against-the-current-episodes-26-30/",
+  "/c-drama-fandom/vibing-now/against-the-current-episodes-26-30/index.html",
+].map(from => Object.freeze({
+  from, to: "/c-drama-fandom/vibing-now/against-the-current-episodes-26-29/", status: 301,
+})));
 
 export function publicStaticPreviewRoutes(routes = [
   ...PUBLIC_STATIC_ROUTES,

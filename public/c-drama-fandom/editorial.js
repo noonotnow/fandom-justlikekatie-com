@@ -19,6 +19,9 @@
     "drama-against-the-current-episode-21",
     "drama-against-the-current-episodes-22-25",
     "drama-against-the-current-episodes-26-30",
+    "drama-against-the-current-episodes-26-29",
+    "drama-against-the-current-episodes-30-31",
+    "drama-against-the-current-episodes-32-33",
     "drama-lbfad",
     "drama-lbfad-cast",
     "drama-lbfad-relationships",
@@ -157,7 +160,10 @@
     });
   }
   if (sourcePage === "vibing-now-index") {
-    const installments = new Set(["episode_21", "episodes_22_25", "episodes_26_30"]);
+    const installments = new Set([
+      "episode_21", "episodes_22_25", "episodes_26_30",
+      "episodes_26_29", "episodes_30_31", "episodes_32_33",
+    ]);
     document.querySelectorAll("[data-series-installment]").forEach((link) => {
       link.addEventListener("click", () => {
         const installment = link.dataset.seriesInstallment;
