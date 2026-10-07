@@ -1,7 +1,8 @@
 import assert from "node:assert/strict";
 import { pathToFileURL } from "node:url";
+import { isPublishedThumbnailUrl } from "./check-archive-records.js";
 
-function isValidOperatorEmail(email) {
+export function isValidOperatorEmail(email) {
   if (email.length > 254) return false;
   const match = /^([a-z0-9!#$%&'*+/=?^_`{|}~.-]+)@([a-z0-9-]+(?:\.[a-z0-9-]+)+)$/i.exec(email);
   if (!match) return false;
@@ -12,6 +13,29 @@ function isValidOperatorEmail(email) {
 }
 
 export async function notifyArchiveRecordsFailure(env = process.env, fetchImpl = fetch) {
+  return sendArchiveOperatorAlert(env, fetchImpl, {
+    subject: "[Fandom Vibes] Production Archive record verification failed",
+    lines: ["The post-release Archive record check failed after bounded retries. Review the workflow run for the public route failures."],
+  });
+}
+
+export async function notifyArchiveThumbnailFailure(env = process.env, fetchImpl = fetch) {
+  if (env.ARCHIVE_THUMBNAIL_AUDIT_STATUS === "success") return;
+  assert.equal(env.ARCHIVE_THUMBNAIL_AUDIT_STATUS, "failure",
+    "Cannot notify operators without a failed thumbnail integrity audit");
+  const url = env.ARCHIVE_THUMBNAIL_URL;
+  assert.ok(!url || isPublishedThumbnailUrl(url), "Cannot notify operators with a non-public thumbnail URL");
+  return sendArchiveOperatorAlert(env, fetchImpl, {
+    subject: "[Fandom Vibes] Weekly Archive thumbnail integrity failed",
+    lines: [
+      "The weekly full-byte integrity audit of published Archive thumbnails failed.",
+      url ? `Affected published thumbnail: ${url}` : "No affected thumbnail was identified; the audit failed before image verification.",
+      "Review the failed audit before repairing or replacing the published asset. This is not a release-time Archive link alert.",
+    ],
+  });
+}
+
+async function sendArchiveOperatorAlert(env, fetchImpl, { subject, lines }) {
   const configured = env.FANDOM_ADMIN_EMAILS?.trim()
     ? env.FANDOM_ADMIN_EMAILS.split(",").map(email => email.trim())
     : [];
@@ -40,9 +64,9 @@ export async function notifyArchiveRecordsFailure(env = process.env, fetchImpl =
     body: JSON.stringify({
       from: env.FANDOM_AUTH_FROM_EMAIL,
       to: recipients,
-      subject: "[Fandom Vibes] Production Archive record verification failed",
+       subject,
       text: [
-        "The post-release Archive record check failed after bounded retries. Review the workflow run for the public route failures.",
+         ...lines,
         "",
         `Repository: ${env.GITHUB_REPOSITORY}`,
         `Run: ${env.GITHUB_RUN_ID} (attempt ${env.GITHUB_RUN_ATTEMPT ?? "1"})`,
@@ -56,5 +80,7 @@ export async function notifyArchiveRecordsFailure(env = process.env, fetchImpl =
 }
 
 if (process.argv[1] && import.meta.url === pathToFileURL(process.argv[1]).href) {
-  await notifyArchiveRecordsFailure();
+  await (process.argv.includes("--thumbnail-integrity")
+    ? notifyArchiveThumbnailFailure()
+    : notifyArchiveRecordsFailure());
 }

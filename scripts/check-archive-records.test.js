@@ -1,6 +1,11 @@
 import assert from "node:assert/strict";
+import { createHash } from "node:crypto";
+import { mkdtemp, readFile, rm } from "node:fs/promises";
+import { tmpdir } from "node:os";
+import { join } from "node:path";
 import test from "node:test";
-import { checkArchiveRecords } from "./check-archive-records.js";
+import { auditArchiveThumbnails, checkArchiveRecords, runArchiveThumbnailAudit, THUMBNAIL_AUDIT_MAX_BYTES } from "./check-archive-records.js";
+import { notifyArchiveThumbnailFailure } from "./notify-archive-records-failure.js";
 
 const origin = "https://fandom.justlikekatie.com";
 const actor = "/vibe-atlas/actors/example/";
@@ -263,6 +268,176 @@ test("cancels the image response after reading only its bounded signature", asyn
   assert.equal(cancelled, 18);
   // Streams can prefetch a chunk, but must not consume the rest of an image.
   assert.ok(extraReads <= 18);
+});
+
+function thumbnailAuditFixture({ damage = false, oversized = false, malformed = false, sharded = false, wrongShard = false } = {}) {
+  const bytes = images.map((_, index) => new Uint8Array([...jpeg, index, 1, 2, 3, 4]));
+  const urls = bytes.map((body, index) => {
+    const digest = createHash("sha256").update(body).digest("hex");
+    const shards = sharded && index === 8 ? `${wrongShard ? (digest.startsWith("00") ? "ff" : "00") : digest.slice(0, 2)}/${digest.slice(2, 4)}/` : "";
+    return `https://images.xhs.justlikekatie.com/images/sha256/${shards}${malformed && index === 8 ? "not-a-digest" : digest}.jpg`;
+  });
+  const editionHtml = html(edition).replaceAll(/https:\/\/images\.xhs\.justlikekatie\.com\/images\/sha256\/card-(\d+)\.jpg/g,
+    (_, index) => urls[Number(index)]);
+  const base = fixture({ editionHtml });
+  const calls = base.calls;
+  const fetchImpl = async (url, options) => {
+    if (!urls.includes(url)) return base.fetchImpl(url, options);
+    calls.push({ url, options });
+    const index = urls.indexOf(url);
+    const body = index === 8 && damage
+      ? new Uint8Array([...bytes[index].slice(0, 16), 9, 8, 7, 6, 5])
+      : bytes[index];
+    return new Response(body, { headers: {
+      "Content-Type": "image/jpeg",
+      ...(oversized && index === 8 ? { "Content-Length": String(THUMBNAIL_AUDIT_MAX_BYTES + 1) } : {}),
+    } });
+  };
+  return { fetchImpl, calls, urls };
+}
+
+test("weekly thumbnail audit hashes complete published previews without downloading full-size images", async () => {
+  const { fetchImpl, calls, urls } = thumbnailAuditFixture();
+  assert.deepEqual(await auditArchiveThumbnails(fetchImpl, origin, 0), {
+    publishedThumbnails: 9, auditedThumbnails: 9, maxBytesPerThumbnail: THUMBNAIL_AUDIT_MAX_BYTES,
+  });
+  assert.deepEqual(calls.filter(call => urls.includes(call.url)).map(call => call.url).sort(), [...urls].sort());
+  assert.ok(!calls.some(call => fullSize.includes(call.url)));
+});
+
+test("weekly thumbnail audit catches damaged or truncated bodies with intact JPEG signatures", async () => {
+  const { fetchImpl, urls } = thumbnailAuditFixture({ damage: true });
+  await assert.rejects(auditArchiveThumbnails(fetchImpl, origin, 0),
+    error => error.message.includes("SHA-256 mismatch") && error.message.includes(urls[8]));
+});
+
+test("failed audit passes the exact public thumbnail to the alert, then recovery stays silent", async () => {
+  const dir = await mkdtemp(join(tmpdir(), "thumbnail-alert-"));
+  try {
+    const outputPath = join(dir, "output");
+    const damaged = thumbnailAuditFixture({ damage: true });
+    await assert.rejects(runArchiveThumbnailAudit({
+      env: { GITHUB_OUTPUT: outputPath }, fetchImpl: damaged.fetchImpl, origin, now: 0,
+    }), /SHA-256 mismatch/);
+    const outputs = async () => Object.fromEntries(
+      (await readFile(outputPath, "utf8")).trimEnd().split("\n").map(line => {
+        const index = line.indexOf("=");
+        return [line.slice(0, index), line.slice(index + 1)];
+      }),
+    );
+    let sends = 0;
+    const notify = async () => {
+      const result = await outputs();
+      await notifyArchiveThumbnailFailure({
+        RESEND_API_KEY: "test-key", FANDOM_AUTH_FROM_EMAIL: "alerts@example.test",
+        FANDOM_ADMIN_EMAILS: "editor@example.test", GITHUB_REPOSITORY: "owner/repo",
+        GITHUB_RUN_ID: "123", GITHUB_SERVER_URL: "https://github.com",
+        ARCHIVE_THUMBNAIL_AUDIT_STATUS: result.status, ARCHIVE_THUMBNAIL_URL: result.thumbnail_url,
+      }, async (_, init) => {
+        sends++;
+        const message = JSON.parse(init.body);
+        assert.ok(message.text.includes(damaged.urls[8]));
+        assert.ok(message.text.includes("https://github.com/owner/repo/actions/runs/123"));
+        return new Response(null, { status: 200 });
+      });
+    };
+    assert.deepEqual(await outputs(), { status: "failure", thumbnail_url: damaged.urls[8] });
+    await notify();
+    await runArchiveThumbnailAudit({
+      env: { GITHUB_OUTPUT: outputPath }, fetchImpl: thumbnailAuditFixture().fetchImpl, origin, now: 0,
+    });
+    assert.deepEqual(await outputs(), { status: "success", thumbnail_url: "" });
+    await notify();
+    assert.equal(sends, 1, "Successful recovery never sends mail or reuses a stale failing URL");
+  } finally {
+    await rm(dir, { recursive: true, force: true });
+  }
+});
+
+test("network and response-body failures retain the exact affected thumbnail", async () => {
+  for (const fail of [
+    async () => { throw new TypeError("fetch failed"); },
+    async () => new Response(new ReadableStream({
+      start(controller) { controller.error(new Error("read failed")); },
+    }), { headers: { "Content-Type": "image/jpeg" } }),
+  ]) {
+    const fixture = thumbnailAuditFixture();
+    await assert.rejects(auditArchiveThumbnails(
+      (url, options) => url === fixture.urls[8] ? fail() : fixture.fetchImpl(url, options), origin, 0,
+    ), error => error.thumbnailUrl === fixture.urls[8]);
+  }
+});
+
+test("inventory failure emits a failed audit without inventing an affected thumbnail", async () => {
+  const dir = await mkdtemp(join(tmpdir(), "thumbnail-prerequisite-"));
+  try {
+    const outputPath = join(dir, "output");
+    await assert.rejects(runArchiveThumbnailAudit({
+      env: { GITHUB_OUTPUT: outputPath }, origin,
+      fetchImpl: async () => { throw new Error("inventory unavailable"); },
+    }), /inventory unavailable/);
+    assert.equal(await readFile(outputPath, "utf8"), "status=failure\nthumbnail_url=\n");
+  } finally {
+    await rm(dir, { recursive: true, force: true });
+  }
+});
+
+test("weekly audit accepts digest-matching XHS shards and rejects mismatched shards", async () => {
+  const valid = thumbnailAuditFixture({ sharded: true });
+  assert.equal((await auditArchiveThumbnails(valid.fetchImpl, origin, 0)).auditedThumbnails, 9);
+  assert.ok(valid.calls.some(call => call.url === valid.urls[8]));
+  const invalid = thumbnailAuditFixture({ sharded: true, wrongShard: true });
+  await assert.rejects(auditArchiveThumbnails(invalid.fetchImpl, origin, 0), /mismatched SHA-256 shards/);
+  assert.ok(!invalid.calls.some(call => invalid.urls.includes(call.url)));
+});
+
+test("weekly thumbnail audit fails on oversized images and non-digest addresses", async () => {
+  await assert.rejects(auditArchiveThumbnails(thumbnailAuditFixture({ oversized: true }).fetchImpl, origin, 0),
+    /exceeds 2097152 byte audit limit/);
+  const { fetchImpl, calls, urls } = thumbnailAuditFixture({ malformed: true });
+  await assert.rejects(auditArchiveThumbnails(fetchImpl, origin, 0), /has no SHA-256 address/);
+  assert.ok(!calls.some(call => urls.includes(call.url)));
+});
+
+test("weekly thumbnail audit rotates a 36-image cap across larger publication inventories", async () => {
+  const bodies = Array.from({ length: 45 }, (_, index) => new Uint8Array([...jpeg, index, 3, 4]));
+  const urls = bodies.map(body =>
+    `https://images.xhs.justlikekatie.com/images/sha256/${createHash("sha256").update(body).digest("hex")}.jpg`);
+  const records = Array.from({ length: 5 }, (_, index) => ({
+    actorPath: `/vibe-atlas/actors/example-${index}/`,
+    editionPath: `/vibe-atlas/editions/2026-09-0${index + 1}/example-${index}/`,
+  }));
+  const downloaded = [];
+  const fetchImpl = async url => {
+    if (url.endsWith("/sitemap.xml")) return new Response(xml(records.flatMap(item => [item.actorPath, item.editionPath])), {
+      headers: { "Content-Type": "application/xml", "X-Public-Sitemap-Inventory": "complete" },
+    });
+    if (url.includes("archive=1")) return Response.json({
+      editions: records.map(item => ({ date: item.editionPath.split("/")[3], publicRecord: item })),
+      page: { hasMore: false },
+    });
+    const imageIndex = urls.indexOf(url);
+    if (imageIndex !== -1) {
+      downloaded.push(url);
+      return new Response(bodies[imageIndex], { headers: { "Content-Type": "image/jpeg" } });
+    }
+    const item = records.find(entry => url.endsWith(entry.editionPath) || url.endsWith(entry.actorPath));
+    assert.ok(item, `Unexpected URL ${url}`);
+    const path = new URL(url).pathname;
+    const grid = path === item.editionPath
+      ? `<section aria-label="Approved preview grid">${urls.slice(records.indexOf(item) * 9, records.indexOf(item) * 9 + 9)
+        .map((src, index) => `<img src="${src}" data-media-delivery-url="https://media.justlikekatie.com/images/sha256/full-${records.indexOf(item)}-${index}.jpg">`).join("")}</section>`
+      : "";
+    return new Response(`<!doctype html><head><meta name="robots" content="index,follow"><link rel="canonical" href="${origin}${path}"></head><body>${grid}</body>`,
+      { headers: { "Content-Type": "text/html" } });
+  };
+  assert.equal((await auditArchiveThumbnails(fetchImpl, origin, 0)).auditedThumbnails, 36);
+  assert.equal(downloaded.length, 36);
+  const first = new Set(downloaded);
+  downloaded.length = 0;
+  assert.equal((await auditArchiveThumbnails(fetchImpl, origin, 7 * 24 * 60 * 60 * 1000)).auditedThumbnails, 36);
+  assert.equal(downloaded.length, 36);
+  assert.equal(new Set([...first, ...downloaded]).size, 45);
 });
 
 test("fails closed when Archive pagination is incomplete or repeated", async () => {
