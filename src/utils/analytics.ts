@@ -1,5 +1,5 @@
 import { PUBLIC_ROUTE_PATHS } from '../../shared/public-routes.js';
-import { vibeAtlasPath } from './fandomRoutes';
+import { isValidVibeAtlasEditionDate, vibeAtlasPath } from './fandomRoutes';
 import type { CreatorPlatform } from './creatorDraft';
 
 type AnalyticsData = Record<string, string | number | boolean>;
@@ -532,6 +532,7 @@ export type ArchiveDiscoveryResult = 'verified' | 'verified_empty' | 'partial';
 export interface ArchiveInventoryOutcome {
   actorId: string;
   phase: 'initial' | 'more';
+  retry?: boolean;
   result: ArchiveDiscoveryResult | 'failed';
   failure?: ArchiveDiscoveryFailure;
   editionCount: number;
@@ -555,19 +556,37 @@ export function trackArchiveActorDirectoryOutcome(
  * The opaque object stays in memory solely to reject stale async completions.
  */
 export function createArchiveActorDiscovery() {
-  let selection: { actorId: string | null; verified: boolean } = { actorId: null, verified: true };
+  type Selection = { actorId: string | null; verified: boolean; edition: boolean; loadedMore: boolean };
+  let selection: Selection = { actorId: null, verified: true, edition: false, loadedMore: false };
   return {
+    selectEdition() {
+      selection = { actorId: null, verified: false, edition: true, loadedMore: false };
+    },
     select(actorId: string, publicActorIds: readonly string[]) {
-      selection = { actorId: null, verified: !actorId };
+      selection = { actorId: null, verified: !actorId, edition: false, loadedMore: false };
       if (!actorId || actorId.length > 80 || !/^[a-z0-9]+(?:-[a-z0-9]+)*$/.test(actorId)
         || !publicActorIds.includes(actorId)) return;
-      selection = { actorId, verified: false };
+      selection = { actorId, verified: false, edition: false, loadedMore: false };
       trackEvent('archive_actor_selected', { actor_id: actorId });
     },
     inventory(outcome: ArchiveInventoryOutcome) {
-      if (!selection.actorId || selection.actorId !== outcome.actorId) return;
-      if (outcome.phase === 'initial') selection.verified = false;
+      if ((selection.actorId || '') !== outcome.actorId) return;
+      if (outcome.phase === 'initial') {
+        selection = { ...selection, verified: false, loadedMore: false };
+      }
       if (outcome.result !== 'failed' && outcome.editionCount > 0) selection.verified = true;
+      if (outcome.phase === 'more' && outcome.result !== 'failed' && outcome.editionCount > 0) selection.loadedMore = true;
+      trackEvent('archive_inventory_outcome', {
+        discovery_source: selection.edition ? 'edition_record'
+          : selection.actorId ? 'published_actor_directory' : 'unfiltered_archive',
+        phase: outcome.phase,
+        retry: outcome.retry === true,
+        result: outcome.result,
+        edition_count: outcome.editionCount,
+        has_more: outcome.hasMore,
+        ...(outcome.failure ? { failure: outcome.failure } : {}),
+      });
+      if (!selection.actorId) return;
       trackEvent(outcome.result === 'failed' ? 'archive_actor_page_failed' : 'archive_actor_page_verified', {
         actor_id: selection.actorId,
         phase: outcome.phase,
@@ -582,17 +601,50 @@ export function createArchiveActorDiscovery() {
     },
     complete(context: ReturnType<typeof this.capture>, completion: 'saved' | 'exported') {
       if (!context || context !== selection || !context.verified) return;
+      const pagination: AnalyticsData = context.loadedMore ? { loaded_more: true } : {};
       if (!context.actorId) {
-        trackEvent('archive_grid_completed', { discovery_source: 'unfiltered_archive', completion });
+        trackEvent('archive_grid_completed', {
+          discovery_source: context.edition ? 'edition_record' : 'unfiltered_archive', completion, ...pagination,
+        });
         return;
       }
       trackEvent('archive_grid_completed', {
         actor_id: context.actorId,
         discovery_source: 'published_actor_directory',
         completion,
+        ...pagination,
       });
     },
   };
+}
+
+export function trackArchiveImageEditionOpened(
+  source: 'archive' | 'edition',
+  placement: 'picker' | 'slot' | 'alternate',
+): void {
+  trackEvent('archive_image_edition_opened', { source, placement });
+}
+
+export type ArchiveCardAuthorizationOutcome = 'allowed' | 'sign_in' | 'upgrade' | 'retry';
+export type ArchiveCardRetryCategory = 'precondition' | 'transport' | 'billing_delay' | 'http' | 'invalid_response';
+
+export function trackArchiveCardAuthorization(
+  outcome: ArchiveCardAuthorizationOutcome,
+  editionDate: string,
+  retryCategory?: ArchiveCardRetryCategory,
+): void {
+  trackEvent('archive_card_authorization', {
+    outcome,
+    ...(isValidVibeAtlasEditionDate(editionDate) ? { edition_date: editionDate } : {}),
+    ...(retryCategory ? { retry_category: retryCategory } : {}),
+  });
+}
+
+export function trackArchiveCardSaveOutcome(outcome: 'saved' | 'persistence_failed', editionDate: string): void {
+  trackEvent('archive_card_save_outcome', {
+    outcome,
+    ...(isValidVibeAtlasEditionDate(editionDate) ? { edition_date: editionDate } : {}),
+  });
 }
 
 export function trackArchiveRebuildLaunched(

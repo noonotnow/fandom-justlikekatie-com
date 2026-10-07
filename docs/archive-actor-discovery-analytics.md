@@ -12,11 +12,50 @@ record-link reviews; do not merge their funnels or duplicate their events.
 | Selected actor's filtered page passes edition/link and actor checks | `archive_actor_page_verified` |
 | Selected actor's filtered page fails | `archive_actor_page_failed` |
 | Complete Archive grid is successfully saved locally or exported | `archive_grid_completed` |
+| Public inventory request settles (unfiltered, actor-filtered, or dated edition) | `archive_inventory_outcome` |
+| Reader follows an individual image's edition link | `archive_image_edition_opened` |
+| Server authorization attempt for an individual card settles | `archive_card_authorization` |
+| An authorized card is saved locally, or local persistence fails | `archive_card_save_outcome` |
+
+## Public creation versus individual acquisition
+
+- `archive_inventory_outcome` covers all public Builder sources. Its
+  `discovery_source` is `unfiltered_archive`, `published_actor_directory`, or
+  `edition_record`. It includes `phase`, `retry`, `result`, `edition_count`,
+  `has_more`, and a bounded `failure` on errors. This is a request outcome, not
+  an engagement event. Initial requests use `retry=false`; an explicit initial
+  retry or a pagination request following a failed page uses `retry=true`.
+  Changing the actor does not count as a retry. Cancelled requests do not count.
+- `archive_grid_completed` now also covers verified dated-edition Builder
+  inventory with `discovery_source=edition_record`. `loaded_more=true`, when
+  present, means an additional page supplied verified editions in the current
+  selection. It does **not** prove that the completed grid used a later-page
+  image. Failed or empty additional pages do not set this property.
+- `archive_image_edition_opened` includes only `source=archive|edition` and
+  `placement=picker|slot|alternate`. It counts a link activation, not successful
+  destination loading or a subsequent save. No image identity or URL is sent.
+- `archive_card_authorization` uses `outcome=allowed|sign_in|upgrade|retry`.
+  Retry categories are `precondition`, `transport`, `billing_delay`, `http`,
+  and `invalid_response`. A malformed or mismatched successful response is
+  never counted as allowed. Server error text is never collected.
+- `archive_card_save_outcome` uses `outcome=saved|persistence_failed`. `saved`
+  follows durable local Collection persistence, not merely server approval.
+  Account-sync failure does not erase local success. Removal emits neither a
+  new authorization nor an acquisition event. Grid saving/exporting never
+  imports or counts its constituent cards as individual acquisitions.
+- Card events include only a validated public `edition_date` in addition to
+  the enums above. Use Shanghai calendar dates and the three-day save cutoff
+  when analyzing older versus recent editions; do not use an elapsed-hours
+  approximation or interpret client instrumentation as access authority.
+- These are aggregate actions, not a joined reader funnel. In-memory Builder
+  attribution ends on navigation. A link click and a later card save cannot
+  establish that the same reader completed both without additional evidence;
+  this contract deliberately adds no persistent joining identifier.
 
 ## Privacy and interpretation
 
 - Properties contain only public slug-shaped `actor_id` values validated against
-  the current directory, fixed enums, counts, and booleans. No account identifiers,
+  the current directory, validated public edition dates, fixed enums, counts, and booleans. No account identifiers,
   image IDs, URLs, grid IDs, Collection contents, names, search text, error messages,
   or correlation identifiers are sent.
 - Directory events are **diagnostics**, one per completed attempt, including
@@ -42,7 +81,8 @@ record-link reviews; do not merge their funnels or duplicate their events.
   public actor only after at least one filtered page supplies verified editions
   (even if the page is partial). A failed later page does not erase usable earlier
   editions. Initial retries clear earlier proof. `unfiltered_archive` completions
-  have no actor ID. Other Builder sources do not emit this event.
+  have no actor ID. Dated public inventory uses `edition_record` without an
+  actor ID. Collection and Daily Drop Builder sources do not emit this event.
 - Attribution exists only in the current Builder's memory. Choosing another
   actor, clearing the filter, leaving this source, or unmounting invalidates old
   asynchronous completion contexts, even when the same actor is selected again.
@@ -67,7 +107,7 @@ authorization does not establish coverage of the external Netlify site.
 Before starting an observation window:
 
 1. Publish the approved code through the existing Git/Netlify release process.
-   Verify the actual production JavaScript bundle contains all six event names.
+   Verify the actual production JavaScript bundle contains all event names above.
    Record the bundle/deployment and UTC verification date.
 2. Confirm the configured production destination receives these events and
    obtain authorized, date-bounded **aggregate** reporting access. Do not inspect

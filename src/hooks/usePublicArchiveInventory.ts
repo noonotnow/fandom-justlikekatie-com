@@ -262,6 +262,8 @@ export function usePublicArchiveInventory({
   const pageRequest = useRef<Promise<void> | null>(null);
   const generation = useRef(0);
   const [inventoryAttempt, setInventoryAttempt] = useState(0);
+  const moreFailed = useRef(false);
+  const lastInventoryRequest = useRef<{ date?: string; actorId?: string; attempt: number } | null>(null);
   const retryInventory = useCallback(() => setInventoryAttempt(value => value + 1), []);
   const [directoryActors, setDirectoryActors] = useState<PublicArchiveActor[]>([]);
   const [directoryLoading, setDirectoryLoading] = useState(false);
@@ -373,6 +375,10 @@ export function usePublicArchiveInventory({
   useEffect(() => {
     let cancelled = false;
     const requestGeneration = ++generation.current;
+    const previous = lastInventoryRequest.current;
+    const retry = previous?.date === date && previous?.actorId === actorId
+      && previous?.attempt !== inventoryAttempt && inventoryAttempt > 0;
+    lastInventoryRequest.current = { date, actorId, attempt: inventoryAttempt };
     setEditions([]);
     setActors([]);
     setPage({ nextCursor: null, hasMore: false });
@@ -381,6 +387,7 @@ export function usePublicArchiveInventory({
     setLoading(enabled);
     setLoadingMore(false);
     pageRequest.current = null;
+    moreFailed.current = false;
     if (!enabled) return () => { cancelled = true; };
 
     const load = async () => {
@@ -398,7 +405,13 @@ export function usePublicArchiveInventory({
               : body;
           if (!editionValue) throw new Error(`No public Archive edition exists for ${date}.`);
           const edition = normalizePublicArchiveEdition(editionValue, date);
-          if (!cancelled) setEditions([edition]);
+          if (!cancelled) {
+            setEditions([edition]);
+            reportOutcome({
+              actorId: '', phase: 'initial', retry,
+              result: 'verified', editionCount: 1, hasMore: false,
+            });
+          }
           return;
         }
 
@@ -413,8 +426,8 @@ export function usePublicArchiveInventory({
           setActors(response.actors);
           setPage(response.page);
           setNotices(response.notices);
-          if (actorId) reportOutcome({
-            actorId, phase: 'initial',
+          reportOutcome({
+            actorId: actorId || '', phase: 'initial', retry,
             result: response.partial ? 'partial' : response.editions.length ? 'verified' : 'verified_empty',
             editionCount: response.editions.length, hasMore: response.page.hasMore,
           });
@@ -422,8 +435,8 @@ export function usePublicArchiveInventory({
       } catch (caught) {
         if (!cancelled && generation.current === requestGeneration) {
           setError(caught instanceof Error ? caught.message : 'The public Archive inventory could not be loaded.');
-          if (actorId && !date) reportOutcome({
-            actorId, phase: 'initial', result: 'failed', failure: archiveFailure(caught),
+          reportOutcome({
+            actorId: actorId || '', phase: 'initial', retry, result: 'failed', failure: archiveFailure(caught),
             editionCount: 0, hasMore: false,
           });
         }
@@ -441,6 +454,7 @@ export function usePublicArchiveInventory({
   const loadMore = useCallback(async () => {
     if (!enabled || date || !page.hasMore || !page.nextCursor || pageRequest.current) return;
     const cursor = page.nextCursor;
+    const retry = moreFailed.current;
     const requestGeneration = generation.current;
     const query = new URLSearchParams({ cursor });
     if (actorId) query.set('actorId', actorId);
@@ -467,8 +481,9 @@ export function usePublicArchiveInventory({
         });
         setPage(response.page);
         setNotices(current => [...new Set([...current, ...response.notices])]);
-        if (actorId) reportOutcome({
-          actorId, phase: 'more',
+        moreFailed.current = false;
+        reportOutcome({
+          actorId: actorId || '', phase: 'more', retry,
           result: response.partial ? 'partial' : response.editions.length ? 'verified' : 'verified_empty',
           editionCount: response.editions.length, hasMore: response.page.hasMore,
         });
@@ -477,8 +492,9 @@ export function usePublicArchiveInventory({
         setError(caught instanceof Error
           ? caught.message
           : 'The next public Archive page could not be loaded.');
-        if (actorId) reportOutcome({
-          actorId, phase: 'more', result: 'failed', failure: archiveFailure(caught),
+        moreFailed.current = true;
+        reportOutcome({
+          actorId: actorId || '', phase: 'more', retry, result: 'failed', failure: archiveFailure(caught),
           editionCount: 0, hasMore: page.hasMore,
         });
       } finally {

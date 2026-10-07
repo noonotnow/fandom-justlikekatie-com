@@ -182,7 +182,7 @@ test('daily and historical save controls retain the server-issued date and raw i
   assert.match(inlineSource, /<SaveButton[\s\S]*?itemId=\{item\.id\}[\s\S]*?archiveDate=\{item\.archiveDate\}[\s\S]*?archiveImageId=\{item\.archiveImageId\}[\s\S]*?item=\{item\}/);
   assert.match(lightboxSource, /authorizeArchiveImageSave\([\s\S]*?current\.archiveImageId \|\| current\.id,[\s\S]*?current\.gridPosition \?\? currentIndex/);
   assert.match(lightboxSource, /if \(planData\?\.date\) \{\s*await authorizeArchiveImageSave/);
-  assert.match(lightboxSource, /if \(planData\?\.date\) \{\s*await authorizeArchiveImageSave\([\s\S]*?\);\s*\}\s*await dbSaveCard\(cardPayload\)/);
+  assert.match(lightboxSource, /if \(planData\?\.date\) \{\s*await authorizeArchiveImageSave\([\s\S]*?\);\s*archiveAuthorized = true;\s*\}\s*await dbSaveCard\(cardPayload\)/);
   assert.match(lightboxSource, /else if \(isSaved\) \{\s*\/\/ A removal never depends[\s\S]*?await dbRemoveCard\(current\.thumbnail\)/);
   assert.match(saveButtonSource, /archiveSaveFailure === 'sign_in'/);
   assert.match(saveButtonSource, /archiveSaveFailure === 'upgrade'/);

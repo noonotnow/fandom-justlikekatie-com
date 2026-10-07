@@ -7,6 +7,7 @@ import { storage } from '../../utils/storage';
 import { schedulePublicCollectionSync } from '../../utils/publicAccount';
 import { useLocale } from '../../i18n/LocaleProvider';
 import { ArchiveImageSaveError, authorizeArchiveImageSave } from '../../utils/archiveImageSave';
+import { trackArchiveCardSaveOutcome } from '../../utils/analytics';
 import { vibeAtlasPath } from '../../utils/fandomRoutes';
 import { notifySavedItemChanged } from '../../hooks/useSaveItem';
 import styles from './Lightbox.module.css';
@@ -190,6 +191,7 @@ export const Lightbox: React.FC<LightboxProps> = ({
     saveInFlight.current = true;
     setSaveBusy(true);
     setSaveFailure(null);
+    let archiveAuthorized = false;
 
     const cardPayload = {
       imageUrl: current.thumbnail,
@@ -223,8 +225,13 @@ export const Lightbox: React.FC<LightboxProps> = ({
             current.archiveImageId || current.id,
             current.gridPosition ?? currentIndex,
           );
+          archiveAuthorized = true;
         }
         await dbSaveCard(cardPayload);
+        if (archiveAuthorized) {
+          trackArchiveCardSaveOutcome('saved', planData!.date);
+          archiveAuthorized = false;
+        }
         storage.removeItem(current.id);
         setIsLegacySaved(false);
         setIsSaved(true);
@@ -241,14 +248,20 @@ export const Lightbox: React.FC<LightboxProps> = ({
             current.archiveImageId || current.id,
             current.gridPosition ?? currentIndex,
           );
+          archiveAuthorized = true;
         }
         await dbSaveCard(cardPayload);
+        if (archiveAuthorized) {
+          trackArchiveCardSaveOutcome('saved', planData!.date);
+          archiveAuthorized = false;
+        }
         setIsSaved(true);
         if (navigator.vibrate) navigator.vibrate(50);
       }
       notifySavedItemChanged(current.thumbnail);
       schedulePublicCollectionSync();
     } catch (error) {
+      if (archiveAuthorized) trackArchiveCardSaveOutcome('persistence_failed', planData!.date);
       setSaveFailure(error instanceof ArchiveImageSaveError ? error.failure : 'local');
     } finally {
       saveInFlight.current = false;
