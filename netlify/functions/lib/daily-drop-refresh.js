@@ -47,7 +47,15 @@ export function verifyRefreshRequest(body, header, { secret, deployId }, now = D
 export async function claimRefreshJob(store, date, deployId, now = Date.now()) {
   const key = refreshKey(date);
   const existing = await getWithResolvedEtag(store, key, { type: "json" });
-  if (existing?.data?.expiresAt > now) return { claimed: false, job: existing.data };
+  // A queued request bound to an older deploy cannot start on the new
+  // published alias. Recover it with CAS, but never displace a running worker.
+  const recoverUnstartedJob = existing?.data?.status === "queued"
+    && typeof existing.data.deployId === "string"
+    && existing.data.deployId !== deployId
+    && !existing.data.executionId;
+  if (existing?.data?.expiresAt > now && !recoverUnstartedJob) {
+    return { claimed: false, job: existing.data };
+  }
   if (existing && !existing.etag) {
     throw new Error("The Daily Drop refresh lock revision is unavailable.");
   }
@@ -94,14 +102,25 @@ export async function dispatchDailyDropRefresh(req, context, store, date, {
   }
   const secret = refreshSigningSecret(env);
   if (!secret) throw new Error("The Daily Drop background service is not configured.");
-  // Build-only CONTEXT/DEPLOY_ID/DEPLOY_URL are not runtime variables.
-  // Use Netlify's trusted V2 metadata and the immutable deploy permalink,
-  // never caller-supplied Host headers or the mutable production alias.
+  // The permalink can report unpublished runtime metadata even for the
+  // active production revision. Use Netlify's trusted main site address,
+  // never the request Host or build-only URL variables. The signed deployId
+  // below still prevents a newer deployment from executing an older job.
   const siteName = context?.site?.name;
   if (typeof siteName !== "string" || !/^[a-z0-9][a-z0-9-]*$/.test(siteName)) {
     throw new Error("The Daily Drop background service address is unavailable.");
   }
-  const base = `https://${context.deploy.id}--${siteName}.netlify.app`;
+  let base;
+  try {
+    if (typeof context.site.url !== "string") throw new Error("Missing site URL.");
+    base = new URL(context.site.url);
+    if (base.protocol !== "https:" || base.username || base.password
+      || base.pathname !== "/" || base.search || base.hash) {
+      throw new Error("Invalid site URL.");
+    }
+  } catch {
+    throw new Error("The Daily Drop background service address is unavailable.");
+  }
   const claim = await claimRefreshJob(store, date, context.deploy.id, now);
   if (!claim.claimed) return claim.job || { status: "queued" };
   const job = claim.job;

@@ -105,7 +105,7 @@ test("one job wins simultaneous dispatch claims, including adapters without modi
 test("dispatch is signed, deploy-bound, and cannot use the request's hostile host", async () => {
   const store = storeForTests();
   const request = await queuedRequest(store);
-  assert.equal(new URL(request.url).origin, deployUrl);
+  assert.equal(new URL(request.url).origin, productionContext.site.url);
   const body = await request.text();
   const token = request.headers.get(REFRESH_HEADER);
   assert.equal(verifyRefreshRequest(body, token, credentials, timestamp).date, date);
@@ -260,7 +260,7 @@ test("runtime deployment metadata works without build variables and rejects unpu
   const request = await queuedRequest(storeForTests(), {
     env: { ...env, CONTEXT: "deploy-preview", DEPLOY_ID: "wrong", DEPLOY_URL: "https://untrusted.example" },
   });
-  assert.equal(new URL(request.url).origin, deployUrl);
+  assert.equal(new URL(request.url).origin, productionContext.site.url);
   for (const context of [
     {}, { ...productionContext, deploy: { ...productionContext.deploy, published: false } },
   ]) {
@@ -285,4 +285,104 @@ test("dispatch can use the existing session-secret fallback without new configur
   assert.ok(verifyRefreshRequest(await request.text(), request.headers.get(REFRESH_HEADER), {
     secret: "test-only-session-fallback", deployId: productionContext.deploy.id,
   }, timestamp));
+});
+
+test("published-site handoff starts the worker when permalink metadata is unpublished", async () => {
+  for (const siteUrl of ["https://example.netlify.app", "https://published.example.com"]) {
+    const context = { ...productionContext, site: { ...productionContext.site, url: siteUrl } };
+    const store = storeForTests();
+    let generated = 0;
+    const worker = createDailyDropRefreshWorker({
+      env, getStore: () => store, now: () => timestamp,
+      createHandler: () => async () => {
+        generated++;
+        return Response.json({ date, rankedBatches: [{ results: [] }] });
+      },
+    });
+    await dispatchDailyDropRefresh(new Request("https://hostile.example"), context, store, date, {
+      env, now: timestamp,
+      fetchImpl: async (url, init) => {
+        const workerContext = new URL(url).origin === siteUrl ? context : {
+          ...context, deploy: { ...context.deploy, published: false },
+        };
+        await worker(new Request(url, init), workerContext);
+        return new Response(null, { status: 202 });
+      },
+    });
+    assert.equal(generated, 1, "the worker must actually start, not just accept HTTP 202");
+    assert.equal((await store.get(refreshKey(date))).status, "ready");
+  }
+});
+
+test("published-site handoff cannot execute a job after the alias changes deployments", async () => {
+  const store = storeForTests();
+  let generated = 0;
+  const worker = createDailyDropRefreshWorker({
+    env, getStore: () => store, now: () => timestamp,
+    createHandler: () => { generated++; throw new Error("must not generate"); },
+  });
+  await dispatchDailyDropRefresh(new Request("https://hostile.example"), productionContext, store, date, {
+    env, now: timestamp,
+    fetchImpl: async (url, init) => {
+      await worker(new Request(url, init), {
+        ...productionContext, deploy: { ...productionContext.deploy, id: "new-deploy" },
+      });
+      return new Response(null, { status: 202 });
+    },
+  });
+  assert.equal(generated, 0);
+  assert.equal((await store.get(refreshKey(date))).status, "queued");
+  assert.equal((await store.get(refreshKey(date))).expiresAt, timestamp + REFRESH_LEASE_MS);
+});
+
+test("invalid trusted site addresses cannot create a refresh job", async () => {
+  for (const url of [undefined, "not-a-url", "http://example.com", "https://user:pass@example.com",
+    "https://example.com/path", "https://example.com/?host=other", "https://example.com/#other"]) {
+    const store = storeForTests();
+    await assert.rejects(dispatchDailyDropRefresh(new Request("https://hostile.example"), {
+      ...productionContext, site: { ...productionContext.site, url },
+    }, store, date, {
+      env, now: timestamp, fetchImpl: () => { throw new Error("must not dispatch"); },
+    }), /service address is unavailable/);
+    assert.equal(await store.get(refreshKey(date)), null);
+  }
+});
+
+test("a new deployment recovers an old unstarted handoff and rejects its replay", async () => {
+  const store = storeForTests();
+  const oldRequest = await queuedRequest(store);
+  const context = { ...productionContext, deploy: { ...productionContext.deploy, id: "new-deploy" } };
+  let generated = 0;
+  const worker = createDailyDropRefreshWorker({
+    env, getStore: () => store, now: () => timestamp,
+    createHandler: () => async () => {
+      generated++;
+      return Response.json({ date, rankedBatches: [{ results: [] }] });
+    },
+  });
+  await dispatchDailyDropRefresh(new Request("https://hostile.example"), context, store, date, {
+    env, now: timestamp,
+    fetchImpl: async (url, init) => {
+      await worker(new Request(url, init), context);
+      return new Response(null, { status: 202 });
+    },
+  });
+  assert.equal(generated, 1);
+  assert.equal((await store.get(refreshKey(date))).deployId, context.deploy.id);
+  assert.equal((await store.get(refreshKey(date))).status, "ready");
+  await worker(oldRequest, productionContext);
+  assert.equal(generated, 1, "the displaced old job must not execute");
+});
+
+test("a deployment change never steals a running refresh lease", async () => {
+  const store = storeForTests();
+  const old = await claimRefreshJob(store, date, "old-deploy", timestamp);
+  await store.setJSON(refreshKey(date), {
+    ...old.job, status: "running", executionId: "active-worker",
+  });
+  const next = await claimRefreshJob(store, date, "new-deploy", timestamp + 1);
+  assert.equal(next.claimed, false);
+  assert.equal(next.job.jobId, old.job.jobId);
+  assert.equal(next.job.status, "running");
+  assert.equal(next.job.executionId, "active-worker");
 });
