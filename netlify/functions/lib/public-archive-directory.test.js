@@ -9,6 +9,7 @@ import {
   PUBLIC_ARCHIVE_DIRECTORY_KEY,
   PUBLIC_ARCHIVE_DIRECTORY_MAX_AGE_MS,
   PUBLIC_ARCHIVE_DIRECTORY_COALESCE_MS,
+  PUBLIC_ARCHIVE_DIRECTORY_PARTIAL_REUSE_MS,
   readVerifiedActorDirectory,
 } from "./public-archive-directory.js";
 
@@ -48,6 +49,7 @@ function memoryStore() {
 function directory(store, candidateDates, overrides = {}) {
   return readVerifiedActorDirectory({
     store, dates: candidateDates, timestamp, cursor: null, maxScan: 100,
+    clock: () => overrides.timestamp ?? timestamp,
     readManifest: async (_store, date) => ({
       status: "available",
       edition: { actorId: `actor-${Number(date.slice(-2)) % 5}`, actorShortNameEn: `Star ${Number(date.slice(-2)) % 5}` },
@@ -93,7 +95,7 @@ test("10,000 candidates cost a bounded shared pass, then two reads per warm disc
   assert.equal(warm.page.scanned, 0);
   assert.deepEqual(warm.actors, body.actors);
   assert.deepEqual(Object.keys(store.value).sort(), [
-    "actors", "fingerprint", "generation", "kind", "scanned", "startedAt", "unavailableCount",
+    "actors", "fingerprint", "generation", "kind", "nonPublicCount", "retryableOmissionCount", "scanned", "startedAt", "unavailableCount",
   ]);
   assert.ok(store.value.actors.every(actor => Object.keys(actor).sort().join() === "id,name"));
 });
@@ -223,6 +225,217 @@ function gate() {
   const promise = new Promise(done => { resolve = done; });
   return { promise, resolve };
 }
+
+const nonIndexable = async () => ({ status: "not_public", directoryOmission: "valid_non_indexable" });
+
+test("qualifying partial reuse saves 279 manifest reads across ten sequential 31-date requests", async () => {
+  const store = memoryStore();
+  const candidates = dates(31);
+  let reads = 0;
+  const readManifest = async (_store, date) => {
+    reads++;
+    return candidates.indexOf(date) < 2
+      ? { status: "available", edition: { actorId: "public", actorName: "Public" } }
+      : nonIndexable();
+  };
+  const first = await directory(store, candidates, { readManifest });
+  const saved = store.value;
+  assert.equal(first.actorInventory.retryAt, new Date(timestamp + 60_000).toISOString());
+  for (let attempt = 1; attempt < 10; attempt++) {
+    const warm = await directory(store, candidates, { timestamp: timestamp + attempt * 1000, readManifest });
+    assert.equal(warm.page.scanned, 0);
+    assert.equal(warm.page.partial, true);
+    assert.equal(warm.page.hasMore, false);
+    assert.equal(warm.page.nextCursor, null);
+    assert.equal(warm.page.unavailableCount, 29);
+    assert.equal(warm.actorInventory.source, "snapshot");
+    assert.equal(warm.actorInventory.complete, false);
+    assert.equal(warm.actorInventory.freshness, "partial");
+    assert.equal(warm.actorInventory.generation, first.actorInventory.generation);
+    assert.equal(warm.actorInventory.retryAt, first.actorInventory.retryAt);
+    assert.deepEqual(warm.actors, first.actors);
+    assert.deepEqual(store.value, saved, "hits never rewrite or extend evidence");
+  }
+  assert.equal(reads, 31);
+  assert.equal(store.reads.length, 11, "plus ten catalogue reads: 52 total reads including the 31 manifests");
+  assert.equal(saved.nonPublicCount, 29);
+  assert.equal(saved.retryableOmissionCount, 0);
+  assert.deepEqual(Object.keys(saved).sort(), [
+    "actors", "fingerprint", "finishedAt", "generation", "kind", "nonPublicCount",
+    "retryAt", "retryableOmissionCount", "scanned", "startedAt", "unavailableCount",
+  ]);
+});
+
+test("repair and revoked names are discovered at equality, never hidden past the original minute", async () => {
+  const store = memoryStore();
+  const candidates = dates(2);
+  let repaired = false;
+  const readManifest = async (_store, date) => date === candidates[0]
+    ? repaired ? { status: "not_public", directoryOmission: "retryable" }
+      : { status: "available", edition: { actorId: "revoked", actorName: "Old name" } }
+    : repaired ? { status: "available", edition: { actorId: "repaired", actorName: "New name" } }
+      : nonIndexable();
+  const first = await directory(store, candidates, { readManifest });
+  repaired = true;
+  const warm = await directory(store, candidates, { timestamp: timestamp + 59_999, readManifest });
+  assert.deepEqual(warm.actors, first.actors);
+  const retry = await directory(store, candidates, { timestamp: timestamp + 60_000, readManifest });
+  assert.deepEqual(retry.actors, [{ id: "repaired", name: "New name" }]);
+  assert.notEqual(retry.actorInventory.generation, first.actorInventory.generation);
+  assert.equal(retry.actorInventory.retryAt, undefined, "one uncertain omission prevents reuse");
+});
+
+test("partial catalogue changes invalidate before retry, including rollover eligibility", async () => {
+  const store = memoryStore();
+  const first = await directory(store, dates(2), { readManifest: nonIndexable });
+  for (const candidates of [dates(1), dates(2), dates(3)]) {
+    const next = await directory(store, candidates, { timestamp: timestamp + 1, readManifest: nonIndexable });
+    assert.equal(next.actorInventory.source, "verification");
+    assert.notEqual(next.actorInventory.generation, first.actorInventory.generation);
+  }
+});
+
+test("late partial finish gets only the remaining hard lifetime, and expired finish retains no window", async () => {
+  for (const elapsed of [PUBLIC_ARCHIVE_DIRECTORY_MAX_AGE_MS - 10, PUBLIC_ARCHIVE_DIRECTORY_MAX_AGE_MS]) {
+    const store = memoryStore();
+    const first = await directory(store, dates(1), {
+      readManifest: nonIndexable, clock: () => timestamp + elapsed,
+    });
+    assert.equal(first.actorInventory.retryAt, elapsed < PUBLIC_ARCHIVE_DIRECTORY_MAX_AGE_MS
+      ? new Date(timestamp + PUBLIC_ARCHIVE_DIRECTORY_MAX_AGE_MS).toISOString() : undefined);
+    const retry = await directory(store, dates(1), {
+      timestamp: timestamp + PUBLIC_ARCHIVE_DIRECTORY_MAX_AGE_MS, readManifest: nonIndexable,
+    });
+    assert.notEqual(retry.actorInventory.generation, first.actorInventory.generation);
+  }
+});
+
+test("old schema, inconsistent aggregates, invalid timestamps and actor bounds fail closed", async () => {
+  for (const mutate of [
+    value => { value.kind = "verified-public-archive-actors"; },
+    value => { value.nonPublicCount = -1; },
+    value => { value.retryableOmissionCount = 0.5; },
+    value => { value.unavailableCount = 0; },
+    value => { value.scanned = 2; },
+    value => { value.finishedAt = timestamp - 1; },
+    value => { value.finishedAt = timestamp + 2; },
+    value => { value.retryAt += 1; },
+    value => { value.startedAt = NaN; },
+    value => { value.actors = [{ id: "a", name: "A" }, { id: "b", name: "B" }]; },
+  ]) {
+    const store = memoryStore();
+    const first = await directory(store, dates(1), { readManifest: nonIndexable });
+    const malformed = store.value;
+    mutate(malformed);
+    await store.setJSON(PUBLIC_ARCHIVE_DIRECTORY_KEY, malformed, {});
+    const retry = await directory(store, dates(1), { timestamp: timestamp + 1, readManifest: nonIndexable });
+    assert.equal(retry.actorInventory.source, "verification");
+    assert.notEqual(retry.actorInventory.generation, first.actorInventory.generation);
+  }
+});
+
+test("mixed missing, invalid, unexplained and temporary outcomes never create a retained wait", async () => {
+  for (const status of ["missing", "invalid", "invalid_date", "unknown", "not_public", "unavailable"]) {
+    const store = memoryStore();
+    let reads = 0;
+    const readManifest = async (_store, date) => {
+      reads++;
+      return date === dates(2)[0] ? nonIndexable() : { status };
+    };
+    const first = await directory(store, dates(2), { readManifest });
+    const retry = await directory(store, dates(2), { timestamp: timestamp + 1, readManifest });
+    assert.equal(first.actorInventory.retryAt, undefined);
+    assert.equal(retry.actorInventory.retryAt, undefined);
+    assert.equal(reads, 4);
+    if (status === "unavailable") {
+      assert.equal(store.value, null);
+      assert.equal(first.page.unavailable, true);
+    }
+  }
+});
+
+test("qualifying partials honor chunk bounds and restarted cursors", async () => {
+  const store = memoryStore();
+  const candidates = dates(201);
+  const first = await directory(store, candidates, { readManifest: nonIndexable });
+  assert.equal(first.actorInventory.retryAt, undefined);
+  assert.equal(first.page.scanned, 100);
+  const second = await directory(store, candidates, { cursor: first.page.nextCursor, readManifest: nonIndexable });
+  assert.equal(second.actorInventory.retryAt, undefined);
+  const last = await directory(store, candidates, { cursor: second.page.nextCursor, readManifest: nonIndexable });
+  assert.equal(last.page.scanned, 1);
+  assert.ok(last.actorInventory.retryAt);
+  const restart = await directory(store, candidates, {
+    cursor: second.page.nextCursor, timestamp: timestamp + 60_000, readManifest: nonIndexable,
+  });
+  assert.equal(restart.actorInventory.restart, true);
+  assert.equal(restart.actorInventory.verifiedCandidates, 100);
+  assert.notEqual(restart.actorInventory.generation, last.actorInventory.generation);
+});
+
+test("snapshot outages, read-only storage and lost writes cannot certify a partial cooldown", async () => {
+  for (const mode of ["read", "write", "readonly", "cas"]) {
+    const store = memoryStore();
+    if (mode === "read") store.get = async () => { throw new Error("read outage"); };
+    if (mode === "write") store.setJSON = async () => { throw new Error("write outage"); };
+    if (mode === "readonly") store.setJSON = undefined;
+    if (mode === "cas") store.setJSON = async () => ({ modified: false });
+    let reads = 0;
+    const readManifest = async () => { reads++; return nonIndexable(); };
+    const first = await directory(store, dates(1), { readManifest });
+    const retry = await directory(store, dates(1), { timestamp: timestamp + 1, readManifest });
+    assert.equal(first.actorInventory.retryAt, undefined, mode);
+    assert.equal(retry.actorInventory.retryAt, undefined, mode);
+    assert.equal(reads, 2, mode);
+  }
+});
+
+test("a slower qualifying partial CAS loser never advertises its own deadline", async () => {
+  const store = memoryStore();
+  const entered = gate();
+  const release = gate();
+  const originalSet = store.setJSON.bind(store);
+  let hold = true;
+  store.setJSON = async (...args) => {
+    if (hold) { hold = false; entered.resolve(); await release.promise; }
+    return originalSet(...args);
+  };
+  const slow = directory(store, dates(1), { readManifest: nonIndexable });
+  await entered.promise;
+  const winner = await directory(store, dates(1), { refreshScope: {}, timestamp: timestamp + 1 });
+  release.resolve();
+  const loser = await slow;
+  assert.equal(loser.actorInventory.retryAt, undefined);
+  assert.equal(loser.actorInventory.cacheAvailable, false);
+  assert.equal(store.value.generation, winner.actorInventory.generation);
+});
+
+test("joined partial readers crossing retryAt or hard expiry revalidate the winner", async () => {
+  for (const boundary of [PUBLIC_ARCHIVE_DIRECTORY_PARTIAL_REUSE_MS, PUBLIC_ARCHIVE_DIRECTORY_MAX_AGE_MS]) {
+    const store = memoryStore();
+    await directory(store, dates(1), { readManifest: nonIndexable });
+    const originalGet = store.get.bind(store);
+    const entered = gate();
+    const release = gate();
+    let hold = true;
+    store.get = async (...args) => {
+      const value = await originalGet(...args);
+      if (hold) { hold = false; entered.resolve(); await release.promise; }
+      return value;
+    };
+    const ownerTime = timestamp + (boundary === PUBLIC_ARCHIVE_DIRECTORY_MAX_AGE_MS ? 59_999 : boundary - 1);
+    const owner = directory(store, dates(1), { timestamp: ownerTime });
+    await entered.promise;
+    // For hard expiry use a clock crossing while a within-coalescing reader joins.
+    const follower = directory(store, dates(1), {
+      timestamp: ownerTime + 1, clock: () => timestamp + boundary,
+    });
+    release.resolve();
+    assert.equal((await owner).actorInventory.source, "snapshot");
+    assert.equal((await follower).actorInventory.source, "verification");
+    assert.equal((await directory(store, dates(1), { timestamp: timestamp + boundary })).actorInventory.complete, true);
+  }
+});
 
 test("simultaneous cold, progressive and expired readers share one bounded authoritative scan", async () => {
   const store = memoryStore();

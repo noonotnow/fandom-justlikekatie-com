@@ -130,7 +130,7 @@ export function publicArchiveGrid(manifest) {
   return result;
 }
 
-export async function readPublicManifestForDate(store, date) {
+export async function readPublicManifestForDate(store, date, { classifyDirectory = false } = {}) {
   if (!isCalendarDate(date)) return { status: "invalid_date" };
   let manifest;
   try {
@@ -146,7 +146,15 @@ export async function readPublicManifestForDate(store, date) {
   const edition = publicArchiveGrid(manifest);
   return edition
     ? { status: "available", manifest, edition }
-    : { status: "not_public" };
+    : {
+      status: "not_public",
+      ...(classifyDirectory ? {
+        directoryOmission: isGridManifest(manifest)
+          && (!Object.hasOwn(manifest, "publicRecord") || publicRecordForManifest(manifest))
+          && (!isIndexablePublicationManifest(manifest) || !Object.hasOwn(manifest, "publicRecord"))
+          ? "valid_non_indexable" : "retryable",
+      } : {}),
+    };
 }
 
 function actorSummaries(editions) {
@@ -190,9 +198,9 @@ export function createPublicArchiveInventoryHandler({
   createDiagnostics,
 } = {}) {
   async function handleInventory(request, context, diagnostics) {
-    const readManifest = (store, date) => {
+    const readManifest = (store, date, options) => {
       diagnostics?.manifestRead();
-      return readPublicManifestForDate(store, date);
+      return readPublicManifestForDate(store, date, options);
     };
     if (request.method && request.method !== "GET") {
       return jsonResponse(405, { error: "Method not allowed" }, { Allow: "GET" });
@@ -277,7 +285,8 @@ export function createPublicArchiveInventoryHandler({
         dates: catalog.dates.filter(candidate => candidate <= today).reverse(),
         timestamp, cursor,
         maxScan: PUBLIC_ARCHIVE_MAX_SCAN,
-        readManifest,
+        readManifest: (store, date) => readManifest(store, date, { classifyDirectory: true }),
+        clock: () => now().getTime(),
         refreshScope,
         diagnostics,
       });

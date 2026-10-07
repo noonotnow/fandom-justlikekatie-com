@@ -13,7 +13,8 @@ is 100 requests and 10,100 Blob reads per reader (not counting edition browsing)
 
 Now the shared names-only snapshot uses a single reusable Blob key:
 
-- A warm, complete directory needs one catalogue read and one snapshot read.
+- A warm complete directory, or a qualifying partial directory within its fixed
+  reuse window, needs one catalogue read and one snapshot read.
   It returns all verified names in one request, with zero manifest reads.
 - Cold or invalidated discovery verifies at most 100 manifests per request,
   with at most 10 manifest reads in flight. Normal rebuild cost is approximately
@@ -46,10 +47,33 @@ the pass, not a claim that every manifest was read at that exact instant.
 
 Responses expose verification generation, source, freshness, expiry, candidate
 progress, omitted-record count and completeness. Exhausted partial snapshots
-are immediately reverified on a retry. Temporary manifest read failures are
+may be reused for **60 seconds after the pass finishes**, capped by the original
+15-minute evidence expiry, only if every omission is structurally valid but
+non-indexable. Classification uses the same strong-read manifest after the
+unchanged public projection rejects it: valid grid/MEDIA evidence, no malformed
+or mismatched supplied public record, and either a missing public record or
+failure of the existing editorial indexability predicate. This is not evidence
+of editorial intent. Combined `not_public` alone is insufficient.
+
+Missing, invalid, uncertain or mixed omissions retain immediate full rescans.
+The versioned snapshot stores only verified id/name pairs and aggregate counts;
+it never stores per-date rejection details or private records. Old snapshots
+without that reason split cannot qualify. Cache hits never rewrite the snapshot
+or extend either deadline. Lost conditional writes cannot advertise a locally
+proposed retry deadline. Temporary manifest read failures are
 never persisted as omissions. A snapshot outage falls back to bounded manifest
 verification; an unretained prefix cannot certify a complete global directory.
 Exact edition and save/report requests continue to strong-read their manifests.
+
+A retained partial response remains incomplete with an honest partial notice,
+zero new manifest scans, no continuation cursor, original generation/evidence
+times, and optional `actorInventory.retryAt`. The browser validates this future
+time against evidence expiry and a maximum 60-second remaining wait. Its explicit
+retry is disabled until that deadline; a local timer only reenables the button,
+without polling. English and Chinese messages distinguish next verification
+from evidence expiry and say edition access and saves are checked separately.
+Missing/invalid metadata or storage errors impose no wait and do not erase names.
+Discovery repairs are demand-driven: an idle tab does not refresh automatically.
 
 Changing evidence during a paginated pass starts a new generation. The browser
 replaces that pass's names and resets cursor checks instead of merging stale
@@ -59,3 +83,14 @@ responses still cannot replace a newly selected actor's images.
 
 The 15-minute interval is deliberately a bounded discovery-cache delay, not a
 release-approval or acquisition authorization grace period.
+The same applies to the one-minute partial window. Valid non-indexable daily
+boards remain independently saveable under the existing identity, Shanghai-age
+and membership checks, while invalid edition/save evidence still fails closed.
+Catalogue changes bypass reuse on the next request. Joined in-instance readers
+must respect both original deadlines; there is no distributed lease.
+
+Synthetic qualifying 31-date coverage verifies 31 manifest reads and 52 total
+reads for ten sequential discoveries (including catalogue reads), versus the
+unclassified immediate-retry baseline of 310 and 340. These are fixture savings,
+not production billing or latency measurements. Deployment and production
+observation remain separately authorized.

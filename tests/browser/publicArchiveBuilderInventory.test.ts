@@ -374,6 +374,110 @@ async function readActiveAccountId(page: Page): Promise<string | null> {
 }
 
 for (const engine of BROWSER_ENGINES) {
+  test(`partial directory retry is localized, demand-driven and preserves selection in ${engine.name}`, { timeout: 150_000 }, async () => {
+    const { server, origin } = await startViteTestServer();
+    const { browser, page } = await launchPageForServer(server, engine.type);
+    let requests = 0;
+    let retryRequested = false;
+    const retryGate = createPromiseGate();
+    const start = Date.now();
+    try {
+      // pauseAt advances the installed clock; leave room for elapsed setup time.
+      await page.clock.install({ time: new Date(start - 60_000) });
+      await page.clock.pauseAt(new Date(start));
+      await installPublicArchiveRoutes(page);
+      await page.route('**/.netlify/functions/public-archive-inventory*', async route => {
+        const query = new URL(route.request().url()).searchParams;
+        if (query.get('directory') !== 'actors') { await route.fallback(); return; }
+        requests++;
+        if (retryRequested) await retryGate.promise;
+        await route.fulfill({ contentType: 'application/json', body: JSON.stringify({
+          actors: retryRequested ? [ACTORS[1]] : [ACTORS[0], ACTORS[1]],
+          page: { hasMore: false, nextCursor: null, partial: true, unavailableCount: 1 },
+          actorInventory: {
+            scope: 'verified-directory', complete: false, generation: retryRequested ? 'replacement' : 'partial',
+            freshness: 'partial', source: 'snapshot', verifiedCandidates: 31, totalCandidates: 31,
+            verifiedAt: new Date(start).toISOString(), expiresAt: new Date(start + 900_000).toISOString(),
+            ...(retryRequested ? {} : { retryAt: new Date(start + 60_000).toISOString() }),
+          },
+        }) });
+      });
+      await gotoTestPage(page, `${origin}/vibe-atlas?view=builder&source=archive`, { waitUntil: 'domcontentloaded' });
+      const selector = page.getByRole('combobox', { name: 'Browse published actor' });
+      await selector.locator(`option[value="${ACTORS[0].id}"]`).waitFor({ state: 'attached' });
+      await selector.selectOption(ACTORS[1].id);
+      await page.getByText('9 public Archive images match this lens').waitFor();
+      const retry = page.getByRole('button', { name: 'Retry actor directory' });
+      await page.getByText(/The next verification can run at/).waitFor();
+      assert.equal(await retry.isDisabled(), true);
+      assert.equal(await page.getByText('2 verified published actors', { exact: true }).count(), 0);
+      const before = requests;
+      await page.getByLabel('Language').selectOption('zh-CN');
+      await page.getByText(/下次可核验时间/).waitFor();
+      assert.equal(await page.getByRole('button', { name: '重试演员目录' }).isDisabled(), true);
+      await page.getByLabel('语言').selectOption('en');
+      await page.clock.fastForward(59_000);
+      assert.equal(await retry.isDisabled(), true);
+      assert.equal(requests, before, "no polling or language-change refresh");
+      await page.clock.fastForward(2_000);
+      await waitForCondition(async () => retry.isEnabled(), 'local deadline reenables retry');
+      assert.equal(requests, before, "deadline never fetches automatically");
+      retryRequested = true;
+      await retry.click();
+      await waitForCondition(() => requests > before, 'explicit retry should request verification');
+      assert.equal(await selector.inputValue(), ACTORS[1].id);
+      assert.equal(await selector.locator(`option[value="${ACTORS[0].id}"]`).count(), 1,
+        "verified choices remain while retry loads");
+      retryGate.release();
+      await waitForCondition(async () => (await selector.locator(`option[value="${ACTORS[0].id}"]`).count()) === 0,
+        'new generation replaces rather than unions previous names');
+      assert.equal(await selector.inputValue(), ACTORS[1].id);
+      assert.equal(await retry.isEnabled(), true, "unclassified partial remains immediately retryable");
+    } finally {
+      retryGate.release();
+      await closeBrowserAndServer(browser, server);
+    }
+  });
+
+  test(`invalid directory retry metadata never hides verified names or imposes a wait in ${engine.name}`, { timeout: 150_000 }, async () => {
+    const { server, origin } = await startViteTestServer();
+    const { browser, page } = await launchPageForServer(server, engine.type);
+    let retryAt = 'not-a-date';
+    const start = Date.now();
+    try {
+      await page.clock.install({ time: new Date(start - 60_000) });
+      await page.clock.pauseAt(new Date(start));
+      await installPublicArchiveRoutes(page);
+      await page.route('**/.netlify/functions/public-archive-inventory*', async route => {
+        if (new URL(route.request().url()).searchParams.get('directory') !== 'actors') {
+          await route.fallback(); return;
+        }
+        await route.fulfill({ contentType: 'application/json', body: JSON.stringify({
+          actors: [ACTORS[0]], page: { hasMore: false, nextCursor: null, unavailableCount: 1 },
+          actorInventory: {
+            scope: 'verified-directory', complete: false, freshness: 'partial',
+            verifiedAt: new Date(start).toISOString(), expiresAt: new Date(start + 30_000).toISOString(),
+            retryAt, verifiedCandidates: 1, totalCandidates: 1,
+          },
+        }) });
+      });
+      await gotoTestPage(page, `${origin}/vibe-atlas?view=builder&source=archive`, { waitUntil: 'domcontentloaded' });
+      const retry = page.getByRole('button', { name: 'Retry actor directory' });
+      const selector = page.getByRole('combobox', { name: 'Browse published actor' });
+      for (const value of ['not-a-date', new Date(start - 1).toISOString(),
+        new Date(start + 45_000).toISOString(), new Date(start + 61_000).toISOString()]) {
+        retryAt = value;
+        await retry.waitFor();
+        assert.equal(await retry.isEnabled(), true);
+        await retry.click();
+        await retry.waitFor();
+        assert.equal(await retry.isEnabled(), true);
+        assert.equal(await selector.locator(`option[value="${ACTORS[0].id}"]`).count(), 1);
+        assert.equal(await page.getByText(/The next verification can run at/).count(), 0);
+      }
+    } finally { await closeBrowserAndServer(browser, server); }
+  });
+
   test(`snapshot refresh keeps actor selection usable during discovery and retry in ${engine.name}`, { timeout: 150_000 }, async () => {
     const { server, origin } = await startViteTestServer();
     const { browser, page } = await launchPageForServer(server, engine.type);

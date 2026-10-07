@@ -775,9 +775,13 @@ export const GridBuilder: React.FC<Props> = ({
         )}
       </span>}
       {publicArchive.directoryNotices.map(message => <p role="status" key={message}>{localizedPublicArchiveMessage(message, locale)}</p>)}
+      {publicArchive.directoryFreshness?.retryAt && <p role="status">{tr(
+        `The actor directory is partial. The next verification can run at ${new Date(publicArchive.directoryFreshness.retryAt).toLocaleString('en-US')}. Edition access and saves are checked separately.`,
+        `演员目录尚不完整。下次可核验时间：${new Date(publicArchive.directoryFreshness.retryAt).toLocaleString('zh-CN')}。卡组访问和保存权限会单独核验。`,
+      )}</p>}
       {publicArchive.directoryError && <p role="alert">{localizedPublicArchiveMessage(publicArchive.directoryError, locale)}</p>}
       {!publicArchive.directoryLoading && !publicArchive.directoryComplete && (
-        <button type="button" onClick={publicArchive.retryDirectory}>{tr('Retry actor directory', '重试演员目录')}</button>
+        <button type="button" disabled={publicArchive.directoryRetryWaiting} onClick={publicArchive.retryDirectory}>{tr('Retry actor directory', '重试演员目录')}</button>
       )}
     </section>
   ) : null;
