@@ -48,14 +48,14 @@ test('actor discovery uses only allowlisted public IDs and verifies pages before
     discovery.complete(first, 'saved');
     discovery.complete(discovery.capture(), 'saved');
     assert.deepEqual(events.filter(event => event.name === 'archive_grid_completed'), [
-      { name: 'archive_grid_completed', data: { actor_id: 'public-actor', discovery_source: 'published_actor_directory', completion: 'saved' } },
-      { name: 'archive_grid_completed', data: { actor_id: 'public-actor', discovery_source: 'published_actor_directory', completion: 'exported' } },
+      { name: 'archive_grid_completed', data: { actor_id: 'public-actor', discovery_source: 'published_actor_directory', completion: 'saved', loaded_more: true } },
+      { name: 'archive_grid_completed', data: { actor_id: 'public-actor', discovery_source: 'published_actor_directory', completion: 'exported', loaded_more: true } },
       { name: 'archive_grid_completed', data: { discovery_source: 'unfiltered_archive', completion: 'saved' } },
     ]);
     assert.deepEqual(events.find(event => event.name === 'archive_actor_page_failed')?.data, {
       actor_id: 'public-actor', phase: 'initial', result: 'failed', edition_count: 0, has_more: true, failure: 'transport',
     });
-    const allowed = new Set(['actor_id', 'phase', 'result', 'edition_count', 'has_more', 'failure', 'discovery_source', 'completion']);
+    const allowed = new Set(['actor_id', 'phase', 'result', 'edition_count', 'has_more', 'failure', 'discovery_source', 'completion', 'loaded_more', 'retry']);
     for (const event of events) {
       assert.ok(event.name.length < 50);
       assert.ok(Object.keys(event.data ?? {}).every(key => allowed.has(key)));
@@ -70,7 +70,7 @@ test('discovery completions adapt successful grid save/export boundaries, not pr
   const exported = source.slice(source.indexOf('async function exportGrid('), source.indexOf('async function shareToDevice()'));
   assert.ok(exported.indexOf('await saveShareCard(') < exported.indexOf("archiveDiscovery.complete(discoveryContext, 'exported')"));
   assert.ok(exported.indexOf("archiveDiscovery.complete(discoveryContext, 'exported')") < exported.indexOf('const preparedProposal = proposal;'));
-  assert.match(exported, /sourceKind === 'archive'\) archiveDiscovery\.complete/);
+  assert.match(exported, /isPublicArchiveSource\) archiveDiscovery\.complete/);
   const shared = source.slice(source.indexOf('async function shareToDevice()'), source.indexOf('const actorDirectory ='));
   assert.ok(shared.indexOf('await navigator.share(shareData);')
     < shared.indexOf("archiveDiscovery.complete(handoffState.discoveryContext, 'exported')"));

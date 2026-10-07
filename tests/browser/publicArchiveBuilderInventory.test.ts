@@ -665,7 +665,7 @@ for (const engine of BROWSER_ENGINES) {
       await page.getByRole('button', { name: 'Save grid' }).click();
       await page.getByText('Grid saved to your collection.', { exact: true }).waitFor();
       assert.deepEqual((await events()).filter(event => event.name === 'archive_grid_completed'), [
-        { name: 'archive_grid_completed', data: { actor_id: olderActor.id, discovery_source: 'published_actor_directory', completion: 'saved' } },
+        { name: 'archive_grid_completed', data: { actor_id: olderActor.id, discovery_source: 'published_actor_directory', completion: 'saved', loaded_more: true } },
       ]);
       await selector.selectOption('');
       await page.getByRole('button', { name: /^Public Archive Alpha 9$/ }).waitFor();
@@ -678,6 +678,9 @@ for (const engine of BROWSER_ENGINES) {
       await page.getByRole('button', { name: 'Retry loading editions' }).click();
       await page.getByText('No verified editions were found for this actor on this page.').waitFor();
       await page.getByText('The safe Archive scan limit was reached; additional editions may be available on later pages.').waitFor();
+      const retryOutcome = (await events()).filter(event => event.name === 'archive_inventory_outcome').at(-1)!;
+      assert.equal(retryOutcome.data.retry, true);
+      assert.equal(retryOutcome.data.result, 'partial');
       await page.getByRole('button', { name: 'Load more editions' }).click();
       await page.getByText('9 public Archive images match this lens').waitFor();
       const filteredEvents = (await events()).filter(event => event.name === 'archive_actor_page_failed'
@@ -700,6 +703,8 @@ for (const engine of BROWSER_ENGINES) {
           || event.name === 'archive_actor_page_verified').at(-1)!;
         assert.equal(last.data.result, mode === 'empty' ? 'verified_empty' : 'failed');
         if (mode !== 'empty') assert.equal(last.data.failure, mode === 'transport' ? 'transport' : 'invalid_response');
+        assert.equal((await events()).filter(event => event.name === 'archive_inventory_outcome').at(-1)?.data.retry, false,
+          'a new actor selection is not an inventory retry');
       }
       assert.equal((await events()).filter(event => event.name === 'archive_grid_completed').length, 1,
         'empty, failed, and invalid actor responses must not produce completions');
@@ -717,6 +722,10 @@ for (const engine of BROWSER_ENGINES) {
     const { browser, page } = await launchPageForServer(server, engine.type);
 
     try {
+      await page.addInitScript(`
+        window.archiveDiscoveryEvents = [];
+        window.umami = { track(name, data) { window.archiveDiscoveryEvents.push({ name, data }); } };
+      `);
       await installPublicArchiveRoutes(page);
       await gotoTestPage(page, `${origin}/vibe-atlas?view=builder&source=archive`, { waitUntil: 'domcontentloaded' });
       await page.getByRole('region', { name: 'Public Archive inventory' }).waitFor();
@@ -780,6 +789,15 @@ for (const engine of BROWSER_ENGINES) {
 
       const editionLink = betaCandidates.getByRole('link', { name: 'Edition record ↗' }).first();
       assert.equal(await editionLink.getAttribute('href'), `/vibe-atlas/editions/${EDITION_DATES[1]}/archive-beta`);
+      // Prevent navigation only in the fixture so the click event can be inspected.
+      await editionLink.evaluate(link => link.addEventListener('click', event => event.preventDefault()));
+      await editionLink.click();
+      const linkEvents = await page.evaluate(() => (window as unknown as {
+        archiveDiscoveryEvents: { name: string; data: Record<string, string | number | boolean> }[];
+      }).archiveDiscoveryEvents.filter(event => event.name === 'archive_image_edition_opened'));
+      assert.deepEqual(linkEvents, [
+        { name: 'archive_image_edition_opened', data: { source: 'archive', placement: 'picker' } },
+      ]);
       await page.getByRole('button', { name: 'Save grid' }).click();
       await page.getByRole('status').getByText('Grid saved to your collection.').waitFor();
 
@@ -787,6 +805,23 @@ for (const engine of BROWSER_ENGINES) {
       await page.getByRole('button', { name: /Export square PNG/ }).click();
       const download = await downloadPromise;
       assert.match(download.suggestedFilename(), /\.png$/i, 'anonymous visitors should be able to export a standard PNG');
+      await page.waitForFunction(() => (window as unknown as {
+        archiveDiscoveryEvents: { name: string; data: { completion?: string } }[];
+      }).archiveDiscoveryEvents.some(event => event.name === 'archive_grid_completed' && event.data.completion === 'exported'));
+      const discoveryEvents = await page.evaluate(() => (window as unknown as {
+        archiveDiscoveryEvents: { name: string; data: Record<string, string | number | boolean> }[];
+      }).archiveDiscoveryEvents);
+      assert.deepEqual(discoveryEvents.filter(event => event.name === 'archive_inventory_outcome').map(event => event.data), [
+        { discovery_source: 'unfiltered_archive', phase: 'initial', retry: false, result: 'verified', edition_count: 2, has_more: true },
+        { discovery_source: 'unfiltered_archive', phase: 'more', retry: false, result: 'verified', edition_count: 2, has_more: true },
+        { discovery_source: 'unfiltered_archive', phase: 'more', retry: false, result: 'verified', edition_count: 2, has_more: false },
+      ]);
+      assert.deepEqual(discoveryEvents.filter(event => event.name === 'archive_grid_completed').map(event => event.data), [
+        { discovery_source: 'unfiltered_archive', completion: 'saved', loaded_more: true },
+        { discovery_source: 'unfiltered_archive', completion: 'exported', loaded_more: true },
+      ]);
+      assert.equal(discoveryEvents.some(event => event.name === 'archive_card_authorization'
+        || event.name === 'archive_card_save_outcome'), false, 'grid creation is not card acquisition');
       await page.getByRole('region', { name: 'Saved grids' }).waitFor();
       assert.equal(
         await page.getByRole('region', { name: 'Saved grids' }).locator('article').count(),
@@ -995,6 +1030,35 @@ for (const engine of BROWSER_ENGINES) {
       await page.reload({ waitUntil: 'domcontentloaded' });
       await page.getByText(`Public edition · ${FIRST_DATE}`).waitFor();
       assert.equal(page.url(), builderUrl);
+    } finally {
+      await closeBrowserAndServer(browser, server);
+    }
+  });
+
+  test(`dated public inventory reports a grid completion separately from card acquisition in ${engine.name}`, { timeout: 120_000 }, async () => {
+    const { server, origin } = await startViteTestServer();
+    const { browser, page } = await launchPageForServer(server, engine.type);
+    try {
+      await page.addInitScript(`
+        window.archiveDiscoveryEvents = [];
+        window.umami = { track(name, data) { window.archiveDiscoveryEvents.push({ name, data }); } };
+      `);
+      await installPublicArchiveRoutes(page);
+      await gotoTestPage(page, `${origin}/vibe-atlas?view=builder&source=edition&date=${FIRST_DATE}`, { waitUntil: 'domcontentloaded' });
+      await page.getByText('9 public Archive images match this lens').waitFor();
+      await page.getByRole('button', { name: 'Propose Compiled 3×3' }).click();
+      await page.getByRole('button', { name: 'Save grid' }).click();
+      await page.getByText('Grid saved to your collection.', { exact: true }).waitFor();
+      const events = await page.evaluate(() => (window as unknown as {
+        archiveDiscoveryEvents: { name: string; data: Record<string, string | number | boolean> }[];
+      }).archiveDiscoveryEvents);
+      assert.deepEqual(events.filter(event => event.name === 'archive_inventory_outcome').map(event => event.data), [
+        { discovery_source: 'edition_record', phase: 'initial', retry: false, result: 'verified', edition_count: 1, has_more: false },
+      ]);
+      assert.deepEqual(events.filter(event => event.name === 'archive_grid_completed').map(event => event.data), [
+        { discovery_source: 'edition_record', completion: 'saved' },
+      ]);
+      assert.equal(events.some(event => event.name.startsWith('archive_card_')), false);
     } finally {
       await closeBrowserAndServer(browser, server);
     }

@@ -1,4 +1,5 @@
 import { isValidVibeAtlasEditionDate } from './fandomRoutes';
+import { trackArchiveCardAuthorization, type ArchiveCardRetryCategory } from './analytics';
 
 export type ArchiveImageSaveFailure = 'sign_in' | 'upgrade' | 'retry';
 
@@ -28,8 +29,12 @@ export async function authorizeArchiveImageSave(
   imageId: string,
   position?: number,
 ): Promise<void> {
+  const deny = (failure: ArchiveImageSaveFailure, category?: ArchiveCardRetryCategory): never => {
+    trackArchiveCardAuthorization(failure, date, category);
+    throw new ArchiveImageSaveError(failure);
+  };
   if (!isValidVibeAtlasEditionDate(date) || !imageId.trim()) {
-    throw new ArchiveImageSaveError('retry');
+    deny('retry', 'precondition');
   }
 
   let response: Response;
@@ -41,7 +46,7 @@ export async function authorizeArchiveImageSave(
       body: JSON.stringify({ date, imageId }),
     });
   } catch {
-    throw new ArchiveImageSaveError('retry');
+    return deny('retry', 'transport');
   }
 
   const body = await response.json().catch(() => null) as {
@@ -53,13 +58,13 @@ export async function authorizeArchiveImageSave(
   } | null;
   const access = body?.access;
   if (access === 'billing_delay') {
-    throw new ArchiveImageSaveError('retry');
+    deny('retry', 'billing_delay');
   }
   if (response.status === 401 || access === 'sign_in') {
-    throw new ArchiveImageSaveError('sign_in');
+    deny('sign_in');
   }
   if (access === 'upgrade') {
-    throw new ArchiveImageSaveError('upgrade');
+    deny('upgrade');
   }
   const canonicalImageId = Number.isInteger(position)
     && position! >= 0
@@ -77,6 +82,9 @@ export async function authorizeArchiveImageSave(
       body.imageId === imageId
       || body.imageId === canonicalImageId
     )
-  ) return;
-  throw new ArchiveImageSaveError('retry');
+  ) {
+    trackArchiveCardAuthorization('allowed', date);
+    return;
+  }
+  deny('retry', response.ok ? 'invalid_response' : 'http');
 }

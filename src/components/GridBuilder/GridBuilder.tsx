@@ -35,6 +35,7 @@ import {
   trackActorSourceNotesOpened,
   trackHistoricalGridSaved,
   createArchiveActorDiscovery,
+  trackArchiveImageEditionOpened,
 } from '../../utils/analytics';
 import {
   applyLens,
@@ -134,9 +135,10 @@ export const GridBuilder: React.FC<Props> = ({
   const [archiveActorId, setArchiveActorId] = useState('');
   const [archiveDiscovery] = useState(createArchiveActorDiscovery);
   useEffect(() => {
-    if (sourceKind !== 'archive') archiveDiscovery.select('', []);
+    if (sourceKind === 'edition') archiveDiscovery.selectEdition();
+    else if (sourceKind !== 'archive') archiveDiscovery.select('', []);
     return () => archiveDiscovery.select('', []);
-  }, [sourceKind, archiveDiscovery]);
+  }, [sourceKind, sourceEditionDate, archiveDiscovery]);
   const publicArchive = usePublicArchiveInventory({
     date: sourceKind === 'edition' ? sourceEditionDate : undefined,
     enabled: isPublicArchiveSource,
@@ -376,6 +378,12 @@ export const GridBuilder: React.FC<Props> = ({
     setPendingNavAfterSave(false);
   }
 
+  function trackImageEditionLink(placement: 'picker' | 'slot' | 'alternate') {
+    if (sourceKind === 'archive' || sourceKind === 'edition') {
+      trackArchiveImageEditionOpened(sourceKind, placement);
+    }
+  }
+
   function chooseArchiveActor(id: string) {
     if (id === archiveActorId) return;
     archiveDiscovery.select(id, publicArchive.directoryActors.map(actor => actor.id));
@@ -541,7 +549,7 @@ export const GridBuilder: React.FC<Props> = ({
   /** Persist the current grid to the local collection without rendering or sharing. */
   async function saveGrid() {
     if (!proposal || !proposalComplete || busy) return;
-    const discoveryContext = sourceKind === 'archive' ? archiveDiscovery.capture() : null;
+    const discoveryContext = isPublicArchiveSource ? archiveDiscovery.capture() : null;
     if (!isGridSaved && !priorSavedGridId && savedCanvasCount >= benefits.canvasAllowance) {
       setNotice(hasCollectorAccess
         ? tr(`Collector includes ${benefits.canvasAllowance} active canvases. Remove one before saving another.`, `Collector 可保存 ${benefits.canvasAllowance} 个有效网格。请先移除一个，再保存其他网格。`)
@@ -566,7 +574,7 @@ export const GridBuilder: React.FC<Props> = ({
         setPriorSavedGridId(null);
       }
       await dbSaveGrid(grid);
-      if (sourceKind === 'archive') archiveDiscovery.complete(discoveryContext, 'saved');
+      if (isPublicArchiveSource) archiveDiscovery.complete(discoveryContext, 'saved');
       if (sourceKind === 'edition' && sourceEditionDate) {
         trackHistoricalGridSaved(sourceEditionDate);
       }
@@ -622,7 +630,7 @@ export const GridBuilder: React.FC<Props> = ({
    */
   async function exportGrid(action: 'rednote' | 'download_raw' | 'full' = 'full') {
     if (!proposal || !proposalComplete || busy) return;
-    const discoveryContext = sourceKind === 'archive' ? archiveDiscovery.capture() : null;
+    const discoveryContext = isPublicArchiveSource ? archiveDiscovery.capture() : null;
     // Synchronous re-entrant guard: setBusy schedules a React update but does
     // not mutate the captured closure value until the next render.  A second
     // call that arrives in the same event-loop tick (double-click) would pass
@@ -703,7 +711,7 @@ export const GridBuilder: React.FC<Props> = ({
             console.warn('Post-export logging failed (export succeeded):', bookkeepingErr);
           }
         }
-        if (sourceKind === 'archive') archiveDiscovery.complete(discoveryContext, 'exported');
+        if (isPublicArchiveSource) archiveDiscovery.complete(discoveryContext, 'exported');
         setNotice(message);
         if (!wasGridSaved) {
           setShowSaveNudge(true);
@@ -1078,7 +1086,7 @@ export const GridBuilder: React.FC<Props> = ({
                     <img src={card.imageUrl} alt="" loading="lazy" />
                     {selectedIndex >= 0 && <span>{selectedIndex + 1}</span>}
                     </button>
-                    {card.archiveSource && <a href={path(card.archiveSource.publicRecord.editionPath)}>{tr('Edition record ↗', '期次记录 ↗')}</a>}
+                    {card.archiveSource && <a href={path(card.archiveSource.publicRecord.editionPath)} onClick={() => trackImageEditionLink('picker')}>{tr('Edition record ↗', '期次记录 ↗')}</a>}
                   </div>
                 );
               })}
@@ -1112,7 +1120,7 @@ export const GridBuilder: React.FC<Props> = ({
                   <img src={card.imageUrl} alt={builderSourceLabel(card.title, locale)} loading="lazy" />
                   <span>{builderSourceLabel(proposal.rationale.slotReasons[index], locale)}</span>
                 </button>
-                {card.archiveSource && <a className={styles.slotEditionLink} href={path(card.archiveSource.publicRecord.editionPath)} aria-label={tr(`Open public edition record for ${card.title}`, `查看${builderSourceLabel(card.title, locale)}的公开期次记录`)}>{tr('Edition ↗', '本期记录 ↗')}</a>}
+                {card.archiveSource && <a className={styles.slotEditionLink} href={path(card.archiveSource.publicRecord.editionPath)} onClick={() => trackImageEditionLink('slot')} aria-label={tr(`Open public edition record for ${card.title}`, `查看${builderSourceLabel(card.title, locale)}的公开期次记录`)}>{tr('Edition ↗', '本期记录 ↗')}</a>}
                 </div>
               ))}
               {builderMode === 'manual' && Array.from({ length: Math.max(0, 9 - proposal.slots.length) }).map((_, index) => (
@@ -1144,7 +1152,7 @@ export const GridBuilder: React.FC<Props> = ({
                       <button type="button" onClick={() => swapInto(swapSlot, card)} title={builderSourceLabel(card.familyLabel, locale)}>
                         <img src={card.imageUrl} alt={builderSourceLabel(card.title, locale)} loading="lazy" />
                       </button>
-                      {card.archiveSource && <a href={path(card.archiveSource.publicRecord.editionPath)}>{tr('Edition record ↗', '期次记录 ↗')}</a>}
+                      {card.archiveSource && <a href={path(card.archiveSource.publicRecord.editionPath)} onClick={() => trackImageEditionLink('alternate')}>{tr('Edition record ↗', '期次记录 ↗')}</a>}
                       </div>
                     ))}
                   </div>

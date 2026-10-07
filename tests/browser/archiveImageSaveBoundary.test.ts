@@ -61,6 +61,10 @@ const ONE_PIXEL_PNG = Buffer.from(
 );
 
 async function seedBrowserState(page: import('@playwright/test').Page, legacyImageId?: string): Promise<void> {
+  await page.addInitScript(`
+    window.archiveSaveEvents = [];
+    window.umami = { track(name, data) { window.archiveSaveEvents.push({ name, data }); } };
+  `);
   await page.addInitScript(imageId => {
     if (imageId) {
       window.localStorage.setItem('vibe-atlas-saved-items', JSON.stringify({ [imageId]: true }));
@@ -311,6 +315,61 @@ for (const engine of BROWSER_ENGINES) {
       await lightbox.getByRole('button', { name: 'Save to collection' }).waitFor();
       assert.equal(await localRecordCount(page, 'cards'), 0, 'the Lightbox must remove its durable record');
       assert.equal(saveRequests.length, 3, 'removing a saved card must not call authorization again');
+      const events = await page.evaluate(() => (window as unknown as {
+        archiveSaveEvents: { name: string; data: Record<string, string | number | boolean> }[];
+      }).archiveSaveEvents.filter(event => event.name.startsWith('archive_card_')));
+      assert.deepEqual(events.map(event => ({ name: event.name, outcome: event.data.outcome })), [
+        { name: 'archive_card_authorization', outcome: 'allowed' },
+        { name: 'archive_card_save_outcome', outcome: 'saved' },
+        { name: 'archive_card_authorization', outcome: 'allowed' },
+        { name: 'archive_card_save_outcome', outcome: 'saved' },
+        { name: 'archive_card_authorization', outcome: 'allowed' },
+        { name: 'archive_card_save_outcome', outcome: 'saved' },
+      ], 'each saving surface reports actual persistence once; removals do not count as acquisitions');
+    } finally {
+      await closeBrowserAndServer(browser, server);
+    }
+  });
+
+  test(`authorized Archive card persistence failures never count as acquisitions in ${engine.name}`, { timeout: 120_000 }, async () => {
+    const recentDate = shanghaiDateOffset(-1);
+    const { server, origin } = await startViteTestServer();
+    const { browser, page } = await launchPageForServer(server, engine.type);
+    try {
+      await seedBrowserState(page);
+      await installEditionRoutes(page);
+      await gotoTestPage(page, `${origin}/vibe-atlas?date=${recentDate}`, { waitUntil: 'domcontentloaded' });
+      await page.getByRole('button', { name: /^Save item$/ }).first().waitFor();
+      await page.evaluate(() => {
+        const original = IDBObjectStore.prototype.put;
+        IDBObjectStore.prototype.put = function (...args: Parameters<typeof original>) {
+          if (this.name === 'cards') throw new Error('fixture local persistence failure');
+          return original.apply(this, args);
+        };
+      });
+      await page.getByRole('button', { name: /^Save item$/ }).first().click();
+      await page.waitForFunction(() => (window as unknown as {
+        archiveSaveEvents: { name: string }[];
+      }).archiveSaveEvents.filter(event => event.name === 'archive_card_save_outcome').length === 1);
+      await page.getByRole('button', { name: /^View Archive boundary card 1/ }).click();
+      const preview = page.getByRole('region', { name: 'Preview of Archive boundary card 1' });
+      await preview.getByRole('button', { name: /^Save item$/ }).click();
+      await page.waitForFunction(() => (window as unknown as {
+        archiveSaveEvents: { name: string }[];
+      }).archiveSaveEvents.filter(event => event.name === 'archive_card_save_outcome').length === 2);
+      await preview.getByRole('button', { name: 'View Full Screen' }).click();
+      await page.getByRole('dialog', { name: /Image viewer/ }).getByRole('button', { name: 'Save to collection' }).click();
+      await page.waitForFunction(() => (window as unknown as {
+        archiveSaveEvents: { name: string }[];
+      }).archiveSaveEvents.filter(event => event.name === 'archive_card_save_outcome').length === 3);
+      const events = await page.evaluate(() => (window as unknown as {
+        archiveSaveEvents: { name: string; data: Record<string, string | number | boolean> }[];
+      }).archiveSaveEvents.filter(event => event.name.startsWith('archive_card_')));
+      assert.deepEqual(events.map(event => event.data.outcome), [
+        'allowed', 'persistence_failed', 'allowed', 'persistence_failed', 'allowed', 'persistence_failed',
+      ]);
+      assert.equal(await localRecordCount(page, 'cards'), 0);
+      assert.equal(JSON.stringify(events).includes('fixture local'), false);
     } finally {
       await closeBrowserAndServer(browser, server);
     }
@@ -337,6 +396,12 @@ for (const engine of BROWSER_ENGINES) {
       assert.deepEqual(await savedBookmarks(page), {}, 'a denied save must not add a legacy bookmark');
       assert.equal(await localRecordCount(page, 'cards'), 0, 'a denied card save must not create a local Collection record');
       assert.equal(await localRecordCount(page, 'grids'), 0, 'a denied card save must not create a grid record');
+      const events = await page.evaluate(() => (window as unknown as {
+        archiveSaveEvents: { name: string; data: Record<string, string | number | boolean> }[];
+      }).archiveSaveEvents.filter(event => event.name.startsWith('archive_card_')));
+      assert.deepEqual(events, [
+        { name: 'archive_card_authorization', data: { outcome: 'sign_in', edition_date: recentDate } },
+      ]);
     } finally {
       await closeBrowserAndServer(browser, server);
     }
@@ -463,6 +528,13 @@ for (const engine of BROWSER_ENGINES) {
       assert.equal(authorizationCalls, 1, 'removing a saved card must not depend on current age or membership');
       assert.deepEqual(saveRequests, [{ date: oldDate, imageId }]);
       assert.deepEqual(await savedBookmarks(page), {}, 'the user should still be able to remove their previously saved card');
+      const events = await page.evaluate(() => (window as unknown as {
+        archiveSaveEvents: { name: string; data: Record<string, string | number | boolean> }[];
+      }).archiveSaveEvents.filter(event => event.name.startsWith('archive_card_')));
+      assert.deepEqual(events, [
+        { name: 'archive_card_authorization', data: { outcome: 'allowed', edition_date: oldDate } },
+        { name: 'archive_card_save_outcome', data: { outcome: 'saved', edition_date: oldDate } },
+      ], 'authorization, actual acquisition, and removal must remain distinct');
     } finally {
       await closeBrowserAndServer(browser, server);
     }

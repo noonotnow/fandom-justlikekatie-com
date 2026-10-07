@@ -10,6 +10,7 @@ import { schedulePublicCollectionSync } from '../utils/publicAccount';
 import { storage } from '../utils/storage';
 import { ArchiveImageSaveError, authorizeArchiveImageSave } from '../utils/archiveImageSave';
 import { translate } from '../i18n/locale';
+import { trackArchiveCardSaveOutcome } from '../utils/analytics';
 
 const SAVE_ITEM_STATE_CHANGE_EVENT = 'fandom-save-item-state-change';
 const saveItemStateVersions = new Map<string, number>();
@@ -96,6 +97,7 @@ export const useSaveItem = (
     const newSavedState = isLegacySaved || !isSaved;
     setIsLoading(true);
     setArchiveSaveFailure(null);
+    let archiveAuthorized = false;
 
     try {
       let nextToastMessage = translate('Saved to Collection!', '已保存到收藏！');
@@ -108,6 +110,7 @@ export const useSaveItem = (
             archiveImageId || itemId,
             item?.gridPosition,
           );
+          archiveAuthorized = true;
         }
         const card: CardRecord = {
           imageUrl: item?.thumbnail || itemId,
@@ -133,6 +136,10 @@ export const useSaveItem = (
           } : {}),
         };
         await dbSaveCard(card);
+        if (archiveAuthorized) {
+          trackArchiveCardSaveOutcome('saved', archiveDate!);
+          archiveAuthorized = false;
+        }
         setIsSaved(true);
         setIsLegacySaved(false);
         if (isLegacySaved) {
@@ -160,6 +167,7 @@ export const useSaveItem = (
       }
       return newSavedState;
     } catch (error) {
+      if (archiveAuthorized) trackArchiveCardSaveOutcome('persistence_failed', archiveDate!);
       advanceSaveItemStateVersion(imageKey);
       if (error instanceof ArchiveImageSaveError) {
         setArchiveSaveFailure(error.failure);
