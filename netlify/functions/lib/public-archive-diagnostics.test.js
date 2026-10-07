@@ -62,6 +62,7 @@ async function runDirectory(backing, factory, options = {}) {
   try {
     result = await readVerifiedActorDirectory({
       store: backing, dates, timestamp, maxScan: 100, cursor: null, ...options,
+      clock: options.clock || (() => options.timestamp ?? timestamp),
       diagnostics,
       readManifest: (...args) => {
         diagnostics.manifestRead();
@@ -183,6 +184,29 @@ test("sequential partial passes, expiry and continued progress remain distinct s
   assert.equal(chunks(records)[3].attemptedEndOffset, 2);
   await runDirectory(progressStore, factory, { timestamp: timestamp + PUBLIC_ARCHIVE_DIRECTORY_MAX_AGE_MS });
   assert.equal(chunks(records)[4].snapshotOutcome, "expired");
+});
+
+test("qualifying partial reuse preserves diagnostics without counting skipped manifest reads", async () => {
+  const { records, factory } = capture();
+  const backing = store();
+  const readManifest = async () => ({
+    status: "not_public", directoryOmission: "valid_non_indexable",
+  });
+  await runDirectory(backing, factory, { readManifest });
+  const reused = await runDirectory(backing, factory, {
+    readManifest, timestamp: timestamp + 59_999,
+  });
+  assert.equal(reused.actorInventory.source, "snapshot");
+  assert.equal(reused.actorInventory.complete, false);
+  assert.equal(chunks(records)[0].manifestReadAttempts, 3);
+  assert.equal(chunks(records)[1].manifestReadAttempts, 0);
+  assert.equal(chunks(records)[1].casOutcome, "not_attempted");
+  assert.equal(chunks(records)[1].outcome, "partial");
+  const expired = await runDirectory(backing, factory, {
+    readManifest, timestamp: timestamp + 60_000,
+  });
+  assert.equal(expired.actorInventory.source, "verification");
+  assert.equal(chunks(records)[2].manifestReadAttempts, 3);
 });
 
 test("unavailable batches count all attempts, not only retained progress, and do not attempt CAS", async () => {

@@ -382,7 +382,8 @@ for (const engine of BROWSER_ENGINES) {
     const retryGate = createPromiseGate();
     const start = Date.now();
     try {
-      await page.clock.install({ time: new Date(start) });
+      // pauseAt advances the installed clock; leave room for elapsed setup time.
+      await page.clock.install({ time: new Date(start - 60_000) });
       await page.clock.pauseAt(new Date(start));
       await installPublicArchiveRoutes(page);
       await page.route('**/.netlify/functions/public-archive-inventory*', async route => {
@@ -444,7 +445,7 @@ for (const engine of BROWSER_ENGINES) {
     let retryAt = 'not-a-date';
     const start = Date.now();
     try {
-      await page.clock.install({ time: new Date(start) });
+      await page.clock.install({ time: new Date(start - 60_000) });
       await page.clock.pauseAt(new Date(start));
       await installPublicArchiveRoutes(page);
       await page.route('**/.netlify/functions/public-archive-inventory*', async route => {
