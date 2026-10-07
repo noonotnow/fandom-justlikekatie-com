@@ -4,8 +4,10 @@ import { getWithResolvedEtag } from "./blob-store.js";
 export const PUBLIC_ARCHIVE_DIRECTORY_KEY = "derived/public-archive-actors-v1";
 export const PUBLIC_ARCHIVE_DIRECTORY_MAX_AGE_MS = 15 * 60 * 1000;
 export const PUBLIC_ARCHIVE_DIRECTORY_COALESCE_MS = 30 * 1000;
-const KIND = "verified-public-archive-actors";
+export const PUBLIC_ARCHIVE_DIRECTORY_PARTIAL_REUSE_MS = 60 * 1000;
+const KIND = "verified-public-archive-actors-v2";
 const refreshes = new WeakMap();
+const reuseDeadlines = new WeakMap();
 const MAX_PENDING_REFRESHES = 64;
 
 function validSnapshot(value, fingerprint, dates, timestamp) {
@@ -19,12 +21,21 @@ function validSnapshot(value, fingerprint, dates, timestamp) {
     && value.scanned >= 0 && value.scanned <= dates.length
     && Number.isInteger(value.unavailableCount)
     && value.unavailableCount >= 0 && value.unavailableCount <= value.scanned
+    && Number.isInteger(value.nonPublicCount) && value.nonPublicCount >= 0
+    && Number.isInteger(value.retryableOmissionCount) && value.retryableOmissionCount >= 0
+    && value.nonPublicCount + value.retryableOmissionCount === value.unavailableCount
     && Array.isArray(value.actors)
     && value.actors.length <= value.scanned
     && value.actors.every(actor => typeof actor?.id === "string" && actor.id
       && typeof actor.name === "string" && actor.name)
-    // An exhausted partial pass must be retried, never treated as a warm directory.
-    && !(value.scanned === dates.length && value.unavailableCount > 0);
+    && (value.scanned === dates.length && value.unavailableCount > 0
+      ? value.retryableOmissionCount === 0
+        && Number.isFinite(value.finishedAt) && value.startedAt <= value.finishedAt
+        && value.finishedAt <= timestamp
+        && value.retryAt === Math.min(value.finishedAt + PUBLIC_ARCHIVE_DIRECTORY_PARTIAL_REUSE_MS,
+          value.startedAt + PUBLIC_ARCHIVE_DIRECTORY_MAX_AGE_MS)
+        && timestamp < value.retryAt
+      : value.finishedAt === undefined && value.retryAt === undefined);
 }
 
 function projectActors(actors) {
@@ -41,7 +52,8 @@ function projectActors(actors) {
  * verification's TTL invalidate the entire derivation, including omissions.
  */
 export async function readVerifiedActorDirectory({
-  store, dates, timestamp, maxScan, readManifest, cursor, refreshScope = store, diagnostics,
+  store, dates, timestamp, maxScan, readManifest, cursor, refreshScope = store,
+  diagnostics, clock = Date.now,
 }) {
   // Share only identical requests within one server instance/storage scope.
   // A distributed lease would add writes and require a new browser waiting
@@ -66,10 +78,15 @@ export async function readVerifiedActorDirectory({
     }
     // A request crossing the evidence TTL must reverify, not inherit freshness
     // from an earlier reader. Coalescing never extends verification authority.
-    if (timestamp < Date.parse(result.actorInventory.expiresAt)) return structuredClone(result);
+    const joinedAt = Math.max(timestamp, clock());
+    if (joinedAt < Date.parse(result.actorInventory.expiresAt)
+      && (!reuseDeadlines.has(result) || joinedAt < reuseDeadlines.get(result))) {
+      return structuredClone(result);
+    }
     if (pending.get(key) === work) pending.delete(key);
     return readVerifiedActorDirectory({
-      store, dates, timestamp, maxScan, readManifest, cursor, refreshScope, diagnostics,
+      store, dates, timestamp: joinedAt, maxScan, readManifest, cursor, refreshScope,
+      diagnostics, clock,
     });
   }
   const workId = randomUUID();
@@ -78,7 +95,7 @@ export async function readVerifiedActorDirectory({
     workId,
     timestamp,
     promise: scanVerifiedActorDirectory({
-      store, dates, timestamp, maxScan, readManifest, cursor, workId, diagnostics,
+      store, dates, timestamp, maxScan, readManifest, cursor, workId, diagnostics, clock,
     }),
   };
   // Bound memory even if storage/manifest calls never settle. Expired work is
@@ -92,13 +109,13 @@ export async function readVerifiedActorDirectory({
 }
 
 async function scanVerifiedActorDirectory({
-  store, dates, timestamp, maxScan, readManifest, cursor, workId, diagnostics,
+  store, dates, timestamp, maxScan, readManifest, cursor, workId, diagnostics, clock,
 }) {
   const fingerprint = createHash("sha256").update(JSON.stringify(dates)).digest("hex");
   const metrics = diagnostics?.beginChunk(workId, fingerprint, dates.length);
   try {
     return await verifyActorDirectory({
-      store, dates, timestamp, maxScan, readManifest, cursor, fingerprint, metrics,
+      store, dates, timestamp, maxScan, readManifest, cursor, fingerprint, metrics, clock,
     });
   } finally {
     metrics?.finish();
@@ -116,7 +133,7 @@ function snapshotOutcome(value, fingerprint, dates, timestamp) {
 }
 
 async function verifyActorDirectory({
-  store, dates, timestamp, maxScan, readManifest, cursor, fingerprint, metrics,
+  store, dates, timestamp, maxScan, readManifest, cursor, fingerprint, metrics, clock,
 }) {
   const deliver = (snapshot, options) => {
     const body = response(snapshot, dates, options);
@@ -136,9 +153,13 @@ async function verifyActorDirectory({
     cacheAvailable = false;
     metrics?.snapshot("unavailable");
   }
-  if (validSnapshot(cached, fingerprint, dates, timestamp)
-    && cached.scanned === dates.length) {
-    return deliver(cached, { scanned: 0, source: "snapshot", cacheAvailable: true });
+  if (validSnapshot(cached, fingerprint, dates, Math.max(timestamp, clock()))
+    && cached.scanned === dates.length
+    && (cached.unavailableCount === 0 || cacheAvailable)) {
+    return deliver(cached, {
+      scanned: 0, source: "snapshot", cacheAvailable: true,
+      responseAt: Math.max(timestamp, clock()),
+    });
   }
   if (cacheAvailable) {
     try {
@@ -151,9 +172,12 @@ async function verifyActorDirectory({
       metrics?.snapshot("unavailable");
     }
   }
-  let snapshot = cacheAvailable && validSnapshot(cached, fingerprint, dates, timestamp) ? cached : null;
+  let snapshot = cacheAvailable && validSnapshot(cached, fingerprint, dates, Math.max(timestamp, clock())) ? cached : null;
   if (snapshot?.scanned === dates.length) {
-    return deliver(snapshot, { scanned: 0, source: "snapshot", cacheAvailable });
+    return deliver(snapshot, {
+      scanned: 0, source: "snapshot", cacheAvailable,
+      responseAt: Math.max(timestamp, clock()),
+    });
   }
   // A read-only store can still deliver the original bounded, date-paged scan.
   // It cannot certify the complete history from a caller-supplied cursor.
@@ -166,9 +190,14 @@ async function verifyActorDirectory({
   }
   const fallbackOffset = !cacheAvailable ? cursorOffset : 0;
   const restart = Boolean(cursor && !snapshot && cacheAvailable);
-  snapshot = snapshot ? { ...snapshot, actors: projectActors(snapshot.actors) } : {
+  snapshot = snapshot ? {
+    kind: KIND, fingerprint, generation: snapshot.generation, startedAt: snapshot.startedAt,
+    scanned: snapshot.scanned, unavailableCount: snapshot.unavailableCount,
+    nonPublicCount: snapshot.nonPublicCount, retryableOmissionCount: snapshot.retryableOmissionCount,
+    actors: projectActors(snapshot.actors),
+  } : {
     kind: KIND, fingerprint, generation: randomUUID(), startedAt: timestamp,
-    scanned: fallbackOffset, unavailableCount: 0, actors: [],
+    scanned: fallbackOffset, unavailableCount: 0, nonPublicCount: 0, retryableOmissionCount: 0, actors: [],
   };
   metrics?.generation(snapshot.generation);
   const actors = new Map(snapshot.actors.map(actor => [actor.id, actor]));
@@ -192,6 +221,11 @@ async function verifyActorDirectory({
       snapshot.scanned += 1;
       if (found.status !== "available") {
         snapshot.unavailableCount += 1;
+        if (found.status === "not_public" && found.directoryOmission === "valid_non_indexable") {
+          snapshot.nonPublicCount += 1;
+        } else {
+          snapshot.retryableOmissionCount += 1;
+        }
         continue;
       }
       const edition = found.edition;
@@ -203,6 +237,15 @@ async function verifyActorDirectory({
   }
   metrics?.scanFinished(snapshot.scanned);
   snapshot.actors = [...actors.values()].sort((a, b) => a.name.localeCompare(b.name));
+  const finishedAt = Math.max(timestamp, clock());
+  if (cacheAvailable && !unavailable && fallbackOffset === 0
+    && snapshot.scanned === dates.length && snapshot.nonPublicCount > 0
+    && snapshot.retryableOmissionCount === 0
+    && finishedAt < snapshot.startedAt + PUBLIC_ARCHIVE_DIRECTORY_MAX_AGE_MS) {
+    snapshot.finishedAt = finishedAt;
+    snapshot.retryAt = Math.min(finishedAt + PUBLIC_ARCHIVE_DIRECTORY_PARTIAL_REUSE_MS,
+      snapshot.startedAt + PUBLIC_ARCHIVE_DIRECTORY_MAX_AGE_MS);
+  }
   // Never persist a temporary storage failure as a verified omission.
   if (cacheAvailable && !unavailable) {
     try {
@@ -210,7 +253,8 @@ async function verifyActorDirectory({
       const result = await store.setJSON(PUBLIC_ARCHIVE_DIRECTORY_KEY, snapshot,
         entry?.etag ? { onlyIfMatch: entry.etag } : { onlyIfNew: true });
       metrics?.casFinished(result);
-      // A losing CAS is safe: the winning request retained independent progress.
+      // A losing writer cannot advertise its locally proposed reuse deadline.
+      if (result?.modified !== true) cacheAvailable = false;
     } catch {
       cacheAvailable = false;
       metrics?.casError();
@@ -220,6 +264,7 @@ async function verifyActorDirectory({
     scanned, unavailable, restart, source: "verification", cacheAvailable,
     sharedGeneration: fallbackOffset === 0 && cacheAvailable,
     incompletePrefix: fallbackOffset > 0,
+    responseAt: Math.max(timestamp, clock()),
   });
 }
 
@@ -227,13 +272,14 @@ function response(snapshot, dates, {
   scanned, unavailable = false, restart = false, source, cacheAvailable,
   sharedGeneration = true,
   incompletePrefix = false,
+  responseAt = snapshot.startedAt,
 }) {
   const hasMore = unavailable || snapshot.scanned < dates.length;
   const complete = !hasMore && snapshot.unavailableCount === 0 && !incompletePrefix;
   const nextCursor = hasMore
     ? dates[snapshot.scanned - 1] || nextDate(dates[0])
     : null;
-  return {
+  const result = {
     actors: projectActors(snapshot.actors),
     page: {
       hasMore, nextCursor, scanned, unavailableCount: snapshot.unavailableCount,
@@ -249,10 +295,14 @@ function response(snapshot, dates, {
       freshness: complete ? "verified" : hasMore ? "refreshing" : "partial",
       verifiedAt: new Date(snapshot.startedAt).toISOString(),
       expiresAt: new Date(snapshot.startedAt + PUBLIC_ARCHIVE_DIRECTORY_MAX_AGE_MS).toISOString(),
+      ...(!hasMore && !incompletePrefix && cacheAvailable && snapshot.retryAt > responseAt
+        ? { retryAt: new Date(snapshot.retryAt).toISOString() } : {}),
       verifiedCandidates: snapshot.scanned,
       totalCandidates: dates.length,
     },
   };
+  if (cacheAvailable && snapshot.retryAt) reuseDeadlines.set(result, snapshot.retryAt);
+  return result;
 }
 
 function nextDate(value) {

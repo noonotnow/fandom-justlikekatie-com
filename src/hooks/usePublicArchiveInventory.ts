@@ -22,6 +22,7 @@ export interface PublicArchiveDirectoryFreshness {
   freshness: 'verified' | 'refreshing' | 'partial';
   verifiedCandidates: number;
   totalCandidates: number;
+  retryAt?: string;
 }
 interface PublicArchivePage {
   nextCursor: string | null;
@@ -59,6 +60,7 @@ export interface UsePublicArchiveInventoryReturn {
   directoryError: string | null;
   directoryNotices: string[];
   directoryFreshness: PublicArchiveDirectoryFreshness | null;
+  directoryRetryWaiting: boolean;
   retryDirectory: () => void;
   retryInventory: () => void;
 }
@@ -270,7 +272,21 @@ export function usePublicArchiveInventory({
   const [directoryNotices, setDirectoryNotices] = useState<string[]>([]);
   const [directoryFreshness, setDirectoryFreshness] = useState<PublicArchiveDirectoryFreshness | null>(null);
   const [directoryAttempt, setDirectoryAttempt] = useState(0);
-  const retryDirectory = useCallback(() => setDirectoryAttempt(value => value + 1), []);
+  const [directoryRetryWaiting, setDirectoryRetryWaiting] = useState(false);
+  const retryDeadline = useRef(0);
+  const retryDirectory = useCallback(() => {
+    if (Date.now() < retryDeadline.current) return;
+    setDirectoryAttempt(value => value + 1);
+  }, []);
+  useEffect(() => {
+    const deadline = Date.parse(directoryFreshness?.retryAt || '');
+    retryDeadline.current = Number.isFinite(deadline) ? deadline : 0;
+    const remaining = retryDeadline.current - Date.now();
+    setDirectoryRetryWaiting(remaining > 0);
+    if (remaining <= 0) return;
+    const timer = setTimeout(() => setDirectoryRetryWaiting(false), remaining);
+    return () => clearTimeout(timer);
+  }, [directoryFreshness?.retryAt]);
 
   // Directory discovery is independent of edition pages and actor selection.
   // Shared snapshots and bounded re-verification return names only.
@@ -327,6 +343,14 @@ export function usePublicArchiveInventory({
               freshness: inventory.freshness as PublicArchiveDirectoryFreshness['freshness'],
               verifiedCandidates: inventory.verifiedCandidates,
               totalCandidates: inventory.totalCandidates,
+              ...(inventory.complete === false && !nextPage.hasMore
+                && isRecord(body.page) && body.page.unavailable !== true
+                && typeof inventory.retryAt === 'string'
+                && Number.isFinite(Date.parse(inventory.retryAt))
+                && Date.parse(inventory.retryAt) > Date.now()
+                && Date.parse(inventory.retryAt) <= Date.now() + 60_000
+                && Date.parse(inventory.retryAt) <= Date.parse(inventory.expiresAt)
+                ? { retryAt: inventory.retryAt } : {}),
             });
           }
           // A continuing scan is not an omission; other verification failures are.
@@ -359,6 +383,7 @@ export function usePublicArchiveInventory({
         }
       } catch (caught) {
         if (!cancelled) {
+          setDirectoryFreshness(current => current ? { ...current, retryAt: undefined } : current);
           setDirectoryError(caught instanceof Error
             ? caught.message : 'The actor directory could not be loaded.');
           trackArchiveActorDirectoryOutcome('failed', byId.size, archiveFailure(caught));
@@ -508,6 +533,7 @@ export function usePublicArchiveInventory({
     directoryError,
     directoryNotices,
     directoryFreshness,
+    directoryRetryWaiting,
     retryDirectory,
     retryInventory,
   };

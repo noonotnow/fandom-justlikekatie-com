@@ -7,6 +7,7 @@ import {
   createPublicArchiveInventoryHandler,
   isValidArchiveImageIdentity,
   publicArchiveGrid,
+  readPublicManifestForDate,
 } from "./public-archive-inventory.js";
 import { createArchiveImageSaveHandler } from "../archive-image-save.js";
 import {
@@ -130,6 +131,91 @@ function inventoryHandler(store, clock = new Date(`${today}T04:00:00.000Z`)) {
 async function inventoryRequest(handler, query = "") {
   return handler(new Request(`https://fandom.test/.netlify/functions/public-archive-inventory${query}`), {});
 }
+
+test("directory-only classification uses the same strong read without changing exact-date outcomes", async () => {
+  for (const [label, mutate, expected] of [
+    ["short copy", value => { value.vibe.supportingCopyEn = "Short"; }, "valid_non_indexable"],
+    ["missing public record", value => { delete value.publicRecord; }, "valid_non_indexable"],
+    ["missing subtitle", value => { delete value.vibe.subtitleEn; }, "valid_non_indexable"],
+    ["MEDIA association", value => { value.cards[0].media.association.id = "private"; }, "retryable"],
+    ["MEDIA checksum", value => { value.cards[0].media.checksum = "broken"; }, "retryable"],
+    ["null record", value => { value.publicRecord = null; }, "retryable"],
+    ["malformed record", value => { value.publicRecord.editionPath = "/private"; }, "retryable"],
+    ["mismatched date", value => { value.publicationDate = "2026-08-09"; }, undefined],
+  ]) {
+    const value = manifest(today);
+    mutate(value);
+    const store = memoryStore({ [gridManifestKey(today)]: value });
+    const found = await readPublicManifestForDate(store, today, { classifyDirectory: true });
+    assert.equal(found.directoryOmission, expected, label);
+    assert.equal(store.reads.length, 1, label);
+    assert.equal(store.reads[0].options.consistency, "strong");
+    const exact = await readPublicManifestForDate(store, today);
+    assert.deepEqual(exact, { status: label === "mismatched date" ? "invalid" : "not_public" });
+    assert.equal("manifest" in found, false, "rejections expose no private evidence");
+  }
+});
+
+test("warm partial directory does not authorize or block independent edition and daily save checks", async () => {
+  const daily = manifest(today, "daily");
+  delete daily.publicRecord;
+  delete daily.vibe.supportingCopyEn;
+  const publicEdition = manifest("2026-08-09", "public");
+  const store = memoryStore({
+    [publicationManifestCatalogKey()]: catalog([publicEdition.publicationDate, today]),
+    [gridManifestKey(today)]: daily,
+    [gridManifestKey(publicEdition.publicationDate)]: publicEdition,
+  });
+  const handler = inventoryHandler(store);
+  const cold = responseJson(await inventoryRequest(handler, "?directory=actors"));
+  assert.ok(cold.actorInventory.retryAt);
+  const warm = responseJson(await inventoryRequest(handler, "?directory=actors"));
+  assert.equal(warm.actorInventory.source, "snapshot");
+  const save = saveHandler(store);
+  assert.equal((await save(saveRequest({ date: today, imageId: `archive:${today}:card-0` }), {})).statusCode, 200);
+  assert.equal((await inventoryRequest(handler, `?date=${today}`)).statusCode, 404,
+    "a structurally valid daily board still does not grant editorial access");
+  publicEdition.cards[0].media.association.id = "revoked";
+  store.records.set(gridManifestKey(publicEdition.publicationDate), publicEdition);
+  daily.cards[0].media.association.id = "revoked";
+  store.records.set(gridManifestKey(today), daily);
+  const stillWarm = responseJson(await inventoryRequest(handler, "?directory=actors"));
+  assert.deepEqual(stillWarm.actors, warm.actors, "discovery alone may lag within its approved minute");
+  const before = store.reads.length;
+  assert.equal((await inventoryRequest(handler, `?date=${publicEdition.publicationDate}`)).statusCode, 404);
+  assert.equal((await save(saveRequest({ date: today, imageId: `archive:${today}:card-0` }), {})).statusCode, 404);
+  assert.equal((await save(saveRequest({ date: today, imageId: "unrelated" }), {})).statusCode, 404);
+  assert.ok(store.reads.slice(before).filter(read => read.key === gridManifestKey(today)).length >= 2);
+  assert.ok(store.reads.slice(before).every(read => read.options.consistency === "strong"));
+});
+
+test("retained partial invalidates on actual Shanghai rollover and rereads repaired MEDIA and links at deadline", async () => {
+  let clock = new Date("2026-08-10T15:59:30Z");
+  const withheld = manifest(today);
+  delete withheld.publicRecord;
+  const future = manifest("2026-08-11", "future");
+  const store = memoryStore({
+    [publicationManifestCatalogKey()]: catalog([today, future.publicationDate]),
+    [gridManifestKey(today)]: withheld,
+    [gridManifestKey(future.publicationDate)]: future,
+  });
+  const handler = createPublicArchiveInventoryHandler({ getStore: () => store, now: () => clock });
+  const first = responseJson(await inventoryRequest(handler, "?directory=actors"));
+  assert.ok(first.actorInventory.retryAt);
+  clock = new Date("2026-08-10T16:00:00Z");
+  const rollover = responseJson(await inventoryRequest(handler, "?directory=actors"));
+  assert.notEqual(rollover.actorInventory.generation, first.actorInventory.generation);
+  assert.deepEqual(rollover.actors, [{ id: "future", name: "future" }]);
+  store.records.set(gridManifestKey(today), manifest(today, "repaired"));
+  future.publicRecord.editionPath = "/private";
+  store.records.set(gridManifestKey(future.publicationDate), future);
+  clock = new Date("2026-08-10T16:00:59.999Z");
+  assert.equal(responseJson(await inventoryRequest(handler, "?directory=actors")).actorInventory.source, "snapshot");
+  clock = new Date("2026-08-10T16:01:00Z");
+  const repaired = responseJson(await inventoryRequest(handler, "?directory=actors"));
+  assert.deepEqual(repaired.actors, [{ id: "repaired", name: "repaired" }]);
+  assert.equal(repaired.actorInventory.retryAt, undefined);
+});
 
 test("actor directory verifies manifests independently and exposes only published actor summaries", async () => {
   const good = manifest("2026-08-01", "older-actor");
