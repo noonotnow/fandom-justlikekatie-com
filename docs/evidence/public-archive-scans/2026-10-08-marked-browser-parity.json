@@ -1,0 +1,80 @@
+{
+  "startedAt": "2026-10-08T11:30:42.474Z",
+  "endedAt": "2026-10-08T11:30:51.024Z",
+  "route": "archive-builder",
+  "traffic": "marked_test",
+  "inventory": [
+    {
+      "kind": "directory",
+      "status": 200,
+      "elapsedUntilResponseMs": 2742,
+      "actorCount": 1,
+      "scope": "verified-directory",
+      "actorInventory": {
+        "scope": "verified-directory",
+        "complete": false,
+        "generationHash": "e5e892a82c9fa1c87a11e715d266abdc904c1eee922d28a99a866b746551694b",
+        "restart": false,
+        "source": "verification",
+        "cacheAvailable": true,
+        "freshness": "partial",
+        "verifiedAt": "2026-10-08T11:30:45.074Z",
+        "expiresAt": "2026-10-08T11:45:45.074Z",
+        "retryAt": "2026-10-08T11:31:45.628Z",
+        "verifiedCandidates": 34,
+        "totalCandidates": 34
+      },
+      "page": {
+        "hasMore": false,
+        "nextCursor": null,
+        "scanned": 34,
+        "unavailableCount": 31,
+        "partial": true,
+        "status": "partial",
+        "scanLimitReached": false
+      }
+    },
+    {
+      "kind": "page",
+      "status": 200,
+      "elapsedUntilResponseMs": 3978,
+      "actorCount": 1,
+      "editionCount": 3,
+      "scope": "verified-page",
+      "actorInventory": {
+        "complete": false,
+        "scope": "verified-page",
+        "reason": "A complete global actor directory is not part of this bounded page read."
+      },
+      "page": {
+        "nextCursor": null,
+        "hasMore": false,
+        "status": "partial",
+        "partial": true,
+        "scanned": 34,
+        "unavailableCount": 31,
+        "scanLimitReached": false
+      }
+    }
+  ],
+  "consoleErrors": 0,
+  "selectors": [
+    {
+      "label": null,
+      "disabled": false,
+      "optionCount": 2
+    },
+    {
+      "label": "Language",
+      "disabled": false,
+      "optionCount": 2
+    }
+  ],
+  "statusText": [
+    "31 Archive editions were omitted because their public records could not be verified.",
+    "Actor directory is incomplete; only verified actors are listed.",
+    "The actor directory is partial; some public actors could not be verified.",
+    "The actor directory is partial. The next verification can run at 10/8/2026, 11:31:45 AM. Edition access and saves are checked separately.",
+    "Retry actor directory"
+  ]
+}

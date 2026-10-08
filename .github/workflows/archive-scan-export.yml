@@ -1,0 +1,41 @@
+name: Public Archive scan evidence export
+
+on:
+  schedule:
+    - cron: "23 5,17 * * *"
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: archive-scan-evidence-export
+  cancel-in-progress: false
+
+jobs:
+  export:
+    # The creator sets a bounded stop date after approval and credential setup.
+    if: vars.ARCHIVE_SCAN_CAPTURE_UNTIL != ''
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          ref: main
+          persist-credentials: false
+      - uses: actions/setup-node@v4
+        with:
+          node-version: "22"
+      - name: Export privacy-safe diagnostics (provider GET requests only)
+        env:
+          NETLIFY_ARCHIVE_LOG_READ_TOKEN: ${{ secrets.NETLIFY_ARCHIVE_LOG_READ_TOKEN }}
+          ARCHIVE_SCAN_CAPTURE_UNTIL: ${{ vars.ARCHIVE_SCAN_CAPTURE_UNTIL }}
+        run: node scripts/export-public-archive-scans.js
+      - name: Preserve sanitized evidence
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: archive-scans-${{ github.run_id }}-${{ github.run_attempt }}
+          path: scan-exports/*.json
+          if-no-files-found: ignore
+          retention-days: 14

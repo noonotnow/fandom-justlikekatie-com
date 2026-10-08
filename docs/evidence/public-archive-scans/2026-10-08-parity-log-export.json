@@ -1,0 +1,81 @@
+{
+  "metadata": {
+    "queriedFrom": "2026-10-08T11:27:00.000Z",
+    "queriedTo": "2026-10-08T11:34:42.635Z",
+    "capturedAt": "2026-10-08T11:34:45.285Z",
+    "pages": 1,
+    "providerEntries": 1,
+    "rejectedRecords": 0,
+    "unstructuredLines": 0,
+    "duplicateRecords": 0,
+    "paginationComplete": true,
+    "coverageCertified": false,
+    "deliveryCaveat": "Pagination is complete; retention, indexing delay and provider truncation remain unknown.",
+    "activeDeployBefore": {
+      "deployId": "6ac77f08fd056a000832a9ed",
+      "commit": "4289a32644714113b7c1d1e9699743c643da6729",
+      "publishedAt": "2026-10-08T11:32:28.171Z"
+    },
+    "activeDeployAfter": {
+      "deployId": "6ac77f08fd056a000832a9ed",
+      "commit": "4289a32644714113b7c1d1e9699743c643da6729",
+      "publishedAt": "2026-10-08T11:32:28.171Z"
+    },
+    "deployments": [
+      {
+        "deployId": "6ac6d499c3696400089ae4a8",
+        "commit": "f342806ab177ee5283f749d2077759dd7200853d",
+        "publishedAt": "2026-10-07T23:25:10.672Z"
+      },
+      {
+        "deployId": "6ac77f08fd056a000832a9ed",
+        "commit": "4289a32644714113b7c1d1e9699743c643da6729",
+        "publishedAt": "2026-10-08T11:32:28.171Z"
+      }
+    ],
+    "missingChunkReferences": 0,
+    "chunksWithoutOwnerSummary": 1,
+    "unknownScanEnds": 0,
+    "truncatedWorkReferences": 0,
+    "reportedSuppressedRecords": 0
+  },
+  "records": [
+    {
+      "schemaVersion": 1,
+      "processId": "e9d7f866-dc46-47b9-9796-232db491dd75",
+      "requestId": "a1aeb0c1-bbc5-4b1d-9e97-34824583fabe",
+      "event": "archive_scan_chunk",
+      "requestKind": "directory",
+      "traffic": "marked_test",
+      "startedAt": 1791459045224,
+      "endedAt": 1791459045694,
+      "elapsedMs": 470.17,
+      "manifestReadAttempts": 34,
+      "droppedRecordsSinceLastEmit": 0,
+      "workId": "eb7c3a80-d93b-41f4-8986-aa6b15de6313",
+      "candidateFingerprint": "3240ffb051443675b609a7eabd8de6e74e148142b6f6c22c17f5a5f8dbe5a469",
+      "candidateCount": 34,
+      "generationHash": "e5e892a82c9fa1c87a11e715d266abdc904c1eee922d28a99a866b746551694b",
+      "chunkIdentity": "c2f6dff11eab2e9b6fd79d4928f32b6fe96e7160f2913342eb02d2fb33106614",
+      "snapshotInitialOutcome": "changed",
+      "snapshotOutcome": "changed",
+      "source": "verification",
+      "outcome": "partial",
+      "startOffset": 0,
+      "progressEndOffset": 34,
+      "attemptedEndOffset": 34,
+      "scanStartedAt": 1791459045309,
+      "scanEndedAt": 1791459045628,
+      "scanEndKnown": true,
+      "manifestScanElapsedMs": 318.68,
+      "casOutcome": "modified",
+      "casElapsedMs": 65.24,
+      "cacheAvailable": true,
+      "unavailableCount": 31,
+      "verifiedCandidateCount": 34,
+      "hasMore": false,
+      "storageUnavailable": false,
+      "restart": false
+    }
+  ]
+}
