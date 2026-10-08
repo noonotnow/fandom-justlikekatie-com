@@ -217,3 +217,34 @@ No new date is automatically approved. Missing July 31–August 2, September 28,
 and October 6 manifests remain Archive-only. The audit/approval snapshot
 does not certify a production release; deployment and per-page checks must
 be recorded separately.
+
+## Release preview verification
+
+The narrowly scoped release is
+[pull request 190](https://github.com/noonotnow/fandom-justlikekatie-com/pull/190).
+Its preview is
+<https://deploy-preview-190--earnest-gecko-17eb0c.netlify.app>.
+
+All 33 audited editions (the 30 newly approved dates plus the three already
+public dates) were checked on that deployed preview:
+
+- Each date's public-editions lookup returned HTTP 200 with nine exact original
+  MEDIA delivery URLs and the original bilingual names and lines.
+- All 66 English/Chinese dated pages returned HTTP 200, nine card figures,
+  indexable robots directives, and the expected production canonical.
+- Chinese pages showed both original languages. Each edition appeared in both
+  language sitemap entries and its actor's public directory.
+- All 16 English/Chinese actor pages returned HTTP 200.
+- July 31–August 2, September 28, and October 6 returned HTTP 404 from the
+  public-editions API and were absent from the sitemap.
+- Unreviewed October 8 remained HTTP 404.
+
+The clean production-based release tree built successfully. The workspace
+function suite passed 1,182 tests; type checking and 40 public-record/Archive
+checker tests passed.
+
+Production release is still pending GitHub's independent approval of the latest
+push. Creator copy approval does not satisfy that separate requirement.
+Do not bypass branch protection or manually deploy this preview as production.
+After the approved merge deploys, repeat every dated page/API/sitemap check on
+the actual production domain before claiming the historical release complete.
