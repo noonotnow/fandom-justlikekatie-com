@@ -4,9 +4,13 @@
 
 The creator approved preparing these diagnostics locally on 2026-10-04.
 The creator subsequently approved adding them to PR 181 and refreshing its Netlify
-review preview. Production deployment remains **unapproved**. No live scan, CAS
-race, snapshot repair, manifest change or production release was performed for
-this implementation. Preview approval does not authorize directory-state mutations.
+review preview, then merged PR 181 to publish the directory and diagnostics.
+Production release is confirmed; the latest revision also contains a separately
+approved one-minute partial-reuse change. On 2026-10-08 the creator separately
+approved a marked production directory/browser check and preparation of a reviewed
+twice-daily export job. The check ran the ordinary bounded refresh and snapshot CAS,
+not a CAS race, snapshot repair or manifest change. The export job is not activated;
+see the observation handoff for source boundaries and incomplete historical delivery.
 
 Diagnostics write only bounded JSON console records, never Blob objects.
 The Netlify wrapper enables them when this code is eventually deployed; library
@@ -67,8 +71,15 @@ chunk. Existing scan limits still bound actual work.
 Provider retention/delivery and process death can lose records independently of
 this cap. If the process dies or receives no later request, pending drop counts
 may never be reported. Do not certify complete coverage from a zero drop counter.
-Choose a permitted retention window long enough for the seven-day observation and
-export records before expiry; no provider retention setting was changed here.
+Netlify documents at least 24 hours of retention, with seven days on some plans,
+and a 4 KB total per-invocation output limit (only the final 4 KB is retained on
+overflow). Preserve sanitized exports less than 24 hours apart until longer
+retention is certified. Missing owner/chunk pairs and truncated records remain
+unknown even without logger suppression. No provider setting was changed here,
+and no unattended exporter is running. A read-only job is prepared for review,
+with typed field allowlisting, overlapping export windows, explicit relationship
+gaps and 14-day sanitized-artifact retention. Its merge, secure credential setup,
+bounded stop date and verified scheduled capture remain activation gates.
 
 ## Tests and real reader traffic
 
