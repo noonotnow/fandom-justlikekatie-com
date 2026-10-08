@@ -557,6 +557,7 @@ test("robots and sitemap expose only intended public surfaces", () => {
     "https://fandom.justlikekatie.com/c-drama-fandom/vibing-now/against-the-current-episodes-26-29/",
     "https://fandom.justlikekatie.com/c-drama-fandom/vibing-now/against-the-current-episodes-30-31/",
     "https://fandom.justlikekatie.com/c-drama-fandom/vibing-now/against-the-current-episodes-32-33/",
+    "https://fandom.justlikekatie.com/c-drama-fandom/vibing-now/against-the-current-episodes-34-38/",
     "https://fandom.justlikekatie.com/c-drama-fandom/where-to-watch/against-the-current/",
     "https://fandom.justlikekatie.com/c-drama-fandom/soundtrack/against-the-current/",
   ];
@@ -1020,6 +1021,7 @@ test("Against the Current discovery path and search snippets preserve episode bo
     { slug: "episodes-26-29", label: "Episodes 26–29", boundary: "29", headline: "He Asked the Emperor for a Wife. The Drama Keeps Asking Whether She Chose Him." },
     { slug: "episodes-30-31", label: "Episodes 30–31", boundary: "31", headline: "Lanxiang Comes Home. Then She Shows Jinqi How She Works." },
     { slug: "episodes-32-33", label: "Episodes 32–33", boundary: "33", headline: "Lanxiang Starts Writing Justice. Lin Jinqi Has No Choice but to Come Along." },
+    { slug: "episodes-34-38", label: "Episodes 34–38", boundary: "38", headline: "Being Remembered, Not Being Discovered" },
   ];
   const pages = [{ path: shelfPath, html: shelf }];
 

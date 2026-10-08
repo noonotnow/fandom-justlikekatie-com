@@ -81,14 +81,20 @@ test("superseded essay redirects to its correction, without a legacy discussion 
   assert.equal(hash(read(`public${root}against-the-current-episode-21/index.html`)), "5f09d04509c210c9d2c4834b5d1d77f440ce06bd332262d884b1110ef3fe7c76");
 });
 
-test("shelf discovers five bounded readings without fixed counts or availability promises", () => {
+test("shelf discovers every registered bounded reading without fixed counts or availability promises", () => {
   const shelf = read(`public${root}index.html`);
   assert.match(shelf, /Start with the last episode you’ve finished, not the platform you use/);
   assert.match(shelf, /WeTV Express, VIP, free viewing, and Viki do not necessarily put everyone at the same point/);
   assert.match(shelf, /Read after finishing the named endpoint—or choose to read ahead/);
   assert.doesNotMatch(shelf, /three current-state readings|Three spoiler-bounded readings/);
   const schema = JSON.parse(shelf.match(/<script type="application\/ld\+json">\s*([\s\S]*?)<\/script>/)[1]);
-  assert.equal(schema.mainEntity.itemListElement.length, 5);
+  const entries = schema.mainEntity.itemListElement;
+  const registeredReadings = PUBLIC_STATIC_ROUTES
+    .filter(route => route.path.startsWith(`${root}against-the-current-`))
+    .map(route => `https://fandom.justlikekatie.com${route.path}`);
+  assert.deepEqual(entries.map(item => item.url).sort(), registeredReadings.sort(),
+    "the shelf must discover all registered readings exactly once, including new installments");
+  entries.forEach((item, index) => assert.equal(item.position, index + 1));
   for (const [range] of records) {
     assert.ok(schema.mainEntity.itemListElement.some(item => item.url.endsWith(`episodes-${range}/`)));
     assert.match(shelf, new RegExp(`data-series-installment="episodes_${range.replace("-", "_")}"`));

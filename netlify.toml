@@ -344,6 +344,11 @@ to = "/c-drama-fandom/vibing-now/against-the-current-episodes-32-33/index.html"
 status = 200
 
 [[redirects]]
+from = "/c-drama-fandom/vibing-now/against-the-current-episodes-34-38"
+to = "/c-drama-fandom/vibing-now/against-the-current-episodes-34-38/index.html"
+status = 200
+
+[[redirects]]
 from = "/c-drama-fandom/where-to-watch/against-the-current"
 to = "/c-drama-fandom/where-to-watch/against-the-current/index.html"
 status = 200
