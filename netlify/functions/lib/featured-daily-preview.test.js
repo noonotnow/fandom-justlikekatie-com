@@ -10,7 +10,9 @@ import { manifestStore, publicManifest } from "../public-test-fixture.js";
 test("a qualified Liu Yuning first grid reaches its exact preview, actor record, and sitemap", async () => {
   const actor = ACTOR_PACKS.find(item => item.id === "liu-yuning");
   const vibe = actor.vibes[2];
-  const date = "2026-09-25";
+  // This is synthetic materialized evidence, not the MEDIA-verified historical
+  // September 25 manifest whose exact content now has its own approval pin.
+  const date = "2026-10-09";
   const manifest = publicManifest({ date, actorId: actor.id });
   manifest.actor = {
     id: actor.id, name: actor.name, nameEn: actor.shortName_en, accentColor: actor.accentColor,

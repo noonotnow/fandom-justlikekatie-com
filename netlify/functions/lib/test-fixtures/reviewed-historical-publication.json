@@ -1,0 +1,97 @@
+{
+  "publicationDate": "2026-09-05",
+  "actor": { "id": "ao-ruipeng", "name": "敖瑞鹏", "nameEn": "Ao Ruipeng" },
+  "vibe": {
+    "key": "ao-ruipeng:0",
+    "idx": 0,
+    "label": "无人看管的王子",
+    "labelEn": "Prince Charming left unattended",
+    "subtitle": "有人给了他一把剑，监督完全不够",
+    "subtitleEn": "Someone gave him a sword and not enough supervision",
+    "supportingCopy": "",
+    "supportingCopyEn": ""
+  },
+  "cards": [
+    { "position": 0, "media": {
+      "schemaVersion": 1, "assetId": "44be4d38-a64f-44ad-b6bf-455aba698d49",
+      "deliveryUrl": "https://images.xhs.justlikekatie.com/images/sha256/93/d0/93d0f9db048be59be2438aeabe3d331ba73f2872d9ff06a418de29d6bfae45ae.jpg",
+      "thumbnailUrl": "https://images.xhs.justlikekatie.com/images/sha256/93/d0/93d0f9db048be59be2438aeabe3d331ba73f2872d9ff06a418de29d6bfae45ae.jpg",
+      "mimeType": "image/jpeg", "sizeBytes": 42618,
+      "checksum": "93d0f9db048be59be2438aeabe3d331ba73f2872d9ff06a418de29d6bfae45ae",
+      "dimensions": { "width": 383, "height": 522 },
+      "association": { "type": "publication", "id": "vibe-atlas:daily-drop:2026-09-05", "itemId": "card-0" }
+    } },
+    { "position": 1, "media": {
+      "schemaVersion": 1, "assetId": "54e1bccb-b80c-4f97-a816-3c26f3399b1d",
+      "deliveryUrl": "https://images.xhs.justlikekatie.com/images/sha256/1e/1b/1e1b6e8d765b668fb6e4efd515b77ef36142cc367ef833b682151df18ec5d66c.jpg",
+      "thumbnailUrl": "https://images.xhs.justlikekatie.com/images/sha256/1e/1b/1e1b6e8d765b668fb6e4efd515b77ef36142cc367ef833b682151df18ec5d66c.jpg",
+      "mimeType": "image/jpeg", "sizeBytes": 23612,
+      "checksum": "1e1b6e8d765b668fb6e4efd515b77ef36142cc367ef833b682151df18ec5d66c",
+      "dimensions": { "width": 335, "height": 597 },
+      "association": { "type": "publication", "id": "vibe-atlas:daily-drop:2026-09-05", "itemId": "card-1" }
+    } },
+    { "position": 2, "media": {
+      "schemaVersion": 1, "assetId": "7590dd05-52fe-4fae-b131-a38fcf47f9fa",
+      "deliveryUrl": "https://images.xhs.justlikekatie.com/images/sha256/54/67/546721929349398c5049f1106aa3eee3630861f450195504f9d19db6e724569e.jpg",
+      "thumbnailUrl": "https://images.xhs.justlikekatie.com/images/sha256/54/67/546721929349398c5049f1106aa3eee3630861f450195504f9d19db6e724569e.jpg",
+      "mimeType": "image/jpeg", "sizeBytes": 8586,
+      "checksum": "546721929349398c5049f1106aa3eee3630861f450195504f9d19db6e724569e",
+      "dimensions": { "width": 275, "height": 183 },
+      "association": { "type": "publication", "id": "vibe-atlas:daily-drop:2026-09-05", "itemId": "card-2" }
+    } },
+    { "position": 3, "media": {
+      "schemaVersion": 1, "assetId": "e173776f-7222-4c77-9349-26ccfd344648",
+      "deliveryUrl": "https://images.xhs.justlikekatie.com/images/sha256/e8/cb/e8cb688195f8d3b8b9fb306cbb2c3399b2324a086da436691865f9cb7f62d610.jpg",
+      "thumbnailUrl": "https://images.xhs.justlikekatie.com/images/sha256/e8/cb/e8cb688195f8d3b8b9fb306cbb2c3399b2324a086da436691865f9cb7f62d610.jpg",
+      "mimeType": "image/jpeg", "sizeBytes": 8885,
+      "checksum": "e8cb688195f8d3b8b9fb306cbb2c3399b2324a086da436691865f9cb7f62d610",
+      "dimensions": { "width": 225, "height": 225 },
+      "association": { "type": "publication", "id": "vibe-atlas:daily-drop:2026-09-05", "itemId": "card-3" }
+    } },
+    { "position": 4, "media": {
+      "schemaVersion": 1, "assetId": "be79fbe9-0c95-4bc3-9dee-0de730077354",
+      "deliveryUrl": "https://images.xhs.justlikekatie.com/images/sha256/27/2c/272c9c9850ab8d5832db82e905762f6120820d6d737915d9603f6e86c3e8c088.jpg",
+      "thumbnailUrl": "https://images.xhs.justlikekatie.com/images/sha256/27/2c/272c9c9850ab8d5832db82e905762f6120820d6d737915d9603f6e86c3e8c088.jpg",
+      "mimeType": "image/jpeg", "sizeBytes": 18147,
+      "checksum": "272c9c9850ab8d5832db82e905762f6120820d6d737915d9603f6e86c3e8c088",
+      "dimensions": { "width": 549, "height": 364 },
+      "association": { "type": "publication", "id": "vibe-atlas:daily-drop:2026-09-05", "itemId": "card-4" }
+    } },
+    { "position": 5, "media": {
+      "schemaVersion": 1, "assetId": "3debb4c0-2075-439c-aa44-5cd0dcafbf48",
+      "deliveryUrl": "https://images.xhs.justlikekatie.com/images/sha256/b2/75/b27518017dc913edcd88ba95f9a11cf19726de18bfb34c5f8c979d05fee340d8.jpg",
+      "thumbnailUrl": "https://images.xhs.justlikekatie.com/images/sha256/b2/75/b27518017dc913edcd88ba95f9a11cf19726de18bfb34c5f8c979d05fee340d8.jpg",
+      "mimeType": "image/jpeg", "sizeBytes": 28907,
+      "checksum": "b27518017dc913edcd88ba95f9a11cf19726de18bfb34c5f8c979d05fee340d8",
+      "dimensions": { "width": 580, "height": 344 },
+      "association": { "type": "publication", "id": "vibe-atlas:daily-drop:2026-09-05", "itemId": "card-5" }
+    } },
+    { "position": 6, "media": {
+      "schemaVersion": 1, "assetId": "e7407334-9ad0-4aad-86f2-33b1afa07952",
+      "deliveryUrl": "https://images.xhs.justlikekatie.com/images/sha256/80/81/8081ac6c49c5d474cf033ca110645d42cd786bc2adc91d1033615e5787051798.jpg",
+      "thumbnailUrl": "https://images.xhs.justlikekatie.com/images/sha256/80/81/8081ac6c49c5d474cf033ca110645d42cd786bc2adc91d1033615e5787051798.jpg",
+      "mimeType": "image/jpeg", "sizeBytes": 13156,
+      "checksum": "8081ac6c49c5d474cf033ca110645d42cd786bc2adc91d1033615e5787051798",
+      "dimensions": { "width": 259, "height": 194 },
+      "association": { "type": "publication", "id": "vibe-atlas:daily-drop:2026-09-05", "itemId": "card-6" }
+    } },
+    { "position": 7, "media": {
+      "schemaVersion": 1, "assetId": "cf05fc44-2abd-4ff5-94e9-7f862b752b65",
+      "deliveryUrl": "https://images.xhs.justlikekatie.com/images/sha256/d2/8c/d28c73cba9e9d0ab2b6605f9e7ab83e0544c5fdda8bd94aa7cc45b59036a5188.jpg",
+      "thumbnailUrl": "https://images.xhs.justlikekatie.com/images/sha256/d2/8c/d28c73cba9e9d0ab2b6605f9e7ab83e0544c5fdda8bd94aa7cc45b59036a5188.jpg",
+      "mimeType": "image/jpeg", "sizeBytes": 32644,
+      "checksum": "d28c73cba9e9d0ab2b6605f9e7ab83e0544c5fdda8bd94aa7cc45b59036a5188",
+      "dimensions": { "width": 365, "height": 547 },
+      "association": { "type": "publication", "id": "vibe-atlas:daily-drop:2026-09-05", "itemId": "card-7" }
+    } },
+    { "position": 8, "media": {
+      "schemaVersion": 1, "assetId": "60730817-4aa9-4188-b689-bef67f45ae42",
+      "deliveryUrl": "https://images.xhs.justlikekatie.com/images/sha256/dc/4a/dc4ab20de4730f979b87194fa0536f06016903a7622435e4a3ae02d9b0e5b8fc.jpg",
+      "thumbnailUrl": "https://images.xhs.justlikekatie.com/images/sha256/dc/4a/dc4ab20de4730f979b87194fa0536f06016903a7622435e4a3ae02d9b0e5b8fc.jpg",
+      "mimeType": "image/jpeg", "sizeBytes": 27125,
+      "checksum": "dc4ab20de4730f979b87194fa0536f06016903a7622435e4a3ae02d9b0e5b8fc",
+      "dimensions": { "width": 461, "height": 433 },
+      "association": { "type": "publication", "id": "vibe-atlas:daily-drop:2026-09-05", "itemId": "card-8" }
+    } }
+  ]
+}

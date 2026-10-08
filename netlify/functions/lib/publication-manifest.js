@@ -12,6 +12,10 @@ import {
 } from "./archive-access.js";
 import { getWithResolvedEtag } from "./blob-store.js";
 import {
+  hasHistoricalPublicationApproval,
+  matchesHistoricalPublicationApproval,
+} from "./historical-publication-approvals.js";
+import {
   assertPublicArchiveRecord,
   publicArchiveRecordDiagnostic,
 } from "../../../src/contracts/publicArchiveRecord.js";
@@ -369,7 +373,11 @@ function publicCanonical(path) {
 export function isIndexablePublicationManifest(manifest) {
   if (!isGridManifest(manifest)) return false;
   const copy = manifest.vibe?.supportingCopyEn || manifest.vibe?.supportingCopy;
-  if (manifest.publicationDate === APPROVED_SHORT_COPY_EDITION_DATE) {
+  if (hasHistoricalPublicationApproval(manifest.publicationDate)) {
+    // A changed approved date cannot fall through to the generic copy-length
+    // gate: both its exact bilingual copy and nine MEDIA references are pinned.
+    if (!matchesHistoricalPublicationApproval(manifest)) return false;
+  } else if (manifest.publicationDate === APPROVED_SHORT_COPY_EDITION_DATE) {
     if (!manifest.vibe?.label?.trim() || !manifest.vibe?.labelEn?.trim()
       || !(manifest.vibe?.subtitleEn?.trim() || (typeof copy === "string" && copy.trim()))) {
       return false;

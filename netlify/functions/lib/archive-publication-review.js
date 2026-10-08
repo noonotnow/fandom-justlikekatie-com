@@ -31,8 +31,11 @@ export async function reviewArchivedPublication(store, date, {
     indexable: isIndexablePublicationManifest(manifest),
     actor: { name: manifest.actor.name, nameEn: manifest.actor.nameEn },
     vibe: {
+      label: manifest.vibe.label,
       labelEn: manifest.vibe.labelEn,
+      subtitle: manifest.vibe.subtitle || "",
       subtitleEn: manifest.vibe.subtitleEn || "",
+      supportingCopy: manifest.vibe.supportingCopy || "",
       supportingCopyEn: manifest.vibe.supportingCopyEn || manifest.vibe.supportingCopy || "",
     },
     cards: manifest.cards.map(card => ({
