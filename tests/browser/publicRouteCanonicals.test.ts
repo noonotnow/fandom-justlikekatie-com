@@ -1,5 +1,6 @@
 import assert from 'node:assert/strict';
 import { test } from 'node:test';
+import { expect } from '@playwright/test';
 import {
   PUBLIC_ORIGIN,
   PUBLIC_STATIC_ROUTES,
@@ -341,7 +342,7 @@ for (const engine of BROWSER_ENGINES.filter(({ id }) => id === 'firefox' || id =
         const more = guide.getByRole('button', { name: /More guides/ });
         await more.focus();
         await page.keyboard.press('Enter');
-        assert.equal(await more.getAttribute('aria-expanded'), 'true', `${engine.name} ${width}px: Enter opens the menu`);
+        await expect(more, `${engine.name} ${width}px: Enter opens the menu`).toHaveAttribute('aria-expanded', 'true');
 
         for (const [name, href] of [
           ['Glossary (English)', '/c-drama-fandom/glossary/'],
@@ -356,22 +357,25 @@ for (const engine of BROWSER_ENGINES.filter(({ id }) => id === 'firefox' || id =
         }
 
         await page.keyboard.press('Escape');
-        assert.equal(await more.getAttribute('aria-expanded'), 'false', `${engine.name} ${width}px: Escape closes the menu`);
-        assert.equal(await more.evaluate(el => el === document.activeElement), true, `${engine.name} ${width}px: Escape returns focus`);
+        await expect(more, `${engine.name} ${width}px: Escape closes the menu`).toHaveAttribute('aria-expanded', 'false');
+        await expect(more, `${engine.name} ${width}px: Escape returns focus`).toBeFocused();
         await page.keyboard.press(' ');
-        assert.equal(await more.getAttribute('aria-expanded'), 'true', `${engine.name} ${width}px: Space reopens the menu`);
+        await expect(more, `${engine.name} ${width}px: Space reopens the menu`).toHaveAttribute('aria-expanded', 'true');
         await page.keyboard.press('Tab');
         await page.keyboard.press('Enter');
         await page.waitForURL(`${origin}/c-drama-fandom/glossary/`);
 
         await gotoTestPage(page, origin, { waitUntil: 'domcontentloaded' });
+        // Playwright's click completion is not a React render-completion signal.
+        // Wait for each state transition rather than sampling the old DOM state.
         await more.click();
-        assert.equal(await more.getAttribute('aria-expanded'), 'true');
+        await expect(more).toHaveAttribute('aria-expanded', 'true');
         await more.click();
-        assert.equal(await more.getAttribute('aria-expanded'), 'false', `${engine.name} ${width}px: trigger click toggles the menu`);
+        await expect(more, `${engine.name} ${width}px: trigger click toggles the menu`).toHaveAttribute('aria-expanded', 'false');
         await more.click();
+        await expect(more).toHaveAttribute('aria-expanded', 'true');
         await page.getByRole('heading', { name: /Build a world/ }).click();
-        assert.equal(await more.getAttribute('aria-expanded'), 'false', `${engine.name} ${width}px: outside pointer closes the menu`);
+        await expect(more, `${engine.name} ${width}px: outside pointer closes the menu`).toHaveAttribute('aria-expanded', 'false');
 
         if (width === 390) {
           assert.equal(
@@ -380,6 +384,7 @@ for (const engine of BROWSER_ENGINES.filter(({ id }) => id === 'firefox' || id =
             `${engine.name}: homepage must not overflow horizontally at phone width`,
           );
           await more.click();
+          await expect(more).toHaveAttribute('aria-expanded', 'true');
           assert.equal(
             await page.evaluate(() => document.documentElement.scrollWidth <= innerWidth),
             true,
