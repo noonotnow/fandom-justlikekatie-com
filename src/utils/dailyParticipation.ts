@@ -63,9 +63,16 @@ async function withCohortLock(update: () => void): Promise<void> {
     const controller = new AbortController();
     const timeout = setTimeout(() => controller.abort(), LOCK_WAIT_MS);
     try {
-      await navigator.locks.request(COHORT_LOCK, { signal: controller.signal }, () => {
-        // Authority, route, and persistent staff markers can change while queued.
-        if (allowed()) update();
+      await navigator.locks.request(COHORT_LOCK, { signal: controller.signal }, async () => {
+        try {
+          // Authority, route, and persistent staff markers can change while queued.
+          if (allowed()) update();
+        } finally {
+          // Firefox checkpoints task-buffered localStorage writes at stable state.
+          // Keep the origin lock until the writing task ends, before another tab
+          // can acquire it and read an older snapshot. A microtask is not enough.
+          await new Promise<void>(resolve => setTimeout(resolve, 0));
+        }
       });
     } finally {
       clearTimeout(timeout);
