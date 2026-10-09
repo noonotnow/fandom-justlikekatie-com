@@ -144,6 +144,229 @@ for (const refreshTrigger of ['focus', 'publication'] as const) {
 const VIBE_KEY = `${ACTOR_ID}:0`
 ;
 
+// Hold exact response snapshots rather than using timing-dependent route sleeps.
+async function configureReadinessRace(page: Page) {
+  await configureNetwork(page);
+  await page.addInitScript(`
+    window.labRace = { parsed: 0, requests: 0, focusListeners: new Set() };
+    const originalFetch = window.fetch;
+    window.fetch = async function(...args) {
+      const url = new URL(String(args[0]), location.href);
+      const summary = url.pathname.endsWith('/actor-audits')
+        && url.searchParams.has('actorId') && !url.searchParams.has('runId');
+      if (summary) window.labRace.requests++;
+      const response = await originalFetch.apply(this, args);
+      if (summary) {
+        const originalJson = response.json;
+        response.json = async function() {
+          const result = await originalJson.call(this);
+          window.labRace.parsed++;
+          return result;
+        };
+      }
+      return response;
+    };
+    const originalAdd = window.addEventListener;
+    const originalRemove = window.removeEventListener;
+    window.addEventListener = function(type, listener, options) {
+      if (type === 'focus') window.labRace.focusListeners.add(listener);
+      return originalAdd.call(this, type, listener, options);
+    };
+    window.removeEventListener = function(type, listener, options) {
+      if (type === 'focus') window.labRace.focusListeners.delete(listener);
+      return originalRemove.call(this, type, listener, options);
+    };
+  `);
+  const otherActorId = 'browser-other-actor';
+  const actors: AnyRecord[] = [actor('approved', true), {
+    ...actor('approved', true),
+    actorId: otherActorId,
+    canonicalName: 'Other Browser Actor',
+    romanizedName: 'Other Browser Actor',
+    pairings: [{...actor('approved', true).pairings[0], vibeKey: `${otherActorId}:0`}],
+  }].map(item => ({
+    ...item,
+    pairings: item.pairings.map((pair: AnyRecord, index: number) => ({
+      ...pair, vibeIdx: index, verdict: 'approved', currentRunId: 'run-1',
+    })),
+  }));
+  const revoked = new Set<string>();
+  const detail = (actorId: string, vibeKey: string) => {
+    const selectedActor = actors.find(item => item.actorId === actorId)!;
+    const selectedPairing = selectedActor.pairings.find((pair: AnyRecord) => pair.vibeKey === vibeKey)!;
+    const blocked = revoked.has(vibeKey);
+    return {
+      ...responseBody(run('run-1', true), blocked ? 'calibration_reaudit_required' : 'approved'),
+      actorId, vibeKey, actor: selectedActor,
+      pairing: {
+        ...selectedPairing, eligible: !blocked,
+        auditState: blocked ? 'calibration_reaudit_required' : 'approved',
+        currentReviewRequirement: blocked ? {
+          code: 'calibration_reaudit_required',
+          message: `Current authority for ${vibeKey} requires a fresh review.`,
+        } : null,
+      },
+      verdict: 'approved', notes: `Saved notes for ${vibeKey}`,
+    };
+  };
+  let holdNext: {
+    status: number;
+    captured: () => void;
+    gate: Promise<void>;
+  } | null = null;
+  await page.route('**/.netlify/functions/actor-audits**', async route => {
+    const url = new URL(route.request().url());
+    if (route.request().method() !== 'GET') return route.fallback();
+    if (url.searchParams.get('view') === 'actors') return route.fulfill({json: {actors}});
+    const actorId = url.searchParams.get('actorId')!;
+    const vibeKey = url.searchParams.get('vibeKey')!;
+    if (!actors.some(item => item.actorId === actorId)) return route.fallback();
+    if (url.searchParams.has('runId')) return route.fulfill({json: {run: run('run-1', true)}});
+    const snapshot = detail(actorId, vibeKey);
+    const held = holdNext;
+    holdNext = null;
+    if (held) {
+      held.captured();
+      await held.gate;
+    }
+    await route.fulfill(held?.status === 503
+      ? {status: 503, json: {error: 'Obsolete authority read failed'}}
+      : {json: snapshot});
+  });
+  return {
+    otherActorId,
+    revoked,
+    holdSummary(status = 200) {
+      let release!: () => void;
+      let captured!: () => void;
+      const gate = new Promise<void>(resolve => {release = resolve});
+      const received = new Promise<void>(resolve => {captured = resolve});
+      holdNext = {status, captured, gate};
+      return {received, release};
+    },
+  };
+}
+
+async function settleReadinessReply(page: Page, parsedBefore: number) {
+  await page.waitForFunction(before => (window as any).labRace.parsed > before, parsedBefore);
+  // Wait for the fetch continuation and React commit before asserting absence.
+  await page.evaluate(() => new Promise<void>(resolve => {
+    requestAnimationFrame(() => requestAnimationFrame(() => resolve()));
+  }));
+}
+
+async function assertReadinessDrafts(page: Page, suffix: string) {
+  assert.equal(await page.getByLabel('Operator notes').inputValue(), `Unsaved notes ${suffix}`);
+  assert.equal(await page.getByLabel('Editorial copy', {exact: false}).inputValue(),
+    `Unsaved editorial copy ${suffix} long enough for a public teaser.`);
+}
+
+for (const staleStatus of [200, 503]) {
+  test(`Lab ignores an older focus ${staleStatus} reply after a newer revoked summary without losing drafts`, {timeout: 60_000}, async () => {
+    const {server, origin} = await startApp();
+    const {browser, page} = await launchPageForServer(server);
+    try {
+      const fixture = await configureReadinessRace(page);
+      await gotoTestPage(page, `${origin}/vibe-atlas?admin=true`);
+      await page.getByRole('tab', {name: 'Actor Preflight Lab', exact: true}).click();
+      await page.getByText('Ready to publish', {exact: true}).waitFor();
+      await page.getByLabel('Operator notes').fill('Unsaved notes original');
+      await page.getByLabel('Editorial copy', {exact: false}).fill('Unsaved editorial copy original long enough for a public teaser.');
+
+      const older = fixture.holdSummary(staleStatus);
+      await page.evaluate(() => window.dispatchEvent(new Event('focus')));
+      await older.received;
+      await page.getByText('Checking current release approval…', {exact: true}).waitFor();
+      assert.equal(await page.getByText('Ready to publish', {exact: true}).count(), 0);
+      fixture.revoked.add(VIBE_KEY);
+      await page.evaluate(() => window.dispatchEvent(new Event('focus')));
+      await page.getByText('Current review required', {exact: true}).first().waitFor();
+
+      const parsedBefore = await page.evaluate(() => (window as any).labRace.parsed);
+      older.release();
+      await settleReadinessReply(page, parsedBefore);
+      assert.equal(await page.getByText('Ready to publish', {exact: true}).count(), 0);
+      assert.equal(await page.getByRole('button', {name: 'Publish public three-card preview', exact: true}).count(), 0);
+      assert.equal(await page.getByText('Current review required', {exact: true}).first().isVisible(), true);
+      assert.equal(await page.getByText(`Current authority for ${VIBE_KEY} requires a fresh review.`, {exact: false}).first().isVisible(), true);
+      assert.equal(await page.getByText('Current release approval unavailable.', {exact: false}).count(), 0);
+      assert.equal(await page.getByText('Obsolete authority read failed', {exact: true}).count(), 0);
+      // Revocation hides publication inputs. A summary-only recovery must show
+      // the original local drafts, not the saved values in the response.
+      fixture.revoked.delete(VIBE_KEY);
+      await page.evaluate(() => window.dispatchEvent(new Event('focus')));
+      await page.getByText('Ready to publish', {exact: true}).waitFor();
+      await assertReadinessDrafts(page, 'original');
+    } finally {
+      await closeBrowserAndServer(browser, server);
+    }
+  });
+}
+
+for (const selection of ['actor', 'pairing'] as const) {
+  test(`Lab ignores a pending focus reply after changing ${selection} and removes its listener on exit`, {timeout: 60_000}, async () => {
+    const {server, origin} = await startApp();
+    const {browser, page} = await launchPageForServer(server);
+    try {
+      const fixture = await configureReadinessRace(page);
+      await gotoTestPage(page, `${origin}/vibe-atlas?admin=true`);
+      const baselineListeners = await page.evaluate(() => (window as any).labRace.focusListeners.size);
+      await page.getByRole('tab', {name: 'Actor Preflight Lab', exact: true}).click();
+      await page.getByText('Ready to publish', {exact: true}).waitFor();
+      assert.equal(await page.evaluate(() => (window as any).labRace.focusListeners.size), baselineListeners + 1);
+      const older = fixture.holdSummary();
+      await page.evaluate(() => window.dispatchEvent(new Event('focus')));
+      await older.received;
+
+      const nextVibe = selection === 'actor' ? `${fixture.otherActorId}:0` : `${ACTOR_ID}:1`;
+      if (selection === 'actor') await page.getByRole('button', {name: /Other Browser Actor/}).click();
+      else await page.getByRole('button', {name: 'Open pack review 2', exact: true}).click();
+      await page.getByText('Ready to publish', {exact: true}).waitFor();
+      await page.waitForFunction(expected => {
+        const notes = Array.from(document.querySelectorAll('label'))
+          .find(label => label.textContent?.startsWith('Operator notes'))?.querySelector('textarea');
+        return notes?.value === expected;
+      }, `Saved notes for ${nextVibe}`);
+      await page.getByLabel('Operator notes').fill('Unsaved notes new selection');
+      await page.getByLabel('Editorial copy', {exact: false}).fill('Unsaved editorial copy new selection long enough for a public teaser.');
+      fixture.revoked.add(nextVibe);
+      await page.evaluate(() => window.dispatchEvent(new Event('focus')));
+      await page.getByText(`Current authority for ${nextVibe} requires a fresh review.`, {exact: false}).first().waitFor();
+      const parsedBefore = await page.evaluate(() => (window as any).labRace.parsed);
+      older.release();
+      await settleReadinessReply(page, parsedBefore);
+      assert.equal(await page.getByRole('heading', {name: selection === 'actor' ? 'Other Browser Actor' : 'Browser Test Actor', exact: true}).isVisible(), true);
+      assert.equal(await page.getByRole('button', {name: selection === 'actor' ? 'Open pack review 1' : 'Open pack review 2', exact: true}).getAttribute('data-selected'), 'true');
+      assert.equal(await page.getByText('Ready to publish', {exact: true}).count(), 0);
+      assert.equal(await page.getByText('Current review required', {exact: true}).first().isVisible(), true);
+      assert.equal(await page.getByText('Current release approval unavailable.', {exact: false}).count(), 0);
+      fixture.revoked.delete(nextVibe);
+      await page.evaluate(() => window.dispatchEvent(new Event('focus')));
+      await page.getByText('Ready to publish', {exact: true}).waitFor();
+      await assertReadinessDrafts(page, 'new selection');
+      assert.equal(await page.evaluate(() => (window as any).labRace.focusListeners.size), baselineListeners + 1);
+
+      const pendingAtExit = fixture.holdSummary();
+      await page.evaluate(() => window.dispatchEvent(new Event('focus')));
+      await pendingAtExit.received;
+      await page.getByRole('tab', {name: 'Court rulings', exact: true}).click();
+      await page.getByRole('heading', {name: 'Actor preflight lab', exact: true}).waitFor({state: 'detached'});
+      assert.equal(await page.evaluate(() => (window as any).labRace.focusListeners.size), baselineListeners);
+      const requestsBefore = await page.evaluate(() => (window as any).labRace.requests);
+      await page.evaluate(() => window.dispatchEvent(new Event('focus')));
+      assert.equal(await page.evaluate(() => (window as any).labRace.requests), requestsBefore,
+        'leaving the Lab must stop focus-triggered authoritative reads');
+      const parsedAtExit = await page.evaluate(() => (window as any).labRace.parsed);
+      pendingAtExit.release();
+      await settleReadinessReply(page, parsedAtExit);
+      assert.equal(await page.getByRole('heading', {name: 'Actor preflight lab', exact: true}).count(), 0);
+      assert.equal(await page.evaluate(() => (window as any).labRace.focusListeners.size), baselineListeners);
+    } finally {
+      await closeBrowserAndServer(browser, server);
+    }
+  });
+}
+
 const RESCUE_RECEIPT_ID = 'rescue-receipt-1'
 ;
 
