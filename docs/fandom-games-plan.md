@@ -224,7 +224,7 @@ work, promised releases, or validated audience demand.
 
 ### 1. Spirit Beast Daycare: One Napping Dragon
 
-**Premise:** A baby qilin needs a snack, a brush, a game, and a nap before the
+**Premise:** A baby dragon needs a snack, a brush, a game, and a nap before the
 master returns—and is frightened by the bell.
 
 **Play:** Schedule care-action cards in a short sequence. Each action changes
@@ -235,7 +235,7 @@ random punishment.
 four turns, with three deterministic care outcomes. Every outcome explains
 which needs were met or missed.
 
-**Shareable payoff:** A tiny care report, from “Trusted Keeper” to “The Qilin
+**Shareable payoff:** A tiny care report, from “Trusted Keeper” to “The Dragon
 Has Adopted the Laundry Basket.”
 
 **Why it adds variety:** A gentle scheduling-and-state puzzle, rather than a
@@ -332,8 +332,8 @@ The four new pitches are unranked; no player-preference data exists for them.
 
 ## Original shortlist recovery
 
-**Not yet recovered.** The original task plan confirms that a game shortlist existed, but does not
-contain the other concepts' names or descriptions. The saved project planning
+**Not yet recovered.** The original task plan confirms that a game shortlist
+existed, but does not contain the other concepts' names or descriptions. The saved project planning
 documents searched so far do not supply that list.
 
 The eight entries under **Recreated concepts** are a new reconstruction; the
