@@ -26,6 +26,30 @@ test("handler module loads and exports a default function", () => {
   assert.equal(typeof handler, "function");
 });
 
+test("sect participation separates start, completion and successful methods; strips decision trails", async () => {
+  const { store, context } = makeStoreContext();
+  const base = { batchKey: "c-drama-fandom-sect-day", contentId: "sect-day-v1", source: "direct" };
+  for (const payload of [
+    { event: "sect_game_start" },
+    { event: "sect_game_complete", outcomeId: "before-lunch" },
+    ...["native", "copy", "download"].map(shareMethod => ({ event: "sect_game_action", outcomeId: "sect-savior", shareMethod })),
+  ]) {
+    assert.equal((await handler(req({ ...base, ...payload, trail: [1,2,3], imageUrl: "secret", name: "visitor" }), context)).status, 200);
+    const entry = store._values(`${base.batchKey}:${payload.event}:`).at(-1);
+    assert.equal(entry.trail, undefined); assert.equal(entry.imageUrl, undefined); assert.equal(entry.name, undefined);
+    assert.equal(entry.shareMethod, payload.shareMethod);
+  }
+  for (const payload of [
+    { event: "sect_game_start", outcomeId: "sect-savior" },
+    { event: "sect_game_complete" },
+    { event: "sect_game_complete", outcomeId: "moonlit-strategist" },
+    { event: "sect_game_action", outcomeId: "sect-savior", shareMethod: "failed" },
+    { event: "sect_game_action", outcomeId: "sect-savior", shareMethod: "cancelled" },
+    { event: "sect_game_complete", outcomeId: "sect-savior", contentId: "lg01-v1" },
+    { event: "fandom_game_reveal", outcomeId: "sect-savior" },
+  ]) assert.equal((await handler(req({ ...base, ...payload }), context)).status, 400);
+});
+
 test("companion pilot events accept only bounded paths and do not store visitor text", async () => {
   const { store, context } = makeStoreContext();
   const event = { event: "companion_path_view", batchKey: "c-drama-companion-pilot", pilotPath: "context", imageUrl: "email@example.com" };
@@ -46,6 +70,37 @@ test("companion pilot events accept only bounded paths and do not store visitor 
     body: JSON.stringify({ ...event, event: "companion_qualified_view" }),
   }), context)).status, 200);
   assert.equal(store._values("c-drama-companion-pilot:companion_qualified_view:").length, 1);
+});
+
+test("explicit internal pilot visits are discarded without storing identifiers", async () => {
+  const { store, context } = makeStoreContext();
+  for (const event of ["companion_path_view", "companion_qualified_view", "companion_collection_click"]) {
+    const result = await handler(req({
+      event, batchKey: "c-drama-companion-pilot", pilotPath: "collect",
+      internalPilot: true, email: "staff@example.com", token: "not-for-analytics",
+    }), context);
+    assert.deepEqual(await result.json(), { ok: true, excluded: true });
+    assert.equal(store._values(`c-drama-companion-pilot:${event}:`).length, 0);
+  }
+  assert.deepEqual(await (await handler(req({
+    event: "checkout_started", batchKey: "vibe-atlas-membership",
+    pilotPath: "collect", internalPilot: true,
+  }), context)).json(), { ok: true, excluded: true });
+  assert.equal(store._values("vibe-atlas-membership:checkout_started:").length, 0);
+  for (const invalid of ["yes", { email: "staff@example.com" }, 1]) {
+    assert.equal((await handler(req({
+      event: "companion_qualified_view", batchKey: "c-drama-companion-pilot",
+      pilotPath: "collect", internalPilot: invalid,
+    }), context)).status, 400);
+  }
+  assert.equal((await handler(req({
+    event: "save", batchKey: "other", internalPilot: true,
+  }), context)).status, 400);
+  assert.equal((await handler(req({
+    event: "companion_qualified_view", batchKey: "c-drama-companion-pilot",
+    pilotPath: "collect", internalPilot: false, email: "staff@example.com",
+  }), context)).status, 200);
+  assert.equal(store._values("c-drama-companion-pilot:companion_qualified_view:")[0].email, undefined);
 });
 
 // ---------------------------------------------------------------------------

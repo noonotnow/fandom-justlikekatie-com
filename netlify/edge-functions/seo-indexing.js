@@ -5,6 +5,7 @@ import {
   publicRouteUrl,
 } from "../../shared/public-routes.js";
 import { localizedPath, stripLocalePath } from "../../shared/locale.js";
+import { GAME_PATH, GAME_URL, incomingEnding } from "../../public/c-drama-fandom/fandom-games/sect-day/story.js";
 
 const SITE_ORIGIN = "https://fandom.justlikekatie.com";
 const VIBE_ATLAS_SOCIAL_IMAGE = `${PUBLIC_ORIGIN}/assets/c-drama-fandom/legendary-grid-liu-xueyi-2026-08-29.webp`;
@@ -106,6 +107,9 @@ export function shouldNoindexUrl(input) {
   const pathname = url.pathname.replace(/\/+$/, "") || "/";
   const englishPath = stripLocalePath(pathname).replace(/\/+$/, "") || "/";
   const isChinese = pathname !== englishPath;
+  if (pathname === GAME_PATH.replace(/\/$/, "") || pathname === GAME_PATH + "index.html" || pathname.startsWith(GAME_PATH + "previews/")) {
+    return url.search.length > 0 || pathname.includes("/previews/");
+  }
 
   if (englishPath === "/auth/verify" || englishPath.startsWith("/auth/")) return true;
 
@@ -149,6 +153,23 @@ export default async function seoIndexing(request, context) {
       /<meta name="robots" content="[^"]*" \/>/,
       '<meta name="robots" content="noindex,follow" />',
     );
+    body = html;
+  }
+  // Override even a duplicate-query internal redirect using one exact allowlist.
+  // Never reflect unknown values or let a generated variant change the canonical.
+  if (isHtml && [GAME_PATH.replace(/\/$/, ""), GAME_PATH + "index.html"].includes(requestUrl.pathname.replace(/\/+$/, ""))) {
+    const ending = incomingEnding(requestUrl.search);
+    let html = typeof body === "string" ? body : await response.text();
+    const title = ending?.name || "Can You Survive Your First Day in a Sect?";
+    const description = ending?.description || "Five decisions, six endings, no cultivation skills. An original 2–4 minute xianxia branching adventure in Quiet Bell Sect.";
+    const image = `${PUBLIC_ORIGIN}/assets/c-drama-fandom/sect-day-${ending?.id || "master"}-og.jpg`;
+    html = html.replace(/<title>[^<]*<\/title>/, `<title>${escapeHtml(title)} | Fandom Vibes</title>`)
+      .replace(/(<meta (?:property|name)="(?:og:title|twitter:title)" content=")[^"]*"/g, `$1${escapeHtml(title)}"`)
+      .replace(/(<meta (?:property|name)="(?:description|og:description|twitter:description)" content=")[^"]*"/g, `$1${escapeHtml(description)}"`)
+      .replace(/(<meta (?:property|name)="(?:og:image|twitter:image)" content=")[^"]*"/g, `$1${image}"`)
+      .replace(/(<meta property="og:url" content=")[^"]*"/, `$1${GAME_URL}${ending ? "?ending=" + ending.id : ""}"`)
+      .replace(/(<link rel="canonical" href=")[^"]*"/, `$1${GAME_URL}"`)
+      .replace(/(<meta name="robots" content=")[^"]*"/, `$1${noindex ? "noindex,follow" : "index,follow,max-image-preview:large"}"`);
     body = html;
   }
   return new Response(body, {

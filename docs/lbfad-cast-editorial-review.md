@@ -63,3 +63,32 @@ Preview the standalone draft at `/c-dramas/love-between-fairy-and-devil/cast/` i
 - New-page registration, one existing-style static rewrite, generated sitemap entry, and editorial analytics labels form the minimum coherent release. They are transferred onto current GitHub main rather than releasing the entire workspace.
 
 Before release, verify the clean release tree, preserve current published content, and confirm that no unrelated unpublished drafts enter the release. After release, verify the custom-domain route, canonical, sitemap, cast mappings, source links, and discovery links.
+
+## Production publication receipt
+
+Published October 3, 2026 after creator approval and the required checks:
+
+- GitHub PR: https://github.com/noonotnow/fandom-justlikekatie-com/pull/177
+- Both required `test` jobs passed; the creator’s GitHub review was approved. The PR merged normally, without bypassing required checks, at 17:10:18 UTC.
+- Production commit: `d2fa30a2bf68cb33ff84fb0f80a990a797173e2a`.
+- Netlify production deploy: `6ac136fc2df2c60008370981`, ready and confirmed as the site’s active published deployment.
+- Live guide: https://fandom.justlikekatie.com/c-dramas/love-between-fairy-and-devil/cast/
+- The guide, existing main guide, and relationship guide each returned HTTP 200. Both existing guides link to the cast page.
+- All seven public table rows match the retained primary-credit evidence, including Chinese names and supported performer spellings. Later-role aliases and invented internal actor/pack links remain absent.
+- The canonical is the live cast route; robots allow indexing with no `noindex` response header. The complete production sitemap includes this URL exactly once.
+- All four linked provider sources returned HTTP 200 during release verification. The Daily Drop promise remains actor-independent.
+- A production screenshot confirmed the live page renders correctly. Desktop and mobile table layouts had already been checked before release; production uses that same approved page.
+
+This release transferred only the LBFAD guide, discovery links, supporting route/analytics/sitemap entries, tests, and source-review documents. It did not publish unrelated workspace drafts.
+
+## Subsequent live verification
+
+The older queued publication description was reconciled against the completed release on October 3, 2026. GitHub's public PR record independently confirms that PR 177 merged at the recorded time and has an approved review. No new publication or infrastructure change was performed.
+
+- The live cast guide's authored head and main content exactly match the reviewed workspace page.
+- All seven rows, Chinese names, and supported display variants match the retained primary-credit receipt.
+- The cast, main, and relationship routes return HTTP 200; both discovery links remain present. All four provider source links return HTTP 200.
+- The cast canonical and `index,follow` directive remain correct, with no `noindex` response header. The complete live sitemap contains the cast URL exactly once and supplies no approved actor record for any of the seven performers.
+- The 54 focused local checks, editorial JavaScript syntax check, and diff whitespace check pass.
+- Live Chromium checks at 1440px and 402px confirm seven rows, no horizontal page overflow, and the intended table-to-card layout. Screenshots confirm readable English copy. This Nix browser lacks native Chinese fallback fonts; a verification-only override using the existing first-party CJK font confirms visible Chinese text without modifying production. Native Chinese-font rendering on other devices is not certified by this check.
+- The actor-independent Daily Drop wording, adaptation distinction, and spoiler boundaries remain unchanged.

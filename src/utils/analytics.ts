@@ -1,6 +1,7 @@
 import { PUBLIC_ROUTE_PATHS } from '../../shared/public-routes.js';
 import { isValidVibeAtlasEditionDate, vibeAtlasPath } from './fandomRoutes';
 import type { CreatorPlatform } from './creatorDraft';
+import { validateParticipationEvent } from '../../shared/daily-participation.js';
 
 type AnalyticsData = Record<string, string | number | boolean>;
 type DailyDropEngagementReason = 'three_cards' | 'twenty_seconds';
@@ -193,6 +194,23 @@ function recordDailyDropEvent(event: DailyDropServerEvent): void {
   } catch {
     // Analytics must never interrupt the visitor's action.
   }
+}
+
+/** Private aggregate destination only: third-party trackers may inherit URL/referrer context. */
+export function recordDailyParticipationEvent(input: Record<string, unknown>): void {
+  if (typeof window === 'undefined') return;
+  const event = validateParticipationEvent(input);
+  if (!event) return;
+  try {
+    void window.fetch('/.netlify/functions/log-engagement', {
+      method: 'POST',
+      credentials: 'same-origin',
+      referrerPolicy: 'no-referrer',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify(event),
+      keepalive: true,
+    }).catch(() => undefined);
+  } catch { /* Participation works without analytics. */ }
 }
 
 function recordArchiveReviewEvent(event: ArchiveReviewServerEvent): void {

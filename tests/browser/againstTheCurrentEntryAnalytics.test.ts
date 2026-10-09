@@ -66,6 +66,7 @@ test('GA4 distinguishes feature entries and installment choices from direct shel
       ['Safe through Episodes 26–29: Read the installment', 'against-the-current-episodes-26-29', 'episodes_26_29'],
       ['Safe through Episodes 30–31: Read the installment', 'against-the-current-episodes-30-31', 'episodes_30_31'],
       ['Safe through Episodes 32–33: Read the installment', 'against-the-current-episodes-32-33', 'episodes_32_33'],
+      ['Safe through Episodes 34–38: Read the installment', 'against-the-current-episodes-34-38', 'episodes_34_38'],
     ]) {
       await gotoTestPage(page, `${origin}/c-drama-fandom/vibing-now/`);
       await captureClicks();
@@ -75,7 +76,7 @@ test('GA4 distinguishes feature entries and installment choices from direct shel
         name: 'against_the_current_installment_selected', data: { installment },
       });
     }
-    assert.equal((await clicks()).length, 8, 'direct visits must not be recorded as feature clicks');
+    assert.equal((await clicks()).length, 9, 'direct visits must not be recorded as feature clicks');
     assert.deepEqual(Object.keys((await clicks())[0].data ?? {}), ['placement']);
   } finally {
     await closeBrowserAndServer(browser, server);

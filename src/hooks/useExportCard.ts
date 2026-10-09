@@ -15,6 +15,7 @@ import { collectionGridFromStar } from '../utils/collectionHistory';
 import { schedulePublicCollectionSync } from '../utils/publicAccount';
 import { notifyGridExportPersisted, uploadExportedCard } from '../utils/gridExportLog';
 import { translate } from '../i18n/locale';
+import { trackDailyParticipationStage } from '../utils/dailyParticipation';
 
 export interface UseExportCardReturn {
   exportCard: (
@@ -79,6 +80,7 @@ export function useExportCard(data: StarOfDayData): UseExportCardReturn {
       // single star-of-day card and the resulting GridRecord is written automatically
       // so the card appears in their collection history without a second tap.
       await dbSaveGrid(grid);
+      trackDailyParticipationStage('grid_preserved');
       schedulePublicCollectionSync();
       // Law #2 Daily exception: auto-save is allowed here, but it must be visible.
       setToastMessage(`${exportResult.message} · ${translate('Added to collection history', '已加入收藏记录')}`);
@@ -117,6 +119,7 @@ export function useExportCard(data: StarOfDayData): UseExportCardReturn {
       }
       await navigator.share(shareData);
       await dbSaveGrid(grid);
+      trackDailyParticipationStage('grid_preserved');
       schedulePublicCollectionSync();
       setToastMessage(
         translate('Publishing handoff opened with the Publishing Grid · The editable Collection Grid is preserved', '已打开发布交接，可编辑的收藏九宫格仍保留。'),

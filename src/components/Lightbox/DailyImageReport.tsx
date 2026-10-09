@@ -5,6 +5,7 @@ import type { MisprintReason } from '../../utils/collectionDB';
 import { requestMagicLink } from '../../utils/publicAccount';
 import { useLocale } from '../../i18n/LocaleProvider';
 import styles from './Lightbox.module.css';
+import { trackDailyParticipationStage } from '../../utils/dailyParticipation';
 
 interface Props {
   date: string;
@@ -66,7 +67,6 @@ function reasonOptionLabel(reason: MisprintReason, t: (english: string, chinese:
   };
   return labels[reason];
 }
-
 export function DailyImageReport({ date, imageId, imageTitle, actorName, vibeLabel, recoverAfterAuth = false, onRecoveryComplete }: Props) {
   const { t, locale } = useLocale();
   const key = useMemo(() => recoveryKey(date, imageId), [date, imageId]);
@@ -167,6 +167,7 @@ export function DailyImageReport({ date, imageId, imageTitle, actorName, vibeLab
 
   async function submitReport(event: FormEvent) {
     event.preventDefault();
+    trackDailyParticipationStage('report_submission_started');
     const version = sessionVersion.current;
     setBusy(true);
     setNotice('');
@@ -188,6 +189,7 @@ export function DailyImageReport({ date, imageId, imageTitle, actorName, vibeLab
       const payload = await response.json().catch(() => ({})) as { report?: OwnReport; error?: string; message?: string };
       if (version !== sessionVersion.current) return;
       if (response.status === 401) {
+        trackDailyParticipationStage('report_sign_in_required');
         setErrorKind('sign_in');
         setNotice(t('Sign in to send this report. Your selected image and draft will be kept.', '登录后即可提交报告；所选图片和草稿会保留。'));
       } else if (!response.ok) {
@@ -200,6 +202,7 @@ export function DailyImageReport({ date, imageId, imageTitle, actorName, vibeLab
           throw new Error(t('The server returned an invalid report receipt. Your draft is still here.', '服务器返回的报告回执无效，草稿仍会保留。'));
         }
         setOwnReports(current => [report, ...current.filter(item => item.receiptId !== report.receiptId)]);
+        trackDailyParticipationStage(report.status === 'pending_review' ? 'report_receipt_pending' : 'report_receipt_existing');
         try { localStorage.removeItem(key); } catch { /* A saved report remains successful if storage is unavailable. */ }
         setNotice(({
           pending_review: t('Report received. It is pending operator review; the image and edition have not changed.', '报告已收到，正在等待运营审核；图片和期刊均未更改。'),
@@ -210,6 +213,7 @@ export function DailyImageReport({ date, imageId, imageTitle, actorName, vibeLab
       }
     } catch (error) {
       if (version !== sessionVersion.current) return;
+      trackDailyParticipationStage('report_submission_failed');
       setErrorKind('failure');
       setNotice(localizedError(error instanceof Error ? error.message : '', t('The report could not be submitted. Your draft is still here.', '报告提交失败，草稿仍会保留。')));
     } finally { if (version === sessionVersion.current) setBusy(false); }
@@ -250,7 +254,10 @@ export function DailyImageReport({ date, imageId, imageTitle, actorName, vibeLab
     <details className={styles.report} open={open} onToggle={event => {
       const isOpen = event.currentTarget.open;
       setOpen(isOpen);
-      if (isOpen) void refreshStatus();
+      if (isOpen) {
+        trackDailyParticipationStage('report_opened');
+        void refreshStatus();
+      }
     }}>
       <summary>{t('Report an image issue', '报告图片问题')}</summary>
       <p className={styles.reportContext}>{t('Exact Daily Drop image', '当前每日精选图片')} · {imageTitle} · {actorName} × {vibeLabel} · {date}</p>

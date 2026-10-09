@@ -2,6 +2,10 @@
 
 Recorded August 30, 2026, before making any ranking or conversion claims about the new public content layer.
 
+## Independent demand research snapshot
+
+The [October 3, 2026 C-drama search-opportunity brief](c-drama-search-opportunities-2026-10-03.md) reconciles the supplied SEO feedback with current local/live coverage, analyzes the May–August TOP/RISING exports, and ranks eight bounded editorial opportunities. Fresh longer-window Trends requests were rate-limited; historical demand, current source observations, and unavailable volume/performance evidence remain separate. This completed research does not replace or depend on the scheduled 90-day performance review.
+
 ## Search footprint
 
 A public search sample for `site:fandom.justlikekatie.com` and `site:fandom.justlikekatie.com c-drama` did not return a confirmed Fandom Vibes result. The returned pages were unrelated sites that happened to contain similar words. This should be treated as **no verified indexed footprint**, not as proof that Google has indexed zero pages.

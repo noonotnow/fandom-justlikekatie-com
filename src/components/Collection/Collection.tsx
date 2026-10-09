@@ -1,4 +1,5 @@
 import { useEffect, useRef, useState } from 'react';
+import { trackDailyParticipationStage } from '../../utils/dailyParticipation';
 import { PUBLIC_ROUTE_PATHS } from '../../../shared/public-routes.js';
 import {
   dbGetSyncState,
@@ -529,6 +530,7 @@ export const Collection: React.FC<Props> = ({
     setBusyKey(`misprint:${grid.id}`);
     try {
       await dbSaveGrid(markGridAsLegendaryMisprint(grid));
+      if (grid.id.startsWith('vibe-atlas-')) trackDailyParticipationStage('misprint_preserved');
       await loadCollection(user?.accountId);
       if (canSyncCloud) schedulePublicCollectionSync();
       setFilterActor(MISPRINT_FILTER);

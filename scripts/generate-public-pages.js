@@ -14,6 +14,7 @@ import { evaluateWatchRecord, loadWatchRecord, renderWatchPage, WATCH_PAGE, WATC
 import { assertStaticGuidePublicInventory } from "./static-guide-public-inventory.js";
 import { assertVibingPublicInventory } from "./vibing-public-inventory.js";
 import { renderUntamedNameKey } from "./untamed-name-key.js";
+import { prepareSectPages } from "./sect-day-pages.js";
 
 const scriptFile = fileURLToPath(import.meta.url);
 const root = resolve(dirname(scriptFile), "..");
@@ -550,6 +551,7 @@ export function prepareWatchPage(now = new Date()) {
   return renderWatchPage(record, now);
 }
 export async function preparePublicPages(now = new Date()) {
+  await prepareSectPages(root);
   const nameKeyPage = resolve(root, "public/c-drama-fandom/untamed-names-and-performers/index.html");
   mkdirSync(dirname(nameKeyPage), { recursive: true });
   writeFileSync(nameKeyPage, renderUntamedNameKey());

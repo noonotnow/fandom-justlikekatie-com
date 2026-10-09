@@ -12,6 +12,7 @@ export const PUBLIC_ROUTE_PATHS = Object.freeze({
   vibeAtlasPacks: "/vibe-atlas/packs",
   vibeAtlasVeteranJournal: "/vibe-atlas/veteran-journal",
   tropeDecoder: "/c-drama-fandom/trope-decoder/",
+  sectDay: "/c-drama-fandom/fandom-games/sect-day/",
 });
 
 export const PUBLIC_LOCALIZABLE_PATHS = Object.freeze([
@@ -82,6 +83,7 @@ export const PUBLIC_STATIC_ROUTES = Object.freeze([
   editorial("/c-drama-fandom/archetypes/white-moonlight-vs-cinnabar-mole/"),
   editorial("/c-drama-fandom/trope-decoder/", "0.9"),
   { ...editorial("/c-drama-fandom/fandom-games/", "0.9"), changefreq: "weekly" },
+  editorial(PUBLIC_ROUTE_PATHS.sectDay, "0.9"),
   { ...editorial("/c-drama-fandom/vibing-now/", "0.9"), changefreq: "weekly" },
   { ...editorial("/c-drama-fandom/vibing-now/against-the-current-episode-21/", "0.9"), changefreq: "weekly" },
   { ...editorial("/c-drama-fandom/vibing-now/against-the-current-episodes-22-25/", "0.9"), changefreq: "weekly" },

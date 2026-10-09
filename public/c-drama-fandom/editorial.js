@@ -163,7 +163,7 @@
   if (sourcePage === "vibing-now-index") {
     const installments = new Set([
       "episode_21", "episodes_22_25", "episodes_26_30",
-      "episodes_26_29", "episodes_30_31", "episodes_32_33",
+      "episodes_26_29", "episodes_30_31", "episodes_32_33", "episodes_34_38",
     ]);
     document.querySelectorAll("[data-series-installment]").forEach((link) => {
       link.addEventListener("click", () => {

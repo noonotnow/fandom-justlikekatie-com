@@ -510,7 +510,9 @@ test("the C-drama fandom routes are substantial static HTML documents", () => {
     assert.match(html, /<meta name="description" content="[^"]{80,}"/i);
     assert.match(html, /<script type="application\/ld\+json">/i);
     assert.doesNotMatch(html, /<div id="root"><\/div>/i, `${path} cannot rely on the SPA root`);
-    const minimumLength = path.endsWith("/untamed-name-board/index.html") ? 6_000 : 7_000;
+    // Interactive story text lives in the deterministic game module.
+    const minimumLength = path.endsWith("/sect-day/index.html") ? 4_000
+      : path.endsWith("/untamed-name-board/index.html") ? 6_000 : 7_000;
     assert.ok(html.length > minimumLength, `${path} should contain substantial editorial content`);
 
     const title = html.match(/<title>([^<]+)<\/title>/i)?.[1];
@@ -551,6 +553,7 @@ test("robots and sitemap expose only intended public surfaces", () => {
     "https://fandom.justlikekatie.com/c-drama-fandom/archetypes/white-moonlight-vs-cinnabar-mole/",
     "https://fandom.justlikekatie.com/c-drama-fandom/trope-decoder/",
     "https://fandom.justlikekatie.com/c-drama-fandom/fandom-games/",
+    "https://fandom.justlikekatie.com/c-drama-fandom/fandom-games/sect-day/",
     "https://fandom.justlikekatie.com/c-drama-fandom/vibing-now/",
     "https://fandom.justlikekatie.com/c-drama-fandom/vibing-now/against-the-current-episode-21/",
     "https://fandom.justlikekatie.com/c-drama-fandom/vibing-now/against-the-current-episodes-22-25/",

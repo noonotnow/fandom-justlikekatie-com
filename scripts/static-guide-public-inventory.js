@@ -9,6 +9,12 @@ const vibingDirectory = "public/c-drama-fandom/vibing-now";
 // Exact generated query-share files only. Do not derive this list from the
 // filesystem or exclude the previews directory. See docs/static-guide-inventory.md.
 export const STATIC_GUIDE_QUERY_SHARE_EXCLUSIONS = Object.freeze({
+  "public/c-drama-fandom/fandom-games/sect-day/previews/sect-savior/index.html": "Sect day fixed query-share preview",
+  "public/c-drama-fandom/fandom-games/sect-day/previews/three-realms/index.html": "Sect day fixed query-share preview",
+  "public/c-drama-fandom/fandom-games/sect-day/previews/heavenly-vow/index.html": "Sect day fixed query-share preview",
+  "public/c-drama-fandom/fandom-games/sect-day/previews/masters-favorite/index.html": "Sect day fixed query-share preview",
+  "public/c-drama-fandom/fandom-games/sect-day/previews/before-lunch/index.html": "Sect day fixed query-share preview",
+  "public/c-drama-fandom/fandom-games/sect-day/previews/back-mountain/index.html": "Sect day fixed query-share preview",
   "public/c-drama-fandom/fandom-games/previews/bamboo-recluse/index.html": "LG01 query-share preview",
   "public/c-drama-fandom/fandom-games/previews/celestial-guardian/index.html": "LG01 query-share preview",
   "public/c-drama-fandom/fandom-games/previews/chaos-prince/index.html": "LG01 query-share preview",
