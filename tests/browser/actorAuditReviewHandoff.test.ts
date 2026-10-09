@@ -13271,6 +13271,9 @@ test('an admin can hand off a complete compiled proposal that needs hero review'
     assert.deepEqual(saveRequests[0].candidateIds, expectedIds, 'the handoff must save the exact edited board')
 ;
 
+    // Receipt rendering precedes the automatic Collection save finishing.
+    // Keep approval blocked until that operation has completed.
+    await page.getByText('Rescue board saved and synced to Collection.', { exact: false }).waitFor();
 
     await page.getByLabel('Publication decision').selectOption('approved')
 ;
