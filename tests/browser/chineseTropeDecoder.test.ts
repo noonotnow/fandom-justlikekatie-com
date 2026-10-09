@@ -239,6 +239,9 @@ for (const engine of BROWSER_ENGINES) {
         document.getElementById('share-status')?.textContent?.includes('分享已取消'),
       );
       assert.match(await cancelledPage.locator('#share-status').textContent() || '', /分享已取消/);
+      assert.deepEqual(await analyticsCommands(cancelledPage), [
+        ['event', 'decoder_share_cancelled', { method: 'native' }],
+      ]);
       assert.equal(
         (await analyticsCommands(cancelledPage)).some(command => command[1] === 'decoder_share_succeeded'),
         false,
@@ -260,7 +263,16 @@ for (const engine of BROWSER_ENGINES) {
         });
       `);
       await failedSharePage.getByRole('button', { name: '分享这份解码器' }).click();
-      assert.match(await failedSharePage.locator('#share-status').textContent() || '', /分享面板未能打开/);
+      await failedSharePage.waitForFunction(() =>
+        !(document.getElementById('share-decoder') as HTMLButtonElement).disabled,
+      );
+      assert.equal(
+        await failedSharePage.locator('#share-status').textContent(),
+        '分享未能完成。你可以从地址栏复制此公开页面链接。',
+      );
+      assert.deepEqual(await analyticsCommands(failedSharePage), [
+        ['event', 'decoder_share_failed', { method: 'native' }],
+      ]);
       assert.equal(
         (await analyticsCommands(failedSharePage)).some(command => command[1] === 'decoder_share_succeeded'),
         false,

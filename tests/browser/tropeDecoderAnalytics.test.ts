@@ -163,7 +163,14 @@ for (const engine of BROWSER_ENGINES) {
             })()`);
             const button = page.locator('#share-decoder');
             for (let attempt = 1; attempt <= 2; attempt += 1) {
-              await button.click();
+              // Keep the outcome matrix keyboard-driven; pointer activation is
+              // exercised by the success and localized decoder tests above.
+              await button.focus();
+              await button.press('Enter');
+              await page.waitForFunction(expectedCount => {
+                const events = (window as Window & { dataLayer?: unknown[] }).dataLayer ?? [];
+                return events.length === expectedCount;
+              }, attempt);
               await page.waitForFunction(() => !(document.querySelector('#share-decoder') as HTMLButtonElement).disabled);
               const commands = await analyticsCommands(page);
               assert.deepEqual(commands, Array.from({ length: attempt }, () => [
