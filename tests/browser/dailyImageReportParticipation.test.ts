@@ -66,7 +66,7 @@ async function savedConstituentCardCount(page: Page): Promise<number> {
 // WebKit's local runtime currently aborts before page creation (EGL display).
 // Keep these contention checks executable; Safari verification is separate.
 for (const engine of BROWSER_ENGINES.filter(engine => engine.id !== 'webkit')) {
-  test(`${engine.name}: two tabs serialize first enrollment and day-1/day-7 returns without identity fields`, { timeout: 90_000 }, async () => {
+  test(`${engine.name}: two tabs serialize first enrollment and day-1/day-7 returns without identity fields`, { timeout: 120_000 }, async () => {
     const { server, origin } = await startViteTestServer();
     const browser = await launchBrowserForServer(server, engine.type);
     try {
@@ -115,33 +115,39 @@ for (const engine of BROWSER_ENGINES.filter(engine => engine.id !== 'webkit')) {
       const events = async () => (await Promise.all(pages.map(tab =>
         tab.evaluate<Record<string, unknown>[]>('window.events')))).flat();
 
-      // Each cohort is enrolled by simultaneous calls from separate tabs.
-      for (const operation of [
-        "await window.participation.trackDailyParticipationVisit(new Date('2026-10-01T12:00:00Z'));",
-        ...['guide_opened', 'grid_preserved', 'report_receipt_pending'].map(stage =>
-          `await window.participation.trackDailyParticipationStage('${stage}', new Date('2026-10-01T12:00:00Z'));`),
-      ]) await contend(operation);
-      assert.equal((await events()).filter(event => event.event === 'daily_participation_cohort_started').length, 4);
-      assert.equal((await events()).filter(event => event.event === 'daily_participation_stage').length, 6, 'stages count actions, not unique browsers');
-      assert.deepEqual(await page.evaluate(`Object.keys(JSON.parse(localStorage.getItem('daily-participation-cohorts-v1'))).sort()`),
-        ['daily_view', 'guide', 'preserved', 'report_pending']);
-
-      for (const returnDay of [1, 7]) {
-        await page.evaluate(`(() => {
-          const state = JSON.parse(localStorage.getItem('daily-participation-cohorts-v1'));
-          for (const entry of Object.values(state)) entry.returned = false;
-          localStorage.setItem('daily-participation-cohorts-v1', JSON.stringify(state));
-        })()`);
+      // Repeat real lock handoffs to expose Firefox's task-buffered storage
+      // snapshots. Exact counts must hold on every fresh enrollment and return.
+      for (let round = 0; round < (engine.id === 'firefox' ? 12 : 2); round++) {
+        await page.evaluate("localStorage.removeItem('daily-participation-cohorts-v1')");
         await Promise.all(pages.map(tab => tab.evaluate('window.events = []')));
-        await contend(`await window.participation.trackDailyParticipationVisit(new Date('2026-10-${returnDay === 1 ? '02' : '08'}T12:00:00Z'));`);
-        const returned = (await events()).filter(event => event.event === 'daily_participation_cohort_returned');
-        assert.equal(returned.length, 4);
-        assert.equal(new Set(returned.map(event => event.cohort)).size, 4);
-        assert.ok(returned.every(event => event.returnDay === returnDay));
-        await contend(`await window.participation.trackDailyParticipationVisit(new Date('2026-10-${returnDay === 1 ? '02' : '08'}T12:00:00Z'));`);
-        assert.equal((await events()).length, 4, 'repeated visits in both tabs cannot count a return twice');
-        for (const event of await events()) {
-          assert.deepEqual(Object.keys(event).sort(), ['batchKey', 'cohort', 'cohortDay', 'event', 'returnDay']);
+        // Each cohort is enrolled by simultaneous calls from separate tabs.
+        for (const operation of [
+          "await window.participation.trackDailyParticipationVisit(new Date('2026-10-01T12:00:00Z'));",
+          ...['guide_opened', 'grid_preserved', 'report_receipt_pending'].map(stage =>
+            `await window.participation.trackDailyParticipationStage('${stage}', new Date('2026-10-01T12:00:00Z'));`),
+        ]) await contend(operation);
+        assert.equal((await events()).filter(event => event.event === 'daily_participation_cohort_started').length, 4, `round ${round}: one enrollment per cohort`);
+        assert.equal((await events()).filter(event => event.event === 'daily_participation_stage').length, 6, 'stages count actions, not unique browsers');
+        assert.deepEqual(await page.evaluate(`Object.keys(JSON.parse(localStorage.getItem('daily-participation-cohorts-v1'))).sort()`),
+          ['daily_view', 'guide', 'preserved', 'report_pending']);
+
+        for (const returnDay of [1, 7]) {
+          await page.evaluate(`(() => {
+            const state = JSON.parse(localStorage.getItem('daily-participation-cohorts-v1'));
+            for (const entry of Object.values(state)) entry.returned = false;
+            localStorage.setItem('daily-participation-cohorts-v1', JSON.stringify(state));
+          })()`);
+          await Promise.all(pages.map(tab => tab.evaluate('window.events = []')));
+          await contend(`await window.participation.trackDailyParticipationVisit(new Date('2026-10-${returnDay === 1 ? '02' : '08'}T12:00:00Z'));`);
+          const returned = (await events()).filter(event => event.event === 'daily_participation_cohort_returned');
+          assert.equal(returned.length, 4, `round ${round}: one day-${returnDay} return per cohort`);
+          assert.equal(new Set(returned.map(event => event.cohort)).size, 4);
+          assert.ok(returned.every(event => event.returnDay === returnDay));
+          await contend(`await window.participation.trackDailyParticipationVisit(new Date('2026-10-${returnDay === 1 ? '02' : '08'}T12:00:00Z'));`);
+          assert.equal((await events()).length, 4, 'repeated visits in both tabs cannot count a return twice');
+          for (const event of await events()) {
+            assert.deepEqual(Object.keys(event).sort(), ['batchKey', 'cohort', 'cohortDay', 'event', 'returnDay']);
+          }
         }
       }
 

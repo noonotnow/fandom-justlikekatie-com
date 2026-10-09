@@ -11,10 +11,10 @@ function browser() {
   const trackers: unknown[] = [];
   let tail = Promise.resolve();
   const locks = {
-    request: (_name: string, options: { signal: AbortSignal }, callback: () => void) => {
+    request: (_name: string, options: { signal: AbortSignal }, callback: () => void | Promise<void>) => {
       const pending = tail.then(() => {
         options.signal.throwIfAborted();
-        callback();
+        return callback();
       });
       tail = pending.catch(() => undefined);
       return pending;
@@ -49,6 +49,39 @@ test('participation fails closed before the first existing session authority che
   trackDailyParticipationVisit(day(1));
   trackDailyParticipationStage('guide_opened', day(1));
   assert.deepEqual(b.requests, []);
+});
+
+test('cohort locks remain held until task-buffered storage writes checkpoint', async () => {
+  const b = browser();
+  setDailyParticipationAuthority(false);
+  const checkpointsAtRelease: boolean[] = [];
+  let checkpointed = true;
+  let tail = Promise.resolve();
+  const setItem = b.storage.setItem;
+  b.storage.setItem = (key, value) => {
+    setItem(key, value);
+    checkpointed = false;
+    // Model Firefox's stable-state checkpoint at the end of the writing task.
+    setTimeout(() => { checkpointed = true; }, 0);
+  };
+  Object.defineProperty(globalThis, 'navigator', { configurable: true, value: {
+    userAgent: 'Mozilla/5.0',
+    locks: { request: (_name: string, options: { signal: AbortSignal }, callback: () => void | Promise<void>) => {
+      const pending = tail.then(async () => {
+        options.signal.throwIfAborted();
+        await callback();
+        checkpointsAtRelease.push(checkpointed);
+      });
+      tail = pending.catch(() => undefined);
+      return pending;
+    } },
+  } });
+  await Promise.all([trackDailyParticipationVisit(day(1)), trackDailyParticipationVisit(day(1))]);
+  await Promise.all([trackDailyParticipationVisit(day(2)), trackDailyParticipationVisit(day(2))]);
+  assert.deepEqual(checkpointsAtRelease, [true, true, true, true],
+    'release must follow the browser task checkpoint, not just synchronous setItem or a microtask');
+  assert.equal(b.requests.filter(event => event.event === 'daily_participation_cohort_started').length, 1);
+  assert.equal(b.requests.filter(event => event.event === 'daily_participation_cohort_returned').length, 1);
 });
 
 test('same-browser cohorts are bounded, idempotent, return only days 1–7, and never use external tracker context', async () => {
