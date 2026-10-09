@@ -30,7 +30,7 @@ audience demand. Suggested priorities are recommendations for discussion.
 | Who Volunteered You for the Sacrifice? | Investigate contradictory testimony | Recreated idea |
 | Escape the Flashback | Resolve a time-loop through causal ordering | Recreated idea |
 | Run the Sect Group Chat | Choose recipients and responses under competing instructions | Recreated idea |
-| Spirit Beast Daycare: One Napping Dragon | Schedule care actions against visible needs | New pitch; unselected |
+| Spirit Beast Daycare: One Napping Qilin | Schedule care actions against visible needs | New pitch; unselected |
 | Cloudstep Courier: No Parcels Left Behind | Plan a route across a constraint-bound map | New pitch; unselected |
 | The Cauldron Is Lying | Deduce a recipe from reproducible ingredient reactions | New pitch; unselected |
 | Rebuild the Sect Teahouse Before the Summit | Place furnishings to satisfy spatial rules | New pitch; unselected |
@@ -222,9 +222,9 @@ These four ideas are fresh pitches, separate from the reconstructed concepts
 above. They are not recovered original contenders, accepted implementation
 work, promised releases, or validated audience demand.
 
-### 1. Spirit Beast Daycare: One Napping Dragon
+### 1. Spirit Beast Daycare: One Napping Qilin
 
-**Premise:** A baby dragon needs a snack, a brush, a game, and a nap before the
+**Premise:** A baby qilin needs a snack, a brush, a game, and a nap before the
 master returns—and is frightened by the bell.
 
 **Play:** Schedule care-action cards in a short sequence. Each action changes
@@ -235,7 +235,7 @@ random punishment.
 four turns, with three deterministic care outcomes. Every outcome explains
 which needs were met or missed.
 
-**Shareable payoff:** A tiny care report, from “Trusted Keeper” to “The Dragon
+**Shareable payoff:** A tiny care report, from “Trusted Keeper” to “The Qilin
 Has Adopted the Laundry Basket.”
 
 **Why it adds variety:** A gentle scheduling-and-state puzzle, rather than a
