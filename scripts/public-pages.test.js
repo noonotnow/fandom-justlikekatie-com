@@ -1241,6 +1241,31 @@ test("the trope decoder is searchable, shareable, and spoiler-light", () => {
   assert.match(html, /"numberOfItems": 14/);
 });
 
+for (const path of [
+  "public/c-drama-fandom/trope-decoder/index.html",
+  "public/zh-cn/c-drama-fandom/trope-decoder/index.html",
+]) {
+test(`decoder sharing outcomes use only bounded event names and method properties in ${path}`, () => {
+  const html = read(path);
+  const review = read("docs/trope-decoder-analytics-review.md");
+  const events = [...html.matchAll(/trackEvent\("(decoder_share_[^"]+)", \{([^}]+)\}\)/g)]
+    .map((match) => [match[1], match[2].trim()]);
+  assert.deepEqual(events, [
+    ["decoder_share_succeeded", 'method: "native"'],
+    ["decoder_share_succeeded", 'method: "copy"'],
+    ["decoder_share_failed", 'method: "copy"'],
+    ["decoder_share_cancelled", 'method: "native"'],
+    ["decoder_share_failed", "method"],
+  ]);
+  assert.match(html, /const method = typeof navigator\.share === "function" \? "native" : "copy"/);
+  assert.match(html, /if \(method === "native" && error\?\.name === "AbortError"\)/);
+  assert.match(html, /return document\.execCommand\("copy"\);\s*\} finally \{\s*textarea\.remove\(\)/);
+  assert.match(html, /finally \{\s*shareButton\.disabled = false/);
+  for (const [event] of events) assert.ok(review.includes(`\`${event}\``));
+  assert.doesNotMatch(events.map(([, data]) => data).join(" "), /url|message|account|email|name|text|query/i);
+});
+}
+
 test("LG01 has nine bounded outcomes and a privacy-safe share contract", () => {
   const html = read("public/c-drama-fandom/fandom-games/index.html");
   const script = read("public/c-drama-fandom/fandom-games/lg01.js");
