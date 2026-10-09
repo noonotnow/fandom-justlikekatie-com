@@ -6,10 +6,11 @@ status. It is not an instruction to build or publish additional games.
 ## Source and status
 
 The original conversation's unselected game names have not been recovered.
-The creator approved recreating a good shortlist and keeping it. The concepts
-below are that **new reconstruction**, not a claim to remember the lost list.
-If the original conversation is recovered, append its ideas with their source;
-do not overwrite either list.
+The creator approved recreating a good shortlist and keeping it. The eight
+entries under **Recreated concepts** are that **new reconstruction**, not a
+claim to remember the lost list. The additional pitches in this update are
+also new, not recovered names. If the original conversation is recovered,
+append its ideas with their source; do not overwrite either list.
 
 The two existing games are confirmed project work. All other entries are saved
 ideas, not accepted implementation tasks, promised releases, or validated
@@ -20,7 +21,7 @@ audience demand. Suggested priorities are recommendations for discussion.
 | Game | Distinct mechanic | Status |
 | --- | --- | --- |
 | Which Xianxia Fate Chose You? | Choose one of nine illustrated archetypes | Existing game |
-| Can You Survive Your First Day in a Sect? | Choice-dependent branching adventure | Implemented; production release still separate |
+| Can You Survive Your First Day in a Sect? | Choice-dependent branching adventure | Implemented; public route checked 2026-10-09 |
 | You Have One Episode to Fix This Misunderstanding | Limited-question dialogue puzzle | Recreated idea; recommended next experiment |
 | Emergency Tribulation Packing | Choose a loadout, then test it against an authored crisis | Recreated idea; alternative next experiment |
 | Can You Survive a Palace Banquet? | Read social clues and manage public commitments | Recreated idea |
@@ -29,6 +30,10 @@ audience demand. Suggested priorities are recommendations for discussion.
 | Who Volunteered You for the Sacrifice? | Investigate contradictory testimony | Recreated idea |
 | Escape the Flashback | Resolve a time-loop through causal ordering | Recreated idea |
 | Run the Sect Group Chat | Choose recipients and responses under competing instructions | Recreated idea |
+| Spirit Beast Daycare: One Napping Dragon | Schedule care actions against visible needs | New pitch; unselected |
+| Cloudstep Courier: No Parcels Left Behind | Plan a route across a constraint-bound map | New pitch; unselected |
+| The Cauldron Is Lying | Deduce a recipe from reproducible ingredient reactions | New pitch; unselected |
+| Rebuild the Sect Teahouse Before the Summit | Place furnishings to satisfy spatial rules | New pitch; unselected |
 
 ## Existing game: Which Xianxia Fate Chose You?
 
@@ -48,9 +53,12 @@ public fate links, and privacy behavior when adding other games.
   callbacks to earlier choices.
 - An independent branching adventure, not an automatically numbered Legendary
   Grid or an expansion of the original fate board.
-- The original task explicitly excluded other proposed games and production
-  publishing without separate approval. Its completion does not authorize
-  either.
+- The original task excluded the other proposed games and production
+  publishing. Sect Day was subsequently released in a separate change; the
+  other concepts remain discussion-only.
+- Public route check (2026-10-09): [the Sect Day page](https://fandom.justlikekatie.com/c-drama-fandom/fandom-games/sect-day/)
+  serves the game intro. This confirms the route loads, not a full end-to-end
+  playthrough.
 
 ## Recreated concepts
 
@@ -208,16 +216,101 @@ message, never a transcript of the player's choices.
 than sword choices, personality scoring, or a conventional multiple-choice
 quiz. The humor should stay specific to the invented sect.
 
+## New pitches (added in this update; unselected)
+
+These four ideas are fresh pitches, separate from the reconstructed concepts
+above. They are not recovered original contenders, accepted implementation
+work, promised releases, or validated audience demand.
+
+### 1. Spirit Beast Daycare: One Napping Dragon
+
+**Premise:** A baby qilin needs a snack, a brush, a game, and a nap before the
+master returns—and is frightened by the bell.
+
+**Play:** Schedule care-action cards in a short sequence. Each action changes
+visible needs, and the order matters; there is no hidden personality score or
+random punishment.
+
+**Small first version:** One creature, four visible needs, six actions, and
+four turns, with three deterministic care outcomes. Every outcome explains
+which needs were met or missed.
+
+**Shareable payoff:** A tiny care report, from “Trusted Keeper” to “The Qilin
+Has Adopted the Laundry Basket.”
+
+**Why it adds variety:** A gentle scheduling-and-state puzzle, rather than a
+branching story or identity quiz.
+
+### 2. Cloudstep Courier: No Parcels Left Behind
+
+**Premise:** Deliver three sealed parcels across the sect without soaking the
+herb scroll or delivering the master's lunch to the sword-repair shed.
+
+**Play:** Trace a route across a small map. Visible constraints govern which
+places must be visited first, which path is unsafe for a parcel, and whether a
+one-use wind charm is worth saving.
+
+**Small first version:** One seven-stop map, three parcels, four readable route
+rules, and no timer. Movement and route review must work with buttons and
+keyboard, not drag-only controls.
+
+**Shareable payoff:** A delivery docket with a dry-parcel count and one
+lightly judgmental note from the receiving disciple.
+
+**Why it adds variety:** The central action is spatial route planning, not
+interviewing witnesses or ordering story events.
+
+### 3. The Cauldron Is Lying
+
+**Premise:** The immortal kitchen's cauldron keeps producing suspiciously
+sentient steam, but its reactions follow rules.
+
+**Play:** Combine original, fictional ingredients and use visible reaction
+clues to infer a harmless requested effect. The player tests a formula, reads
+what changed, and revises the ingredient set or order.
+
+**Small first version:** Six invented ingredients, one small recipe, three
+experiments, and a deterministic solution. All necessary clues appear in-game;
+it teaches no real-world recipe or health advice.
+
+**Shareable payoff:** A recipe card with the intended result and the actual
+result, such as “warmth, clarity, and one very opinionated puff of steam.”
+
+**Why it adds variety:** A constrained experiment-and-deduction loop, distinct
+from testimony mysteries and fictional legal appeals.
+
+### 4. Rebuild the Sect Teahouse Before the Summit
+
+**Premise:** Guests arrive soon, the teahouse floor plan is a mess, and the
+kettle insists it needs a clear path to every table.
+
+**Play:** Place a small set of furnishings on a grid while satisfying explicit
+adjacency, access, and quiet-zone rules. After each placement, show which
+constraints are met or broken.
+
+**Small first version:** One 3×3 room, six furniture tiles, four visible rules,
+and two valid layouts. Placement, rotation, and removal must be operable with
+keyboard and buttons as well as pointer controls.
+
+**Shareable payoff:** A floor-plan card titled with the layout's outcome, such
+as “Grandmaster Approved” or “Excellent Tea, Impossible Exit.”
+
+**Why it adds variety:** A spatial layout puzzle with visible constraints,
+not a social-choice banquet or a narrative ending tree.
+
 ## Suggested order, not a commitment
 
-1. Review and separately approve the existing Sect Day production release.
+1. Sect Day is already implemented and its public route was checked on
+   2026-10-09; do not treat it as the next unbuilt game.
 2. If choosing another experiment, consider **Fix This Misunderstanding** first:
    the premise is easy to explain and its dialogue puzzle differs from the
-   shipped formats. Player enjoyment is still untested.
+   existing formats. Player enjoyment is still untested.
 3. Consider **Emergency Tribulation Packing** instead if a visual selection
    game is more appealing.
-4. Keep the remaining six ideas on this list regardless of which is chosen.
-   No idea becomes an implementation task merely by being recorded here.
+4. Keep the other reconstructed concepts and the new pitches as discussion-only;
+   recording an idea here does not make it an implementation task.
+
+The four new pitches are unranked; no player-preference data exists for them.
 
 ## Creative and product boundaries
 
@@ -239,13 +332,15 @@ quiz. The humor should stay specific to the invented sect.
 
 ## Original shortlist recovery
 
-**Not yet recovered.** The original task plan confirms that a game shortlist
-existed, but does not contain the other concepts' names or descriptions.
-The saved project planning documents searched so far do not supply that list.
+**Not yet recovered.** The original task plan confirms that a game shortlist existed, but does not
+contain the other concepts' names or descriptions. The saved project planning
+documents searched so far do not supply that list.
 
-Preserve the original shortlist here when the relevant conversation excerpt
-becomes available. Keep original wording and any priorities or constraints,
-and keep that recovered material distinct from the recreated concepts above.
+The eight entries under **Recreated concepts** are a new reconstruction; the
+four entries under **New pitches** were created in this update. Neither group
+is evidence of the original unselected names. Preserve those original ideas
+here if the relevant conversation excerpt becomes available, retaining their
+wording, source, priorities, and constraints separately.
 
 ## Keeping this record useful
 
