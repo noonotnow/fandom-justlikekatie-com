@@ -19,6 +19,7 @@ export const PUBLIC_ROUTE_PATHS: Readonly<{
   vibeAtlasPacks: "/vibe-atlas/packs";
   vibeAtlasVeteranJournal: "/vibe-atlas/veteran-journal";
   tropeDecoder: "/c-drama-fandom/trope-decoder/";
+  sectDay: "/c-drama-fandom/fandom-games/sect-day/";
 }>;
 
 export const PUBLIC_LOCALIZABLE_PATHS: readonly string[];

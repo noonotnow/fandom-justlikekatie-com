@@ -14,6 +14,17 @@ const releaseDeskSource = readFileSync(
   'utf8',
 );
 
+test('current readiness is separate from the historical verdict in the Lab', () => {
+  assert.match(source, /item\.currentReviewRequirement \? 'Current approval required'/);
+  assert.match(source, /pairing\?\.currentReviewRequirement\?'Current review required'/);
+  assert.match(source, /pairing\.currentReviewRequirement\.message/);
+  assert.match(source, /Recorded verdict: \{pairing\.verdict\}/);
+  assert.match(source, /historical evidence, not current permission to publish/);
+  assert.match(source, /approved\?'Current release approval valid'/);
+  assert.match(source, /pairing\?\.eligible===true\?'Ready to publish'/);
+  assert.match(source, /pairing\?\.eligible===true && Number\.isInteger\(pairing\.vibeIdx\)/);
+});
+
 function functionBody(name: string): string {
   const start = source.indexOf(`async function ${name}`);
   assert.notEqual(start, -1, `${name} must exist`);

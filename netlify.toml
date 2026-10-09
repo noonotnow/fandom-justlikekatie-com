@@ -11,6 +11,14 @@
 
 [[edge_functions]]
   function = "seo-indexing"
+  path = "/c-drama-fandom/fandom-games/sect-day"
+
+[[edge_functions]]
+  function = "seo-indexing"
+  path = "/c-drama-fandom/fandom-games/sect-day/*"
+
+[[edge_functions]]
+  function = "seo-indexing"
   path = "/vibe-atlas"
 
 [[edge_functions]]
@@ -299,6 +307,53 @@ status = 200
 from = "/c-drama-fandom/vibing-now"
 to = "/c-drama-fandom/vibing-now/index.html"
 status = 200
+
+[[redirects]]
+from = "/c-drama-fandom/fandom-games/sect-day"
+to = "/c-drama-fandom/fandom-games/sect-day/index.html"
+status = 200
+
+[[redirects]]
+from = "/c-drama-fandom/fandom-games/sect-day/"
+to = "/c-drama-fandom/fandom-games/sect-day/previews/sect-savior/index.html"
+status = 200
+force = true
+query = { ending = "sect-savior" }
+
+[[redirects]]
+from = "/c-drama-fandom/fandom-games/sect-day/"
+to = "/c-drama-fandom/fandom-games/sect-day/previews/three-realms/index.html"
+status = 200
+force = true
+query = { ending = "three-realms" }
+
+[[redirects]]
+from = "/c-drama-fandom/fandom-games/sect-day/"
+to = "/c-drama-fandom/fandom-games/sect-day/previews/heavenly-vow/index.html"
+status = 200
+force = true
+query = { ending = "heavenly-vow" }
+
+[[redirects]]
+from = "/c-drama-fandom/fandom-games/sect-day/"
+to = "/c-drama-fandom/fandom-games/sect-day/previews/masters-favorite/index.html"
+status = 200
+force = true
+query = { ending = "masters-favorite" }
+
+[[redirects]]
+from = "/c-drama-fandom/fandom-games/sect-day/"
+to = "/c-drama-fandom/fandom-games/sect-day/previews/before-lunch/index.html"
+status = 200
+force = true
+query = { ending = "before-lunch" }
+
+[[redirects]]
+from = "/c-drama-fandom/fandom-games/sect-day/"
+to = "/c-drama-fandom/fandom-games/sect-day/previews/back-mountain/index.html"
+status = 200
+force = true
+query = { ending = "back-mountain" }
 
 [[redirects]]
 from = "/c-drama-fandom/vibing-now/against-the-current-episode-21"

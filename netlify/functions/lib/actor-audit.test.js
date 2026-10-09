@@ -3537,6 +3537,41 @@ test("run, verdict, rerun, and retained-run inspection keep eligibility current"
   const decided = await verdictResponse.json();
   assert.equal(verdictResponse.status, 200);
   assert.equal(decided.pairing.eligible, true);
+  assert.equal(decided.pairing.currentReviewRequirement, null);
+  const validSnapshot = structuredClone(store.records.get(eligibilityKey(pairActor.id, 0)));
+  for (const staleSnapshot of [
+    null,
+    { ...validSnapshot, runId: "older-run" },
+    { ...validSnapshot, pairingFingerprint: "stale-fingerprint" },
+    { ...validSnapshot, publishableConfirmed: false },
+  ]) {
+    if (staleSnapshot) store.records.set(eligibilityKey(pairActor.id, 0), staleSnapshot);
+    else store.records.delete(eligibilityKey(pairActor.id, 0));
+    const staleDetail = await (await handler(request("GET", undefined,
+      `?actorId=${pairActor.id}&vibeKey=${encodeURIComponent(vibeKey)}`), {})).json();
+    const staleSummary = (await (await handler(request(), {})).json()).actors[0].pairings[0];
+    assert.equal(await getEligibility(store, pairActor, 0), null);
+    assert.equal(staleSummary.eligible, false);
+    assert.equal(staleSummary.auditState, "current_approval_required");
+    assert.match(staleSummary.currentReviewRequirement.message, /fresh audit.*current review/i);
+    assert.equal(staleSummary.verdict, "approved");
+    assert.equal(staleDetail.currentRun.operatorVerdict.verdict, "approved");
+    assert.deepEqual(staleDetail.pairing, staleSummary, "selected pairing reads must expose the same canonical readiness as the actor list");
+  }
+  store.records.set(eligibilityKey(pairActor.id, 0), validSnapshot);
+  const recoveredSummary = (await (await handler(request(), {})).json()).actors[0].pairings[0];
+  assert.equal(recoveredSummary.eligible, true);
+  assert.equal(recoveredSummary.currentReviewRequirement, null);
+  const recoveredDetail = await (await handler(request("GET", undefined, `?actorId=${pairActor.id}&vibeKey=${encodeURIComponent(vibeKey)}`), {})).json();
+  assert.deepEqual(recoveredDetail.pairing, recoveredSummary);
+  const canonicalRead = store.get.bind(store);
+  store.get = async (key, options) => {
+    if (key === eligibilityKey(pairActor.id, 0)) throw new Error("Canonical eligibility unavailable");
+    return canonicalRead(key, options);
+  };
+  const unavailableSummary = await handler(request(), {});
+  assert.equal(unavailableSummary.status, 500, "an unreadable authority must fail closed, not return historical readiness");
+  store.get = canonicalRead;
   assert.equal(decided.currentRun.operatorVerdict.decidedBy, "operator-1");
   assert.equal(decided.currentRun.operatorVerdict.calibration.humanChoice, "compiled");
   assert.equal(decided.currentRun.operatorVerdict.calibration.systemWinner, "compiled");
@@ -6660,12 +6695,19 @@ test("production calibration requires repeated aggregate evidence, applies one a
     vibeKey,
     adjustmentType: "class",
     signalFamily: "sources",
-    beforeApproval: () => {
+    beforeApproval: async () => {
       assert.equal(
         curateOptions.filter(options => options.calibrationProfile).length,
         0,
         "diagnostic evidence must not affect production before explicit aggregate approval",
       );
+      const approvedBeforeAuthority = await handler(request("POST", {
+        action: "verdict", actorId: pairActor.id, vibeKey, runId: "run-2",
+        verdict: "approved", vibeConfirmed: true, publishableConfirmed: true,
+      }), {});
+      const previous = await approvedBeforeAuthority.json();
+      assert.equal(approvedBeforeAuthority.status, 200, JSON.stringify(previous));
+      assert.equal(previous.pairing.eligible, true);
       lagAuthorityListings = true;
     },
     selectCandidates: rawResults => {
@@ -6685,6 +6727,12 @@ test("production calibration requires repeated aggregate evidence, applies one a
   } = repeatedEvidence;
 
   assert.equal(approval.calibrationProfile.activeApproval.status, "approved");
+  assert.equal(await getEligibility(store, pairActor, 0), null);
+  assert.equal(approval.pairing.eligible, false);
+  assert.equal(approval.actor.pairings[0].eligible, false);
+  assert.equal(approval.pairing.verdict, "approved");
+  assert.equal(approval.pairing.auditState, "calibration_reaudit_required");
+  assert.match(approval.pairing.currentReviewRequirement.message, /authority.*changed.*fresh audit/i);
   assert.equal(approval.calibrationProfile.activeApproval.evidenceCount, 2);
   assert.deepEqual(
     approval.calibrationProfile.activeApproval.adjustment,
@@ -6752,6 +6800,10 @@ test("production calibration requires repeated aggregate evidence, applies one a
     publishableConfirmed: true,
   }), {});
   assert.equal(verdictResponse.status, 200, JSON.stringify(await verdictResponse.clone().json()));
+  const currentApproval = await verdictResponse.json();
+  assert.equal(currentApproval.pairing.eligible, true);
+  assert.equal(currentApproval.actor.pairings[0].eligible, true);
+  assert.equal(currentApproval.pairing.currentReviewRequirement, null);
   const eligibility = store.records.get(eligibilityKey(pairActor.id, 0));
   assert.deepEqual(eligibility.calibrationProfile.positiveSources, [sourceSignal]);
   assert.deepEqual(eligibility.calibrationProfile.positiveCandidateIds, []);
@@ -6804,6 +6856,10 @@ test("production calibration requires repeated aggregate evidence, applies one a
   );
   const canonicalRevocationProfile = await profileWithCanonicalRevocation.json();
   assert.equal(profileWithCanonicalRevocation.status, 200, JSON.stringify(canonicalRevocationProfile));
+  const revokedSummary = (await (await handler(request(), {})).json()).actors[0].pairings[0];
+  assert.equal(revokedSummary.eligible, false);
+  assert.equal(revokedSummary.auditState, "calibration_reaudit_required");
+  assert.equal(canonicalRevocationProfile.currentRun.operatorVerdict.verdict, "approved");
   assert.equal(
     canonicalRevocationProfile.calibrationProfile.activeApproval,
     null,
@@ -6861,6 +6917,9 @@ test("production calibration requires repeated aggregate evidence, applies one a
   const revoked = await revokeResponse.json();
   assert.equal(revokeResponse.status, 200, JSON.stringify(revoked));
   assert.equal(revoked.calibrationProfile.activeApproval, null);
+  assert.equal(revoked.pairing.eligible, false);
+  assert.equal(revoked.actor.pairings[0].eligible, false);
+  assert.equal(revoked.pairing.verdict, "approved");
   assert.equal(revoked.calibrationProfile.approvalHistory[0].effectiveStatus, "revoked");
 });
 

@@ -243,8 +243,49 @@ The clean production-based release tree built successfully. The workspace
 function suite passed 1,182 tests; type checking and 40 public-record/Archive
 checker tests passed.
 
-Production release is still pending GitHub's independent approval of the latest
-push. Creator copy approval does not satisfy that separate requirement.
-Do not bypass branch protection or manually deploy this preview as production.
-After the approved merge deploys, repeat every dated page/API/sitemap check on
-the actual production domain before claiming the historical release complete.
+At the time of preview verification, production was pending GitHub's independent
+approval of the latest push. Creator copy approval does not satisfy that
+separate requirement. No branch protection or production deployment safeguard
+was bypassed.
+
+## Completed production release
+
+An independent reviewer approved the latest release push
+`6a9457fa34c5ecc0b22420187cc6abe53abacf02` on October 8, 2026.
+Both required `test` runs passed. The normal protected GitHub merge of
+pull request 190 returned merge commit
+`ba6fd8d8e03eaa9007aae7d207facfaff29e8559`.
+
+Netlify production deployment `6ac7a29f5b9f420008f16b83` became ready and was
+confirmed as the published deployment at `2026-10-08T14:04:17.566Z` on
+<https://fandom.justlikekatie.com>.
+
+The production verification checked every one of the 33 previously audited
+dated editions, not a sample:
+
+- All 33 public-editions lookups and all 66 English/Chinese edition pages
+  returned HTTP 200.
+- Each API returned the original bilingual names and lines and exactly nine
+  original MEDIA delivery URLs. Chinese pages displayed both original
+  languages; every dated page contained nine card figures.
+- Every page had the expected production canonical and indexable robots
+  directive. Every edition appeared in both-language sitemap entries and
+  its correct actor directory.
+- All 16 English/Chinese actor pages returned HTTP 200.
+- Missing July 31–August 2, September 28, and October 6 remained HTTP 404 and
+  absent from the public sitemap. Unreviewed October 8 remained HTTP 404.
+
+The 30 newly opened dates also received a fresh independent full-download
+MEDIA check during the production release: **270 of 270** originals passed
+trusted content-addressed URL, no redirect, HTTP 200, MIME, byte count and
+SHA-256 validation. Each complete canonical manifest still matched its
+original full-manifest audit fingerprint and was reread unchanged after the
+nine-download check.
+
+July 31–August 2 have not been MEDIA verified: there are still no canonical
+publication manifests for those dates. They were not reconstructed or
+opened from Archive, Builder or Collection records.
+
+No publication manifests, Archive caches, Collection records or MEDIA assets
+were mutated for this release. The production change is the bounded,
+date-specific approval gate.

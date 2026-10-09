@@ -1,0 +1,237 @@
+{
+  "origin": "https://fandom.justlikekatie.com",
+  "startedAt": "2026-10-08T14:30:49.585Z",
+  "samples": [
+    {
+      "label": "baseline",
+      "requestedAt": "2026-10-08T14:30:49.585Z",
+      "receivedAt": "2026-10-08T14:30:50.240Z",
+      "headersMs": 650,
+      "totalMs": 655,
+      "status": 200,
+      "requestId": "01M4DYS34N4X46CFMGWYWWJPXV",
+      "cacheControl": "no-store",
+      "actorCount": 8,
+      "page": {
+        "hasMore": false,
+        "nextCursor": null,
+        "scanned": 0,
+        "unavailableCount": 1,
+        "partial": true,
+        "status": "partial",
+        "unavailable": false
+      },
+      "actorInventory": {
+        "scope": "verified-directory",
+        "complete": false,
+        "generation": "0a66af86-b15f-427c-82d8-909a15673825",
+        "source": "snapshot",
+        "cacheAvailable": true,
+        "freshness": "partial",
+        "verifiedAt": "2026-10-08T14:30:12.610Z",
+        "expiresAt": "2026-10-08T14:45:12.610Z",
+        "retryAt": "2026-10-08T14:31:13.161Z",
+        "verifiedCandidates": 34,
+        "totalCandidates": 34
+      }
+    },
+    {
+      "label": "warm-1",
+      "requestedAt": "2026-10-08T14:30:50.242Z",
+      "receivedAt": "2026-10-08T14:30:50.438Z",
+      "headersMs": 195,
+      "totalMs": 196,
+      "status": 200,
+      "requestId": "01M4DYS3MF8G37YFTP75545959",
+      "cacheControl": "no-store",
+      "actorCount": 8,
+      "page": {
+        "hasMore": false,
+        "nextCursor": null,
+        "scanned": 0,
+        "unavailableCount": 1,
+        "partial": true,
+        "status": "partial",
+        "unavailable": false
+      },
+      "actorInventory": {
+        "scope": "verified-directory",
+        "complete": false,
+        "generation": "0a66af86-b15f-427c-82d8-909a15673825",
+        "source": "snapshot",
+        "cacheAvailable": true,
+        "freshness": "partial",
+        "verifiedAt": "2026-10-08T14:30:12.610Z",
+        "expiresAt": "2026-10-08T14:45:12.610Z",
+        "retryAt": "2026-10-08T14:31:13.161Z",
+        "verifiedCandidates": 34,
+        "totalCandidates": 34
+      }
+    },
+    {
+      "label": "warm-2",
+      "requestedAt": "2026-10-08T14:30:50.439Z",
+      "receivedAt": "2026-10-08T14:30:50.608Z",
+      "headersMs": 167,
+      "totalMs": 169,
+      "status": 200,
+      "requestId": "01M4DYS3TKMQNX45X82K3CFY2Y",
+      "cacheControl": "no-store",
+      "actorCount": 8,
+      "page": {
+        "hasMore": false,
+        "nextCursor": null,
+        "scanned": 0,
+        "unavailableCount": 1,
+        "partial": true,
+        "status": "partial",
+        "unavailable": false
+      },
+      "actorInventory": {
+        "scope": "verified-directory",
+        "complete": false,
+        "generation": "0a66af86-b15f-427c-82d8-909a15673825",
+        "source": "snapshot",
+        "cacheAvailable": true,
+        "freshness": "partial",
+        "verifiedAt": "2026-10-08T14:30:12.610Z",
+        "expiresAt": "2026-10-08T14:45:12.610Z",
+        "retryAt": "2026-10-08T14:31:13.161Z",
+        "verifiedCandidates": 34,
+        "totalCandidates": 34
+      }
+    },
+    {
+      "label": "after-partial-retry",
+      "requestedAt": "2026-10-08T14:31:14.169Z",
+      "receivedAt": "2026-10-08T14:31:14.811Z",
+      "headersMs": 640,
+      "totalMs": 642,
+      "status": 200,
+      "requestId": "01M4DYSV32FYZG88Y4Z7C3ZDAX",
+      "cacheControl": "no-store",
+      "actorCount": 8,
+      "page": {
+        "hasMore": false,
+        "nextCursor": null,
+        "scanned": 34,
+        "unavailableCount": 1,
+        "partial": true,
+        "status": "partial",
+        "unavailable": false
+      },
+      "actorInventory": {
+        "scope": "verified-directory",
+        "complete": false,
+        "generation": "c5f1f027-a846-489e-9347-7cbbbe4ed84b",
+        "source": "verification",
+        "cacheAvailable": true,
+        "freshness": "partial",
+        "verifiedAt": "2026-10-08T14:31:14.463Z",
+        "expiresAt": "2026-10-08T14:46:14.463Z",
+        "retryAt": "2026-10-08T14:32:14.717Z",
+        "verifiedCandidates": 34,
+        "totalCandidates": 34
+      }
+    },
+    {
+      "label": "warm-after-retry",
+      "requestedAt": "2026-10-08T14:31:14.812Z",
+      "receivedAt": "2026-10-08T14:31:14.985Z",
+      "headersMs": 171,
+      "totalMs": 173,
+      "status": 200,
+      "requestId": "01M4DYSVMAY2BACXP6NVPF40CH",
+      "cacheControl": "no-store",
+      "actorCount": 8,
+      "page": {
+        "hasMore": false,
+        "nextCursor": null,
+        "scanned": 0,
+        "unavailableCount": 1,
+        "partial": true,
+        "status": "partial",
+        "unavailable": false
+      },
+      "actorInventory": {
+        "scope": "verified-directory",
+        "complete": false,
+        "generation": "c5f1f027-a846-489e-9347-7cbbbe4ed84b",
+        "source": "snapshot",
+        "cacheAvailable": true,
+        "freshness": "partial",
+        "verifiedAt": "2026-10-08T14:31:14.463Z",
+        "expiresAt": "2026-10-08T14:46:14.463Z",
+        "retryAt": "2026-10-08T14:32:14.717Z",
+        "verifiedCandidates": 34,
+        "totalCandidates": 34
+      }
+    },
+    {
+      "label": "after-hard-expiry",
+      "requestedAt": "2026-10-08T14:46:15.464Z",
+      "receivedAt": "2026-10-08T14:46:17.086Z",
+      "headersMs": 1619,
+      "totalMs": 1622,
+      "status": 200,
+      "requestId": "01M4DZNB9WBCX9NS2GC71K5XAZ",
+      "cacheControl": "no-store",
+      "actorCount": 8,
+      "page": {
+        "hasMore": false,
+        "nextCursor": null,
+        "scanned": 34,
+        "unavailableCount": 1,
+        "partial": true,
+        "status": "partial",
+        "unavailable": false
+      },
+      "actorInventory": {
+        "scope": "verified-directory",
+        "complete": false,
+        "generation": "3b61bee4-9090-4a75-9848-c0bc3abfbfb5",
+        "source": "verification",
+        "cacheAvailable": true,
+        "freshness": "partial",
+        "verifiedAt": "2026-10-08T14:46:16.384Z",
+        "expiresAt": "2026-10-08T15:01:16.384Z",
+        "retryAt": "2026-10-08T14:47:16.983Z",
+        "verifiedCandidates": 34,
+        "totalCandidates": 34
+      }
+    },
+    {
+      "label": "warm-after-hard-expiry",
+      "requestedAt": "2026-10-08T14:46:17.212Z",
+      "receivedAt": "2026-10-08T14:46:17.402Z",
+      "headersMs": 188,
+      "totalMs": 190,
+      "status": 200,
+      "requestId": "01M4DZNCWA1QP0K7EE73VM7N87",
+      "cacheControl": "no-store",
+      "actorCount": 8,
+      "page": {
+        "hasMore": false,
+        "nextCursor": null,
+        "scanned": 0,
+        "unavailableCount": 1,
+        "partial": true,
+        "status": "partial",
+        "unavailable": false
+      },
+      "actorInventory": {
+        "scope": "verified-directory",
+        "complete": false,
+        "generation": "3b61bee4-9090-4a75-9848-c0bc3abfbfb5",
+        "source": "snapshot",
+        "cacheAvailable": true,
+        "freshness": "partial",
+        "verifiedAt": "2026-10-08T14:46:16.384Z",
+        "expiresAt": "2026-10-08T15:01:16.384Z",
+        "retryAt": "2026-10-08T14:47:16.983Z",
+        "verifiedCandidates": 34,
+        "totalCandidates": 34
+      }
+    }
+  ]
+}

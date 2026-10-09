@@ -20,12 +20,19 @@
         window.history.replaceState(nextState, '', veteranPath);
       })();
     </script>
-    <!-- Google tag (gtag.js) -->
-    <script async src="https://www.googletagmanager.com/gtag/js?id=G-FHZJ1T74TG"></script>
+    <!-- Google tracking is restricted to the canonical production host. -->
     <script>
-      window.dataLayer = window.dataLayer || [];
-      function gtag(){dataLayer.push(arguments);}
-      gtag('js', new Date());
+      window.__analyticsProductionHost = window.location.hostname === 'fandom.justlikekatie.com';
+      if (window.__analyticsProductionHost) {
+        window.dataLayer = window.dataLayer || [];
+        var googleTag = document.createElement('script');
+        googleTag.async = true;
+        googleTag.src = 'https://www.googletagmanager.com/gtag/js?id=G-FHZJ1T74TG';
+        document.head.appendChild(googleTag);
+      }
+      function gtag(){
+        if (window.__analyticsProductionHost) window.dataLayer.push(arguments);
+      }
 
       var analyticsPath = window.location.pathname.replace(/\/+$/, '') || '/';
       var analyticsLocation = analyticsPath === '/vibe-atlas/veteran-journal'
@@ -34,12 +41,15 @@
           ? window.location.origin + '/vibe-atlas?view=released'
         : window.location.href;
       window.__initialAnalyticsLocation = analyticsLocation;
+      gtag('js', new Date());
       gtag('config', 'G-FHZJ1T74TG', {
         page_location: analyticsLocation
       });
     </script>
     <!-- Google Tag Manager -->
-    <script>(function(w,d,s,l,i){w[l]=w[l]||[];w[l].push({'gtm.start':
+    <script>(function(w,d,s,l,i){
+    if (!w.__analyticsProductionHost) return;
+    w[l]=w[l]||[];w[l].push({'gtm.start':
     new Date().getTime(),event:'gtm.js'});var f=d.getElementsByTagName(s)[0],
     j=d.createElement(s),dl=l!='dataLayer'?'&l='+l:'';j.async=true;j.src=
     'https://www.googletagmanager.com/gtm.js?id='+i+dl;f.parentNode.insertBefore(j,f);
@@ -76,10 +86,7 @@
     </script>
   </head>
   <body>
-    <!-- Google Tag Manager (noscript) -->
-    <noscript><iframe src="https://www.googletagmanager.com/ns.html?id=GTM-5T5P2C9S"
-    height="0" width="0" style="display:none;visibility:hidden"></iframe></noscript>
-    <!-- End Google Tag Manager (noscript) -->
+    <!-- No unconditional GTM noscript iframe: it would track preview hosts. -->
     <div id="root">
       <noscript>
         <main>

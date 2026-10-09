@@ -1,6 +1,6 @@
 # English–Chinese Editorial Review / 简体中文编辑复核单
 
-**Release status: implemented for review, not approved for production.**
+**Release status: published with creator approval for final review; native-speaker approval remains pending.**
 These adaptations preserve affectionate, deadpan fandom observation rather than
 translate English idioms word for word. Every new Chinese line still needs
 native-speaker review; passing automated checks is not editorial approval.
@@ -48,4 +48,4 @@ second-agent brief and all fourteen English–Chinese veteran-line pairs.
 | 页面标题、分享短文、搜索词和空状态 | 待母语审校 |
 | CJK 字体加载、断行与桌面/手机视觉 | 本地字体与浏览器自动化检查；仍待母语读者视觉审校 |
 | 结构、稳定卡片 ID、筛选/分享隐私边界 | 由自动化检查覆盖；不代替编辑批准 |
-| 生产发布 | 未批准；需要创作者确认，并完成要求的母语审校 |
+| 生产发布 | 创作者已批准最终生产复核，简体中文版与显示字体修复均已上线；母语审校尚未完成 |

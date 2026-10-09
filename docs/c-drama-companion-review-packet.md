@@ -45,3 +45,9 @@ The two approvals below are separate. A release may use only original typography
 ## Release gate
 
 Both units have reviewer decisions, review dates, verified source notes, confirmed media scope, and spoiler boundaries above. Keep the board separate from paid pack previews; the existing free Collection and Collector access rules do not change. Website release is not proof that the Notion source draft was promoted through its own workflow.
+
+## Separate name-help unit — copy approved, not published
+
+The [two-lead character/performer name key](untamed-names-and-performers-review.md) is a **new unit whose exact reader copy Katie approved on October 3, 2026**, with no additional comments. It covers pre-watch / episode 0 naming only for Wei Wuxian / Xiao Zhan and Lan Wangji / Wang Yibo, with explicitly attributed personal/courtesy-name distinctions and original-series/adaptation disambiguation. It preserves the existing group board, the Field Journal's episode gates, and the Daily Drop continuation.
+
+The new unit's exact reader copy, primary distributor role attribution, secondary nomenclature source, exclusions, proposed companion links, and recorded creator decision are in its separate review document. The September 28 approvals do not cover it. Copy approval explicitly does not publish the guide: no new route, public link, sitemap entry, or production publication is enabled in this preparation task. Production release requires separate authorization.

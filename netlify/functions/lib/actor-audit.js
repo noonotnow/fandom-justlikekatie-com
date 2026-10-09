@@ -1396,10 +1396,13 @@ export function createActorAuditHandler({
             misprintReceiptIds: invalidatingMisprints.map(item => item.receiptId),
           });
         }
+        // `next` was read before the eligibility write; refresh readiness only
+        // after the new approval has been persisted and reconciled.
+        const finalized = await readReport(store, pair);
         return json(200, {
           actor: await actorSummary(store, actorPacks, pair.actor),
-          pairing: pairingSummary(pair, next),
-          ...detailResponse(pair, next),
+          pairing: pairingSummary(pair, finalized),
+          ...detailResponse(pair, finalized),
         });
       }
 
@@ -4784,12 +4787,10 @@ function pairingSummary(pair, report) {
   );
   const eligible = Boolean(
     current
-    && auditContract?.isCurrent
-    && currentVerdict
-    && (operatorPublication || current.blindReview?.choice)
-    && (!isDisagreement(current, current.blindReview) || current.blindReview.reasonCodes?.length)
-    && APPROVED_VERDICTS.has(currentVerdict),
+    && report?.releaseReadiness?.runId === current.runId
+    && report.releaseReadiness.ready === true,
   );
+  const currentReviewRequirement = report?.releaseReadiness?.requirement || null;
   return {
     vibeKey: pair.vibeKey,
     vibeIdx: pair.vibeIdx,
@@ -4797,7 +4798,9 @@ function pairingSummary(pair, report) {
     queryCount: pair.vibe.queries.length,
     auditState: needsReapproval
       ? "needs_reapproval"
-      : reviewPending
+      : currentReviewRequirement
+        ? currentReviewRequirement.code
+        : reviewPending
         ? "blind_review_pending"
         : comparisonUnavailable
           ? "comparison_unavailable"
@@ -4809,6 +4812,7 @@ function pairingSummary(pair, report) {
     notes: currentVerdict ? report.notes : "",
     verdictAt: currentVerdict ? report.verdictAt : null,
     eligible: needsReapproval ? false : reviewPending ? null : eligible,
+    currentReviewRequirement,
     auditContract,
     calibrationEvidenceCount: report?.calibrationProfile?.evidenceCount || 0,
     calibrationLearningPending: calibrationNeedsRerun,
@@ -4860,6 +4864,7 @@ function detailResponse(pair, report) {
   return {
     actorId: pair.actor.id,
     vibeKey: pair.vibeKey,
+    pairing: pairingSummary(pair, report),
     currentContract: {
       identityProfileVersion: IDENTITY_PROFILE_VERSION,
       aestheticClusterVersion: AESTHETIC_CLUSTER_VERSION,
@@ -4937,6 +4942,33 @@ async function readReport(store, pair, authoritativeReceipts = {}) {
     runs,
     authoritativeReceipts,
   );
+  // The verdict remains a historical record; only canonical eligibility can
+  // attest current release readiness. Never turn a failed read into readiness.
+  let releaseReadiness = { runId: currentRun?.runId || null, ready: false, requirement: null };
+  if (APPROVED_VERDICTS.has(currentVerdict?.verdict)) {
+    const eligibility = await getEligibility(store, pair.actor, pair.vibeIdx);
+    const ready = eligibility?.runId === currentRun?.runId && isReleaseReady(eligibility);
+    let requirement = null;
+    if (!ready) {
+      const snapshot = await store.get(eligibilityKey(pair.actor.id, pair.vibeIdx), {
+        type: "json",
+        consistency: "strong",
+      });
+      const activeApproval = calibrationProfile?.activeApproval;
+      const authorityChanged = Boolean(snapshot && (
+        (snapshot.rescueCalibrationApprovalId || null) !== (activeApproval?.approvalId || null)
+        || (snapshot.rescueCalibrationApprovalEvidenceHash || null)
+          !== (activeApproval?.aggregateEvidenceHash || null)
+      ));
+      requirement = {
+        code: authorityChanged ? "calibration_reaudit_required" : "current_approval_required",
+        message: authorityChanged
+          ? "Calibration authority or its evidence changed after this verdict. Run a fresh audit under the current authority, complete its review, and record a new approval before publishing."
+          : "The recorded verdict no longer has a valid current release approval. Run a fresh audit and complete the current review and approval before publishing.",
+      };
+    }
+    releaseReadiness = { runId: currentRun?.runId || null, ready, requirement };
+  }
   return {
     schemaVersion: 1,
     actorId: pair.actor.id,
@@ -4948,6 +4980,7 @@ async function readReport(store, pair, authoritativeReceipts = {}) {
     verdictRunId: currentVerdict ? currentRun.runId : null,
     currentRun,
     calibrationProfile,
+    releaseReadiness,
     priorRuns: runs.filter(run => run.runId !== currentRun?.runId).slice(0, MAX_RETAINED_RUNS),
   };
 }

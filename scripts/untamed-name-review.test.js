@@ -13,7 +13,7 @@ const route = "/c-drama-fandom/untamed-names-and-performers/";
 
 test("name-help copy approval is recorded separately from production release", () => {
   assert.ok(copy, "Reader copy must be delimited independently of review notes");
-  assert.match(draft, /COPY APPROVED — NOT RELEASED TO PRODUCTION/);
+  assert.match(draft, /RELEASED TO PRODUCTION — APPROVED TWO-LEAD VERSION/);
   assert.match(draft, /\*\*Decision:\*\* approved the exact two-lead reader copy on October 3, 2026/);
   assert.match(draft, /copy approval does not publish the guide/);
   assert.match(copy, /Pre-watch \/ episode 0/);
@@ -50,7 +50,8 @@ test("combined destination replacement has separate production authorization and
 
 test("downloadable preview is text-only, non-indexable and retains reader destinations", () => {
   const html = read("docs/editorial/untamed-names-and-performers.html");
-  assert.match(html, /COPY APPROVED — NOT RELEASED TO PRODUCTION/i);
+  assert.match(html, /Approved copy — review archive\./);
+  assert.match(html, /Two-lead production release verified October 3, 2026/);
   assert.match(html, /name="robots" content="noindex,nofollow"/);
   assert.doesNotMatch(html, /<script\b|<img\b|<video\b|<audio\b|rel="canonical"/i);
   const links = [...copy.matchAll(/\]\((https:\/\/[^)]+|\/[^)]+)\)/g)].map((match) => match[1]);

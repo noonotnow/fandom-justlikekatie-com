@@ -9,7 +9,46 @@ Review prepared October 3, 2026. This is a layout-only release, separate from th
 
 These are immutable Netlify draft URLs. The creator explicitly approved the layout-only production release in chat on October 3, 2026, then confirmed that it should be pushed to the live production site. This approval does not cover the separate Chinese voice or participation releases.
 
-The clean release branch is based on current GitHub main and contains only the reviewed layout, its focused test/check, and this review record. Required GitHub checks and independent post-push approval remain mandatory. Production publication and signed-in hosted save/export verification are still pending; do not describe this layout as live yet.
+The clean release branch was based on current GitHub main and contained only the reviewed layout, its focused test/check, and this review record, plus two existing layout-copy tests aligned with the approved headings. Required GitHub checks and independent post-push approval passed before merge. Production deployment, anonymous hosted layout verification, and creator-assisted signed-in save/export verification are complete.
+
+## Approved release handoff
+
+- Production release PR: https://github.com/noonotnow/fandom-justlikekatie-com/pull/180
+- Clean base: GitHub main `589ccd1f`; latest release head `1f7d15bd`.
+- The original layout commit was ported without unrelated local participation history. Two existing copy/layout assertion tests were aligned with the reviewed hierarchy after CI exposed their old expectations. The release changes seven files; no backend, Netlify configuration, authorization, manifest, pricing, entitlement, or synchronization changes.
+- Exact release build and type check passed. App tests: 436 passed. Function tests: 1099 passed. Script tests: 559 passed, two skipped. Focused layout/save/export/clipboard tests: 39 passed; eight WebKit cases failed before usable page creation in the local browser runtime. Both required hosted CI jobs subsequently passed their complete browser suites.
+- Netlify built release head `1815fd6c` at immutable draft https://6ac18a219e01a9000829f14e--earnest-gecko-17eb0c.netlify.app. The read-only hosted checker passed English/Chinese at 390px and 1280px, with nine loaded cards, the required context/grid/actions/discovery ordering, collapsed snapshot and retained controls, no horizontal overflow, and no page errors. The latest head changes only test assertions; app bytes are unchanged.
+- GitHub main protection requires the `test` check, one approving review, and approval from someone other than the latest pusher, with administrator enforcement enabled. An independent reviewer approved the latest head; both required `test` jobs passed, including their full browser suites. The release merged normally with no protection changes or manual deployment bypass.
+
+## Production deployment verification
+
+On October 3, 2026, PR #180 merged as `be781ee21912fb0e628078c40acfc6fbef5a1a1b`. At 23:28:57 UTC, Netlify's site metadata confirmed active production deployment `6ac18f731a76d50008059ab9`, state `ready`, at that exact merge commit and production origin `https://fandom.justlikekatie.com`.
+
+The custom domain's English and Chinese pages served the same approved preview assets byte-for-byte:
+
+- `/assets/index-Drjf6_qu.js`, SHA-256 `502d2050336e80d04956dbe15796f3380768c79c3fc5a8e579b6c2f7b9f72f3e`.
+- `/assets/index-CwMtWep2.css`, SHA-256 `f04d376f5371f901132d8e6974dc69f1938a98e82d8d16b09232ad937bf9d332`.
+
+The production hosted checker passed English/Chinese at 390px and 1280px with nine loaded cards, actor context before the interactive grid, whole-board controls after the grid, discovery after all board controls, initially collapsed immutable snapshot, retained reaction/reason controls, no horizontal overflow, and no uncaught browser errors. A fresh production screenshot was inspected.
+
+```sh
+node --import tsx/esm scripts/check-daily-drop-layout-preview.ts \
+  https://fandom.justlikekatie.com /tmp/daily-drop-production-review --production
+```
+
+Production checking is explicitly opt-in and restricted to the verified site origin; default checks still require an immutable Netlify draft URL. The checker remains non-mutating.
+
+Anonymous `/api/auth/session` returned HTTP 200 with `user: null`; `/.netlify/functions/grid-exports` returned HTTP 401 with “Sign in is required.” A GET to `/.netlify/functions/collection-sync` returned its HTTP 405 method boundary, not an authentication result. No backend or authorization code changed in the release.
+
+## Signed-in production verification
+
+On October 3, 2026, after the production deployment and anonymous checks, the creator confirmed “Everything worked” for the live signed-in check:
+
+1. Save one previously unsaved Daily Drop card.
+2. Download the full board using **Download Spell Sheet** below the interactive grid.
+3. Open **Your Collection**, refresh, and confirm both the card and editable grid remain.
+
+This establishes creator-assisted signed-in save/download access and same-browser Collection persistence for the released layout. The agent did not inspect the signed-in session, account tier, downloaded file, or remote Collection records; do not expand the result into a cross-device sync audit, new membership entitlement claim, or magic-link delivery test. Authorization and synchronization code remained unchanged. No sign-in email, report submission, hosted Collection mutation, or export was performed by the agent.
 
 ## Layout
 

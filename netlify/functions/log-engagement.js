@@ -1,6 +1,9 @@
 import { getBlobStore } from "./lib/blob-store.js";
 import { validateGridPayload } from "./lib/grid-export-validation.js";
 import { createPublicAuth } from "./lib/public-auth.js";
+import { createParticipationCollector } from "./lib/daily-participation-analytics.js";
+import { PARTICIPATION_EVENTS } from "../../shared/daily-participation.js";
+import { ENDINGS, GAME_ID } from "../../public/c-drama-fandom/fandom-games/sect-day/story.js";
 
 /**
  * Log engagement events to Netlify Blobs.
@@ -20,6 +23,7 @@ import { createPublicAuth } from "./lib/public-auth.js";
  */
 
 const VALID_EVENTS = [
+  "sect_game_start", "sect_game_complete", "sect_game_action",
   "save", "share", "click", "export", "grid-export", "grid_export",
   "collection_save", "plan_add", "membership_view", "upgrade_click",
   "checkout_started", "membership_activated", "paid_feature_used",
@@ -32,6 +36,7 @@ const VALID_EVENTS = [
 ];
 const COMPANION_EVENTS = new Set(["companion_path_view", "companion_qualified_view", "companion_interest_click", "companion_collection_click"]);
 const COMPANION_PATHS = new Set(["discover", "context", "collect"]);
+const PILOT_MEMBERSHIP_EVENTS = new Set(["membership_view", "upgrade_click", "checkout_started", "membership_activated"]);
 const PUBLIC_GAME_EVENTS = new Set([
   "fandom_game_start", "fandom_game_reveal", "fandom_game_share",
   "fandom_share_open",
@@ -57,8 +62,11 @@ const LG01_OUTCOMES = new Set([
   "celestial-guardian", "bamboo-recluse", "fated-romantic",
 ]);
 const STORE_NAME = "engagement";
+const SECT_EVENTS = new Set(["sect_game_start", "sect_game_complete", "sect_game_action"]);
+const SECT_OUTCOMES = new Set(ENDINGS.map(ending => ending.id));
 const MAX_CONTEXT_TEXT = 500;
 const publicAuth = createPublicAuth({ getStore: getBlobStore });
+const collectParticipation = createParticipationCollector({ auth: publicAuth, getStore: getBlobStore });
 
 function optionalContextText(value) {
   return typeof value === "string" && value.length > 0 && value.length <= MAX_CONTEXT_TEXT
@@ -96,8 +104,23 @@ export default async (req, context) => {
   const {
     event, batchKey, imageUrl, actor, vibe, editionTier, resultPositions, grid,
     contentId, outcomeId, source, editionDate, position, saved, engagementReason,
-    shareMethod, capturedDate, pagePath, recordType, location, pilotPath,
+    shareMethod, capturedDate, pagePath, recordType, location, pilotPath, internalPilot,
   } = body;
+
+  if (PARTICIPATION_EVENTS.includes(event)) {
+    return collectParticipation(req, context, body);
+  }
+
+  if (SECT_EVENTS.has(event) && (
+    batchKey !== "c-drama-fandom-sect-day" || contentId !== GAME_ID
+    || !["direct", "share"].includes(source)
+    || (event === "sect_game_start" ? outcomeId !== undefined : !SECT_OUTCOMES.has(outcomeId))
+    || (event === "sect_game_action" ? !["native", "copy", "download"].includes(shareMethod) : shareMethod !== undefined)
+  )) {
+    return new Response(JSON.stringify({ error: "Invalid sect game payload" }), {
+      status: 400, headers: { "Content-Type": "application/json" },
+    });
+  }
 
   if (!event || !VALID_EVENTS.includes(event)) {
     return new Response(
@@ -106,9 +129,8 @@ export default async (req, context) => {
     );
   }
 
-  if ((COMPANION_EVENTS.has(event) || (pilotPath !== undefined && [
-    "membership_view", "upgrade_click", "checkout_started", "membership_activated",
-  ].includes(event))) && (!COMPANION_PATHS.has(pilotPath)
+  if ((COMPANION_EVENTS.has(event) || (pilotPath !== undefined && PILOT_MEMBERSHIP_EVENTS.has(event)))
+    && (!COMPANION_PATHS.has(pilotPath)
     || (COMPANION_EVENTS.has(event) && batchKey !== "c-drama-companion-pilot"))) {
     return new Response(JSON.stringify({ error: "Invalid companion path." }), {
       status: 400, headers: { "Content-Type": "application/json" },
@@ -130,6 +152,21 @@ export default async (req, context) => {
       JSON.stringify({ error: "batchKey is required" }),
       { status: 400, headers: { "Content-Type": "application/json" } },
     );
+  }
+
+  // A self-declared, bounded QA flag is only accepted for pilot events.
+  // No email, token, browser ID or arbitrary label enters the engagement store.
+  const pilotEvent = COMPANION_EVENTS.has(event)
+    || (PILOT_MEMBERSHIP_EVENTS.has(event) && COMPANION_PATHS.has(pilotPath));
+  if (internalPilot !== undefined && (!pilotEvent || typeof internalPilot !== "boolean")) {
+    return new Response(JSON.stringify({ error: "Invalid pilot exclusion flag." }), {
+      status: 400, headers: { "Content-Type": "application/json" },
+    });
+  }
+  if (pilotEvent && internalPilot === true) {
+    return new Response(JSON.stringify({ ok: true, excluded: true }), {
+      status: 200, headers: { "Content-Type": "application/json" },
+    });
   }
 
   if (DAILY_DROP_EVENTS.has(event)) {
@@ -226,10 +263,11 @@ export default async (req, context) => {
       if (Array.isArray(resultPositions)) entry.resultPositions = resultPositions;
     } else if (COMPANION_EVENTS.has(event)) {
       // Path alone is allowed; never retain arbitrary browser-provided text.
-    } else if (PUBLIC_GAME_EVENTS.has(event)) {
+    } else if (PUBLIC_GAME_EVENTS.has(event) || SECT_EVENTS.has(event)) {
       entry.contentId = contentId;
       if (outcomeId !== undefined) entry.outcomeId = outcomeId;
       if (source !== undefined) entry.source = source;
+      if (SECT_EVENTS.has(event) && shareMethod !== undefined) entry.shareMethod = shareMethod;
     } else if (ARCHIVE_REVIEW_EVENTS.has(event)) {
       if (event === "archive_page_view") entry.pagePath = pagePath;
       if (event === "archive_record_opened") {

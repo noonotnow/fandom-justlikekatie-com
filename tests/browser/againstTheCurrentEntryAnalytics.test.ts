@@ -34,9 +34,7 @@ test('GA4 distinguishes feature entries and installment choices from direct shel
     const clicks = async (): Promise<RecordedEvent[]> =>
       page.evaluate(() => JSON.parse(sessionStorage.getItem('__seriesClicks') ?? '[]'));
 
-    // The next link assertion waits for the actual UI. Font/other external
-    // resource load completion is not part of this click-tracking contract.
-    await gotoTestPage(page, origin, { waitUntil: 'domcontentloaded' });
+    await gotoTestPage(page, origin);
     await captureClicks();
     await page.getByRole('link', { name: /Explore the Against the Current series/ }).click();
     await page.waitForURL(`${origin}/c-drama-fandom/vibing-now/`);
@@ -63,9 +61,7 @@ test('GA4 distinguishes feature entries and installment choices from direct shel
     for (const [label, slug, installment] of [
       ['Read the Episode 21 vibe check', 'against-the-current-episode-21', 'episode_21'],
       ['Safe through Episodes 22–25: Read the installment', 'against-the-current-episodes-22-25', 'episodes_22_25'],
-      ['Safe through Episodes 26–29: Read the installment', 'against-the-current-episodes-26-29', 'episodes_26_29'],
-      ['Safe through Episodes 30–31: Read the installment', 'against-the-current-episodes-30-31', 'episodes_30_31'],
-      ['Safe through Episodes 32–33: Read the installment', 'against-the-current-episodes-32-33', 'episodes_32_33'],
+      ['Safe through Episodes 26–30: Read the installment', 'against-the-current-episodes-26-30', 'episodes_26_30'],
     ]) {
       await gotoTestPage(page, `${origin}/c-drama-fandom/vibing-now/`);
       await captureClicks();
@@ -75,7 +71,7 @@ test('GA4 distinguishes feature entries and installment choices from direct shel
         name: 'against_the_current_installment_selected', data: { installment },
       });
     }
-    assert.equal((await clicks()).length, 8, 'direct visits must not be recorded as feature clicks');
+    assert.equal((await clicks()).length, 6, 'direct visits must not be recorded as feature clicks');
     assert.deepEqual(Object.keys((await clicks())[0].data ?? {}), ['placement']);
   } finally {
     await closeBrowserAndServer(browser, server);

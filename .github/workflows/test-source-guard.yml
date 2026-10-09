@@ -15,6 +15,7 @@ name: Test–Source Guard
 # A bare directory path is rejected unless it contains a recognised index file.
 # Test files are discovered recursively under: tests/, netlify/functions/lib/,
 # scripts/
+# The required test job in test.yml also checks the release tree before install.
 
 on:
   push:

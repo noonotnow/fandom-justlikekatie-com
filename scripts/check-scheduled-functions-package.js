@@ -6,6 +6,7 @@ export const EXPECTED_SCHEDULED_FUNCTIONS = new Map([
   ["archive-access-retention", "@daily"],
   ["prune-rate-limits", "@hourly"],
   ["receipt-index-health-scheduled", "@hourly"],
+  ["vibing-capacity-scheduled", "@hourly"],
   ["star-of-day-refresh-scheduled", "0 16,17 * * *"],
 ]);
 

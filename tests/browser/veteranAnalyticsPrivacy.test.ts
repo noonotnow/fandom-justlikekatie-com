@@ -26,6 +26,16 @@ test('veteran pageviews and events never expose the journal capability', { timeo
     const requestedJournalIds: string[] = [];
 
     await page.route('https://www.googletagmanager.com/**', route => route.abort());
+    // This privacy test exercises the production tracking path on the local
+    // test server. Host eligibility is tested separately without this override.
+    // The override exists only in the intercepted test response, never the app.
+    await page.route('**/vibe-atlas/veteran-journal?*', async route => {
+      const response = await route.fetch();
+      const body = await response.text();
+      const productionGuard = "window.location.hostname === 'fandom.justlikekatie.com'";
+      assert.ok(body.includes(productionGuard));
+      await route.fulfill({ response, body: body.replace(productionGuard, 'true /* test-only production simulation */') });
+    });
     await page.route('**/.netlify/functions/watch-journal?*', async route => {
       const url = new URL(route.request().url());
       requestedJournalIds.push(url.searchParams.get('journal') ?? '');

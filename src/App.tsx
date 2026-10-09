@@ -11,6 +11,7 @@ import { ExportButton } from './components/ExportButton/ExportButton';
 import { Collection } from './components/Collection/Collection';
 import { FandomAdmin } from './components/FandomAdmin/FandomAdmin';
 import { WholeCardTierControls, WholeCardTierBadge } from './components/WholeCardTierControls/WholeCardTierControls';
+import { trackDailyParticipationVisit } from './utils/dailyParticipation';
 import { ArtifactZoomDialog } from './components/ArtifactZoomDialog/ArtifactZoomDialog';
 import { migrateBookmarks } from './utils/migrateBookmarks';
 import { migrateLegacyGridHistory } from './utils/collectionHistory';
@@ -546,6 +547,12 @@ function VibeAtlasApp({ archiveEntry = false }: { archiveEntry?: boolean }) {
   useEffect(() => {
     void refreshMembership();
   }, [refreshMembership]);
+
+  useEffect(() => {
+    if (!adminLoading && !hasAdminAccess && view === 'daily' && rawData?.date) {
+      trackDailyParticipationVisit();
+    }
+  }, [adminLoading, hasAdminAccess, view, rawData?.date]);
 
   useEffect(() => {
     if (view !== 'daily' || !rawData?.date) return;

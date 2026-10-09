@@ -82,6 +82,33 @@ jobs:
           FANDOM_ADMIN_EMAILS: ${{ secrets.FANDOM_ADMIN_EMAILS }}
         run: npm run check:launchpad-preview -- --notify-failure
 
+  production-homepage-guides:
+    if: >-
+      github.event_name == 'deployment_status' &&
+      github.event.deployment_status.state == 'success' &&
+      (github.event.deployment.environment == 'production' || github.event.deployment.environment == 'Production')
+    name: Verify live homepage guide menu
+    runs-on: ubuntu-latest
+    timeout-minutes: 8
+
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Set up Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: "22"
+          cache: "npm"
+
+      - name: Install dependencies
+        run: npm ci
+
+      - name: Install Chromium
+        run: npx playwright install --with-deps chromium
+
+      - name: Check deployed homepage bundle and guide destinations
+        run: npm run check:homepage-guides
+
   production-public-records:
     if: >-
       github.event_name == 'deployment_status' &&
@@ -105,6 +132,48 @@ jobs:
 
       - name: Check live actor, edition, and released-pack records
         run: npm run check:public-records
+
+  weekly-public-sitemap-inventory:
+    if: (github.event_name == 'schedule' || github.event_name == 'workflow_dispatch') && github.ref == 'refs/heads/main'
+    name: Check public sitemap inventory evidence
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Set up Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: "22"
+          cache: "npm"
+
+      - name: Install dependencies
+        run: npm ci
+
+      - name: Check public sitemap inventory after bounded retries
+        id: inventory
+        run: |
+          for attempt in 1 2 3; do
+            if npm run check:public-records -- --inventory-only; then
+              exit 0
+            fi
+            if [ "$attempt" -lt 3 ]; then
+              echo "Public inventory check attempt $attempt failed; retrying after 20 seconds."
+              sleep 20
+            fi
+          done
+          echo "::error::Public sitemap inventory remained incomplete after 3 attempts."
+          exit 1
+
+      - name: Notify operators about sustained public sitemap inventory fallback
+        if: failure() && steps.inventory.outcome == 'failure'
+        env:
+          RESEND_API_KEY: ${{ secrets.RESEND_API_KEY }}
+          FANDOM_AUTH_FROM_EMAIL: ${{ secrets.FANDOM_AUTH_FROM_EMAIL }}
+          FANDOM_ADMIN_EMAILS: ${{ secrets.FANDOM_ADMIN_EMAILS }}
+          PUBLIC_SITEMAP_INVENTORY_STATUS: ${{ steps.inventory.outputs.status }}
+        run: node scripts/notify-sitemap-inventory-failure.js
 
   production-archive-records:
     if: >-
@@ -193,6 +262,11 @@ jobs:
         with:
           node-version: "22"
           cache: "npm"
+
+      - name: Reject local copies and browser crash reports in release tree
+        run: |
+          node .github/scripts/check-release-tree.mjs
+          node --test .github/scripts/check-release-tree.test.mjs
 
       - name: Set up pnpm
         uses: pnpm/action-setup@v4

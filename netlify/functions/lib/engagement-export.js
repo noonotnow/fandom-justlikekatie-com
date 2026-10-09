@@ -1,5 +1,6 @@
 import { json } from "./public-auth.js";
 import { GRID_ALLOWED_FIELDS } from "./grid-export-validation.js";
+import { participationReview } from "./daily-participation-analytics.js";
 
 const STORE_NAME = "engagement";
 const RECORD_FIELDS = [
@@ -21,6 +22,10 @@ const RECORD_FIELDS = [
   "pagePath",
   "recordType",
   "location",
+  "stage",
+  "cohort",
+  "cohortDay",
+  "returnDay",
 ];
 
 export function createEngagementExportHandler({
@@ -40,6 +45,10 @@ export function createEngagementExportHandler({
       const normalized = await Promise.all(blobs.map(blob => normalizeBlob(store, blob)));
       const records = normalized.flatMap(item => item.records);
       const url = new URL(req.url);
+      if (url.searchParams.get("dailyParticipation") === "1") {
+        const result = participationReview(records, url, now());
+        return json(result.status, result.payload, { "Cache-Control": "private, no-store" });
+      }
       if (url.searchParams.get("archiveLinkReview") === "1") {
         const range = parseArchiveReviewRange(url);
         if (!range.ok) return json(400, { error: range.error });

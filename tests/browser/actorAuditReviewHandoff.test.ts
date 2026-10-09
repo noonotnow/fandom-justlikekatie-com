@@ -42,6 +42,103 @@ import {
 
 
 const ACTOR_ID = 'browser-test-actor'
+// Two independent operator pages share authority, not their review drafts.
+for (const refreshTrigger of ['focus', 'publication'] as const) {
+  for (const engine of BROWSER_ENGINES) {
+  test(`open Lab refreshes another operator's revoked authority on ${refreshTrigger} without losing drafts in ${engine.name}`, {timeout:60_000}, async () => {
+    const {server,origin}=await startApp();
+    const browser=await launchBrowserForServer(server,engine.type);
+    let revoked=false;
+    let unavailable=false;
+    let publicationRequests=0;
+    let summaryReads=0;
+    const requirement={
+      code:'calibration_reaudit_required',
+      message:'Calibration authority changed after this verdict. Run a fresh audit under the current authority and complete its review before publishing.',
+    };
+    const detail=():AnyRecord=>{
+      const current=run('run-1',true);
+      const summary={
+        ...actor(revoked?'calibration_reaudit_required':'approved',!revoked).pairings[0],
+        vibeIdx:0,verdict:'approved',currentRunId:'run-1',
+        currentReviewRequirement:revoked?requirement:null,
+      };
+      return {
+        ...responseBody(current,summary.auditState),
+        actor:{...actor(summary.auditState,!revoked),pairings:[summary]},
+        pairing:summary,verdict:'approved',notes:'Saved notes',
+        calibrationProfile:{
+          ...calibrationProfile(),
+          activeApproval:revoked?null:{
+            approvalId:'authority-1',aggregateEvidenceHash:'evidence-1',evidenceCount:2,
+            adjustment:{type:'class',signalFamily:'sources',direction:'positive',signalValues:['example.test']},
+          },
+        },
+      };
+    };
+    try {
+      const first=await browser.newPage();
+      const second=await browser.newPage();
+      for(const page of [first,second]) {
+        await configureNetwork(page);
+        await page.route('**/.netlify/functions/actor-audits**',async route=>{
+          const request=route.request();
+          const url=new URL(request.url());
+          if(request.method()==='POST'&&request.postDataJSON()?.action==='revoke_rescue_calibration_approval') {
+            revoked=true;
+            await route.fulfill({json:detail()});
+          } else if(request.method()==='GET'&&url.searchParams.get('view')==='actors') {
+            await route.fulfill({json:{actors:[detail().actor]}});
+          } else if(request.method()==='GET'&&url.searchParams.get('actorId')===ACTOR_ID) {
+            if(url.searchParams.has('runId'))await route.fulfill({json:{run:detail().currentRun}});
+            else {
+              summaryReads+=1;
+              await route.fulfill(unavailable?{status:503,json:{error:'Authority read unavailable'}}:{json:detail()});
+            }
+          } else await route.fallback();
+        });
+        await page.route('**/.netlify/functions/publish-preflight-preview',async route=>{
+          publicationRequests+=1;
+          await route.fulfill({status:409,json:{error:'Publication should not be attempted'}});
+        });
+        await gotoTestPage(page,`${origin}/vibe-atlas?admin=true`);
+        await page.getByRole('tab',{name:'Actor Preflight Lab',exact:true}).click();
+        await page.getByText('Ready to publish',{exact:true}).waitFor();
+      }
+      await second.getByLabel('Operator notes').fill('Unsaved operator review notes');
+      await second.getByLabel('Editorial copy',{exact:false}).fill('Unsaved editorial copy that is long enough for the public teaser.');
+      await first.getByLabel('Revocation reason').fill('Authority changed during another review.');
+      await first.getByRole('button',{name:'Revoke approved adjustment',exact:true}).click();
+      await first.getByText('Current review required',{exact:true}).first().waitFor();
+      assert.equal(await second.getByText('Ready to publish',{exact:true}).isVisible(),true);
+      const readsBefore=summaryReads;
+      if(refreshTrigger==='focus')await second.evaluate(()=>window.dispatchEvent(new Event('focus')));
+      else await second.getByRole('button',{name:'Publish public three-card preview',exact:true}).click();
+      await second.getByText('Current review required',{exact:true}).first().waitFor();
+      assert.ok(summaryReads>readsBefore);
+      assert.equal(await second.getByText('Ready to publish',{exact:true}).count(),0);
+      assert.equal(await second.getByRole('button',{name:'Publish public three-card preview',exact:true}).count(),0);
+      assert.equal(publicationRequests,0);
+      assert.equal(await second.getByText(requirement.message,{exact:false}).first().isVisible(),true);
+      unavailable=true;
+      await second.evaluate(()=>window.dispatchEvent(new Event('focus')));
+      await second.getByText('Current release approval unavailable.',{exact:false}).waitFor();
+      assert.equal(await second.getByText('Ready to publish',{exact:true}).count(),0);
+      assert.equal(await second.getByRole('button',{name:'Publish public three-card preview',exact:true}).count(),0);
+      unavailable=false;
+      revoked=false;
+      await second.evaluate(()=>window.dispatchEvent(new Event('focus')));
+      await second.getByText('Ready to publish',{exact:true}).waitFor();
+      // Review fields are hidden while authority is stale; inspect the drafts once restored.
+      assert.equal(await second.getByLabel('Operator notes').inputValue(),'Unsaved operator review notes');
+      assert.equal(await second.getByLabel('Editorial copy',{exact:false}).inputValue(),'Unsaved editorial copy that is long enough for the public teaser.');
+      assert.equal(publicationRequests,0);
+    } finally {
+      await closeBrowserAndServer(browser,server);
+    }
+  });
+  }
+}
 ;
 
 const VIBE_KEY = `${ACTOR_ID}:0`
