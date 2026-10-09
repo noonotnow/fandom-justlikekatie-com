@@ -417,16 +417,19 @@
         textarea.style.position = "fixed";
         textarea.style.opacity = "0";
         document.body.append(textarea);
-        textarea.select();
-        const copied = document.execCommand("copy");
-        textarea.remove();
-        return copied;
+        try {
+          textarea.select();
+          return document.execCommand("copy");
+        } finally {
+          textarea.remove();
+        }
       };
 
       shareButton.addEventListener("click", async () => {
         shareButton.disabled = true;
+        const method = typeof navigator.share === "function" ? "native" : "copy";
         try {
-          if (navigator.share) {
+          if (method === "native") {
             await navigator.share({
               title: "The Xianxia Trope Decoder",
                text: "Newcomers see: Certain death. Veterans know: She’d need amnesia to fall for him in this enemies-to-lovers arc.",
@@ -438,10 +441,17 @@
             trackEvent("decoder_share_succeeded", { method: "copy" });
             announce("Public decoder link copied.");
           } else {
+            trackEvent("decoder_share_failed", { method: "copy" });
             announce(`Share this public link: ${publicUrl}`);
           }
         } catch (error) {
-          if (error?.name !== "AbortError") announce("The share sheet could not open. You can copy the public page URL from your browser.");
+          if (method === "native" && error?.name === "AbortError") {
+            trackEvent("decoder_share_cancelled", { method: "native" });
+            announce("Sharing cancelled.");
+          } else {
+            trackEvent("decoder_share_failed", { method });
+            announce("Sharing did not complete. You can copy the public page URL from your browser.");
+          }
         } finally {
           shareButton.disabled = false;
         }

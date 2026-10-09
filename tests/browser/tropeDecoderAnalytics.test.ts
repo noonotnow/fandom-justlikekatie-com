@@ -101,4 +101,102 @@ for (const engine of BROWSER_ENGINES) {
       await closeBrowserAndServer(browser, server);
     }
   });
+
+  test(`decoder share outcomes are exclusive, bounded, retryable, and privacy-safe in ${engine.name}`, { timeout: 90_000 }, async () => {
+    const [{ server, origin }, browser] = await launchBrowserWithServer(startApp(), engine.type);
+    const scenarios = [
+      { mode: 'native-success', event: 'decoder_share_succeeded', method: 'native' },
+      { mode: 'native-cancel', event: 'decoder_share_cancelled', method: 'native' },
+      { mode: 'native-failure', event: 'decoder_share_failed', method: 'native' },
+      { mode: 'clipboard-success', event: 'decoder_share_succeeded', method: 'copy' },
+      { mode: 'clipboard-failure', event: 'decoder_share_failed', method: 'copy' },
+      { mode: 'clipboard-abort', event: 'decoder_share_failed', method: 'copy' },
+      { mode: 'fallback-success', event: 'decoder_share_succeeded', method: 'copy' },
+      { mode: 'fallback-false', event: 'decoder_share_failed', method: 'copy' },
+      { mode: 'fallback-throw', event: 'decoder_share_failed', method: 'copy' },
+    ];
+    try {
+      // Cover the normal gtag path and the wrapper's dataLayer fallback.
+      for (const transport of ['gtag', 'dataLayer']) {
+        for (const scenario of scenarios) {
+          const page = await browser.newPage();
+          try {
+            await page.route('https://www.googletagmanager.com/**', route => route.abort());
+            await gotoTestPage(page, `${origin}/c-drama-fandom/trope-decoder/index.html`, {
+              waitUntil: 'domcontentloaded',
+            });
+            await page.evaluate(`(() => {
+              const mode = ${JSON.stringify(scenario.mode)};
+              const transport = ${JSON.stringify(transport)};
+              const analyticsWindow = window;
+              analyticsWindow.dataLayer = [];
+              analyticsWindow.gtag = transport === 'gtag'
+                ? (...args) => { analyticsWindow.dataLayer.push(args); }
+                : undefined;
+              const fail = (name) => {
+                const error = new Error('private-reader-content account-id https://private.example/');
+                error.name = name;
+                throw error;
+              };
+              Object.defineProperty(navigator, 'share', {
+                configurable: true,
+                value: mode.startsWith('native') ? async () => {
+                  if (mode === 'native-cancel') fail('AbortError');
+                  if (mode === 'native-failure') fail('NotAllowedError');
+                } : undefined,
+              });
+              Object.defineProperty(navigator, 'clipboard', {
+                configurable: true,
+                value: mode.startsWith('clipboard') ? { writeText: async () => {
+                  if (mode === 'clipboard-abort') fail('AbortError');
+                  if (mode === 'clipboard-failure') fail('NotAllowedError');
+                } } : undefined,
+              });
+              document.execCommand = () => {
+                if (mode === 'fallback-throw') fail('private-error-name');
+                return mode === 'fallback-success';
+              };
+            })()`);
+            const button = page.getByRole('button', { name: 'Share this decoder' });
+            for (let attempt = 1; attempt <= 2; attempt += 1) {
+              await button.click();
+              await page.waitForFunction(() => !(document.querySelector('#share-decoder') as HTMLButtonElement).disabled);
+              const commands = await analyticsCommands(page);
+              assert.deepEqual(commands, Array.from({ length: attempt }, () => [
+                'event', scenario.event, { method: scenario.method },
+              ]), `${transport}: ${scenario.mode}`);
+              assert.doesNotMatch(JSON.stringify(commands), /https?:|url|private|account|message|text|name/i);
+              assert.equal(await page.locator('textarea').count(), 0, 'fallback scratchpad is removed');
+            }
+            assert.ok(await page.locator('#share-status').textContent());
+          } finally {
+            await page.close();
+          }
+        }
+      }
+    } finally {
+      await closeBrowserAndServer(browser, server);
+    }
+  });
+
+  test(`analytics failures do not turn a completed share into failure or block retry in ${engine.name}`, { timeout: 45_000 }, async () => {
+    const [{ server, origin }, browser] = await launchBrowserWithServer(startApp(), engine.type);
+    try {
+      const page = await browser.newPage();
+      await page.route('https://www.googletagmanager.com/**', route => route.abort());
+      await gotoTestPage(page, `${origin}/c-drama-fandom/trope-decoder/index.html`, { waitUntil: 'domcontentloaded' });
+      await page.evaluate(`(() => {
+        Object.defineProperty(navigator, 'share', { configurable: true, value: async () => {} });
+        window.gtag = () => { throw new Error('Analytics unavailable'); };
+      })()`);
+      for (let attempt = 0; attempt < 2; attempt += 1) {
+        await page.getByRole('button', { name: 'Share this decoder' }).click();
+        await page.waitForFunction(() => !(document.querySelector('#share-decoder') as HTMLButtonElement).disabled);
+        assert.equal(await page.locator('#share-status').textContent(), 'Decoder ready to share.');
+      }
+      assert.deepEqual(await analyticsCommands(page), []);
+    } finally {
+      await closeBrowserAndServer(browser, server);
+    }
+  });
 }
