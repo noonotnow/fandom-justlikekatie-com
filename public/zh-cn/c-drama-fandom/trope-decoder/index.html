@@ -470,16 +470,19 @@
         textarea.style.position = "fixed";
         textarea.style.opacity = "0";
         document.body.append(textarea);
-        textarea.select();
-        const copied = document.execCommand("copy");
-        textarea.remove();
-        return copied;
+        try {
+          textarea.select();
+          return document.execCommand("copy");
+        } finally {
+          textarea.remove();
+        }
       };
 
       shareButton.addEventListener("click", async () => {
         shareButton.disabled = true;
+        const method = typeof navigator.share === "function" ? "native" : "copy";
         try {
-          if (navigator.share) {
+          if (method === "native") {
             await navigator.share({
               title: "仙侠套路解码器",
               text: "新人看到：坠崖，命悬一线。老观众知道：这对“仇人”还得先失忆一次，才能重新谈恋爱。",
@@ -491,11 +494,17 @@
             trackEvent("decoder_share_succeeded", { method: "copy" });
             announce("已复制公开解码器链接。");
           } else {
+            trackEvent("decoder_share_failed", { method: "copy" });
             announce(`复制未完成。你可以手动复制这个公开链接：${publicUrl}`);
           }
         } catch (error) {
-          if (error?.name !== "AbortError") announce("浏览器分享面板未能打开。你可以从地址栏复制此公开页面链接。");
-          else announce("分享已取消。你仍可从地址栏复制此页面链接。");
+          if (method === "native" && error?.name === "AbortError") {
+            trackEvent("decoder_share_cancelled", { method: "native" });
+            announce("分享已取消。你仍可从地址栏复制此页面链接。");
+          } else {
+            trackEvent("decoder_share_failed", { method });
+            announce("分享未能完成。你可以从地址栏复制此公开页面链接。");
+          }
         } finally {
           shareButton.disabled = false;
         }

@@ -102,7 +102,11 @@ for (const engine of BROWSER_ENGINES) {
     }
   });
 
-  test(`decoder share outcomes are exclusive, bounded, retryable, and privacy-safe in ${engine.name}`, { timeout: 90_000 }, async () => {
+  for (const locale of [
+    { name: 'English', path: '/c-drama-fandom/trope-decoder/index.html', success: 'Decoder ready to share.' },
+    { name: 'Simplified Chinese', path: '/zh-cn/c-drama-fandom/trope-decoder/index.html', success: '分享已准备好。' },
+  ]) {
+  test(`decoder share outcomes are exclusive, bounded, retryable, and privacy-safe in ${engine.name} (${locale.name})`, { timeout: 90_000 }, async () => {
     const [{ server, origin }, browser] = await launchBrowserWithServer(startApp(), engine.type);
     const scenarios = [
       { mode: 'native-success', event: 'decoder_share_succeeded', method: 'native' },
@@ -122,7 +126,7 @@ for (const engine of BROWSER_ENGINES) {
           const page = await browser.newPage();
           try {
             await page.route('https://www.googletagmanager.com/**', route => route.abort());
-            await gotoTestPage(page, `${origin}/c-drama-fandom/trope-decoder/index.html`, {
+            await gotoTestPage(page, `${origin}${locale.path}`, {
               waitUntil: 'domcontentloaded',
             });
             await page.evaluate(`(() => {
@@ -157,7 +161,7 @@ for (const engine of BROWSER_ENGINES) {
                 return mode === 'fallback-success';
               };
             })()`);
-            const button = page.getByRole('button', { name: 'Share this decoder' });
+            const button = page.locator('#share-decoder');
             for (let attempt = 1; attempt <= 2; attempt += 1) {
               await button.click();
               await page.waitForFunction(() => !(document.querySelector('#share-decoder') as HTMLButtonElement).disabled);
@@ -179,24 +183,25 @@ for (const engine of BROWSER_ENGINES) {
     }
   });
 
-  test(`analytics failures do not turn a completed share into failure or block retry in ${engine.name}`, { timeout: 45_000 }, async () => {
+  test(`analytics failures do not turn a completed share into failure or block retry in ${engine.name} (${locale.name})`, { timeout: 45_000 }, async () => {
     const [{ server, origin }, browser] = await launchBrowserWithServer(startApp(), engine.type);
     try {
       const page = await browser.newPage();
       await page.route('https://www.googletagmanager.com/**', route => route.abort());
-      await gotoTestPage(page, `${origin}/c-drama-fandom/trope-decoder/index.html`, { waitUntil: 'domcontentloaded' });
+      await gotoTestPage(page, `${origin}${locale.path}`, { waitUntil: 'domcontentloaded' });
       await page.evaluate(`(() => {
         Object.defineProperty(navigator, 'share', { configurable: true, value: async () => {} });
         window.gtag = () => { throw new Error('Analytics unavailable'); };
       })()`);
       for (let attempt = 0; attempt < 2; attempt += 1) {
-        await page.getByRole('button', { name: 'Share this decoder' }).click();
+        await page.locator('#share-decoder').click();
         await page.waitForFunction(() => !(document.querySelector('#share-decoder') as HTMLButtonElement).disabled);
-        assert.equal(await page.locator('#share-status').textContent(), 'Decoder ready to share.');
+        assert.equal(await page.locator('#share-status').textContent(), locale.success);
       }
       assert.deepEqual(await analyticsCommands(page), []);
     } finally {
       await closeBrowserAndServer(browser, server);
     }
   });
+  }
 }

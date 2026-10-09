@@ -22,8 +22,10 @@ predates any collected share data, so it does not establish a baseline.
 
 ## Bounded sharing outcome contract
 
-Each completed button attempt emits exactly one of these GA4 events through
-the existing safe `gtag`/`dataLayer` wrapper:
+Both published decoder routes (`/c-drama-fandom/trope-decoder/` and
+`/zh-cn/c-drama-fandom/trope-decoder/`) use this same contract. Each completed
+button attempt emits exactly one of these GA4 events through the existing safe
+`gtag`/`dataLayer` wrapper:
 
 | Event name | Allowed properties | Meaning |
 | --- | --- | --- |

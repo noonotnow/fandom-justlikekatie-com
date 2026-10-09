@@ -1241,8 +1241,12 @@ test("the trope decoder is searchable, shareable, and spoiler-light", () => {
   assert.match(html, /"numberOfItems": 14/);
 });
 
-test("decoder sharing outcomes use only bounded event names and method properties", () => {
-  const html = read("public/c-drama-fandom/trope-decoder/index.html");
+for (const path of [
+  "public/c-drama-fandom/trope-decoder/index.html",
+  "public/zh-cn/c-drama-fandom/trope-decoder/index.html",
+]) {
+test(`decoder sharing outcomes use only bounded event names and method properties in ${path}`, () => {
+  const html = read(path);
   const review = read("docs/trope-decoder-analytics-review.md");
   const events = [...html.matchAll(/trackEvent\("(decoder_share_[^"]+)", \{([^}]+)\}\)/g)]
     .map((match) => [match[1], match[2].trim()]);
@@ -1260,6 +1264,7 @@ test("decoder sharing outcomes use only bounded event names and method propertie
   for (const [event] of events) assert.ok(review.includes(`\`${event}\``));
   assert.doesNotMatch(events.map(([, data]) => data).join(" "), /url|message|account|email|name|text|query/i);
 });
+}
 
 test("LG01 has nine bounded outcomes and a privacy-safe share contract", () => {
   const html = read("public/c-drama-fandom/fandom-games/index.html");
