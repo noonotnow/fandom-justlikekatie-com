@@ -6746,7 +6746,7 @@ async function configureCompleteHeroReviewNetwork(
   page: Page,
   
 {
- staleOnVerdict = false, newerRunOnVerdict = false, newerRunOnRescueSave = false 
+ staleOnVerdict = false, newerRunOnVerdict = false, newerRunOnRescueSave = false, collectionExportGate
 }
 : 
 {
@@ -6759,6 +6759,8 @@ async function configureCompleteHeroReviewNetwork(
 
     newerRunOnRescueSave?: boolean
 ;
+
+    collectionExportGate?: Promise<void>;
 
   
 }
@@ -7160,6 +7162,8 @@ async function configureCompleteHeroReviewNetwork(
 
     if (input.action === 'export_rescue_board') 
 {
+
+      await collectionExportGate;
 
       assert.equal(input.runId, 'complete-hero-review')
 ;
@@ -12580,6 +12584,7 @@ test('a stale rescue approval keeps the recovery form visible without showing pu
 )
 ;
 
+    await page.getByText('Rescue board saved and synced to Collection.', { exact: false }).waitFor();
     assert.equal(await verdictButton.isEnabled(), true)
 ;
 
@@ -12658,6 +12663,11 @@ test('a newer current audit keeps the approval draft intact until the operator r
 , async () => 
 {
 
+  let finishCollectionExport!: () => void;
+  const collectionExportGate = new Promise<void>(resolve => {
+    finishCollectionExport = resolve;
+  });
+
   const 
 {
  server, origin 
@@ -12683,6 +12693,7 @@ test('a newer current audit keeps the approval draft intact until the operator r
 {
 
     newerRunOnVerdict: true,
+    collectionExportGate,
   
 }
 )
@@ -12755,6 +12766,11 @@ test('a newer current audit keeps the approval draft intact until the operator r
 }
 )
 ;
+
+    assert.equal(await verdictButton.isEnabled(), false, 'Collection save must finish before another mutation can replace its notice');
+    assert.equal(verdictRequests.length, 0);
+    finishCollectionExport();
+    await page.getByText('Rescue board saved and synced to Collection.', { exact: false }).waitFor();
 
     assert.equal(await verdictButton.isEnabled(), true)
 ;
@@ -12850,6 +12866,7 @@ test('a newer current audit keeps the approval draft intact until the operator r
  finally 
 {
 
+    finishCollectionExport();
     await closeBrowserAndServer(browser, server)
 ;
 
