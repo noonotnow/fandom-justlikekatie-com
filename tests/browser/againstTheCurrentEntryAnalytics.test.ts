@@ -34,7 +34,9 @@ test('GA4 distinguishes feature entries and installment choices from direct shel
     const clicks = async (): Promise<RecordedEvent[]> =>
       page.evaluate(() => JSON.parse(sessionStorage.getItem('__seriesClicks') ?? '[]'));
 
-    await gotoTestPage(page, origin);
+    // The next link assertion waits for the actual UI. Font/other external
+    // resource load completion is not part of this click-tracking contract.
+    await gotoTestPage(page, origin, { waitUntil: 'domcontentloaded' });
     await captureClicks();
     await page.getByRole('link', { name: /Explore the Against the Current series/ }).click();
     await page.waitForURL(`${origin}/c-drama-fandom/vibing-now/`);
