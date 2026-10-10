@@ -58,8 +58,21 @@ Tests and the source files they import must travel together in the same push.
 A split-brain failure (CI red, local green) nearly always means implementation
 commits are still local while the test file has already reached GitHub.
 
-**Rule:** after committing a test file, immediately push all related commits
-before starting other work.  Never leave a dangling test commit un-pushed.
+**Rule:** push each fix and its related tests together on a review branch based
+on freshly fetched `origin/main`. Do not publish a test-only branch while its
+implementation remains solely in the workstation.
+
+**Branch protection:** GitHub main requires an independent approval of the
+latest push. Do not force-push, bypass this review, or assume a locally merged
+task has already reached GitHub or production.
+
+**Reconciliation:** compare the current workspace with fetched GitHub main
+before preparing a release. Preserve both histories with local backup refs.
+If workspace history contains uploads, temporary outputs, or duplicate working
+copies, prepare a clean source snapshot descended from GitHub main instead of
+pushing the entire checkpoint history. Preserve current publication,
+retirement, and redirect decisions alongside the incoming fixes and tests.
+Validate the exact combined tree, not only the original isolated task branch.
 
 **Automated guard:** `.github/workflows/test-source-guard.yml` runs on every
 push and PR.  It extracts every relative `import` in `tests/*.test.ts` and
