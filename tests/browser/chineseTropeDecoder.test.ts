@@ -50,6 +50,72 @@ const expectedCardIds = [
 ];
 
 for (const engine of BROWSER_ENGINES) {
+  for (const locale of [
+    {
+      name: 'English', path: '/c-drama-fandom/trope-decoder/',
+      otherPath: '/zh-cn/c-drama-fandom/trope-decoder/',
+      count: (visible: number) => `Showing ${visible} of 14 tropes`,
+    },
+    {
+      name: 'Simplified Chinese', path: '/zh-cn/c-drama-fandom/trope-decoder/',
+      otherPath: '/c-drama-fandom/trope-decoder/',
+      count: (visible: number) => `当前显示 ${visible} / 14 条套路`,
+    },
+  ]) {
+    test(`${locale.name} decoder sanitizes context and keeps filter state and analytics aligned in ${engine.name}`, { timeout: 120_000 }, async () => {
+      const [{ server, origin }, browser] = await launchBrowserWithServer(startViteTestServer(), engine.type);
+      try {
+        const page = await browser.newPage();
+        await page.route('https://www.googletagmanager.com/**', route => route.abort());
+        for (const context of [
+          { hash: '#context?filter=unknown&card=unknown&token=private-secret', filter: 'all', card: '' },
+          { hash: '#context?filter=signs&card=fox-spirit-reveal&query=private-secret', filter: 'signs', card: 'fox-spirit-reveal' },
+          { hash: '#three-lifetimes', filter: 'all', card: 'three-lifetimes' },
+        ]) {
+          // Hash-only navigation keeps the old document and does not reinitialize
+          // context; each fixture represents a newly opened language page.
+          await gotoTestPage(page, 'about:blank');
+          await gotoTestPage(page, `${origin}${locale.path}?account=private-secret${context.hash}`, { waitUntil: 'domcontentloaded' });
+          assert.deepEqual(await analyticsCommands(page), [], 'restoring context is not a filter interaction');
+          assert.deepEqual(await page.locator('.trope-card').evaluateAll(cards => cards.map(card => card.id)), expectedCardIds);
+          assert.equal(await page.locator('#trope-search').inputValue(), '');
+          assert.equal(await page.locator('.decoder-filter[aria-pressed="true"]').getAttribute('data-filter'), context.filter);
+          const fragment = context.card
+            ? `#context?${context.filter === 'all' ? '' : `filter=${context.filter}&`}card=${context.card}`
+            : '';
+          assert.equal(await page.locator('[data-language-link]').getAttribute('href'), `${locale.otherPath}${fragment}`);
+        }
+        // A fresh page starts with all cards, without an analytics event.
+        await gotoTestPage(page, `${origin}${locale.path}`, { waitUntil: 'domcontentloaded' });
+        for (const [category, visible] of [['love', 5], ['realm', 5], ['signs', 4], ['all', 14]] as const) {
+          const button = page.locator(`[data-filter="${category}"]`);
+          await button.click();
+          assert.equal(await page.locator('#trope-count').textContent(), locale.count(visible));
+          assert.equal(await page.locator('.trope-card:not([hidden])').count(), visible);
+          assert.equal(await page.locator('.decoder-filter[aria-pressed="true"]').count(), 1);
+          assert.equal(await button.getAttribute('aria-pressed'), 'true');
+          const commands = await analyticsCommands(page);
+          assert.deepEqual(commands.at(-1), ['event', 'trope_filter_used', {
+            category, query_present: false, result_count: visible,
+          }]);
+          await button.click();
+          assert.deepEqual(await analyticsCommands(page), commands, 'unchanged filter state is deduplicated');
+        }
+        await page.locator('#trope-search').fill('private-secret-no-match');
+        assert.equal(await page.locator('#trope-count').textContent(), locale.count(0));
+        assert.equal(await page.locator('#trope-empty').isVisible(), true);
+        assert.equal(await page.locator('[data-language-link]').getAttribute('href'), `${locale.otherPath}#context?filter=all`);
+        assert.doesNotMatch(JSON.stringify(await analyticsCommands(page)), /private-secret|account|query_text|search_text/);
+        await page.locator('#trope-search').fill('');
+        assert.equal(await page.locator('#trope-count').textContent(), locale.count(14));
+        assert.equal(await page.locator('#trope-empty').isVisible(), false);
+        assert.equal(await page.locator('[data-language-link]').getAttribute('href'), locale.otherPath);
+      } finally {
+        await closeBrowserAndServer(browser, server);
+      }
+    });
+  }
+
   test(`Simplified Chinese decoder preserves its public identity and bilingual filter context in ${engine.name}`, { timeout: 120_000 }, async () => {
     const [{ server, origin }, browser] = await launchBrowserWithServer(startViteTestServer(), engine.type);
     try {

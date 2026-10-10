@@ -5,6 +5,7 @@ import { existsSync, mkdirSync, mkdtempSync, readFileSync, rmSync, writeFileSync
 import { tmpdir } from "node:os";
 import { dirname, resolve } from "node:path";
 import { fileURLToPath } from "node:url";
+import { runInNewContext } from "node:vm";
 import { XMLParser, XMLValidator } from "fast-xml-parser";
 import sharp from "sharp";
 import { createServer as createViteServer } from "vite";
@@ -1000,6 +1001,52 @@ test("the soundtrack pilot links only to verified licensed listings and stays se
   assert.equal(new Map(publicStaticPreviewRoutes()).get(path.slice(0, -1)), `${path}index.html`);
 });
 
+test("soundtrack freshness qualifies expired listings without refreshing evidence or changing links", () => {
+  const html = read("public/c-drama-fandom/soundtrack/against-the-current/index.html");
+  const notice = html.match(/<p class="callout" id="soundtrack-freshness" role="status" data-checked-at="([^"]+)">([^<]+)<\/p>/);
+  const script = html.match(/<script id="soundtrack-freshness-script">([\s\S]*?)<\/script>/)?.[1];
+  assert.ok(notice, "the warning must be visible beside the original checked date");
+  assert.ok(script, "the page must execute its freshness check");
+  assert.equal(notice[1], "2026-09-28");
+  assert.match(html, /Catalog checked September 28, 2026/);
+  assert.ok(html.indexOf('id="soundtrack-freshness"') < html.indexOf("Choose a storefront"));
+  assert.match(notice[2], /overdue for a manual recheck/);
+  assert.match(notice[2], /storefront listings and track-credit claims as stale and unverified/);
+  assert.match(notice[2], /not a playback or music-rights guarantee/);
+  const checkedAt = Date.parse(notice[1]);
+  const expiry = checkedAt + 7 * 86400000;
+  for (const [label, now, date, fresh] of [
+    ["before expiry", expiry - 1, notice[1], true],
+    ["exactly seven days", expiry, notice[1], true],
+    ["after expiry", expiry + 1, notice[1], false],
+    ["long after expiry", expiry + 30 * 86400000, notice[1], false],
+    ["missing check", expiry, undefined, false],
+    ["invalid check", expiry, "not-a-date", false],
+    ["future check", checkedAt - 1, notice[1], false],
+  ]) {
+    const note = { dataset: Object.freeze({ checkedAt: date }), textContent: notice[2] };
+    runInNewContext(script, {
+      Date: { now: () => now, parse: Date.parse },
+      document: { querySelector: (selector) => {
+        assert.equal(selector, "#soundtrack-freshness", "only the notice may be changed");
+        return note;
+      } },
+    });
+    assert.equal(note.dataset.checkedAt, date, `${label}: evidence date must not change`);
+    if (fresh) {
+      assert.match(note.textContent, /checked within the past seven days/, label);
+      assert.doesNotMatch(note.textContent, /stale|overdue|unverified/, label);
+    } else {
+      assert.equal(note.textContent, notice[2], `${label}: keep the stale warning`);
+    }
+    assert.match(note.textContent, /not a playback or music-rights guarantee/, label);
+    assert.match(note.textContent, /confirm your local Apple Music listing before subscribing/, label);
+  }
+  const review = read("docs/against-the-current-soundtrack-review.md");
+  assert.match(review, /does not automatically correct, remove or withdraw/);
+  assert.match(review, /withdraw the guide and its hub\/article links/);
+});
+
 test("Vibing Now landing page is crawlable and advertises the live spoiler boundary", () => {
   const path = "/c-drama-fandom/vibing-now/";
   const html = read(`public${path}index.html`);
@@ -1209,6 +1256,7 @@ test("the field journal analytics track outcomes without journal content or priv
 
 test("the trope decoder is searchable, shareable, and spoiler-light", () => {
   const html = read("public/c-drama-fandom/trope-decoder/index.html");
+  const script = read("public/assets/c-drama-fandom/trope-decoder.js");
   const entryIds = [...html.matchAll(/class="trope-card" id="([^"]+)"/g)].map((match) => match[1]);
   const categoryIds = [...html.matchAll(/class="trope-card"[^>]+data-category="([^"]+)"/g)].map((match) => match[1]);
   const filterIds = [...html.matchAll(/class="decoder-filter[^"]*"[^>]+data-filter="([^"]+)"/g)].map((match) => match[1]);
@@ -1228,16 +1276,16 @@ test("the trope decoder is searchable, shareable, and spoiler-light", () => {
   assert.doesNotMatch(html, /It’s never a cliff of death\. It’s a cliff of amnesia\./);
   assert.match(html, /id="trope-search"/);
   assert.match(html, /data-search="[^"]+"/);
-  assert.match(html, /matchesCategory = activeFilter === "all" \|\| card\.dataset\.category === activeFilter/);
+  assert.match(script, /matchesCategory = activeFilter === "all" \|\| card\.dataset\.category === activeFilter/);
   assert.match(html, /id="share-decoder"/);
-  assert.match(html, /publicUrl = "https:\/\/fandom\.justlikekatie\.com\/c-drama-fandom\/trope-decoder\/"/);
-  assert.match(html, /window\.gtag\("event", name, data\)/);
-  assert.match(html, /window\.dataLayer\.push\(\["event", name, data\]\)/);
-  assert.match(html, /trackEvent\("trope_filter_used", \{\s*category: activeFilter,\s*query_present: Boolean\(query\),\s*result_count: visible\s*\}\)/);
-  assert.match(html, new RegExp(`trackEvent\\("${TROPE_DECODER_SHARE_EVENT}", \\{ method: "native" \\}\\)`));
-  assert.match(html, new RegExp(`trackEvent\\("${TROPE_DECODER_SHARE_EVENT}", \\{ method: "copy" \\}\\)`));
-  assert.doesNotMatch(html, /trackEvent\("trope_filter_used"[\s\S]*?search\.value/);
-  assert.doesNotMatch(html, /trackEvent\("decoder_share_succeeded", \{[^}]*publicUrl/);
+  assert.match(html, /"publicUrl": "https:\/\/fandom\.justlikekatie\.com\/c-drama-fandom\/trope-decoder\/"/);
+  assert.match(script, /window\.gtag\("event", name, data\)/);
+  assert.match(script, /window\.dataLayer\.push\(\["event", name, data\]\)/);
+  assert.match(script, /trackEvent\("trope_filter_used", \{\s*category: activeFilter,\s*query_present: Boolean\(query\),\s*result_count: visible\s*\}\)/);
+  assert.match(script, new RegExp(`trackEvent\\("${TROPE_DECODER_SHARE_EVENT}", \\{ method: "native" \\}\\)`));
+  assert.match(script, new RegExp(`trackEvent\\("${TROPE_DECODER_SHARE_EVENT}", \\{ method: "copy" \\}\\)`));
+  assert.doesNotMatch(script, /trackEvent\("trope_filter_used"[\s\S]*?search\.value/);
+  assert.doesNotMatch(script, /trackEvent\("decoder_share_succeeded", \{[^}]*publicUrl/);
   assert.match(html, /no account, Collection, name, or browsing information/i);
   assert.match(html, /original descriptions—not dialogue, scripts, or episode transcripts/i);
   assert.match(html, /"@type": "ItemList"/);
@@ -1250,8 +1298,17 @@ for (const path of [
 ]) {
 test(`decoder sharing outcomes use only bounded event names and method properties in ${path}`, () => {
   const html = read(path);
+  const script = read("public/assets/c-drama-fandom/trope-decoder.js");
+  assert.equal((html.match(/<script defer src="\/assets\/c-drama-fandom\/trope-decoder\.js"><\/script>/g) ?? []).length, 1);
+  assert.doesNotMatch(html, /addEventListener|navigator\.share|execCommand|trackEvent/);
+  const copy = JSON.parse(html.match(/<script type="application\/json" id="decoder-locale">([\s\S]*?)<\/script>/)[1]);
+  assert.deepEqual(Object.keys(copy).sort(), [
+    "publicUrl", "count", "title", "text", "nativeSuccess", "copySuccess", "manualCopy", "cancelled", "failed",
+  ].sort());
+  assert.ok(Object.values(copy).every(value => typeof value === "string" && value.length > 0));
+  assert.equal(copy.publicUrl, `https://fandom.justlikekatie.com${path.slice("public".length).replace("index.html", "")}`);
   const review = read("docs/trope-decoder-analytics-review.md");
-  const events = [...html.matchAll(/trackEvent\("(decoder_share_[^"]+)", \{([^}]+)\}\)/g)]
+  const events = [...script.matchAll(/trackEvent\("(decoder_share_[^"]+)", \{([^}]+)\}\)/g)]
     .map((match) => [match[1], match[2].trim()]);
   assert.deepEqual(events, [
     ["decoder_share_succeeded", 'method: "native"'],
@@ -1260,10 +1317,10 @@ test(`decoder sharing outcomes use only bounded event names and method propertie
     ["decoder_share_cancelled", 'method: "native"'],
     ["decoder_share_failed", "method"],
   ]);
-  assert.match(html, /const method = typeof navigator\.share === "function" \? "native" : "copy"/);
-  assert.match(html, /if \(method === "native" && error\?\.name === "AbortError"\)/);
-  assert.match(html, /return document\.execCommand\("copy"\);\s*\} finally \{\s*textarea\.remove\(\)/);
-  assert.match(html, /finally \{\s*shareButton\.disabled = false/);
+  assert.match(script, /const method = typeof navigator\.share === "function" \? "native" : "copy"/);
+  assert.match(script, /if \(method === "native" && error\?\.name === "AbortError"\)/);
+  assert.match(script, /return document\.execCommand\("copy"\);\s*\} finally \{\s*textarea\.remove\(\)/);
+  assert.match(script, /finally \{\s*shareButton\.disabled = false/);
   for (const [event] of events) assert.ok(review.includes(`\`${event}\``));
   assert.doesNotMatch(events.map(([, data]) => data).join(" "), /url|message|account|email|name|text|query/i);
 });

@@ -103,8 +103,24 @@ for (const engine of BROWSER_ENGINES) {
   });
 
   for (const locale of [
-    { name: 'English', path: '/c-drama-fandom/trope-decoder/index.html', success: 'Decoder ready to share.' },
-    { name: 'Simplified Chinese', path: '/zh-cn/c-drama-fandom/trope-decoder/index.html', success: '分享已准备好。' },
+    {
+      name: 'English', path: '/c-drama-fandom/trope-decoder/index.html',
+      title: 'The Xianxia Trope Decoder',
+      text: 'Newcomers see: Certain death. Veterans know: She’d need amnesia to fall for him in this enemies-to-lovers arc.',
+      success: 'Decoder ready to share.', copied: 'Public decoder link copied.',
+      manual: 'Share this public link: ',
+      cancelled: 'Sharing cancelled.',
+      failed: 'Sharing did not complete. You can copy the public page URL from your browser.',
+    },
+    {
+      name: 'Simplified Chinese', path: '/zh-cn/c-drama-fandom/trope-decoder/index.html',
+      title: '仙侠套路解码器',
+      text: '新人看到：坠崖，命悬一线。老观众知道：这对“仇人”还得先失忆一次，才能重新谈恋爱。',
+      success: '分享已准备好。', copied: '已复制公开解码器链接。',
+      manual: '复制未完成。你可以手动复制这个公开链接：',
+      cancelled: '分享已取消。你仍可从地址栏复制此页面链接。',
+      failed: '分享未能完成。你可以从地址栏复制此公开页面链接。',
+    },
   ]) {
   test(`decoder share outcomes are exclusive, bounded, retryable, and privacy-safe in ${engine.name} (${locale.name})`, { timeout: 90_000 }, async () => {
     const [{ server, origin }, browser] = await launchBrowserWithServer(startApp(), engine.type);
@@ -126,7 +142,7 @@ for (const engine of BROWSER_ENGINES) {
           const page = await browser.newPage();
           try {
             await page.route('https://www.googletagmanager.com/**', route => route.abort());
-            await gotoTestPage(page, `${origin}${locale.path}`, {
+            await gotoTestPage(page, `${origin}${locale.path}?token=private-reader-content#context?filter=love&card=three-lifetimes`, {
               waitUntil: 'domcontentloaded',
             });
             await page.evaluate(`(() => {
@@ -144,19 +160,22 @@ for (const engine of BROWSER_ENGINES) {
               };
               Object.defineProperty(navigator, 'share', {
                 configurable: true,
-                value: mode.startsWith('native') ? async () => {
+                value: mode.startsWith('native') ? async (data) => {
+                  window.__decoderShare = data;
                   if (mode === 'native-cancel') fail('AbortError');
                   if (mode === 'native-failure') fail('NotAllowedError');
                 } : undefined,
               });
               Object.defineProperty(navigator, 'clipboard', {
                 configurable: true,
-                value: mode.startsWith('clipboard') ? { writeText: async () => {
+                value: mode.startsWith('clipboard') ? { writeText: async (url) => {
+                  window.__decoderCopied = url;
                   if (mode === 'clipboard-abort') fail('AbortError');
                   if (mode === 'clipboard-failure') fail('NotAllowedError');
                 } } : undefined,
               });
               document.execCommand = () => {
+                 window.__decoderCopied = document.querySelector('textarea').value;
                 if (mode === 'fallback-throw') fail('private-error-name');
                 return mode === 'fallback-success';
               };
@@ -179,7 +198,24 @@ for (const engine of BROWSER_ENGINES) {
               assert.doesNotMatch(JSON.stringify(commands), /https?:|url|private|account|message|text|name/i);
               assert.equal(await page.locator('textarea').count(), 0, 'fallback scratchpad is removed');
             }
-            assert.ok(await page.locator('#share-status').textContent());
+            const publicUrl = `https://fandom.justlikekatie.com${locale.path.replace('index.html', '')}`;
+            const expectedStatus = scenario.mode === 'native-success' ? locale.success
+              : scenario.mode === 'native-cancel' ? locale.cancelled
+              : scenario.mode === 'fallback-false' ? `${locale.manual}${publicUrl}`
+              : scenario.event === 'decoder_share_succeeded' ? locale.copied
+              : locale.failed;
+            assert.equal(await page.locator('#share-status').textContent(), expectedStatus);
+            const payload = await page.evaluate(() => {
+              const state = window as Window & {
+                __decoderShare?: Record<string, string>; __decoderCopied?: string;
+              };
+              return { shared: state.__decoderShare, copied: state.__decoderCopied };
+            });
+            if (scenario.method === 'native') {
+              assert.deepEqual(payload.shared, { title: locale.title, text: locale.text, url: publicUrl });
+            } else {
+              assert.equal(payload.copied, publicUrl);
+            }
           } finally {
             await page.close();
           }

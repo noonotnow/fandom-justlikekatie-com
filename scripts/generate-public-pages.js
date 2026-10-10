@@ -154,12 +154,22 @@ function escapeXml(value) {
 }
 
 function assertTropeDecoderAnalyticsContract() {
-  const html = readFileSync(resolve(root, "public/c-drama-fandom/trope-decoder/index.html"), "utf8");
+  const scriptPath = "/assets/c-drama-fandom/trope-decoder.js";
+  for (const pagePath of [
+    "public/c-drama-fandom/trope-decoder/index.html",
+    "public/zh-cn/c-drama-fandom/trope-decoder/index.html",
+  ]) {
+    const html = readFileSync(resolve(root, pagePath), "utf8");
+    if (!html.includes(`<script defer src="${scriptPath}"></script>`)) {
+      throw new Error(`Trope decoder page ${pagePath} must load the shared interaction script.`);
+    }
+  }
+  const script = readFileSync(resolve(root, `public${scriptPath}`), "utf8");
   const nativeEvent = `trackEvent("${TROPE_DECODER_SHARE_EVENT}", { method: "native" })`;
   const copyEvent = `trackEvent("${TROPE_DECODER_SHARE_EVENT}", { method: "copy" })`;
-  const eventCount = html.match(new RegExp(`trackEvent\\("${TROPE_DECODER_SHARE_EVENT}"`, "g"))?.length ?? 0;
+  const eventCount = script.match(new RegExp(`trackEvent\\("${TROPE_DECODER_SHARE_EVENT}"`, "g"))?.length ?? 0;
 
-  if (eventCount !== 2 || !html.includes(nativeEvent) || !html.includes(copyEvent)) {
+  if (eventCount !== 2 || !script.includes(nativeEvent) || !script.includes(copyEvent)) {
     throw new Error(`Trope decoder must emit exactly one ${TROPE_DECODER_SHARE_EVENT} event for each sharing method.`);
   }
 }
@@ -551,7 +561,6 @@ export function prepareWatchPage(now = new Date()) {
   return renderWatchPage(record, now);
 }
 export async function preparePublicPages(now = new Date()) {
-  await prepareSectPages(root);
   const nameKeyPage = resolve(root, "public/c-drama-fandom/untamed-names-and-performers/index.html");
   mkdirSync(dirname(nameKeyPage), { recursive: true });
   writeFileSync(nameKeyPage, renderUntamedNameKey());
@@ -592,6 +601,7 @@ export async function preparePublicPages(now = new Date()) {
     ));
   }
   // Check the filesystem after generating journal pages, not only the registry.
+  await prepareSectPages(root);
   // Reuse the exact exclusions; registration is not source or warning approval.
   assertStaticGuidePublicInventory(root);
   assertVibingPublicInventory(root);

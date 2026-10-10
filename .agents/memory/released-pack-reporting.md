@@ -14,3 +14,16 @@ Archive actor-discovery reviews share this external reporting boundary but remai
 **Why:** The requested discovery measurement permits public actor IDs but excludes account identifiers and Collection contents. Repeat selections, retries, saves, and exports cannot establish unique-reader outcomes.
 
 **How to apply:** Verify the live discovery event contract and authorized aggregates before starting its observation window; report saved/exported actions separately, suppress small groups, and state that unfiltered completions are context rather than a matched control cohort.
+
+Archive image-link activations, card authorizations, and durable individual saves
+must remain separate action counts. Public edition dates may support an
+older-versus-recent aggregate comparison using the Shanghai three-day cutoff;
+they are not permission to introduce image identities or persistent reader joins.
+
+**Why:** Public grid creation is free and does not acquire the constituent cards.
+Server permission is not proof of a durable save, and separate navigation actions
+do not prove that the same reader completed a funnel.
+
+**How to apply:** Report authorization denials/retries separately from successful
+local acquisitions, and do not infer a click-to-save conversion rate from
+unjoined event totals.

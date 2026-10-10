@@ -9,6 +9,17 @@ Use the Function Logs historical view, not only the default Real-time tail, when
 
 **How to apply:** In Netlify, select the current published Production deploy, choose the exact function, set the date filter to Last hour, and clear text/level filters before judging whether an invocation or its safe telemetry is missing.
 
+For programmatic history, consult Netlify CLI's current historical-log implementation. Function history uses the separate analytics service, not the ordinary site/deploy REST log routes.
+
+**Why:** The main OpenAPI schema did not expose historical function logs. The CLI's authenticated, paginated history request retrieved the actual production invocations.
+
+**How to apply:** Follow the CLI's function-log URL builder and pagination contract, constrain the time window and published deploy, and redact sensitive log content. Do not interpret an empty real-time tail as an absence of invocations.
+
+An HTTP inactivity timeout is not necessarily the function's execution limit.
+
+**Why:** A request returned an inactivity 504 after about 31 seconds while the corresponding function history reported a 60-second invocation.
+
+**How to apply:** Use provider invocation reports and request IDs to distinguish the visitor-facing timeout from the server's runtime limit before choosing a fix.
 Do not assume the historical API retains structured console records just because
 it lists an invocation. A preview probe returned an empty historical line while
 the documented function-log WebSocket delivered the expected JSON diagnostic.

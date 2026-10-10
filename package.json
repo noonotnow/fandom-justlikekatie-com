@@ -24,6 +24,7 @@
     "check:lockfiles": "node .github/scripts/check-lockfiles.mjs",
     "check:migrations": "node scripts/check-migrations.js",
     "check:launchpad-preview": "node --import tsx/esm scripts/check-launchpad-preview.ts",
+    "check:homepage-guides": "node scripts/check-homepage-guides.js",
     "check:public-records": "node scripts/check-public-records.js",
     "check:archive-records": "node scripts/check-archive-records.js",
     "audit:archive-thumbnails": "node scripts/check-archive-records.js --audit-thumbnails",

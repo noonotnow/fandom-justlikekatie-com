@@ -1543,8 +1543,11 @@ test('Legendary Misprints preserve the unexpected actor while setting both expor
 
 test('Lightbox save and remove schedule account-aware synchronization', async () => {
   const source = await readFile(new URL('../src/components/Lightbox/Lightbox.tsx', import.meta.url), 'utf8');
-  assert.match(source, /import \{ schedulePublicCollectionSync \}/);
-  assert.match(source, /schedulePublicCollectionSync\(\);/);
+  const hook = await readFile(new URL('../src/hooks/useSaveItem.ts', import.meta.url), 'utf8');
+  assert.match(source, /useSaveItem\(/);
+  assert.match(source, /void toggleSave\(\)/);
+  assert.match(hook, /import \{ schedulePublicCollectionSync \}/);
+  assert.match(hook, /schedulePublicCollectionSync\(\);/);
 });
 
 test('delete routing uses card ownership or its unique account mapping, never an unrelated active tab', () => {

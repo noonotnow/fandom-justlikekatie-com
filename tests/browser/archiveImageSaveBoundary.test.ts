@@ -1,5 +1,7 @@
 import assert from 'node:assert/strict';
 import { test } from 'node:test';
+import { expect } from '@playwright/test';
+import { archiveSaveOutcomes, installArchiveSaveGate, seedUnrelatedCard } from './archiveSaveRaceFixtures.ts';
 import {
   gotoTestPage,
   BROWSER_ENGINES,
@@ -78,7 +80,7 @@ async function installEditionRoutes(
     isCollector?: boolean;
     nonIndexableDaily?: boolean;
     inventoryRequests?: string[];
-    authorize?: (date: string, imageId: string) => { status: number; body: unknown };
+    authorize?: (date: string, imageId: string) => { status: number; body: unknown } | Promise<{ status: number; body: unknown }>;
   } = {},
 ): Promise<Array<{ date: string; imageId: string }>> {
   const dates = [shanghaiDateOffset(-1), shanghaiDateOffset(-10)];
@@ -136,7 +138,7 @@ async function installEditionRoutes(
     const payload = route.request().postDataJSON() as { date: string; imageId: string };
     saveRequests.push(payload);
     const result = options.authorize
-      ? options.authorize(payload.date, payload.imageId)
+      ? await options.authorize(payload.date, payload.imageId)
       : {
         status: 200,
         body: {
@@ -202,6 +204,230 @@ async function savedBookmarks(page: import('@playwright/test').Page): Promise<Re
 }
 
 for (const engine of BROWSER_ENGINES) {
+  for (const delay of ['authorization', 'IndexedDB'] as const) {
+    test(`overlapping card and preview saves share one durable acquisition with delayed ${delay} in ${engine.name}`, { timeout: 120_000 }, async () => {
+      const date = shanghaiDateOffset(-1);
+      const imageKey = `/.netlify/functions/image-proxy?url=${encodeURIComponent(`https://images.archive-save.test/${date}/card-1.jpg`)}`;
+      const { server, origin } = await startViteTestServer();
+      const { browser, page } = await launchPageForServer(server, engine.type);
+      let releaseAuthorization!: () => void;
+      const authorizationGate = new Promise<void>(resolve => { releaseAuthorization = resolve; });
+      try {
+        await seedBrowserState(page);
+        const requests = await installEditionRoutes(page, {
+          authorize: async () => {
+            if (delay === 'authorization') await authorizationGate;
+            return { status: 200, body: { allowed: true, date, imageId: `archive:${date}:card-0` } };
+          },
+        });
+        await gotoTestPage(page, `${origin}/vibe-atlas?date=${date}`, { waitUntil: 'domcontentloaded' });
+        await page.getByRole('button', { name: /^View Archive boundary card 1/ }).click();
+        const card = page.getByRole('button', { name: /^View Archive boundary card 1/ });
+        const preview = page.getByRole('region', { name: 'Preview of Archive boundary card 1' });
+        await expect(card.getByRole('button', { name: 'Save item', exact: true })).toBeEnabled();
+        await expect(preview.getByRole('button', { name: 'Save item', exact: true })).toBeEnabled();
+        await seedUnrelatedCard(page);
+        const unrelated = (await localCards(page)).find(record => record.imageUrl !== imageKey);
+        await installArchiveSaveGate(page, imageKey);
+        if (delay === 'IndexedDB') await page.evaluate('window.archiveSaveGate.holdCommit = true');
+
+        // Dispatch only click: a pointer mousedown on the grid intentionally
+        // closes the inline preview, preventing these two mounted controls from
+        // being exercised together. Both controls are visible and enabled.
+        await card.getByRole('button', { name: 'Save item', exact: true }).dispatchEvent('click');
+        if (delay === 'authorization') await expect.poll(() => requests.length).toBe(1);
+        else await page.waitForFunction('window.archiveSaveGate.commits.length === 1');
+        await preview.getByRole('button', { name: 'Save item', exact: true }).click();
+        await expect(card.getByRole('button', { name: 'Save item', exact: true })).toBeDisabled();
+        await expect(preview.getByRole('button', { name: 'Save item', exact: true })).toBeDisabled();
+        assert.deepEqual(await archiveSaveOutcomes(page), [], 'pending authorization/commit is not an acquisition');
+        assert.equal(await localRecordCount(page, 'cards'), delay === 'authorization' ? 1 : 2);
+        const pendingCard = (await localCards(page)).find(record => record.imageUrl === imageKey);
+        releaseAuthorization();
+        if (delay === 'IndexedDB') await page.evaluate('window.archiveSaveGate.releaseCommits()');
+
+        for (const control of [card, preview]) {
+          await expect(control.getByRole('button', { name: 'Remove from saved' })).toBeEnabled();
+          await expect(control.getByRole('button', { name: 'Remove from saved' })).toHaveAttribute('aria-pressed', 'true');
+        }
+        const records = await localCards(page);
+        assert.equal(records.filter(record => record.imageUrl === imageKey).length, 1);
+        if (pendingCard) assert.equal(records.find(record => record.imageUrl === imageKey)?.localId, pendingCard.localId);
+        assert.equal(requests.length, 1, 'overlapping saves must share the authorization');
+        assert.equal(await page.evaluate('window.archiveSaveGate.writes'), 1);
+        assert.deepEqual(await archiveSaveOutcomes(page), ['saved']);
+        assert.deepEqual(await savedBookmarks(page), {});
+
+        await preview.getByRole('button', { name: 'Remove from saved' }).click();
+        await expect(card.getByRole('button', { name: 'Save item', exact: true })).toBeEnabled();
+        await expect(preview.getByRole('button', { name: 'Save item', exact: true })).toBeEnabled();
+        assert.deepEqual(await localCards(page), [unrelated], 'removal leaves unrelated Collection records untouched');
+        await page.reload({ waitUntil: 'domcontentloaded' });
+        await expect(page.getByRole('button', { name: 'Save item', exact: true }).first()).toBeEnabled();
+        assert.deepEqual(await localCards(page), [unrelated], 'no delayed save resurrects the removed card after refresh');
+        assert.equal(requests.length, 1, 'removal and refresh never reauthorize');
+      } finally {
+        releaseAuthorization();
+        await closeBrowserAndServer(browser, server);
+      }
+    });
+  }
+
+  for (const failure of ['authorization', 'persistence'] as const) {
+    test(`overlapping same-card saves report delayed ${failure} failure truthfully in ${engine.name}`, { timeout: 120_000 }, async () => {
+      const date = shanghaiDateOffset(-1);
+      const imageKey = `/.netlify/functions/image-proxy?url=${encodeURIComponent(`https://images.archive-save.test/${date}/card-1.jpg`)}`;
+      const { server, origin } = await startViteTestServer();
+      const { browser, page } = await launchPageForServer(server, engine.type);
+      let release!: () => void;
+      const gate = new Promise<void>(resolve => { release = resolve; });
+      let denied = failure === 'authorization';
+      try {
+        await seedBrowserState(page);
+        const requests = await installEditionRoutes(page, {
+          authorize: async () => {
+            await gate;
+            return denied
+              ? { status: 403, body: { access: 'upgrade', error: 'Collector required.' } }
+              : { status: 200, body: { allowed: true, date, imageId: `archive:${date}:card-0` } };
+          },
+        });
+        await gotoTestPage(page, `${origin}/vibe-atlas?date=${date}`, { waitUntil: 'domcontentloaded' });
+        await page.getByRole('button', { name: /^View Archive boundary card 1/ }).click();
+        const card = page.getByRole('button', { name: /^View Archive boundary card 1/ });
+        const preview = page.getByRole('region', { name: 'Preview of Archive boundary card 1' });
+        await expect(preview.getByRole('button', { name: 'Save item', exact: true })).toBeEnabled();
+        await seedUnrelatedCard(page);
+        const unrelated = await localCards(page);
+        await installArchiveSaveGate(page, imageKey);
+        if (failure === 'persistence') await page.evaluate('window.archiveSaveGate.failWrite = true');
+        await card.getByRole('button', { name: 'Save item', exact: true }).dispatchEvent('click');
+        await expect.poll(() => requests.length).toBe(1);
+        await preview.getByRole('button', { name: 'Save item', exact: true }).click();
+        await expect(preview.getByRole('button', { name: 'Save item', exact: true })).toBeDisabled();
+        release();
+        for (const control of [card, preview]) {
+          await expect(control.getByRole('button', { name: 'Save item', exact: true })).toBeEnabled();
+          await expect(control.getByRole('button', { name: 'Save item', exact: true })).toHaveAttribute('aria-pressed', 'false');
+          if (failure === 'authorization') {
+            await expect(control.getByRole('alert')).toContainText('Older edition card saves are a Collector benefit.');
+          } else {
+            await expect(control.getByRole('status')).toContainText('Could not update this save. Please try again.');
+          }
+        }
+        assert.equal(requests.length, 1);
+        assert.deepEqual(await localCards(page), unrelated);
+        assert.deepEqual(await savedBookmarks(page), {});
+        assert.deepEqual(await archiveSaveOutcomes(page), failure === 'authorization' ? [] : ['persistence_failed']);
+        denied = false;
+        await page.evaluate('window.archiveSaveGate.failWrite = false');
+        await preview.getByRole('button', { name: 'Save item', exact: true }).click();
+        await expect(card.getByRole('button', { name: 'Remove from saved' })).toBeEnabled();
+        await expect(preview.getByRole('button', { name: 'Remove from saved' })).toBeEnabled();
+        assert.equal(requests.length, 2, 'a failed shared operation must not block a genuine retry');
+        assert.equal((await localCards(page)).filter(record => record.imageUrl === imageKey).length, 1);
+      } finally {
+        release();
+        await closeBrowserAndServer(browser, server);
+      }
+    });
+  }
+
+  test(`Lightbox removal waits for a pending same-card commit without late resurrection in ${engine.name}`, { timeout: 120_000 }, async () => {
+    const date = shanghaiDateOffset(-1);
+    const imageKey = `/.netlify/functions/image-proxy?url=${encodeURIComponent(`https://images.archive-save.test/${date}/card-1.jpg`)}`;
+    const { server, origin } = await startViteTestServer();
+    const { browser, page } = await launchPageForServer(server, engine.type);
+    try {
+      await seedBrowserState(page);
+      const requests = await installEditionRoutes(page);
+      await gotoTestPage(page, `${origin}/vibe-atlas?date=${date}`, { waitUntil: 'domcontentloaded' });
+      await page.getByRole('button', { name: /^View Archive boundary card 1/ }).click();
+      const card = page.getByRole('button', { name: /^View Archive boundary card 1/ });
+      const preview = page.getByRole('region', { name: 'Preview of Archive boundary card 1' });
+      await expect(card.getByRole('button', { name: 'Save item', exact: true })).toBeEnabled();
+      await seedUnrelatedCard(page);
+      const unrelated = await localCards(page);
+      await installArchiveSaveGate(page, imageKey);
+      await page.evaluate('window.archiveSaveGate.holdCommit = true');
+      await card.getByRole('button', { name: 'Save item', exact: true }).dispatchEvent('click');
+      await page.waitForFunction('window.archiveSaveGate.commits.length === 1');
+      assert.equal(await localRecordCount(page, 'cards'), 2, 'native commit completed, but its save callback is still pending');
+      assert.deepEqual(await archiveSaveOutcomes(page), []);
+      await preview.getByRole('button', { name: 'View Full Screen' }).click();
+      const lightbox = page.getByRole('dialog', { name: /Image viewer/ });
+      await expect(lightbox.getByRole('button', { name: 'Unsave' })).toBeEnabled();
+      await lightbox.getByRole('button', { name: 'Unsave' }).click();
+      await expect(lightbox.getByRole('button', { name: 'Unsave' })).toBeDisabled();
+      assert.equal(await localRecordCount(page, 'cards'), 2, 'removal must queue behind the unfinished save');
+      await page.evaluate('window.archiveSaveGate.releaseCommits()');
+      await expect(lightbox.getByRole('button', { name: 'Save to collection' })).toBeEnabled();
+      await expect(lightbox.getByRole('button', { name: 'Save to collection' })).toHaveAttribute('aria-pressed', 'false');
+      await lightbox.getByRole('button', { name: 'Close lightbox' }).click();
+      await expect(card.getByRole('button', { name: 'Save item', exact: true })).toBeEnabled();
+      assert.deepEqual(await localCards(page), unrelated);
+      assert.deepEqual(await savedBookmarks(page), {});
+      assert.equal(requests.length, 1, 'queued removal must not require authorization');
+      assert.equal(await page.evaluate('window.archiveSaveGate.writes'), 1);
+      assert.deepEqual(await archiveSaveOutcomes(page), ['saved']);
+      await page.reload({ waitUntil: 'domcontentloaded' });
+      await expect(page.getByRole('button', { name: 'Save item', exact: true }).first()).toBeEnabled();
+      assert.deepEqual(await localCards(page), unrelated);
+    } finally {
+      await closeBrowserAndServer(browser, server);
+    }
+  });
+
+  test(`Lightbox removal wins over stale same-card IndexedDB refreshes in ${engine.name}`, { timeout: 120_000 }, async () => {
+    const date = shanghaiDateOffset(-1);
+    const imageKey = `/.netlify/functions/image-proxy?url=${encodeURIComponent(`https://images.archive-save.test/${date}/card-1.jpg`)}`;
+    const { server, origin } = await startViteTestServer();
+    const { browser, page } = await launchPageForServer(server, engine.type);
+    try {
+      await seedBrowserState(page);
+      const requests = await installEditionRoutes(page);
+      await gotoTestPage(page, `${origin}/vibe-atlas?date=${date}`, { waitUntil: 'domcontentloaded' });
+      await page.getByRole('button', { name: /^View Archive boundary card 1/ }).click();
+      const card = page.getByRole('button', { name: /^View Archive boundary card 1/ });
+      const preview = page.getByRole('region', { name: 'Preview of Archive boundary card 1' });
+      await preview.getByRole('button', { name: 'Save item', exact: true }).click();
+      await expect(card.getByRole('button', { name: 'Remove from saved' })).toBeEnabled();
+      await expect(preview.getByRole('button', { name: 'Remove from saved' })).toBeEnabled();
+      await seedUnrelatedCard(page);
+      const unrelated = (await localCards(page)).filter(record => record.imageUrl !== imageKey);
+      await preview.getByRole('button', { name: 'View Full Screen' }).click();
+      const lightbox = page.getByRole('dialog', { name: /Image viewer/ });
+      await expect(lightbox.getByRole('button', { name: 'Unsave' })).toBeEnabled();
+      await installArchiveSaveGate(page, imageKey);
+      await page.evaluate(`window.archiveSaveGate.holdReads = true; window.dispatchEvent(new Event('storage'))`);
+      // Fullscreen replaces the preview; the grid and lightbox remain mounted.
+      await page.waitForFunction('window.archiveSaveGate.reads.length === 2');
+      await page.evaluate('window.archiveSaveGate.holdReads = false');
+      await lightbox.getByRole('button', { name: 'Unsave' }).click();
+      await expect(lightbox.getByRole('button', { name: 'Save to collection' })).toBeEnabled();
+      await expect(card.getByRole('button', { name: 'Save item', exact: true })).toHaveAttribute('aria-pressed', 'false');
+      assert.deepEqual(await localCards(page), unrelated);
+      await page.evaluate('window.archiveSaveGate.releaseReads()');
+      // Flush the released promise continuations before asserting no resurrection.
+      await page.evaluate('new Promise(resolve => requestAnimationFrame(() => requestAnimationFrame(resolve)))');
+      await expect(lightbox.getByRole('button', { name: 'Save to collection' })).toBeEnabled();
+      await lightbox.getByRole('button', { name: 'Close lightbox' }).click();
+      await card.click();
+      for (const control of [card, preview]) {
+        await expect(control.getByRole('button', { name: 'Save item', exact: true })).toBeEnabled();
+        await expect(control.getByRole('button', { name: 'Save item', exact: true })).toHaveAttribute('aria-pressed', 'false');
+      }
+      await preview.getByRole('button', { name: 'View Full Screen' }).click();
+      await expect(lightbox.getByRole('button', { name: 'Save to collection' })).toBeEnabled();
+      assert.deepEqual(await localCards(page), unrelated);
+      assert.deepEqual(await savedBookmarks(page), {});
+      assert.equal(requests.length, 1);
+      assert.deepEqual(await archiveSaveOutcomes(page), ['saved']);
+    } finally {
+      await closeBrowserAndServer(browser, server);
+    }
+  });
+
   test(`all nine Daily Drop cards save to Collection and survive refresh in ${engine.name}`, { timeout: 120_000 }, async () => {
     const recentDate = shanghaiDateOffset(-1);
     const historicalDate = shanghaiDateOffset(-10);

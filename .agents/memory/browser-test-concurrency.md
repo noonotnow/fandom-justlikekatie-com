@@ -16,3 +16,9 @@ Fixture-only browser checks should not depend on live hot reload or external fon
 **Why:** Concurrent edits repeatedly regenerated Tailwind CSS during Archive browser checks, producing slow navigation and whole-test timeouts despite successful server probes. Increasing the test deadline alone did not remove the interference.
 
 **How to apply:** Isolate fixture servers from file changes when hot reload is not under test, and verify the resolved server configuration actually disables watching. Wait for DOM readiness plus actual UI assertions rather than unrelated external-resource load completion, and mock external fonts/trackers where irrelevant.
+
+Do not run CPU-heavy Netlify packaging alongside timing-bound Firefox/WebKit CJK checks in this container.
+
+**Why:** Draft and export checks timed out during concurrent native/edge packaging, then passed unchanged when run alone.
+
+**How to apply:** Finish packaging before cross-engine typography checks. Retry isolated timeout cases without relaxing their assertions before classifying the result as a product failure.

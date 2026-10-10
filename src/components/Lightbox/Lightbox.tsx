@@ -1,15 +1,10 @@
-import React, { useState, useEffect, useCallback, useRef } from 'react';
+import React, { useEffect, useCallback, useRef } from 'react';
 import type { GridItemData, ImageTier } from '../../types';
 import type { StarOfDayData } from '../../hooks/useStarOfDay';
 import { ExportCardButton, type ExportCardMetadata } from '../ExportCardButton/ExportCardButton';
-import { dbSaveCard, dbRemoveCard, dbIsCardSaved } from '../../utils/collectionDB';
-import { storage } from '../../utils/storage';
-import { schedulePublicCollectionSync } from '../../utils/publicAccount';
 import { useLocale } from '../../i18n/LocaleProvider';
-import { ArchiveImageSaveError, authorizeArchiveImageSave } from '../../utils/archiveImageSave';
-import { trackArchiveCardSaveOutcome } from '../../utils/analytics';
 import { vibeAtlasPath } from '../../utils/fandomRoutes';
-import { notifySavedItemChanged } from '../../hooks/useSaveItem';
+import { useSaveItem } from '../../hooks/useSaveItem';
 import styles from './Lightbox.module.css';
 import { DailyImageReport } from './DailyImageReport';
 
@@ -162,112 +157,32 @@ export const Lightbox: React.FC<LightboxProps> = ({
     [goNext, goPrev],
   );
 
-  const [isSaved, setIsSaved] = useState(false);
-  const [isLegacySaved, setIsLegacySaved] = useState(false);
-  const [saveBusy, setSaveBusy] = useState(false);
-  const [saveFailure, setSaveFailure] = useState<'sign_in' | 'upgrade' | 'retry' | 'local' | null>(null);
-  const saveInFlight = useRef(false);
-
-  useEffect(() => {
-    if (!current) return;
-    let cancelled = false;
-    dbIsCardSaved(current.thumbnail).then((inDB) => {
-      if (cancelled) return;
-      if (inDB) {
-        setIsSaved(true);
-        setIsLegacySaved(false);
-      } else {
-        const inLegacy = storage.isItemSaved(current.id);
-        setIsSaved(false);
-        setIsLegacySaved(inLegacy);
-      }
-    });
-    return () => { cancelled = true; };
-  }, [current]);
-
-
-  async function handleSave() {
-    if (!current || saveInFlight.current) return;
-    saveInFlight.current = true;
-    setSaveBusy(true);
-    setSaveFailure(null);
-    let archiveAuthorized = false;
-
-    const cardPayload = {
-      imageUrl: current.thumbnail,
-      thumbnailUrl: current.thumbnail,
-      resultId: current.id,
+  const {
+    isSaved,
+    isLegacySaved,
+    isLoading,
+    isSavedStateLoading,
+    toggleSave,
+    archiveSaveFailure,
+    localSaveFailure,
+  } = useSaveItem(
+    current?.id ?? '',
+    planData?.date,
+    current?.archiveImageId || current?.id,
+    current ? { ...current, gridPosition: current.gridPosition ?? currentIndex } : undefined,
+    {
       actorId: planData?.actorId,
-      sourceUrl: current.url,
-      title: current.title,
-      publisher: current.publisher,
-      searchQuery: current.batchKey,
-      actor: cardMetadata?.actorName ?? 'Unknown',
-      actorEn: planData?.actorShortNameEn ?? cardMetadata?.actorName ?? 'Unknown',
-      vibe: cardMetadata?.vibeLabel ?? 'Unknown',
-      vibeEn: cardMetadata?.vibeLabelEn ?? 'Unknown',
+      actorName: cardMetadata?.actorName ?? 'Unknown',
+      actorNameEn: planData?.actorShortNameEn ?? cardMetadata?.actorName ?? 'Unknown',
+      vibeLabel: cardMetadata?.vibeLabel ?? 'Unknown',
+      vibeLabelEn: cardMetadata?.vibeLabelEn ?? 'Unknown',
       vibeEmoji: cardMetadata?.vibeEmoji ?? '✨',
-      capturedDate: cardMetadata?.date ?? new Date().toISOString().split('T')[0],
-      collectionScope: 'vibe-atlas' as const,
-      gridContext: {
-        batchKey: current.batchKey,
-        position: current.gridPosition ?? currentIndex,
-      },
-    };
-
-    try {
-      if (isLegacySaved) {
-        // Keep the old bookmark unless the server authorizes and promotion
-        // succeeds. current.id is the raw published result identity.
-        if (planData?.date) {
-          await authorizeArchiveImageSave(
-            planData.date,
-            current.archiveImageId || current.id,
-            current.gridPosition ?? currentIndex,
-          );
-          archiveAuthorized = true;
-        }
-        await dbSaveCard(cardPayload);
-        if (archiveAuthorized) {
-          trackArchiveCardSaveOutcome('saved', planData!.date);
-          archiveAuthorized = false;
-        }
-        storage.removeItem(current.id);
-        setIsLegacySaved(false);
-        setIsSaved(true);
-        if (navigator.vibrate) navigator.vibrate(50);
-      } else if (isSaved) {
-        // A removal never depends on the current age or membership boundary.
-        await dbRemoveCard(current.thumbnail);
-        storage.removeItem(current.id);
-        setIsSaved(false);
-      } else {
-        if (planData?.date) {
-          await authorizeArchiveImageSave(
-            planData.date,
-            current.archiveImageId || current.id,
-            current.gridPosition ?? currentIndex,
-          );
-          archiveAuthorized = true;
-        }
-        await dbSaveCard(cardPayload);
-        if (archiveAuthorized) {
-          trackArchiveCardSaveOutcome('saved', planData!.date);
-          archiveAuthorized = false;
-        }
-        setIsSaved(true);
-        if (navigator.vibrate) navigator.vibrate(50);
-      }
-      notifySavedItemChanged(current.thumbnail);
-      schedulePublicCollectionSync();
-    } catch (error) {
-      if (archiveAuthorized) trackArchiveCardSaveOutcome('persistence_failed', planData!.date);
-      setSaveFailure(error instanceof ArchiveImageSaveError ? error.failure : 'local');
-    } finally {
-      saveInFlight.current = false;
-      setSaveBusy(false);
-    }
-  }
+      date: cardMetadata?.date ?? new Date().toISOString().split('T')[0],
+    },
+  );
+  const saveBusy = isLoading || isSavedStateLoading;
+  const saveFailure = archiveSaveFailure || (localSaveFailure ? 'local' : null);
+  const handleSave = () => { void toggleSave(); };
 
   if (!current) return null;
 
@@ -360,6 +275,7 @@ export const Lightbox: React.FC<LightboxProps> = ({
                 <button
                   onClick={handleSave}
                   disabled={saveBusy}
+                  aria-pressed={isSaved}
                   title={isLegacySaved ? t('Add to Collection', '加入收藏') : isSaved ? t('Remove from collection', '从收藏中移除') : t('Save to collection', '保存到收藏')}
                   aria-label={isLegacySaved ? t('Add to Collection', '加入收藏') : isSaved ? t('Unsave', '取消收藏') : t('Save to collection', '保存到收藏')}
                   style={{
