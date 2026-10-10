@@ -14,3 +14,9 @@ Archive retention should be a deliberate operator action after the pilot review,
 **Why:** Automatic pruning can erase unreviewed reader submissions before editorial review, while evicting approved replies would silently change the public conversation. Cleanup must re-evaluate eligibility under the archive's conditional-write retry.
 
 **How to apply:** Keep retention controls private, preview only aggregate counts, and make eligibility depend on the current status and moderation age. Treat missing or malformed timestamps as ineligible rather than guessing.
+
+Moderation badges should count reported *visible replies*, not individual reporters or reports retained on hidden replies.
+
+**Why:** A hidden reply keeps its reports for the private record but is no longer actionable as a visible reported response; multiple reports of one reply should direct an editor to one review item.
+
+**How to apply:** When adding private queue summaries or filters, derive reported work from approved replies with at least one report. Keep report identities out of aggregate responses and all private counts out of public reads.

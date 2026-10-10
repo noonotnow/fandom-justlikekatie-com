@@ -2,6 +2,15 @@
 
 ## Status — 2026-10-08
 
+**Latest scope and activation update:** The creator explicitly chose to close this
+work as **capture setup completed**, keep automatic capture running, and defer
+the seven-day measurement and cost/latency comparison to follow-up work.
+PR 191 is merged; both the first reviewed-main export and the first scheduled
+export succeeded, and their sanitized artifacts were inspected. The earlier
+marked browser check's missing summaries were recovered. No seven-day dataset
+or lease recommendation is claimed. Historical preparation/activation statements
+below describe their dated state, not the latest status.
+
 Creator approved release preparation, publishing the review branch and its Netlify
 preview, local preparation of privacy-safe server diagnostics, and adding those
 diagnostics to PR 181 and its review preview. The creator subsequently merged
@@ -219,10 +228,17 @@ The proposed `.github/workflows/archive-scan-export.yml`:
   `NETLIFY_ARCHIVE_LOG_READ_TOKEN` through **GitHub Settings → Secrets and variables
   → Actions**, and sets the repository variable `ARCHIVE_SCAN_CAPTURE_UNTIL` to a
   UTC ISO stop date at most 16 days ahead. No credential was copied from Replit.
-  The existing repository secret names were checked read-only; the required
-  Netlify log credential is absent. Existing Blob-audit tokens are not reused.
+  At proposal time, existing repository secret names were checked read-only and
+  the required Netlify log credential was absent. Subsequent creator-authorized
+  setup is recorded below. Existing Blob-audit tokens are not reused.
 - Makes no provider calls at/after the stop date. Scheduled workflows can be
   delayed or skipped; twice-daily scheduling alone is not proof of complete capture.
+
+The bounded proposal is published as
+[PR 191](https://github.com/noonotnow/fandom-justlikekatie-com/pull/191),
+head `0faa6e8fb39803c26e4cfaabe0e17ccd4b1600d9`, from current GitHub main.
+It is open for independent review; it was not merged, dispatched or deployed by
+this task. The external review worktree passed 21 exporter/diagnostic tests.
 
 Before starting the clock: obtain independent review and creator merge; configure
 the credential and stop variable securely; run the main-branch workflow once and
@@ -240,6 +256,110 @@ script suite reported 589 passes, two skips and one unrelated failure:
 `scripts/where-to-watch.test.js` compares a dated page against the current freshness
 warning. That same watch-guide test fails in isolation. No watch-guide source or
 published page was changed by this task.
+
+## Repository configuration — 2026-10-08, 13:53 UTC
+
+The creator reported approving the PR and fixing its failing check, then requested
+adding the activation configuration. GitHub confirms an APPROVED review on the
+updated PR head `fa88ee7ff7b3ad8e820e86d1f5135889f2e4cbc8`. The PR remains open and
+unmerged; its two `test` checks were still running when configuration was verified.
+The export workflow is not yet on `main`. This task did not merge the PR or
+dispatch an unreviewed-branch workflow.
+
+With that authorization:
+
+- Set repository Actions variable `ARCHIVE_SCAN_CAPTURE_UNTIL` to
+  **2026-10-20T00:00:00Z** and verified its value through GitHub.
+- Securely stored the existing Netlify operator credential as repository Actions
+  secret `NETLIFY_ARCHIVE_LOG_READ_TOKEN`, using GitHub CLI's local encryption and
+  stdin. Neither credential value was printed, put in command arguments, written
+  to disk or stored in documentation. Secret-name/update metadata was verified.
+- This reuses the operator credential's existing permissions; the new secret name
+  does not narrow them. The reviewed export job itself uses only provider GETs.
+
+Configuration is ready, but metadata verification is not a successful workflow
+capture. After the creator merges the approved, passing PR, run the reviewed
+`main` workflow once, verify the sanitized artifact, then verify a scheduled run
+and delayed-record reconciliation. The observation clock has **not** started.
+If merge/setup is delayed enough to leave fewer than seven full representative
+days before the stop date, obtain an extension rather than backdating the sample.
+
+## First main-branch capture — 2026-10-08, 14:47 UTC
+
+The creator reported merging PR 191. GitHub confirms its merge at
+**2026-10-08T14:46:49Z**, merge revision
+`2f7450dbc3745c135e369f21692da86bba85ce80`. The export workflow is now
+active on `main`; the stop variable remains **2026-10-20T00:00:00Z**.
+
+Dispatched only the reviewed-main GET-only exporter:
+[successful run 37795357514](https://github.com/noonotnow/fandom-justlikekatie-com/actions/runs/37795357514).
+The job completed in 12 seconds and retained artifact
+`archive-scans-37795357514-1` (artifact ID `11558730594`, 5,308 compressed bytes),
+which expires **2026-10-22T14:47:43Z**. Downloaded and inspected its sanitized JSON:
+
+- Window **2026-10-07T16:32:40.295Z–2026-10-08T14:32:40.295Z**;
+  captured **2026-10-08T14:47:43.235Z**.
+- One complete pagination page, 77 provider entries, **47 typed diagnostic
+  records**, 30 unstructured lines, zero rejected or duplicate records.
+  Every retained record matches the exporter's typed allowlist.
+- Zero missing chunk references, ownerless chunks, unknown scan ends,
+  truncated work references or reported suppressed records in the returned sample.
+  Provider-wide delivery, retention and truncation remain uncertified.
+- The marked 11:30 browser check now has its directory owner summary linked to
+  the known chunk and its separate ordinary-page summary. Both request summaries
+  are explicitly `marked_test` and each reports 34 manifest attempts. This
+  resolves the previously missing summaries; it is not organic observation.
+- Active deployment was unchanged during capture:
+  `6ac7a29f5b9f420008f16b83`, source
+  `ba6fd8d8e03eaa9007aae7d207facfaff29e8559`, published
+  **2026-10-08T14:04:13.754Z**. GitHub comparison from the prior parity revision
+  shows no directory, inventory wrapper/library, diagnostics factory or browser
+  directory-hook change. Publication-manifest and historical-approval changes
+  did occur; preserve this deployment boundary rather than assuming identical
+  public candidate eligibility.
+
+No deployment, directory write, live CAS experiment or production browser request
+was initiated for this capture. The next scheduled opportunity is **17:23 UTC
+on October 8**; a schedule is not evidence that it ran. Verify its artifact and
+reconcile the overlapping records before choosing seven new full UTC days.
+**October 9–15 is only a candidate window**, conditional on successful scheduled
+capture and continuing coverage; it is not an observed or completed dataset.
+Under the original scope, completion required seven representative days and the
+duplicate-work-versus-lease/reader-latency comparison. The creator subsequently
+deferred those requirements to follow-up work as recorded below.
+
+## Setup-only closeout and scheduled capture — 2026-10-08
+
+The creator selected **“Close setup; keep automatic capture running”** and
+confirmed **“yes the follow up is best.”** Completion now covers approved release
+and diagnostic setup, functional parity evidence, activation, a verified manual
+export and a verified scheduled export—not the original seven-day measurement.
+No workflow, stop date, credential permission or provider setting was changed
+at closeout.
+
+The first scheduled run was delayed until **2026-10-08T22:13:51Z**:
+[successful run 37852132909](https://github.com/noonotnow/fandom-justlikekatie-com/actions/runs/37852132909).
+Downloaded and inspected artifact `archive-scans-37852132909-1`:
+
+- Captured **2026-10-08T22:14:08.912Z**, querying
+  **2026-10-07T23:59:05.523Z–2026-10-08T21:59:05.523Z**.
+- One complete pagination page, 29 provider entries, 19 allowlisted records,
+  ten unstructured lines, zero rejected or duplicate records.
+- Zero missing chunk references, ownerless chunks, unknown scan ends,
+  truncated work references or reported suppression within this sample.
+  The receipt still correctly reports `coverageCertified: false`.
+- Active production deploy remained `6ac7acdbcece04000843c10c` at merge revision
+  `2f7450dbc3745c135e369f21692da86bba85ce80`, published
+  **2026-10-08T14:47:51.260Z**. This was the creator's merged release, not a
+  deployment initiated during closeout.
+
+The delayed scheduled run demonstrates why scheduled times alone cannot certify
+capture coverage. Follow-up work must preserve/download artifacts before their
+14-day expiry, reconcile overlapping exports, track actual successful intervals,
+retain release/policy boundaries and qualify at least seven representative full
+days before making the duplication-versus-lease comparison. October 9–15 remains
+a candidate window, not a certified result. The unchanged stop date is
+**2026-10-20T00:00:00Z**; extending it requires creator approval.
 
 ## Approved review diagnostic design
 

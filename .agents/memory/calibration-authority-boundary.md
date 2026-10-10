@@ -8,3 +8,9 @@ Repeated human-versus-proxy evidence is diagnostic only. Production may apply on
 **Why:** Diagnostic receipts can accumulate, retire, or be superseded independently. Treating them as production instructions, trusting a once-valid embedded snapshot after evidence or authority changes, or combining separately recurring signals into an unobserved bundle can silently alter publication behavior.
 
 **How to apply:** Keep hard image, identity, rights, composite, and anti-anchor gates before calibration scoring. Revalidate approval, evidence, retirement, and revocation state at every eligibility read and immediately before an immutable publication write, after slow media work. Compare query-ladder changes against the base ladder using a shared frozen union analysis, while recording the distinct query sets rather than claiming identical inputs.
+
+Historical editorial approval is evidence, not current permission to publish. Operator-facing readiness must distinguish the two even when the publisher itself safely rejects the old approval.
+
+**Why:** During Polished Danger publishing, the Lab presented an expired verdict as eligible after calibration authority changed, misleading the operator despite the canonical publisher gate rejecting it.
+
+**How to apply:** Preserve historical verdicts for inspection, but use authoritative current readiness for publishing labels and explain the fresh-review requirement when authority has changed.

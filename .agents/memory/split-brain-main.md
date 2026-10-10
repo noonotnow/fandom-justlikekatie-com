@@ -16,6 +16,6 @@ Rule: task-completion rebases can replay historical commits that revive retired 
 
 Rule: when production needs one self-contained feature but local history has diverged broadly, release from a narrow worktree based on current `origin/main` instead of merging the entire local task history.
 
-**Why:** A broad reconciliation imported unrelated regressions and obscured the feature’s actual production readiness; a focused cherry-pick produced a healthy Netlify deploy preview while making the pre-existing red CI baseline explicit.
+**Why:** A broad reconciliation imported unrelated regressions and obscured the feature’s actual production readiness; a focused cherry-pick produced a healthy Netlify deploy preview while making the pre-existing red CI baseline explicit. Bulk releases copied from a stale workspace can also remove a working implementation and its regression tests together, leaving CI green while production regresses.
 
-**How to apply:** Cherry-pick only the feature and its direct fixes onto current remote main, validate the deploy preview, and compare failing checks with an untouched remote-main worktree. Do not bypass protection for unrelated failures.
+**How to apply:** Cherry-pick only the feature and its direct fixes onto current remote main, validate the deploy preview, and compare failing checks with an untouched remote-main worktree. Inspect deletions of unrelated fixes and tests before releasing a broad workspace snapshot; passing CI cannot detect a regression when its tests disappear in the same change. Do not bypass protection for unrelated failures.

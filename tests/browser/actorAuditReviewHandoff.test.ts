@@ -42,8 +42,142 @@ import {
 
 
 const ACTOR_ID = 'browser-test-actor'
+for (const refreshBeforePublication of [false, true]) {
+  for (const engine of BROWSER_ENGINES) {
+    test(`open Lab blocks another operator's replaced approved audit ${refreshBeforePublication ? 'after focus refresh' : 'during pre-publication refresh'} without losing drafts in ${engine.name}`, { timeout: 60_000 }, async () => {
+      const { server, origin } = await startApp();
+      const browser = await launchBrowserForServer(server, engine.type);
+      let currentRunId = 'run-1';
+      let approved = true;
+      let revealed = true;
+      let publicationRequests = 0;
+      const replacementActions: AnyRecord[] = [];
+      const firstReviewSummaries: AnyRecord[] = [];
+      const notes = 'Unsaved notes for the original approved audit.';
+      const editorialCopy = 'Unsaved editorial copy for the original audit, not the replacement board.';
+      const reviewChangeWarning = 'The release approval changed. Open the current audit and complete its review before publishing.';
+      const detail = (): AnyRecord => {
+        const summary = {
+          ...actor(approved ? 'approved' : 'needs_operator_verdict', approved).pairings[0],
+          vibeIdx: 0,
+          verdict: approved ? 'approved' : null,
+          currentRunId,
+          currentReviewRequirement: null,
+        };
+        return {
+          ...responseBody(run(currentRunId, revealed), summary.auditState),
+          actor: { ...actor(summary.auditState, approved), pairings: [summary] },
+          pairing: summary,
+          verdict: summary.verdict,
+          notes: 'Saved notes for the current audit.',
+        };
+      };
+      try {
+        const first = await browser.newPage();
+        const second = await browser.newPage();
+        for (const page of [first, second]) {
+          await configureNetwork(page);
+          await page.route('**/.netlify/functions/actor-audits**', async route => {
+            const request = route.request();
+            const url = new URL(request.url());
+            if (request.method() === 'POST') {
+              const input = request.postDataJSON();
+              assert.equal(page, second, 'only the other operator should mutate the audit');
+              assert.equal(input.actorId, ACTOR_ID);
+              assert.equal(input.vibeKey, VIBE_KEY);
+              replacementActions.push(input);
+              if (input.action === 'run') {
+                currentRunId = 'run-2';
+                approved = false;
+                revealed = false;
+              } else if (input.action === 'blind_choice') {
+                assert.equal(input.runId, 'run-2');
+                revealed = true;
+              } else if (input.action === 'verdict') {
+                assert.equal(input.runId, 'run-2');
+                assert.equal(input.verdict, 'approved');
+                assert.equal(input.vibeConfirmed, true);
+                assert.equal(input.publishableConfirmed, true);
+                approved = true;
+              } else {
+                assert.fail(`Unexpected audit mutation: ${input.action}`);
+              }
+              await route.fulfill({ json: detail() });
+            } else if (url.searchParams.get('view') === 'actors') {
+              await route.fulfill({ json: { actors: [detail().actor] } });
+            } else if (url.searchParams.get('actorId') === ACTOR_ID) {
+              const requestedRunId = url.searchParams.get('runId');
+              if (requestedRunId) {
+                await route.fulfill({ json: { run: run(requestedRunId, requestedRunId === 'run-1' || revealed) } });
+              } else {
+                const result = detail();
+                if (page === first) firstReviewSummaries.push(result.pairing);
+                await route.fulfill({ json: result });
+              }
+            } else {
+              await route.fallback();
+            }
+          });
+          await page.route('**/.netlify/functions/publish-preflight-preview', async route => {
+            publicationRequests += 1;
+            await route.fulfill({ status: 409, json: { error: 'Publication should not be attempted' } });
+          });
+          await gotoTestPage(page, `${origin}/vibe-atlas?admin=true`);
+          await page.getByRole('tab', { name: 'Actor Preflight Lab', exact: true }).click();
+          await page.getByText('Ready to publish', { exact: true }).waitFor();
+        }
+        await first.getByLabel('Operator notes').fill(notes);
+        await first.getByLabel('Editorial copy', { exact: false }).fill(editorialCopy);
+        assert.equal(firstReviewSummaries.at(-1)?.currentRunId, 'run-1');
+
+        // A separate operator completes and approves a new audit while run-1 stays open.
+        await second.getByRole('button', { name: 'Run audit', exact: true }).click();
+        await second.getByRole('button', { name: 'Choose Compiled', exact: true }).click();
+        await second.getByLabel('Publication decision').selectOption('approved');
+        await second.getByLabel('Yes, that’s the Vibe.').check();
+        await second.getByLabel('Yes, this is publishable.').check();
+        await second.getByRole('button', { name: 'Save scheduling verdict', exact: true }).click();
+        await second.getByText('Ready to publish', { exact: true }).waitFor();
+        assert.deepEqual(replacementActions.map(input => input.action), ['run', 'blind_choice', 'verdict']);
+        assert.equal(currentRunId, 'run-2');
+        assert.equal(approved, true);
+
+        if (refreshBeforePublication) {
+          const refreshed = first.waitForResponse(response => {
+            const url = new URL(response.url());
+            return response.request().method() === 'GET'
+              && url.pathname === '/.netlify/functions/actor-audits'
+              && url.searchParams.get('actorId') === ACTOR_ID
+              && !url.searchParams.has('runId');
+          });
+          await first.evaluate(() => window.dispatchEvent(new Event('focus')));
+          await refreshed;
+          await first.getByText('Ready to publish', { exact: true }).waitFor();
+        }
+        const readsBeforePublication = firstReviewSummaries.length;
+        const publishButton = first.getByRole('button', { name: 'Publish public three-card preview', exact: true });
+        assert.equal(await publishButton.isEnabled(), true);
+        await publishButton.click();
+        await first.getByText(reviewChangeWarning, { exact: true }).waitFor();
+        await first.getByText('Publication paused: current release approval must be verified and valid.', { exact: true }).waitFor();
+        assert.ok(firstReviewSummaries.length > readsBeforePublication, 'publishing must refresh the current approved run');
+        const refreshedSummary = firstReviewSummaries.at(-1)!;
+        assert.equal(refreshedSummary.currentRunId, 'run-2');
+        assert.equal(refreshedSummary.eligible, true, 'the replacement is approved, not revoked');
+        assert.equal(refreshedSummary.verdict, 'approved');
+        assert.equal(refreshedSummary.currentReviewRequirement, null);
+        assert.equal(await first.getByText('Ready to publish', { exact: true }).isVisible(), true);
+        assert.equal(publicationRequests, 0, 'the old open audit must be blocked before any publication request');
+        assert.equal(await first.getByLabel('Operator notes').inputValue(), notes);
+        assert.equal(await first.getByLabel('Editorial copy', { exact: false }).inputValue(), editorialCopy);
+      } finally {
+        await closeBrowserAndServer(browser, server);
+      }
+    });
+  }
+}
 // Two independent operator pages share authority, not their review drafts.
-for (const refreshTrigger of ['focus', 'publication'] as const) {
+for (const refreshTrigger of ['focus', 'publication', 'out-of-order focus'] as const) {
   for (const engine of BROWSER_ENGINES) {
   test(`open Lab refreshes another operator's revoked authority on ${refreshTrigger} without losing drafts in ${engine.name}`, {timeout:60_000}, async () => {
     const {server,origin}=await startApp();
@@ -52,6 +186,12 @@ for (const refreshTrigger of ['focus', 'publication'] as const) {
     let unavailable=false;
     let publicationRequests=0;
     let summaryReads=0;
+    let holdNextSummary=false;
+    let heldApprovedSummary:AnyRecord|undefined;
+    let signalHeldSummary:()=>void=()=>{};
+    let releaseHeldSummary:()=>void=()=>{};
+    const summaryHeld=new Promise<void>(resolve=>{signalHeldSummary=resolve});
+    const heldSummaryReleased=new Promise<void>(resolve=>{releaseHeldSummary=resolve});
     const requirement={
       code:'calibration_reaudit_required',
       message:'Calibration authority changed after this verdict. Run a fresh audit under the current authority and complete its review before publishing.',
@@ -93,7 +233,17 @@ for (const refreshTrigger of ['focus', 'publication'] as const) {
             if(url.searchParams.has('runId'))await route.fulfill({json:{run:detail().currentRun}});
             else {
               summaryReads+=1;
-              await route.fulfill(unavailable?{status:503,json:{error:'Authority read unavailable'}}:{json:detail()});
+              if(page===second&&holdNextSummary) {
+                holdNextSummary=false;
+                // Freeze approval at request time, before the other operator revokes it.
+                heldApprovedSummary=detail();
+                signalHeldSummary();
+                await heldSummaryReleased;
+                await route.fulfill({
+                  headers:{'x-test-held-authority':'approved'},
+                  json:heldApprovedSummary,
+                });
+              } else await route.fulfill(unavailable?{status:503,json:{error:'Authority read unavailable'}}:{json:detail()});
             }
           } else await route.fallback();
         });
@@ -107,12 +257,37 @@ for (const refreshTrigger of ['focus', 'publication'] as const) {
       }
       await second.getByLabel('Operator notes').fill('Unsaved operator review notes');
       await second.getByLabel('Editorial copy',{exact:false}).fill('Unsaved editorial copy that is long enough for the public teaser.');
+      if(refreshTrigger==='out-of-order focus') {
+        // Wait for JSON consumption and subsequent render frames, not merely
+        // route fulfillment: the stale continuation must run before assertions.
+        await second.evaluate(`{
+          window.__heldAuthoritySettled = false;
+          const originalJson = Response.prototype.json;
+          Response.prototype.json = async function(...args) {
+            const body = await originalJson.apply(this, args);
+            if (this.headers.get('x-test-held-authority') === 'approved') {
+              setTimeout(() => requestAnimationFrame(() => requestAnimationFrame(() => {
+                window.__heldAuthoritySettled = true;
+              })), 0);
+            }
+            return body;
+          };
+        }`);
+        holdNextSummary=true;
+        await second.evaluate(()=>window.dispatchEvent(new Event('focus')));
+        await summaryHeld;
+        assert.equal(heldApprovedSummary?.pairing.eligible,true);
+        assert.equal(heldApprovedSummary?.pairing.currentReviewRequirement,null);
+        await second.getByText('Checking current release approval…',{exact:true}).waitFor();
+        assert.equal(await second.getByText('Ready to publish',{exact:true}).count(),0);
+        assert.equal(await second.getByRole('button',{name:'Publish public three-card preview',exact:true}).count(),0);
+      }
       await first.getByLabel('Revocation reason').fill('Authority changed during another review.');
       await first.getByRole('button',{name:'Revoke approved adjustment',exact:true}).click();
       await first.getByText('Current review required',{exact:true}).first().waitFor();
-      assert.equal(await second.getByText('Ready to publish',{exact:true}).isVisible(),true);
+      if(refreshTrigger!=='out-of-order focus')assert.equal(await second.getByText('Ready to publish',{exact:true}).isVisible(),true);
       const readsBefore=summaryReads;
-      if(refreshTrigger==='focus')await second.evaluate(()=>window.dispatchEvent(new Event('focus')));
+      if(refreshTrigger!=='publication')await second.evaluate(()=>window.dispatchEvent(new Event('focus')));
       else await second.getByRole('button',{name:'Publish public three-card preview',exact:true}).click();
       await second.getByText('Current review required',{exact:true}).first().waitFor();
       assert.ok(summaryReads>readsBefore);
@@ -120,6 +295,18 @@ for (const refreshTrigger of ['focus', 'publication'] as const) {
       assert.equal(await second.getByRole('button',{name:'Publish public three-card preview',exact:true}).count(),0);
       assert.equal(publicationRequests,0);
       assert.equal(await second.getByText(requirement.message,{exact:false}).first().isVisible(),true);
+      if(refreshTrigger==='out-of-order focus') {
+        assert.equal(summaryReads,readsBefore+1);
+        releaseHeldSummary();
+        await second.waitForFunction('window.__heldAuthoritySettled === true');
+        // A delayed successful approval must not undo the newer revocation.
+        assert.equal(await second.getByText('Current review required',{exact:true}).first().isVisible(),true);
+        assert.equal(await second.getByText(requirement.message,{exact:false}).first().isVisible(),true);
+        assert.equal(await second.getByText('Ready to publish',{exact:true}).count(),0);
+        assert.equal(await second.getByRole('region',{name:'Public three-card preview publication',exact:true}).count(),0);
+        assert.equal(await second.getByRole('button',{name:'Publish public three-card preview',exact:true}).count(),0);
+        assert.equal(publicationRequests,0);
+      }
       unavailable=true;
       await second.evaluate(()=>window.dispatchEvent(new Event('focus')));
       await second.getByText('Current release approval unavailable.',{exact:false}).waitFor();
@@ -134,6 +321,7 @@ for (const refreshTrigger of ['focus', 'publication'] as const) {
       assert.equal(await second.getByLabel('Editorial copy',{exact:false}).inputValue(),'Unsaved editorial copy that is long enough for the public teaser.');
       assert.equal(publicationRequests,0);
     } finally {
+      releaseHeldSummary();
       await closeBrowserAndServer(browser,server);
     }
   });

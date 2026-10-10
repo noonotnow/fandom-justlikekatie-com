@@ -3,6 +3,7 @@ import assert from 'node:assert/strict';
 import { readFile } from 'node:fs/promises';
 import { act, create } from 'react-test-renderer';
 import { createElement } from 'react';
+import { IDBFactory } from 'fake-indexeddb';
 import {
   ArchiveImageSaveError,
   authorizeArchiveImageSave,
@@ -119,6 +120,8 @@ test('invalid edition dates and missing identities fail closed without a request
 });
 
 test('a malformed successful archive response never writes local storage', async () => {
+  const originalIndexedDB = globalThis.indexedDB;
+  globalThis.indexedDB = new IDBFactory();
   const originalFetch = globalThis.fetch;
   const originalWindow = globalThis.window;
   const originalLocalStorage = globalThis.localStorage;
@@ -167,6 +170,7 @@ test('a malformed successful archive response never writes local storage', async
     assert.equal(renderedFailure, 'retry');
     await act(async () => { renderer!.unmount(); });
   } finally {
+    globalThis.indexedDB = originalIndexedDB;
     globalThis.fetch = originalFetch;
     globalThis.window = originalWindow;
     globalThis.localStorage = originalLocalStorage;
@@ -180,10 +184,9 @@ test('daily and historical save controls retain the server-issued date and raw i
   assert.match(routeSource, /archiveImageId: result\.imageId \|\| result\.thumbnail/);
   assert.match(itemSource, /<SaveButton[\s\S]*?itemId=\{id\}[\s\S]*?archiveDate=\{archiveDate\}[\s\S]*?archiveImageId=\{archiveImageId\}[\s\S]*?item=\{item\}/);
   assert.match(inlineSource, /<SaveButton[\s\S]*?itemId=\{item\.id\}[\s\S]*?archiveDate=\{item\.archiveDate\}[\s\S]*?archiveImageId=\{item\.archiveImageId\}[\s\S]*?item=\{item\}/);
-  assert.match(lightboxSource, /authorizeArchiveImageSave\([\s\S]*?current\.archiveImageId \|\| current\.id,[\s\S]*?current\.gridPosition \?\? currentIndex/);
-  assert.match(lightboxSource, /if \(planData\?\.date\) \{\s*await authorizeArchiveImageSave/);
-  assert.match(lightboxSource, /if \(planData\?\.date\) \{\s*await authorizeArchiveImageSave\([\s\S]*?\);\s*archiveAuthorized = true;\s*\}\s*await dbSaveCard\(cardPayload\)/);
-  assert.match(lightboxSource, /else if \(isSaved\) \{\s*\/\/ A removal never depends[\s\S]*?await dbRemoveCard\(current\.thumbnail\)/);
+  assert.match(lightboxSource, /useSaveItem\([\s\S]*?planData\?\.date,[\s\S]*?current\?\.archiveImageId \|\| current\?\.id,[\s\S]*?gridPosition: current\.gridPosition \?\? currentIndex/);
+  assert.doesNotMatch(lightboxSource, /dbSaveCard|dbRemoveCard|authorizeArchiveImageSave/, 'lightbox must use the same mutation coordinator as cards and previews');
+  assert.match(saveHookSource, /else \{\s*await dbRemoveCard/);
   assert.match(saveButtonSource, /archiveSaveFailure === 'sign_in'/);
   assert.match(saveButtonSource, /archiveSaveFailure === 'upgrade'/);
   assert.match(saveButtonSource, /archiveSaveFailure === 'retry'/);

@@ -30,6 +30,7 @@
       <h1>Find the <em>official soundtrack.</em></h1>
       <p class="hero__lede">Looking for the music of <em>Against the Current</em>? The Chinese title 兰香如故 helps distinguish this drama from the band with the same English name. Start with a credited song below, or open the licensed album listing for your region.</p>
       <p class="meta-row">Catalog checked September 28, 2026 · No plot or scene spoilers on this page</p>
+      <p class="callout" id="soundtrack-freshness" role="status" data-checked-at="2026-09-28">This guide is overdue for a manual recheck. Treat its storefront listings and track-credit claims as stale and unverified; confirm your local Apple Music listing before subscribing. A listing is not a playback or music-rights guarantee.</p>
     </header>
     <div class="content-shell"><article class="article">
       <section>
@@ -58,7 +59,7 @@
       <section>
         <h2>How this guide was checked</h2>
         <p>The fan-maintained <a href="https://wiki.d-addicts.com/Against_the_Current_OST" rel="noopener noreferrer">DramaWiki OST list</a> helped us find the titles, but the release date, artist credits and legal links here come from the <a href="https://music.apple.com/us/album/6815627808" rel="noopener noreferrer">Apple Music album and track pages</a>. The fan list describes 15 parts; Apple lists 48 album entries including additional recordings. We follow the platform's record for this pilot rather than treating the fan count as an album count.</p>
-        <p>Links and catalog listings can change. If more than seven days have passed since the September 28 check above, treat the regional claims as due for review and confirm your local Apple Music page before subscribing. We link to licensed pages only; we do not provide audio, lyrics, fan reuploads or an official MV without verification. This independent fan guide is not affiliated with Apple or the soundtrack label.</p>
+        <p>Links and catalog listings can change. Checks are due for manual review after seven days, or sooner if a source changes, conflicts or disappears. The notice above qualifies storefront listings and track credits until a fresh licensed-source check is recorded; corrections and withdrawal remain editorial decisions. We link to licensed pages only; we do not provide audio, lyrics, fan reuploads or an official MV without verification. This independent fan guide is not affiliated with Apple or the soundtrack label.</p>
       </section>
     </article>
     <aside class="side-rail" aria-label="Soundtrack notes">
@@ -67,5 +68,15 @@
     </aside></div>
   </main>
   <footer class="site-footer"><div class="site-footer__inner"><div><h2>Fandom Vibes</h2><p>Independent C-drama editorial guidance.</p></div><div><a href="/c-drama-fandom/">C-drama fandom</a></div></div></footer>
+  <script id="soundtrack-freshness-script">
+    const note = document.querySelector("#soundtrack-freshness");
+    const checkedAt = Date.parse(note.dataset.checkedAt);
+    const age = Date.now() - checkedAt;
+    // The original review records a date only; ISO date parsing uses UTC midnight.
+    // Leave the conservative warning in place for missing, invalid or future dates.
+    if (Number.isFinite(checkedAt) && age >= 0 && age <= 7 * 86400000) {
+      note.textContent = "Storefront listings and track credits were checked within the past seven days. This is listing-only evidence, not a playback or music-rights guarantee; confirm your local Apple Music listing before subscribing.";
+    }
+  </script>
 </body>
 </html>

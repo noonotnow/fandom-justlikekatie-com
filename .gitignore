@@ -28,9 +28,21 @@ dist-ssr
 *.sln
 *.sw?
 attached_assets/image_1786887897680.png
+attached_assets/Dashboard_*Stripe_*.pdf
+attached_assets/Transactions_*Stripe*.pdf
+attached_assets/Pasted-Yes-The-angle-works-the-prose-needs-another-editorial-p_1791384573668.txt
+attached_assets/against-the-current-34-38-private-reading_1791419145969.pdf
+.agents/outputs/atc-final-reading/
+.agents/scripts/render-atc-final-reading.py
 
 # Local Netlify folder
 .netlify
 
 # Separate local worktree; never include it in this site's source.
 .archive-hotfix/
+
+# Browser crash state is local, never release material.
+.config/chromium/
+**/Crash Reports/
+**/Crashpad/
+*.dmp

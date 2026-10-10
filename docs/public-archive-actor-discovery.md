@@ -94,3 +94,16 @@ reads for ten sequential discoveries (including catalogue reads), versus the
 unclassified immediate-retry baseline of 310 and 340. These are fixture savings,
 not production billing or latency measurements. Deployment and production
 observation remain separately authorized.
+
+## Live production observation
+
+The [2026-10-08 live measurement report](public-archive-live-directory-measurements.md)
+records eight bounded GETs against the released Netlify Archive, separate from
+the synthetic scenarios above. Five warm snapshot reads had a **190 ms median**
+HTTP time; three verification passes took **642–1,622 ms** end-to-end.
+The natural expiry refresh verified all **34** candidates in one request, with a
+**599 ms** retained evidence span, well inside its **15-minute** freshness interval.
+It remained honestly partial (eight actors, one valid-non-indexable omission).
+No storage-failure signals were observed; recovered provider errors and billed
+operation counts remain unmeasured. See the report and its allowlisted JSON
+evidence for generations, deadlines, per-request timings and measurement limits.

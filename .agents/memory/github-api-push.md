@@ -2,6 +2,12 @@
 name: GitHub API push protocol
 description: How to push commits via the GitHub API from Replit
 ---
+An administrator merge can still be rejected when the repository requires independent approval of the last push. Treat that as a reviewer gate, not a token or push failure.
+
+**Why:** GitHub rejected a creator-authorized editorial release after every check passed because the last pusher had no independent approval; administrator access did not override the rule.
+
+**How to apply:** Prepare the bounded release PR and verified preview, then obtain another reviewer's approval. Do not disable protection or manually deploy an unsynchronized tree to avoid this gate.
+
 Rule: use a PAT-in-URL (`https://user:PAT@github.com/…`) for `git push`; the connector proxy is not needed for push.
 
 **Why:** Direct git push with PAT works reliably from Replit shell. The connector API write paths (PUT /contents, POST /git/trees) have proven unreliable (Cloudflare blocks, 404s).

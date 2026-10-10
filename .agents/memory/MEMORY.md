@@ -7,6 +7,7 @@
 - [External repo working clones](external-repo-clones.md) — clone CREATE to /home/runner not /tmp (gets wiped mid-session); vitest firewall workaround; no CI on that repo.
 - [Replit npm registry in lockfile](replit-npm-registry.md) — lockfiles generated in Replit have internal proxy URLs that break npm ci in GitHub Actions; delete and regenerate with --registry flag then sed-fix stragglers.
 - [Netlify Function-log verification](netlify-function-log-verification.md) — Real-time can appear empty; verify current Production calls in Last hour with filters cleared.
+- [Daily Drop clocks and previews](daily-drop-clock-and-preview-boundary.md) — refresh at noon Eastern year-round; preserve Shanghai save cutoffs and prevent preview publication into shared history.
 - [Netlify dual-lockfile parity](netlify-dual-lockfile-parity.md) — Netlify freezes pnpm-lock.yaml when both npm and pnpm locks exist; npm-only CI can miss release-blocking drift.
 - [Netlify function root layout](netlify-function-root-layout.md) — keep tests and helpers out of the function directory root or Netlify may deploy them as endpoints.
 - [Netlify Function response contract](netlify-function-response-contract.md) — Web Request/Response handlers need V2 default exports; named handlers use classic result objects or live edge returns 502.
@@ -17,6 +18,7 @@
 - [Retired source labels](retired-source-labels.md) — explicit label retirement outranks stale device saves; a device must observe retirement before it can intentionally relabel.
 - [Vite preview port](vite-preview-port.md) — keep the Vite server and Start application webview workflow aligned on port 5000.
 - [Browser test concurrency](browser-test-concurrency.md) — keep Chromium checks parallel with a bounded runner concurrency so native resources remain available.
+- [Browser fake-clock boundaries](browser-fake-clock-boundaries.md) — fixed-date fixtures differ from timer fixtures; deadline offsets must include the future pause interval.
 - [Legendary Misprint scope](legendary-misprint-scope.md) — misprints are member-saved, event-scoped exceptions; they never redefine a universe or ordinary Builder/grid views.
 - [MemeForge reaction-card format](memeforge-reaction-card.md) — clean-still aesthetic reaction cards are a finished path alongside unchanged memes and future reworks.
 - [MemeForge uploaded-source staging](memeforge-uploaded-source-staging.md) — canonicalize uploads to MEDIA with a stable UUID before creating durable packets.
@@ -26,6 +28,7 @@
 - [Editorial record access boundary](editorial-record-access-boundary.md) — index substantive editorial records, gate collectible utility, and make premium emerge from artifact quality rather than raw-result access.
 - [External Netlify deployment](external-netlify-deployment.md) — verify the custom domain’s bundle and function routes before production-only tests; Replit deployment metadata is separate.
 - [Stripe account alignment](stripe-account-alignment.md) — Netlify credentials, Price IDs, and webhook secrets must share one Stripe account and mode; Replit can be connected to another.
+- [Stripe CLI headless login](stripe-cli-headless-login.md) — a successful browser pairing may still fail live reads on Replit; isolate current device-flow credentials outside the project.
 - [Creator OS packet retirement](creator-os-packet-retirement.md) — legacy packets are retired; CREATE holds migrated history, while selected grids sync directly through Collection.
 - [Public result preview routing](public-result-preview-routing.md) — query-based share previews use exact public allowlists, one canonical, and no dynamic reflection of arbitrary values.
 - [Netlify query indexing](netlify-query-indexing.md) — query-string privacy directives require edge handling because robots.txt cannot disallow query parameters.
@@ -51,6 +54,7 @@
 - [Adobe Firefly entitlement](adobe-firefly-entitlement.md) — connector discovery does not guarantee Firefly Services API access; check the Adobe project/license entitlement first.
 - [Netlify Blob canonical reads](netlify-blob-canonical-reads.md) — fetch known immutable run and verdict keys directly; prefix listings can lag behind successful writes.
 - [Netlify Blobs test-server etags](netlify-blobs-test-server-etags.md) — SDK test-server GET and HEAD reads may omit etags even though writes and listings return them.
+- [Live Blob audit contention](live-blob-audit-contention.md) — a production conditional-write concurrency check can pass on retry after duplicate alert decisions; one success does not prove reliability.
 - [Publication MEDIA boundary](publication-media-boundary.md) — MEDIA owns immutable image bytes; the date manifest owns the approved nine-card composition and provenance.
 - [Calibration authority boundary](calibration-authority-boundary.md) — repeated diagnostic image evidence is inert until a bounded approval; live eligibility must match current evidence and authority.
 - [SerpAPI diagnostic bypass](serpapi-diagnostic-bypass.md) — HTTP no-cache headers do not bypass SerpAPI’s result cache; explicit diagnostic refreshes require its provider parameter.
@@ -61,6 +65,7 @@
 - [Cross-browser fetch failures](cross-browser-fetch-failures.md) — network fetch rejections use engine-specific messages; classify TypeError rather than matching Chromium text.
 - [Native download test routing](native-download-test-routing.md) — Chromium/WebKit attachment navigations may bypass Playwright routes; serve download fixtures through test-server middleware.
 - [Browser-evaluated test helpers](browser-evaluated-test-helpers.md) — inline helpers in tsx-transformed page.evaluate callbacks can reference an unavailable __name runtime.
+- [Browser mutation completion](browser-mutation-completion.md) — a visible receipt can precede its automatic Collection save; await final confirmation before testing another mutation.
 - [WebKit storage wrapper identity](webkit-storage-wrapper-identity.md) — intercept storage writes by unique key, not localStorage reference equality, in cross-engine browser tests.
 - [Cleanup alias scope parity](cleanup-alias-scope-parity.md) — newly recognized resource bindings must be registered in lexical scope tracking before ownership analysis, including nonstandard binding sites.
 - [Resend sender checks](resend-sender-checks.md) — non-sending domain verification uses Resend's read API, which rejects sending-only keys.
@@ -69,12 +74,33 @@
 - [Netlify preview trigger](netlify-preview-trigger.md) — a PR opened against a non-default base may not start a deploy preview after changing its base; push a new commit to trigger synchronization.
 - [Sitemap record release checks](sitemap-record-release-checks.md) — verify every listed actor and edition record after release; sampling the first of each hides later broken entries.
 - [Collector live evidence boundary](collector-live-evidence.md) — distinguish mocked bundles from authenticated responses; shared source links can collide as image-card keys and inflate DOM counts.
+- [Companion pilot internal exclusion](companion-pilot-internal-exclusion.md) — known staff opt out on each browser before visiting; anonymous, unmarked historical visits cannot be cleaned retroactively.
 - [Local worktree checkpoint safety](local-worktree-checkpoint-safety.md) — exclude separate working copies before editing; automatic checkpoints can accidentally commit their entire contents.
-- [Clean main synchronization](clean-main-synchronization.md) — when local history contains tracked workspace copies, publish a reviewed clean snapshot from remote main and keep a backup ref.
+- [Clean main synchronization](clean-main-synchronization.md) — build reviewed snapshots from production, preserve newer pending release work, exclude workspace history, and keep backup refs.
 - [Protected workflow alert verification](protected-workflow-alert-verification.md) — isolate failure dispatches, preserve the original failed job, and require inbox confirmation beyond provider acceptance.
 - [Soundtrack source boundary](soundtrack-source-boundary.md) — fan OST lists are discovery leads; licensed catalog credits and named storefront listings still need separate verification.
 - [Published MEDIA hosts](published-media-hosts.md) — public edition thumbnails may use the XHS image delivery host rather than the MEDIA registration host.
+- [Thumbnail integrity cadence](thumbnail-integrity-cadence.md) — full-body digest audits belong on a capped rotating schedule, separate from bounded release checks.
 - [Release-history baseline](release-history-baseline.md) — certify historical release coverage only after immutable manifests agree with Archive; never seed from the mutable public catalog alone.
 - [Release receipt rollout](release-receipt-rollout.md) — never seed old per-release evidence from a mutable history on public reads; audit historical manifests first.
 - [Netlify Blobs list pagination](netlify-blobs-list-pagination.md) — paginate:true returns an async iterator, not a blobs array; test list-dependent checks against real Blobs.
+- [TSX JSX test runtime](tsx-jsx-test-runtime.md) — standalone tsx tests can expect a classic React global even when Vite renders the same JSX correctly.
+- [Shanghai archive test dates](shanghai-archive-test-dates.md) — pin the archive clock in fixtures with future editions; UTC afternoon can already be tomorrow for the site.
+- [Viewing evidence levels](viewing-evidence-levels.md) — firsthand playback and supplied calendars are useful with narrow attribution; release schedules are not territorial-rights proof.
+- [CJK canvas review](cjk-canvas-review.md) — verify punctuation and glyph ink in real browser canvases; Chromium font metrics alone cannot certify Chinese exports.
+- [Browser CJK fallback](browser-cjk-fallback.md) — Nix verification browsers may lack native Chinese fonts; distinguish environment tofu from source defects and disclose test-only fallback.
+- [Netlify strict test imports](netlify-strict-test-imports.md) — use directly declared browser-test dependencies; workspace npm can hide a pnpm-only import failure.
+- [Netlify build log access](netlify-build-log-access.md) — generic deploy errors need the documented build-log WebSocket, not guessed REST log endpoints.
+- [Daily Drop layout intent](daily-drop-layout-intent.md) — keep the approved look; group daily context, grid, and actions together, with related packs below.
+- [Fan report usability](fan-report-usability.md) — reporting must be usable from the ordinary preview, with readable expanded controls on small and short screens.
+- [User-assisted check handoffs](user-assisted-check-handoffs.md) — state browser continuity before a pause; preserve completed evidence when a window is closed.
+- [Cast-reference evidence](cast-reference-evidence.md) — actor participation is not a role pairing; narrow primary-credit guides rather than treating secondary cast tables as official credits.
+- [Primary provider credits](primary-provider-credit-extraction.md) — iQIYI browser markdown can hide real credits; inspect source HTML without importing spoiler-bearing role aliases.
+- [Independent release review](independent-release-review.md) — production consent does not satisfy GitHub’s independent post-push approval gate; preserve that separate safeguard.
+- [Participation cross-tab policy](participation-cross-tab-policy.md) — omit cohorts when safe exclusion is unavailable; stage events remain actions, and older tabs need reloading.
+- [Keyboard checks after touch](browser-keyboard-touch-focus.md) — reset Tab's starting point with a different preceding control; WebKit can retain the last touched descendant's position.
 - [Actor-directory freshness](actor-directory-freshness.md) — bounded public-name caching is not permission to cache edition authorization or release approvals.
+- [Audience research boundary](audience-research-boundary.md) — verify episode-specific discussion excerpts; sidebar mentions and promotional heat are not reaction or hot-search evidence.
+- [Cross-engine image fixtures](cross-engine-image-fixtures.md) — validate fixture bytes before treating browser-specific image/export failures as application defects.
+- [Shared notice ownership](shared-notice-ownership.md) — finish all phases of a mutation before accepting another action that shares its status message.
+- [Save race evidence](save-race-evidence.md) — a delayed IndexedDB completion callback may already have committed; verify durability separately from pending UI and acquisition feedback.

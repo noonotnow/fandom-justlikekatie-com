@@ -58,8 +58,21 @@ Tests and the source files they import must travel together in the same push.
 A split-brain failure (CI red, local green) nearly always means implementation
 commits are still local while the test file has already reached GitHub.
 
-**Rule:** after committing a test file, immediately push all related commits
-before starting other work.  Never leave a dangling test commit un-pushed.
+**Rule:** push each fix and its related tests together on a review branch based
+on freshly fetched `origin/main`. Do not publish a test-only branch while its
+implementation remains solely in the workstation.
+
+**Branch protection:** GitHub main requires an independent approval of the
+latest push. Do not force-push, bypass this review, or assume a locally merged
+task has already reached GitHub or production.
+
+**Reconciliation:** compare the current workspace with fetched GitHub main
+before preparing a release. Preserve both histories with local backup refs.
+If workspace history contains uploads, temporary outputs, or duplicate working
+copies, prepare a clean source snapshot descended from GitHub main instead of
+pushing the entire checkpoint history. Preserve current publication,
+retirement, and redirect decisions alongside the incoming fixes and tests.
+Validate the exact combined tree, not only the original isolated task branch.
 
 **Automated guard:** `.github/workflows/test-source-guard.yml` runs on every
 push and PR.  It extracts every relative `import` in `tests/*.test.ts` and
@@ -71,6 +84,45 @@ was not pushed — push it (or revert the test) to restore green.
 repository through Netlify. Local changes do not affect the public site until
 the related commit is pushed to the deployed branch.
 
+**Temporary worktrees:** create them outside this project, for example
+`/home/runner/worktrees/<name>`, not inside `/home/runner/workspace`.
+The required test job in `.github/workflows/test.yml` rejects
+committed nested project copies and browser crash reports. Ignore rules
+prevent new crash state from being staged, but do not untrack existing files.
+
 ## User preferences
 - Keep existing project structure and stack
 - This repo is imported for reference and discussion, not to run on Replit
+
+## Saved fandom-game planning
+- `docs/fandom-games-plan.md` is the retained shortlist, including confirmed
+  games and clearly labeled recreated concepts. Keep unselected ideas when
+  choosing or completing a game; this list does not authorize implementation
+  or publishing.
+- The creator asked to memorialize the discussed games on that same list,
+  while letting “the next list ... breathe on its own.” Preserve earlier
+  rounds, but let the next brainstorm be independent rather than require it
+  to extend previous concepts, categories, or the favored rhythm idea.
+- The creator asked for genuinely different game types, not mostly variations
+  on reading scenes and choosing responses. Keep distinct mechanics visible
+  when proposing new fandom games.
+  Renaming an earlier premise or adding AI to the same mechanic does not count
+  as a fresh alternative; the creator has explicitly flagged this repetition.
+- Preserve the creator's desire for **language games with Chinese phrases from
+  xianxia / wuxia stories**, plus **watch-along companion games** and **creative
+  games**, in the saved record. The creator subsequently asked not to focus so
+  much on play-alongs and language learning in further rounds. These interests
+  are not quotas for every brainstorm.
+- The creator said the mechanic-focused fifth list was “much better” and
+  specifically “really like[s] the rhythm game idea.” Treat Tribulation Rhythm
+  as a favored concept, not approval to build. The creator also said the list
+  still contained remnants of ideas that do not work; do not treat the entire
+  list as accepted or assume which remaining entries they meant.
+- `docs/fandom-language-and-watchalong-games.md` preserves those directions and
+  the creator's phonetic phrase notes alongside corrections. The creator
+  welcomes pinyin fixes when the intended phrase is clear; do not freeze
+  misspellings as canonical. Mark genuine ambiguity and confirm characters,
+  meanings, and context before using them in playable language questions.
+- `docs/sect-day-original-plan.md` preserves the complete original Sect Day
+  task plan. `docs/sect-day-narrative-contract.md` records the authored game
+  logic. Do not replace either with a summary of the other.
