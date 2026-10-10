@@ -12,6 +12,24 @@ import {
 
 const ACTOR_ID = 'archive-save-boundary-actor';
 const ACTOR_NAME = 'Archive Save Boundary Actor';
+// Node-selected dates, mocked inventory, and browser eligibility share one day.
+// setFixedTime changes Date without pausing the save-race timers.
+const FIXTURE_NOW = new Date('2026-10-10T12:00:00.000Z');
+
+test('Archive save fixture dates remain stable across Shanghai midnight', t => {
+  const original = Intl.DateTimeFormat.prototype.formatToParts;
+  let wallClock = new Date('2026-10-10T15:59:59.000Z');
+  t.mock.method(Intl.DateTimeFormat.prototype, 'formatToParts', function (value?: Date | number) {
+    return original.call(this, value ?? wallClock);
+  });
+  const beforeMidnight = [shanghaiDateOffset(-1), shanghaiDateOffset(-10)];
+  wallClock = new Date('2026-10-10T16:00:01.000Z');
+  assert.deepEqual(
+    [shanghaiDateOffset(-1), shanghaiDateOffset(-10)],
+    beforeMidnight,
+    'route installation must retain the dates chosen before Shanghai midnight',
+  );
+});
 
 function shanghaiDateOffset(offsetDays: number): string {
   const parts = new Intl.DateTimeFormat('en-CA', {
@@ -19,7 +37,7 @@ function shanghaiDateOffset(offsetDays: number): string {
     year: 'numeric',
     month: '2-digit',
     day: '2-digit',
-  }).formatToParts();
+  }).formatToParts(FIXTURE_NOW);
   const part = (type: string) => parts.find(value => value.type === type)?.value || '';
   const date = new Date(`${part('year')}-${part('month')}-${part('day')}T00:00:00.000Z`);
   date.setUTCDate(date.getUTCDate() + offsetDays);
@@ -63,6 +81,7 @@ const ONE_PIXEL_PNG = Buffer.from(
 );
 
 async function seedBrowserState(page: import('@playwright/test').Page, legacyImageId?: string): Promise<void> {
+  await page.clock.setFixedTime(FIXTURE_NOW);
   await page.addInitScript(`
     window.archiveSaveEvents = [];
     window.umami = { track(name, data) { window.archiveSaveEvents.push({ name, data }); } };
