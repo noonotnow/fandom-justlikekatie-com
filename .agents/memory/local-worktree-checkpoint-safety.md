@@ -14,3 +14,14 @@ External release worktrees under `/home/runner` may disappear after an automatic
 **Why:** A clean release worktree vanished between a workspace commit and a cherry-pick even though its branch and pushed commit remained intact.
 
 **How to apply:** Keep release branches and remote commits as the durable handoff, and verify the external worktree path before each later release step.
+
+Keep workstation Git exclusion rules in a persistent ignored project-local
+file rather than pointing `core.excludesFile` at `/tmp`.
+
+**Why:** A prior temporary exclusion file disappeared while Git retained its
+configuration pointer, silently removing protection for local-only files.
+
+**How to apply:** Check that configured exclusion files still exist before
+aligning branches. Retain local uploads and verification outputs on disk but
+exclude them from new release snapshots. Preserve workstation asset-library
+metadata separately from the shared application tree.
