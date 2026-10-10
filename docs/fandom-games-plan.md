@@ -85,15 +85,19 @@ Neither round is a complete recovery of that conversation.
 | Game | Distinct mechanic | Status |
 | --- | --- | --- |
 | Which Xianxia Fate Chose You? | Choose one of nine illustrated archetypes | Existing game |
-| Can You Survive Your First Day in a Sect? | Choice-dependent branching adventure | Implemented; production release still separate |
-| You Have One Episode to Fix This Misunderstanding | Limited-question dialogue puzzle | Recreated idea; recommended next experiment |
-| Emergency Tribulation Packing | Choose a loadout, then test it against an authored crisis | Recreated idea; alternative next experiment |
+| Can You Survive Your First Day in a Sect? | Choice-dependent branching adventure | Implemented; public route checked 2026-10-09 |
+| You Have One Episode to Fix This Misunderstanding | Limited-question dialogue puzzle | Recreated idea; archived candidate |
+| Emergency Tribulation Packing | Choose a loadout, then test it against an authored crisis | Recreated idea; archived candidate |
 | Can You Survive a Palace Banquet? | Read social clues and manage public commitments | Recreated idea |
 | Second Lead Rescue Operation | Plan interventions with a limited action budget | Recreated idea |
 | The Heavenly Court Lost Your Paperwork | Solve a fictional rules-and-evidence appeal | Recreated idea |
 | Who Volunteered You for the Sacrifice? | Investigate contradictory testimony | Recreated idea |
 | Escape the Flashback | Resolve a time-loop through causal ordering | Recreated idea |
 | Run the Sect Group Chat | Choose recipients and responses under competing instructions | Recreated idea |
+| Spirit Beast Daycare: One Napping Qilin | Guide a reactive qilin around an interactive enclosure | New pitch; unselected |
+| Cloudstep Courier: No Parcels Left Behind | Steer a flying sword through wind and obstacles | New pitch; unselected |
+| The Cauldron Is Lying | Pour, stir, and control heat in a reactive potion sandbox | New pitch; unselected |
+| Rebuild the Sect Teahouse Before the Summit | Move furniture and test it with walking guests | New pitch; unselected |
 
 ## Existing game: Which Xianxia Fate Chose You?
 
@@ -538,8 +542,9 @@ Packing as an alternative. The creator did not select either and instead asked
 for a wider range of game types. Keep those concepts, but do not treat that
 earlier recommendation as the chosen next game.
 
-Sect Day still needs its own reviewed production release. Recording additional
-ideas does not authorize building them or publishing that existing game.
+Sect Day was separately released; its public intro was checked on 2026-10-09.
+That confirms the route loads, not a complete playthrough. Recording additional
+ideas does not authorize building them or publishing another game.
 
 ## Creative and product boundaries
 
@@ -568,98 +573,156 @@ ideas does not authorize building them or publishing that existing game.
 existed, but does not contain the other concepts' names or descriptions.
 The saved project planning documents searched so far do not supply that list.
 
-Preserve the original shortlist here when the relevant conversation excerpt
-becomes available. Keep original wording and any priorities or constraints,
-and keep that recovered material distinct from the recreated concepts above.
+The eight entries under **Recreated concepts**, later brainstorming rounds,
+and four hands-on pitches below are not evidence of the original unselected
+names. Preserve the original shortlist here when the relevant conversation
+excerpt becomes available. Keep original wording and any priorities or
+constraints, and keep that recovered material distinct from the recreated
+concepts above.
 
-## Keeping this record useful
-
-### Additional upstream pitches retained during reconciliation
+## Additional hands-on pitches — retained, not selected
 
 These four unselected pitches were also saved on GitHub. They are independent
 of the later brainstorming rounds above, not recovered original contenders,
 accepted implementation work, promised releases, or validated audience demand.
 
-#### Spirit Beast Daycare: One Napping Qilin
+### Gameplay direction approved for this revision
 
-**Premise:** A baby qilin needs a snack, a brush, a game, and a nap before the
-master returns—and is frightened by the bell.
+The creator does not want another game that is just clicking through webpages.
+These pitches therefore require hands-on play in a persistent interactive scene:
+move, steer, manipulate objects, experiment, and see immediate consequences.
+A browser hosts the game; advancing text panels must not be its core mechanic.
+Changing action cards into animated buttons is not enough. Text can explain
+controls or provide optional humor, but cannot replace the playable system.
+This direction does not authorize building a game or changing the existing games.
 
-**Play:** Schedule care-action cards in a short sequence. Each action changes
-visible needs, and the order matters; there is no hidden personality score or
-random punishment.
+### 1. Spirit Beast Daycare: One Napping Qilin
 
-**Small first version:** One creature, four visible needs, six actions, and
-four turns, with three deterministic care outcomes. Every outcome explains
-which needs were met or missed.
+**Premise:** A baby qilin needs food, play, and a peaceful nap. Unfortunately,
+the laundry basket is irresistible and the bell is terrifying.
 
-**Shareable payoff:** A tiny care report, from “Trusted Keeper” to “The Qilin
-Has Adopted the Laundry Basket.”
+**Play:** Work inside a small illustrated enclosure. Place a treat to coax the
+qilin along a safe path, roll a toy for it to chase, brush it with short tool
+strokes, and arrange bedding away from the noisy bell. The qilin moves and
+reacts to nearby objects: ears perk toward food, it follows a rolling toy,
+startles near noise, and curls up when comfortable. Learn its behavior and
+adjust the space rather than selecting a care command and reading its result.
 
-**Why it adds variety:** A gentle scheduling-and-state puzzle, rather than a
-branching story or identity quiz.
+**Small first version:** One enclosure, one baby qilin, a treat bowl, a toy,
+a brush, a movable bed, and one predictable bell hazard. Food, comfort, and
+energy are visibly communicated through behavior and optional meters. Complete
+a calm care session by feeding it, playing with it, and settling it to sleep;
+no death, irreversible neglect, or real-time waiting between visits. Pause and
+restart freely. Other creatures and additional habitats are future scope, not
+requirements for this first version.
 
-#### Cloudstep Courier: No Parcels Left Behind
+**Shareable payoff:** A snapshot-style care card, from “Trusted Keeper” to
+“The Qilin Has Adopted the Laundry Basket.”
 
-**Premise:** Deliver three sealed parcels across the sect without soaking the
-herb scroll or delivering the master's lunch to the sword-repair shed.
+**Why it adds variety:** A reactive creature-care play space. Position, object
+interaction, and observation matter; it is not a four-turn action-card sequence.
 
-**Play:** Trace a route across a small map. Visible constraints govern which
-places must be visited first, which path is unsafe for a parcel, and whether a
-one-use wind charm is worth saving.
+### 2. Cloudstep Courier: No Parcels Left Behind
 
-**Small first version:** One seven-stop map, three parcels, four readable route
-rules, and no timer. Movement and route review must work with buttons and
-keyboard, not drag-only controls.
+**Premise:** Deliver three sealed parcels by flying sword without soaking the
+herb scroll or dropping the master's lunch into the sword-repair shed.
 
-**Shareable payoff:** A delivery docket with a dry-parcel count and one
-lightly judgmental note from the receiving disciple.
+**Play:** Directly steer the sword through a compact overhead course. Wind
+currents push it sideways, cloud banks threaten fragile cargo, and landing
+pads require a controlled approach. Collect parcels, choose a flight path,
+brake to land, and use a one-use wind charm to recover from a difficult gust.
+The player controls the flight, not just a route whose result is narrated.
 
-**Why it adds variety:** The central action is spatial route planning, not
-interviewing witnesses or ordering story events.
+**Small first version:** One short course, three pickup/drop-off pairs, two
+predictable wind zones, one cloud obstacle, and forgiving collision recovery.
+No mandatory countdown. Provide pause, adjustable flight speed, a practice
+area, and clear visual wind cues. Success means delivering all three parcels;
+precision can improve the delivery report without blocking completion.
 
-#### The Cauldron Is Lying
+**Shareable payoff:** A delivery docket with cargo condition and one lightly
+judgmental note from the receiving disciple.
+
+**Why it adds variety:** A small movement-and-control game with immediate
+feedback, not a seven-stop map-selection puzzle.
+
+### 3. The Cauldron Is Lying
 
 **Premise:** The immortal kitchen's cauldron keeps producing suspiciously
-sentient steam, but its reactions follow rules.
+sentient steam. Its smug advice is unreliable; its reactions follow rules.
 
-**Play:** Combine original, fictional ingredients and use visible reaction
-clues to infer a harmless requested effect. The player tests a formula, reads
-what changed, and revises the ingredient set or order.
+**Play:** Manipulate ingredients and tools on a persistent workbench. Tip a
+fictional ingredient container to add a visible quantity, stir the mixture,
+and adjust the heat. Watch its color, bubbles, viscosity, and steam-creature
+behavior change immediately. Experiment with quantity, order, heat, and mixing
+to produce a requested harmless effect. A taunting line from the cauldron is
+flavor, not the only evidence or a multiple-choice answer prompt.
 
-**Small first version:** Six invented ingredients, one small recipe, three
-experiments, and a deterministic solution. All necessary clues appear in-game;
-it teaches no real-world recipe or health advice.
+**Small first version:** Four invented ingredients, two requested effects,
+one heat control, one stirring tool, and reproducible reaction rules. A reset
+empties the pot instantly; experiments are not limited to three text screens.
+Keep amounts and heat readable, with symbols as well as color. Necessary clues
+are observable in-game. No real-world recipes, chemical instructions, or
+health advice.
 
-**Shareable payoff:** A recipe card with the intended result and the actual
-result, such as “warmth, clarity, and one very opinionated puff of steam.”
+**Shareable payoff:** A recipe card showing the intended and actual result,
+such as “warmth, clarity, and one very opinionated puff of steam.”
 
-**Why it adds variety:** A constrained experiment-and-deduction loop, distinct
-from testimony mysteries and fictional legal appeals.
+**Why it adds variety:** A hands-on experiment-and-deduction sandbox. Pouring,
+stirring, and heat change the simulated mixture rather than trigger prose.
 
-#### Rebuild the Sect Teahouse Before the Summit
+### 4. Rebuild the Sect Teahouse Before the Summit
 
-**Premise:** Guests arrive soon, the teahouse floor plan is a mess, and the
-kettle insists it needs a clear path to every table.
+**Premise:** Guests are arriving, the floor plan is a mess, and the enchanted
+kettle needs a clear path to every table.
 
-**Play:** Place a small set of furnishings on a grid while satisfying explicit
-adjacency, access, and quiet-zone rules. After each placement, show which
-constraints are met or broken.
+**Play:** Move and rotate furniture in a visible room, then test the layout
+with walking guests and a traveling kettle. See a guest blocked by a chair,
+a quiet reader disturbed beside the music corner, or a kettle unable to reach
+a table. Pause, rearrange, and run the simulation again. Solve practical
+spatial problems through object placement and observed movement, not a quiz
+about which layout to choose.
 
-**Small first version:** One 3×3 room, six furniture tiles, four visible rules,
-and two valid layouts. Placement, rotation, and removal must be operable with
-keyboard and buttons as well as pointer controls.
+**Small first version:** One compact room large enough for walking paths,
+six movable furnishings, three guests with visible needs, and one kettle.
+Use explicit collision/access rules and multiple acceptable layouts; do not
+promise a fixed count of valid solutions before testing. Guests arrive in
+player-started test waves, not under an unavoidable deadline. Undo, pause,
+rotation, and reset are available throughout.
 
-**Shareable payoff:** A floor-plan card titled with the layout's outcome, such
-as “Grandmaster Approved” or “Excellent Tea, Impossible Exit.”
+**Shareable payoff:** A floor-plan card titled “Grandmaster Approved” or
+“Excellent Tea, Impossible Exit,” based on the simulated layout.
 
-**Why it adds variety:** A spatial layout puzzle with visible constraints,
-not a social-choice banquet or a narrative ending tree.
+**Why it adds variety:** A spatial building-and-testing puzzle with visible
+characters moving through the result, not a checklist of static grid choices.
 
-Sect Day was separately released; its public route was checked on 2026-10-09.
-That confirms the route loads, not a complete playthrough. The historical
-implementation task's exclusion of publishing does not mean the game remains
-unreleased. The other concepts still need their own scope and release approval.
+### Controls and acceptance criteria for all four pitches
+
+- The same scene remains playable while its state changes; no choice-and-next-
+  page sequence as the core loop. Results summarize play rather than substitute
+  for it.
+- Touch/pointer interactions and keyboard-accessible equivalents manipulate the
+  same game state. Dragging, precise brushing gestures, and rapid input must
+  not be the only way to complete a task. Accessible controls are acceptable;
+  a button that performs an in-world action is not a narrative-page transition.
+- Provide pause and reduced-motion options, readable non-color-only feedback,
+  and forgiving recovery. Moving objects are gameplay, not gratuitous effects.
+- A prototype must demonstrate the actual interaction loop before adding long
+  story copy, elaborate result cards, or extra levels. Enjoyment remains untested.
+
+## Current selection direction, not a build commitment
+
+Sect Day is already implemented; its public intro was checked on 2026-10-09.
+Preserve the eight reconstructed ideas as candidates, but retire the earlier
+recommendation to build **Fix This Misunderstanding** or **Emergency Tribulation
+Packing** next: that recommendation predates the creator's hands-on direction.
+Do not silently rewrite those archived concepts as if they originally had it.
+
+For the next new game, discuss the four hands-on pitches above. None has been
+selected or ranked by the creator, and no player-preference data exists for
+them. Recording this gameplay direction is not an implementation task or
+release approval.
+
+## Keeping this record useful
 
 For each recovered concept, retain its title, premise, game mechanic, intended
 scope, and any explicit decision from the original conversation. Distinguish
