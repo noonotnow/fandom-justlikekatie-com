@@ -19,7 +19,7 @@ const FIXTURE_NOW = new Date('2026-10-10T12:00:00.000Z');
 test('Archive save fixture dates remain stable across Shanghai midnight', t => {
   const original = Intl.DateTimeFormat.prototype.formatToParts;
   let wallClock = new Date('2026-10-10T15:59:59.000Z');
-  t.mock.method(Intl.DateTimeFormat.prototype, 'formatToParts', function (value?: Date | number) {
+  t.mock.method(Intl.DateTimeFormat.prototype, 'formatToParts', function (this: Intl.DateTimeFormat, value?: Date | number) {
     return original.call(this, value ?? wallClock);
   });
   const beforeMidnight = [shanghaiDateOffset(-1), shanghaiDateOffset(-10)];
