@@ -319,6 +319,11 @@ to = "/c-drama-fandom/fandom-games/sect-day/index.html"
 status = 200
 
 [[redirects]]
+from = "/c-drama-fandom/fandom-games/qilin-keeper"
+to = "/c-drama-fandom/fandom-games/qilin-keeper/index.html"
+status = 200
+
+[[redirects]]
 from = "/c-drama-fandom/fandom-games/sect-day/"
 to = "/c-drama-fandom/fandom-games/sect-day/previews/sect-savior/index.html"
 status = 200
