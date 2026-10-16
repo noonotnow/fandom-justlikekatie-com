@@ -24,4 +24,5 @@ export function mountCassette(root, options = {}) {
   refresh();
   return () => { detach(); unmount?.(); controller.destroy(); channel?.close(); window.removeEventListener('focus', refresh); document.removeEventListener('visibilitychange', onVisible); };
 }
+window.__qilinMountCassette = mountCassette;
 for (const root of document.querySelectorAll('[data-cassette-root]')) mountCassette(root);
