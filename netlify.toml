@@ -97,6 +97,11 @@
   status = 200
 
 [[redirects]]
+  from = "/api/qilin/cassette"
+  to = "/.netlify/functions/qilin-cassette"
+  status = 200
+
+[[redirects]]
   from = "/api/collection/sync"
   to = "/.netlify/functions/collection-sync"
   status = 200

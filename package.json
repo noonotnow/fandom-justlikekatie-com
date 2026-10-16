@@ -17,7 +17,7 @@
     "prepare:public": "node scripts/generate-public-pages.js",
     "predev": "npm run prepare:public",
     "dev": "vite",
-    "prebuild": "npm run audit:subscription-product-config -- --allow-missing && npm run prepare:public",
+    "prebuild": "bash scripts/build-qilin-game.sh && npm run audit:subscription-product-config -- --allow-missing && npm run prepare:public",
     "build": "node scripts/check-court-record.js && tsc -b && vite build",
     "preview": "vite preview",
     "lint": "oxlint && node scripts/check-court-record.js && node scripts/check-browser-cleanup.js",

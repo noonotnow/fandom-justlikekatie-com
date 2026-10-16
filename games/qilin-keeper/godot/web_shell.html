@@ -1,0 +1,104 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width,initial-scale=1">
+<title>Qilin Keeper — Small Paws</title>
+<style>
+html,body{margin:0;width:100%;height:100%;overflow:hidden;background:#352044;color:#fff3d1;font-family:system-ui,sans-serif}
+canvas{display:block;width:100%;height:100%;outline:none;touch-action:none}
+#loading{position:fixed;inset:0;display:flex;flex-direction:column;align-items:center;justify-content:flex-end;background:linear-gradient(transparent 35%,#352044 100%),url('cover.jpg') center/cover;padding:6% 8%;box-sizing:border-box;text-align:center}
+h1{font-size:clamp(24px,4vw,48px);margin:0 0 10px;text-shadow:2px 3px #352044}
+p{max-width:560px;line-height:1.5;margin:0 0 18px}
+progress{width:min(350px,80%);height:12px;accent-color:#72e3b6}
+a{display:none;background:#72e3b6;color:#352044;border:3px solid #352044;border-radius:16px;padding:12px 22px;text-decoration:none;font-weight:800}
+</style>
+$GODOT_HEAD_INCLUDE
+</head>
+<body>
+<canvas id="canvas" tabindex="0" aria-label="Qilin Keeper interactive game"></canvas>
+<div id="loading" role="status">
+<h1>Small paws. Big feelings.</h1>
+<p id="message">Getting the baby settled…</p>
+<progress id="progress"></progress>
+<a id="download" href="../downloads/Qilin-Keeper-Godot-Bathing.zip" target="_top">Download the Godot project</a>
+</div>
+<script src="$GODOT_URL"></script>
+<script>
+// ConfigFile.save only writes Godot's memory filesystem. Observe the later
+// IDBFS commit without replacing engine callbacks or claiming it is durable early.
+window.__qilinMotionStorage = {revision:0, reduced:false, status:'idle'};
+window.__qilinBeginMotionSave = function(reduced) {
+  const state = window.__qilinMotionStorage;
+  state.revision++;
+  state.reduced = reduced;
+  if (state.status !== 'failed') state.status = 'pending';
+};
+if (typeof IDBDatabase !== 'undefined' && typeof IDBObjectStore !== 'undefined') {
+  const transactions = new WeakMap();
+  const transaction = IDBDatabase.prototype.transaction;
+  const put = IDBObjectStore.prototype.put;
+  IDBDatabase.prototype.transaction = function(...args) {
+    const tx = transaction.apply(this,args);
+    if (this.name !== '/userfs' || tx.mode !== 'readwrite' ||
+        !tx.objectStoreNames.contains('FILE_DATA')) return tx;
+    const entry = {revision:0, failed:false, written:false};
+    transactions.set(tx,entry);
+    const finish = status => {
+      const state = window.__qilinMotionStorage;
+      if (entry.revision && entry.revision === state.revision) state.status = status;
+    };
+    tx.addEventListener('complete',()=>{
+      if (entry.written && !entry.failed) finish('saved');
+    });
+    tx.addEventListener('abort',()=>finish('failed'));
+    return tx;
+  };
+  IDBObjectStore.prototype.put = function(value,key) {
+    const entry = transactions.get(this.transaction);
+    const state = window.__qilinMotionStorage;
+    if (entry && this.name === 'FILE_DATA' &&
+        String(key).endsWith('/qilin-preferences.cfg') && value?.contents) {
+      const text = new TextDecoder().decode(value.contents);
+      if (text.includes('reduced_motion='+state.reduced)) entry.revision = state.revision;
+    }
+    try {
+      const request = put.apply(this,arguments);
+      if (entry?.revision && String(key).endsWith('/qilin-preferences.cfg')) {
+        request.addEventListener('success',()=>{ entry.written = true; });
+        request.addEventListener('error',()=>{
+          entry.failed = true;
+          if (entry.revision === state.revision) state.status = 'failed';
+        });
+      }
+      return request;
+    } catch (error) {
+      if (entry?.revision && entry.revision === state.revision) state.status = 'failed';
+      throw error;
+    }
+  };
+}
+const config = $GODOT_CONFIG;
+const engine = new Engine(config);
+const loading = document.getElementById('loading');
+const message = document.getElementById('message');
+const progress = document.getElementById('progress');
+function failure(error) {
+  console.error(error);
+  progress.hidden = true;
+  message.textContent = 'This browser could not start the game. Try a current browser with hardware acceleration enabled, or play the downloadable project in Godot on your Mac.';
+  document.getElementById('download').style.display = 'inline-block';
+}
+const missing = Engine.getMissingFeatures({threads:$GODOT_THREADS_ENABLED});
+if (missing.length) {
+  progress.hidden = true;
+  message.textContent = 'The browser game needs WebGL 2 graphics support. You can still download this same playable scene and open it in Godot on your Mac.';
+  document.getElementById('download').style.display = 'inline-block';
+} else {
+  engine.startGame({onProgress(current,total){
+    if(total){progress.value=current;progress.max=total;}
+  }}).then(()=>loading.remove()).catch(failure);
+}
+</script>
+</body>
+</html>
