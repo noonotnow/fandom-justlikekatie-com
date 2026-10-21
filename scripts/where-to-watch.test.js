@@ -118,6 +118,24 @@ test("approved document has one safe canonical, source links and a narrow-screen
   }
 });
 
+test("refreshed Viki evidence keeps the special separate and retains historical checks", () => {
+  const record = loadWatchRecord();
+  const pass = record.platforms.find((item) => item.name === "Viki · Viki Pass episodes");
+  const special = record.platforms.find((item) => item.name === "Viki · Special Episode (listed as 48)");
+  assert.deepEqual(pass.episodes, { from: 7, through: 47 });
+  assert.deepEqual(special.episodes, { from: 48, through: 48 });
+  assert.match(special.accessTier, /special, not a regular story episode/);
+  assert.match(special.evidence, /Actual playback.*were not checked/);
+  assert.ok(record.history.some((entry) => entry.checkedAt === "2026-10-06T19:04:23Z"));
+  assert.ok(record.history.some((entry) => entry.checkedAt === record.checkedAt));
+  assert.equal(record.schedule.state, "unknown");
+  const reviewTime = new Date(record.checkedAt);
+  assert.equal(evaluateWatchRecord(record, reviewTime).publishable, true);
+  assert.equal(evaluateWatchRecord(record, new Date(reviewTime.getTime() + 7 * 86400000)).publishable, true);
+  assert.equal(evaluateWatchRecord(record, new Date(reviewTime.getTime() + 7 * 86400000 + 1)).publishable, false);
+  assert.throws(() => renderWatchPage(record, new Date(reviewTime.getTime() + 8 * 86400000)), /publication blocked/);
+});
+
 test("published US observations do not imply another country or a finale date", () => {
   const record = loadWatchRecord();
   const reviewTime = new Date(record.checkedAt);
