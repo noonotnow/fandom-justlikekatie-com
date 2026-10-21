@@ -34,7 +34,7 @@ mandatory. A local article or development preview is not proof of publication.
 After the approved release, verify the custom domain's two article routes,
 four decoded images, shelf choices, metadata and sitemap entries.
 
-## Existing build blocker found during release validation
+## Viewing-guide blocker and source-review resolution
 
 The clean release is based on GitHub main, not the development workspace's
 newer pending work. Its existing availability review is dated October 6,
@@ -42,6 +42,19 @@ newer pending work. Its existing availability review is dated October 6,
 record, failing three public-page generation tests and blocking the normal
 production build. The closing-reading preservation checks pass.
 
-Resolve the viewing-guide review through its own evidence/review process.
-Do not copy newer unapproved workspace claims into this release, advance
-review dates without new evidence, or disable the freshness gate.
+A new official-source review was performed on October 21 at 14:45 UTC.
+Viki's episode API returned HTTP 200 and `x-geoip-country-code=us` with
+48 entries: Episodes 1–6 free, Episodes 7–47 subscription, and a separate
+Special Episode numbered 48. All entries reported English subtitle completion
+at 100%, an available stream, and no geographic or upcoming block. This is
+US-scoped listing metadata, not a playback test or worldwide rights evidence.
+
+The Viki, WeTV and Tencent title URLs also returned HTTP 200. WeTV still labels
+its catalog “All 47 EPs”; no cross-platform cut equivalence is inferred.
+UK, Australia, individual European countries and mainland playback remain
+unverified. Finale timing remains unknown. Prior evidence dates are retained.
+
+This independently repeated source check supplies the release's dated evidence
+update for review. It does not import unrelated workspace work, certify actual
+playback or change the seven-day freshness gate. Added regression coverage
+checks the expiry boundary, history retention and special-episode distinction.
