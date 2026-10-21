@@ -7,6 +7,7 @@ import {
   closeBrowserAndServer,
   launchBrowserWithServer,
   startViteTestServer,
+  simulateProductionAudience,
 } from './browserEngines.ts';
 
 type AnalyticsCommand = [string, string, Record<string, unknown>];
@@ -41,7 +42,7 @@ for (const engine of BROWSER_ENGINES) {
     const [{ server, origin }, browser] = await launchBrowserWithServer(startApp(), engine.type);
     try {
       const nativePage = await browser.newPage();
-      await nativePage.route('https://www.googletagmanager.com/**', route => route.abort());
+      await simulateProductionAudience(nativePage);
       await gotoTestPage(nativePage, `${origin}/c-drama-fandom/trope-decoder/index.html`, {
         waitUntil: 'domcontentloaded',
       });
@@ -73,7 +74,7 @@ for (const engine of BROWSER_ENGINES) {
       assert.doesNotMatch(JSON.stringify(nativeShareEvent), /url|account|name|text/i);
 
       const copyPage = await browser.newPage();
-      await copyPage.route('https://www.googletagmanager.com/**', route => route.abort());
+      await simulateProductionAudience(copyPage);
       await gotoTestPage(copyPage, `${origin}/c-drama-fandom/trope-decoder/index.html`, {
         waitUntil: 'domcontentloaded',
       });
@@ -141,7 +142,7 @@ for (const engine of BROWSER_ENGINES) {
         for (const scenario of scenarios) {
           const page = await browser.newPage();
           try {
-            await page.route('https://www.googletagmanager.com/**', route => route.abort());
+            await simulateProductionAudience(page);
             await gotoTestPage(page, `${origin}${locale.path}?token=private-reader-content#context?filter=love&card=three-lifetimes`, {
               waitUntil: 'domcontentloaded',
             });
@@ -230,7 +231,7 @@ for (const engine of BROWSER_ENGINES) {
     const [{ server, origin }, browser] = await launchBrowserWithServer(startApp(), engine.type);
     try {
       const page = await browser.newPage();
-      await page.route('https://www.googletagmanager.com/**', route => route.abort());
+      await simulateProductionAudience(page);
       await gotoTestPage(page, `${origin}${locale.path}`, { waitUntil: 'domcontentloaded' });
       await page.evaluate(`(() => {
         Object.defineProperty(navigator, 'share', { configurable: true, value: async () => {} });

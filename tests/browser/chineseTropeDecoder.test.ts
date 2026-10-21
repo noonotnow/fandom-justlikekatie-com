@@ -7,6 +7,7 @@ import {
   closeBrowserAndServer,
   launchBrowserWithServer,
   startViteTestServer,
+  simulateProductionAudience,
 } from './browserEngines.ts';
 
 type AnalyticsCommand = [string, string, Record<string, unknown>];
@@ -66,7 +67,7 @@ for (const engine of BROWSER_ENGINES) {
       const [{ server, origin }, browser] = await launchBrowserWithServer(startViteTestServer(), engine.type);
       try {
         const page = await browser.newPage();
-        await page.route('https://www.googletagmanager.com/**', route => route.abort());
+        await simulateProductionAudience(page);
         for (const context of [
           { hash: '#context?filter=unknown&card=unknown&token=private-secret', filter: 'all', card: '' },
           { hash: '#context?filter=signs&card=fox-spirit-reveal&query=private-secret', filter: 'signs', card: 'fox-spirit-reveal' },
@@ -120,7 +121,7 @@ for (const engine of BROWSER_ENGINES) {
     const [{ server, origin }, browser] = await launchBrowserWithServer(startViteTestServer(), engine.type);
     try {
       const page = await browser.newPage();
-      await page.route('https://www.googletagmanager.com/**', route => route.abort());
+      await simulateProductionAudience(page);
       await gotoTestPage(page, `${origin}/zh-cn/c-drama-fandom/trope-decoder/index.html`, {
         waitUntil: 'domcontentloaded',
       });
@@ -208,7 +209,7 @@ for (const engine of BROWSER_ENGINES) {
     const [{ server, origin }, browser] = await launchBrowserWithServer(startViteTestServer(), engine.type);
     try {
       const nativePage = await browser.newPage();
-      await nativePage.route('https://www.googletagmanager.com/**', route => route.abort());
+      await simulateProductionAudience(nativePage);
       await gotoTestPage(nativePage, `${origin}/zh-cn/c-drama-fandom/trope-decoder/index.html`, {
         waitUntil: 'domcontentloaded',
       });
@@ -260,7 +261,7 @@ for (const engine of BROWSER_ENGINES) {
       assert.doesNotMatch(JSON.stringify(emptySearchEvent), /这里没有|search_text|query_text/i);
 
       const copyPage = await browser.newPage();
-      await copyPage.route('https://www.googletagmanager.com/**', route => route.abort());
+      await simulateProductionAudience(copyPage);
       await gotoTestPage(copyPage, `${origin}/zh-cn/c-drama-fandom/trope-decoder/index.html`, {
         waitUntil: 'domcontentloaded',
       });
@@ -288,7 +289,7 @@ for (const engine of BROWSER_ENGINES) {
       );
 
       const cancelledPage = await browser.newPage();
-      await cancelledPage.route('https://www.googletagmanager.com/**', route => route.abort());
+      await simulateProductionAudience(cancelledPage);
       await gotoTestPage(cancelledPage, `${origin}/zh-cn/c-drama-fandom/trope-decoder/index.html`, {
         waitUntil: 'domcontentloaded',
       });
@@ -314,7 +315,7 @@ for (const engine of BROWSER_ENGINES) {
       );
 
       const failedSharePage = await browser.newPage();
-      await failedSharePage.route('https://www.googletagmanager.com/**', route => route.abort());
+      await simulateProductionAudience(failedSharePage);
       await gotoTestPage(failedSharePage, `${origin}/zh-cn/c-drama-fandom/trope-decoder/index.html`, {
         waitUntil: 'domcontentloaded',
       });

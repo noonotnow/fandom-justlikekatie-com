@@ -126,6 +126,13 @@ declare global {
     gtag?: (command: 'event', name: string, data?: AnalyticsData) => void;
     dataLayer?: unknown[];
     __initialAnalyticsLocation?: string;
+    __audienceGate?: {
+      state(): 'pending' | 'public' | 'operator' | 'unknown';
+      run(fn: () => void): void;
+      classify(user: { isAdmin?: boolean } | null | undefined): void;
+      unknown(): void;
+      refresh(): void;
+    };
   }
 }
 
@@ -136,18 +143,29 @@ declare global {
 export function trackEvent(name: string, data?: AnalyticsData): void {
   if (typeof window === 'undefined') return;
 
-  try {
-    window.umami?.track(name, data);
-  } catch {
-    // One unavailable destination must not prevent the configured tracker.
-  }
-
-  try {
-    if (window.gtag) {
-      window.gtag('event', name, data);
-    } else {
-      window.dataLayer?.push({ event: name, ...(data ?? {}) });
+  const send = () => {
+    try {
+      window.umami?.track(name, data);
+    } catch {
+      // One unavailable destination must not prevent the configured tracker.
     }
+
+    try {
+      if (window.gtag) {
+        window.gtag('event', name, data);
+      } else {
+        window.dataLayer?.push({ event: name, ...(data ?? {}) });
+      }
+    } catch {
+      // Analytics must never break saving, syncing, retrying, or navigation.
+    }
+  };
+
+  // Audience tracking waits for the server-verified session classification and
+  // is suppressed for operators (and when classification is unknown).
+  try {
+    if (window.__audienceGate) window.__audienceGate.run(send);
+    else send();
   } catch {
     // Analytics must never break saving, syncing, retrying, or navigation.
   }

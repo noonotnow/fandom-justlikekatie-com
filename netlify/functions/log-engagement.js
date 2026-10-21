@@ -236,6 +236,14 @@ export default async (req, context) => {
     }
   }
 
+  // Verified operator traffic (server-side session + FANDOM_ADMIN_EMAILS) never
+  // contributes to audience aggregates; no caller-supplied field is consulted.
+  if (await publicAuth.isOperatorRequest(req, context)) {
+    return new Response(JSON.stringify({ ok: true, excluded: true }), {
+      status: 200, headers: { "Content-Type": "application/json" },
+    });
+  }
+
   try {
     const store = getBlobStore(STORE_NAME, context);
 

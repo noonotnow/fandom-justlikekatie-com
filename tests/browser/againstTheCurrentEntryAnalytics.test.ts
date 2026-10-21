@@ -5,6 +5,7 @@ import {
   gotoTestPage,
   launchBrowserWithServer,
   startViteTestServer,
+  simulateProductionAudience,
 } from './browserEngines.ts';
 
 type RecordedEvent = { name: string; data?: Record<string, string> };
@@ -14,7 +15,7 @@ test('GA4 distinguishes feature entries and installment choices from direct shel
   try {
     const page = await browser.newPage();
     page.setDefaultTimeout(8_000);
-    await page.route('https://www.googletagmanager.com/**', route => route.abort());
+    await simulateProductionAudience(page);
     // Each page replaces gtag at startup. Capture only clicks made after the page has loaded.
     const captureClicks = async () => {
       await page.evaluate(() => {
@@ -88,7 +89,7 @@ test('series links navigate even when GA4 is unavailable or throws', { timeout: 
   try {
     for (const broken of [false, true]) {
       const page = await browser.newPage();
-      await page.route('https://www.googletagmanager.com/**', route => route.abort());
+      await simulateProductionAudience(page);
       await gotoTestPage(page, `${origin}/c-drama-fandom/`);
       if (broken) await page.evaluate(() => {
         (window as Window & { gtag?: () => void }).gtag = () => { throw new Error('unavailable'); };

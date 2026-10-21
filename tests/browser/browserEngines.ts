@@ -1,5 +1,5 @@
 import { execFileSync } from 'node:child_process';
-import { existsSync } from 'node:fs';
+import { existsSync, readFileSync } from 'node:fs';
 import { dirname, join } from 'node:path';
 import {
   chromium,
@@ -474,4 +474,28 @@ export async function launchPageForServer(
     }
     throw pageError;
   }
+}
+
+/**
+ * Test-only production simulation for pages that load public/audience-gate.js:
+ * blocks the real Google endpoints, makes the gate treat the local server as the
+ * canonical host, and answers the session lookup with an anonymous visitor
+ * (or the supplied user). Host eligibility is covered by analyticsHostGuard.
+ */
+export async function simulateProductionAudience(
+  page: Page,
+  user: { isAdmin?: boolean } | null = null,
+): Promise<void> {
+  const gate = readFileSync('public/audience-gate.js', 'utf8');
+  const guard = "w.location.hostname === 'fandom.justlikekatie.com'";
+  if (!gate.includes(guard)) throw new Error('audience gate host guard changed');
+  await page.route('https://www.googletagmanager.com/**', route => route.abort());
+  await page.route('**/audience-gate.js', route => route.fulfill({
+    contentType: 'application/javascript',
+    body: gate.replace(guard, 'true /* test-only production simulation */'),
+  }));
+  await page.route('**/api/auth/session', route => route.fulfill({
+    contentType: 'application/json',
+    body: JSON.stringify({ user }),
+  }));
 }

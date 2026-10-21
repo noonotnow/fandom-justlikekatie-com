@@ -74,15 +74,39 @@ export interface PublicUser {
   isAdmin?: boolean;
 }
 
+/**
+ * Reports the server-verified session to the audience measurement gate so
+ * operator sessions are never counted. A failed lookup is "unknown" and stays
+ * suppressed rather than being treated as a public visitor.
+ */
+function reportAudienceSession(user: PublicUser | null | 'unknown'): void {
+  try {
+    const gate = typeof window === 'undefined' ? undefined : window.__audienceGate;
+    if (!gate) return;
+    if (user === 'unknown') gate.unknown();
+    else gate.classify(user);
+  } catch {
+    // Measurement must never affect sign-in or session handling.
+  }
+}
+
 export async function getPublicSession(): Promise<PublicUser | null> {
-  const response = await fetch('/api/auth/session', { credentials: 'same-origin' });
+  let response: Response;
+  try {
+    response = await fetch('/api/auth/session', { credentials: 'same-origin' });
+  } catch (error) {
+    reportAudienceSession('unknown');
+    throw error;
+  }
   const isJson = response.headers.get('content-type')?.toLowerCase().includes('application/json');
   if (!response.ok || !isJson) {
+    reportAudienceSession('unknown');
     if (response.status === 401) setDailyParticipationAuthority(false);
     await dbSetActiveAccount();
     return null;
   }
   const user = (await response.json()).user as PublicUser | null;
+  reportAudienceSession(user ?? null);
   setDailyParticipationAuthority(user?.isAdmin === true);
   await dbSetActiveAccount(user?.accountId);
   return user;
@@ -156,6 +180,7 @@ export async function logoutPublicAccount(user: PublicUser): Promise<void> {
   if (!response.ok) throw new Error('Could not sign out.');
   await dbRemoveAccountCache(user.accountId);
   await dbSetActiveAccount();
+  reportAudienceSession(null);
   notifyCollection('session-changed');
 }
 
