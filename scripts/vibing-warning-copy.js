@@ -4,6 +4,9 @@ import { vibingNowArticleRoutes } from "../shared/public-routes.js";
 // This is a copy contract, not a chronology check. Do not scan article analysis
 // for plot keywords or treat a passing warning as editorial/source sign-off.
 const reviewedWarnings = new Map([
+  ["/c-drama-fandom/vibing-now/against-the-current-episodes-46-47/", [
+    "Spoiler boundary: This installment discusses Episodes 46–47 and includes ending spoilers. No previews or novel material.",
+  ]],
   ["/c-drama-fandom/vibing-now/against-the-current-episode-21/", [
     "Spoiler boundary: Episode 21 · No preview, later-episode, novel, or endgame material included",
   ]],
