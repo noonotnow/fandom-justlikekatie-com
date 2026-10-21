@@ -33,3 +33,15 @@ The required `test` check and independent approval of the latest push remain
 mandatory. A local article or development preview is not proof of publication.
 After the approved release, verify the custom domain's two article routes,
 four decoded images, shelf choices, metadata and sitemap entries.
+
+## Existing build blocker found during release validation
+
+The clean release is based on GitHub main, not the development workspace's
+newer pending work. Its existing availability review is dated October 6,
+2026. On October 21 the seven-day freshness gate rejects that unchanged
+record, failing three public-page generation tests and blocking the normal
+production build. The closing-reading preservation checks pass.
+
+Resolve the viewing-guide review through its own evidence/review process.
+Do not copy newer unapproved workspace claims into this release, advance
+review dates without new evidence, or disable the freshness gate.
