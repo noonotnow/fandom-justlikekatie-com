@@ -2,45 +2,45 @@
   "slug": "against-the-current",
   "title": "Against the Current",
   "originalTitle": "兰香如故",
-  "checkedAt": "2026-10-16T22:40:50Z",
   "reviewer": "Replit Agent — official-source and spoiler-safe link review",
   "rightsReviewed": true,
   "spoilerReviewed": true,
+  "checkedAt": "2026-10-21T14:45:17Z",
   "regionGuidance": [
     {
       "name": "United States",
       "status": "verified",
-      "note": "US-scoped Viki episode metadata distinguishes free Episodes 1–6 from Viki Pass Episodes 7–48, with English subtitles reported at 100%. Actual player playback was not tested. Check the current episode tile and subtitle track before subscribing.",
+      "note": "US-scoped Viki episode metadata distinguishes free Episodes 1–6 from Viki Pass Episodes 7–47, plus a separate Special Episode numbered 48, with English subtitles reported at 100% for all 48 entries. Actual player playback was not tested. Check the current episode tile and subtitle track before subscribing.",
       "sourceUrl": "https://www.viki.com/tv/41705c-against-the-current?locale=en",
-      "checkedAt": "2026-10-16T22:40:50Z"
+      "checkedAt": "2026-10-21T14:45:17Z"
     },
     {
       "name": "United Kingdom",
       "status": "unverified",
       "note": "Viki's official title listing was rechecked, but no UK-specific playback, access tier, episode range or English-subtitle availability was established. Open the official listing from the UK to check.",
       "sourceUrl": "https://www.viki.com/tv/41705c-against-the-current?locale=en",
-      "checkedAt": "2026-10-16T22:40:50Z"
+      "checkedAt": "2026-10-21T14:45:17Z"
     },
     {
       "name": "Australia",
       "status": "unverified",
       "note": "WeTV's official English-language title listing was rechecked, but no Australia-specific playback, access tier, episode range or English-subtitle availability was established. Open the official listing from Australia to check.",
       "sourceUrl": "https://wetv.vip/en/play/94jt6sxiwsjw5n6",
-      "checkedAt": "2026-10-16T22:40:50Z"
+      "checkedAt": "2026-10-21T14:45:17Z"
     },
     {
       "name": "Europe (country by country)",
       "status": "unverified",
       "note": "Europe is not one streaming-rights territory. Viki's official title listing was rechecked, but no country-wide or Europe-wide access claim is verified here. Check the official listing in your own country.",
       "sourceUrl": "https://www.viki.com/tv/41705c-against-the-current?locale=en",
-      "checkedAt": "2026-10-16T22:40:50Z"
+      "checkedAt": "2026-10-21T14:45:17Z"
     },
     {
       "name": "Mainland China",
       "status": "unverified",
-      "note": "Tencent Video's official title URL returned a player shell, but mainland playback, episode range, subscription terms and English subtitles were not established. Check the official listing and an episode player locally.",
+      "note": "Tencent Video's official title URL was rechecked, but mainland playback, episode range, subscription terms and English subtitles were not established. Check the official listing and an episode player locally.",
       "sourceUrl": "https://v.qq.com/x/cover/mzc00200803dr6b.html",
-      "checkedAt": "2026-10-16T22:40:50Z"
+      "checkedAt": "2026-10-21T14:45:17Z"
     }
   ],
   "platforms": [
@@ -48,7 +48,7 @@
       "name": "Viki · free episodes",
       "url": "https://www.viki.com/tv/41705c-against-the-current?locale=en",
       "sourceUrl": "https://www.viki.com/tv/41705c-against-the-current?locale=en",
-      "checkedAt": "2026-10-16T22:40:50Z",
+      "checkedAt": "2026-10-21T14:45:17Z",
       "territories": ["US"],
       "accessTier": "Free listing; sign-in and ads may apply",
       "episodes": { "from": 1, "through": 6 },
@@ -58,29 +58,45 @@
       "advanceFinaleAt": null,
       "state": "verified",
       "conflict": null,
-      "evidence": "Official Viki episode API https://api.viki.io/v4/series/41705c/episodes.json?app=100000a&per_page=50 returned HTTP 200, x-geoip-country-code=us and 48 records. Episodes 1–6 have blocked=false, blocking.geo=false, blocking.paywall=false, blocking.upcoming=false, flags.has_stream=true and subtitle_completions.en=100. This is a US-scoped metadata check; actual player playback was not tested and future access is not guaranteed."
+      "evidence": "Official Viki episode API https://api.viki.io/v4/series/41705c/episodes.json?app=100000a&per_page=50 returned HTTP 200, x-geoip-country-code=us and 48 records, including a separate Special Episode numbered 48. Episodes 1–6 have blocked=false, blocking.geo=false, blocking.paywall=false, blocking.upcoming=false, flags.has_stream=true and subtitle_completions.en=100. This is a US-scoped metadata check; actual player playback was not tested and future access is not guaranteed."
     },
     {
       "name": "Viki · Viki Pass episodes",
       "url": "https://www.viki.com/tv/41705c-against-the-current?locale=en",
       "sourceUrl": "https://www.viki.com/tv/41705c-against-the-current?locale=en",
-      "checkedAt": "2026-10-16T22:40:50Z",
+      "checkedAt": "2026-10-21T14:45:17Z",
       "territories": ["US"],
       "accessTier": "Viki Pass subscription",
-      "episodes": { "from": 7, "through": 48 },
+      "episodes": { "from": 7, "through": 47 },
       "subtitles": { "language": "English", "status": "verified" },
       "cadence": null,
       "standardFinaleAt": null,
       "advanceFinaleAt": null,
       "state": "verified",
       "conflict": null,
-      "evidence": "Official Viki episode API returned x-geoip-country-code=us and 48 records. Episodes 7–48 have blocked=true because blocking.paywall=true, with blocking.geo=false, blocking.upcoming=false, paywallable.svod=true, flags.has_stream=true and subtitle_completions.en=100. The official title page also displays 48 episodes. Actual subscribed player playback was not tested; no finale or worldwide access claim is inferred."
+      "evidence": "Official Viki episode API returned x-geoip-country-code=us. Episodes 7–47 have blocked=true because blocking.paywall=true, with blocking.geo=false, blocking.upcoming=false, paywallable.svod=true, flags.has_stream=true and subtitle_completions.en=100. Entry 48 is titled Special Episode and is listed separately, not treated as another regular story episode. Actual subscribed player playback was not tested; no finale date or worldwide access claim is inferred."
+    },
+    {
+      "name": "Viki · Special Episode (listed as 48)",
+      "url": "https://www.viki.com/tv/41705c-against-the-current?locale=en",
+      "sourceUrl": "https://www.viki.com/tv/41705c-against-the-current?locale=en",
+      "checkedAt": "2026-10-21T14:45:17Z",
+      "territories": ["US"],
+      "accessTier": "Viki Pass subscription; special, not a regular story episode",
+      "episodes": { "from": 48, "through": 48 },
+      "subtitles": { "language": "English", "status": "verified" },
+      "cadence": null,
+      "standardFinaleAt": null,
+      "advanceFinaleAt": null,
+      "state": "verified",
+      "conflict": null,
+      "evidence": "The US-scoped official Viki episode API titles entry 48 Special Episode. It has blocking.paywall=true, blocking.geo=false, blocking.upcoming=false, paywallable.svod=true, flags.has_stream=true and subtitle_completions.en=100. This distinguishes Viki's 48-entry catalog from WeTV's All 47 EPs label without asserting cross-platform cut equivalence. Actual playback and the special's story coverage were not checked."
     },
     {
       "name": "WeTV · English-language listing",
       "url": "https://wetv.vip/en/play/94jt6sxiwsjw5n6",
       "sourceUrl": "https://wetv.vip/en/play/94jt6sxiwsjw5n6",
-      "checkedAt": "2026-10-16T22:40:50Z",
+      "checkedAt": "2026-10-21T14:45:17Z",
       "territories": ["unknown"],
       "accessTier": "unknown",
       "episodes": null,
@@ -103,8 +119,8 @@
   },
   "history": [
     {
-      "checkedAt": "2026-10-16T22:40:50Z",
-      "note": "Rechecked the official Viki title page, US-scoped Viki episode API, WeTV English-language listing and Tencent title URL. Viki now displays 48 episodes and returns 48 API records: Episodes 1–6 are free metadata listings, and Episodes 7–48 are subscription metadata listings; all report English subtitles at 100%. Actual player playback was not tested. WeTV still displays All 47 EPs; no equivalence between platform episode numbering, regional access or finale date is inferred. Tencent returned a player shell without establishing mainland availability. Other regions and all finale schedules remain unverified. Historical evidence dates are preserved below.",
+      "checkedAt": "2026-10-21T14:45:17Z",
+      "note": "New official-source review to resolve the closing-readings release blocker. Viki's title page, WeTV's English title page and Tencent's title URL returned HTTP 200. Viki's episode API returned HTTP 200 and x-geoip-country-code=us with 48 entries: Episodes 1–6 free, Episodes 7–47 subscription, and a separate Special Episode numbered 48. Every entry reports English subtitles at 100%, an available stream, no geo block and no upcoming block. WeTV still displays All 47 EPs. No player playback, non-US territorial rights, mainland episode range, cross-platform cut equivalence or finale timing was established. Historical review dates below are unchanged.",
       "sources": [
         "https://www.viki.com/tv/41705c-against-the-current?locale=en",
         "https://api.viki.io/v4/series/41705c/episodes.json?app=100000a&per_page=50",

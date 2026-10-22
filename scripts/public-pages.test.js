@@ -563,6 +563,8 @@ test("robots and sitemap expose only intended public surfaces", () => {
     "https://fandom.justlikekatie.com/c-drama-fandom/vibing-now/against-the-current-episodes-30-31/",
     "https://fandom.justlikekatie.com/c-drama-fandom/vibing-now/against-the-current-episodes-32-33/",
     "https://fandom.justlikekatie.com/c-drama-fandom/vibing-now/against-the-current-episodes-34-38/",
+    "https://fandom.justlikekatie.com/c-drama-fandom/vibing-now/against-the-current-episodes-43-45/",
+    "https://fandom.justlikekatie.com/c-drama-fandom/vibing-now/against-the-current-episodes-46-47/",
     "https://fandom.justlikekatie.com/c-drama-fandom/where-to-watch/against-the-current/",
     "https://fandom.justlikekatie.com/c-drama-fandom/soundtrack/against-the-current/",
   ];
