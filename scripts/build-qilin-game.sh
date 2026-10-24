@@ -28,6 +28,17 @@ fi
 project="$root/games/qilin-keeper/godot"
 "$godot_bin" --headless --path "$project" --editor --import --quit </dev/null 2>&1 | tee "$cache/import.log"
 if grep -E 'SCRIPT ERROR|Parse Error' "$cache/import.log"; then exit 1; fi
+# Export only checks compilation. Run the real behavioral suite before releasing.
+# Godot can report script/assertion failures while still returning exit code zero.
+timeout --kill-after=5s 90s "$godot_bin" --headless --path "$project" \
+  --script res://tests/cassette_checks.gd </dev/null 2>&1 | tee "$cache/cassette.log"
+if grep -Ei 'SCRIPT ERROR|Parse Error|Assertion failed|AssertionError|FAIL:' "$cache/cassette.log"; then
+  exit 1
+fi
+if ! grep -Fxq 'Qilin cassette checks: PASS' "$cache/cassette.log"; then
+  echo "Cassette checks did not finish successfully." >&2
+  exit 1
+fi
 "$godot_bin" --headless --path "$project" --export-release Web "$root/public/qilin-keeper/game/index.html" --quit </dev/null 2>&1 | tee "$cache/export.log"
 if grep -E 'SCRIPT ERROR|Parse Error' "$cache/export.log"; then exit 1; fi
 cp "$project/assets/cover.jpg" public/qilin-keeper/game/cover.jpg

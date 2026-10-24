@@ -23,6 +23,7 @@ var store: RefCounted
 var opened := false
 var selected := ""
 var dragging := false
+var active_touch := -1
 var moved := false
 var pointer := Vector2.ZERO
 var pickup_at := Vector2.ZERO
@@ -38,6 +39,7 @@ func _ready() -> void:
 	store = Store.new()
 	store.path = save_path
 	store.load_case()
+	store.context_replaced.connect(reset_context)
 	store.start_browser_bridge()
 	hide()
 	update_button()
@@ -47,6 +49,18 @@ func update_button() -> void:
 		host.case_button.text = "Case %d / K" % store.earned.size()
 		if not store.last_error.is_empty():
 			host.case_button.text = "Case ! / K"
+
+func reset_context() -> void:
+	selected = ""
+	dragging = false
+	moved = false
+	active_touch = -1
+	ghost = Vector2.ZERO
+	offset = Vector2.ZERO
+	angle = 0.0
+	feedback = "Cassette changed. Choose a sticker from this collection."
+	update_button()
+	queue_redraw()
 
 func award(id: String) -> bool:
 	if id not in Store.IDS or id in store.earned:
@@ -94,6 +108,7 @@ func close_case() -> void:
 	opened = false
 	selected = ""
 	dragging = false
+	active_touch = -1
 	for entry in frozen:
 		entry.node.set_process(bool(entry.processing) and not host.paused and not host.flight.active)
 	frozen.clear()
@@ -126,7 +141,7 @@ func pick(id: String, at: Vector2, from_case: bool = false) -> void:
 	queue_redraw()
 
 func place(at: Vector2) -> bool:
-	if selected.is_empty() or not LABEL_RECT.has_point(at):
+	if selected.is_empty() or selected not in store.earned or not LABEL_RECT.has_point(at):
 		feedback = "Use the cream label. Esc cancels the pickup."
 		queue_redraw()
 		return false
@@ -162,7 +177,16 @@ func handle_at(event: InputEvent, at: Vector2) -> void:
 	# One tap must not place a sticker and immediately pick it up again.
 	if event.device < 0 and (event is InputEventMouseButton or event is InputEventMouseMotion or event is InputEventScreenTouch or event is InputEventScreenDrag):
 		return
-	if (event is InputEventScreenTouch or event is InputEventScreenDrag) and event.index != 0:
+	if event is InputEventScreenTouch:
+		if event.pressed:
+			if active_touch != -1:
+				return
+			active_touch = event.index
+		elif event.index != active_touch:
+			return
+		else:
+			active_touch = -1
+	elif event is InputEventScreenDrag and event.index != active_touch:
 		return
 	if event is InputEventKey and event.pressed:
 		if event.keycode == KEY_K and not event.echo:
@@ -199,7 +223,7 @@ func handle_at(event: InputEvent, at: Vector2) -> void:
 	if event is InputEventMouseButton and event.button_index == MOUSE_BUTTON_LEFT:
 		press = event.pressed
 		release = not event.pressed
-	elif event is InputEventScreenTouch and event.index == 0:
+	elif event is InputEventScreenTouch:
 		press = event.pressed
 		release = not event.pressed
 	elif event is InputEventMouseMotion or event is InputEventScreenDrag:
