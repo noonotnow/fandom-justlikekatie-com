@@ -116,6 +116,34 @@ func run_checks() -> void:
 	check(album.selected.is_empty(),"An emulated mouse event cannot pick up a just-placed touch sticker.")
 	album.close_case()
 	check(game.grooming.is_processing(),"Closing restores care processing.")
+	check(album.open_case(),"Case reopens for nonzero touch identifiers.")
+	for touch_id in [3,9]:
+		var down := InputEventScreenTouch.new()
+		down.index = touch_id
+		down.pressed = true
+		album.handle_at(down,Vector2(200,320))
+		var other := InputEventScreenTouch.new()
+		other.index = touch_id+1
+		other.pressed = true
+		album.handle_at(other,Vector2(1180,140))
+		check(album.opened,"A second finger cannot close the case during a gesture.")
+		var drag := InputEventScreenDrag.new()
+		drag.index = touch_id
+		album.handle_at(drag,Vector2(650,380))
+		down.pressed = false
+		album.handle_at(down,Vector2(650,380))
+		check(album.store.placed.has("first_flight") and album.selected.is_empty(),"Successive nonzero touch IDs can each place a sticker.")
+		check(album.active_touch == -1,"Touch release frees the active pointer.")
+	var before_context := {"version":1,"earned":album.store.earned.duplicate(),"placed":album.store.placed.duplicate(true)}
+	album.pick("first_flight",Vector2(650,380))
+	var guest := {"version":1,"earned":[],"placed":{}}
+	album.store.browser_context([JSON.stringify({"key":album.store.WEB_KEY,"cassette":guest,"writable":false})])
+	check(album.selected.is_empty() and not album.dragging and album.ghost == Vector2.ZERO,"Context replacement cancels all transient member selection.")
+	album.handle_at(key(KEY_ENTER),Vector2.ZERO)
+	check(album.store.placed.is_empty(),"Guest cassette never inherits a member sticker after context replacement.")
+	check(not album.store.save_case(),"Protected storage cannot be overwritten by a new context.")
+	album.store.browser_context([JSON.stringify({"key":album.store.WEB_KEY,"cassette":before_context,"writable":true})])
+	album.close_case()
 	check(game.cleanup.patches.size() == patches and game.cup.water == 2 and game.grooming.tufts[0].ruffle == 0.35,"Decorating preserves mess, water, and grooming progress.")
 	check(album.store.last_error.is_empty(),"Saving succeeds, not just a visual fake.")
 	var saved: Dictionary = album.store.placed.duplicate(true)
