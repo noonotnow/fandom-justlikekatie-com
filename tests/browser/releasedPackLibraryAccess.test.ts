@@ -4,7 +4,6 @@ import {
   gotoTestPage,
   closeBrowserAndServer,
   launchBrowserWithServer,
-  simulateProductionAudience,
   startViteTestServer,
   simulateProductionAudience,
   waitForPublicAudience,
@@ -18,7 +17,6 @@ test('signed-out released-pack visitors see a public teaser without fetching pro
     const page = await browser.newPage();
     await simulateProductionAudience(page);
     page.setDefaultTimeout(5_000);
-    await simulateProductionAudience(page);
     await page.addInitScript(() => {
       (window as Window & { capturedAnalytics?: Array<{ name: string; data?: object }> }).capturedAnalytics = [];
       (window as Window & {
