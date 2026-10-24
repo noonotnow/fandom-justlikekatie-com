@@ -663,7 +663,7 @@ for (const engine of BROWSER_ENGINES) {
       const saveRequests = await installEditionRoutes(page);
       await page.route('**/api/auth/session', route => route.fulfill({
         contentType: 'application/json',
-        body: JSON.stringify({ user: { accountId: 'archive-save-sync-user', email: 'reader@example.test' } }),
+        body: JSON.stringify({ user: { accountId: 'archive-save-sync-user', email: 'reader@example.test', isAdmin: false } }),
       }));
       await page.route('**/api/collection/sync', async route => {
         syncRequests.push(route.request().postDataJSON());

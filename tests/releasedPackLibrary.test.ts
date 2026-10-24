@@ -167,7 +167,7 @@ test('a signed-in free account sees an upgrade, not another sign-in form or Coll
     const url = String(input);
     requests.push(url);
     if (url === '/api/auth/session') {
-      return Response.json({ user: { accountId: 'usr_free', email: 'free@example.com' } });
+      return Response.json({ user: { accountId: 'usr_free', email: 'free@example.com', isAdmin: false } });
     }
     if (url === '/.netlify/functions/released-pack-directory') {
       return Response.json({ packs: [] });
@@ -201,7 +201,7 @@ test('entitled Released Pack Library keeps English primary while rendering Chine
   const cleanup = installReleasedLibraryEnvironment((async (input, init) => {
     const url = String(input);
     if (url === '/api/auth/session') {
-      return Response.json({ user: { accountId: 'usr_collector', email: 'collector@example.com' } });
+      return Response.json({ user: { accountId: 'usr_collector', email: 'collector@example.com', isAdmin: false } });
     }
     if (url === '/api/collection/sync') {
       const payload = JSON.parse(String(init?.body)) as {
