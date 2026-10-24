@@ -963,7 +963,7 @@ for (const engine of BROWSER_ENGINES) {
     const { server, origin } = await startViteTestServer();
     const { browser, page } = await launchPageForServer(server, engine.type);
     const accountId = 'collector-account-after-public-inventory';
-    const user = { accountId, email: 'collector@example.test' };
+    const user = { accountId, email: 'collector@example.test', isAdmin: false };
 
     try {
       const sources = [

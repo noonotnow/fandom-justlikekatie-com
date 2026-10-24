@@ -164,7 +164,7 @@ for (const [discardKind, restoreKind] of [
     const installRoutes = async (context: BrowserContext, device: string) => {
       await context.route('**/api/auth/session', route => route.fulfill({
       contentType: 'application/json',
-      body: JSON.stringify({ user: { accountId: ACCOUNT_ID, email: 'reader@example.test' } }),
+      body: JSON.stringify({ user: { accountId: ACCOUNT_ID, email: 'reader@example.test', isAdmin: false } }),
       }));
       await context.route('**/api/membership/status', route => route.fulfill({
         contentType: 'application/json',

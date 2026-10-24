@@ -16,8 +16,9 @@ async function startApp() {
 
 test('veteran pageviews and events never expose the journal capability', { timeout: 30_000 }, async () => {
   const entryHtml = readFileSync('index.html', 'utf8');
-  assert.equal(entryHtml.match(/gtag\('config', 'G-FHZJ1T74TG'/g)?.length, 1);
-  assert.doesNotMatch(entryHtml, /G-CGWB67360Q|GTM-W7DJ27L5/);
+  const gateSource = readFileSync('public/audience-gate.js', 'utf8');
+  assert.equal(gateSource.match(/push\(\['config', GA_ID/g)?.length, 1);
+  assert.doesNotMatch(entryHtml + gateSource, /G-CGWB67360Q|GTM-W7DJ27L5/);
 
   const [{ server, origin }, browser] = await launchBrowserWithServer(startApp());
   try {
@@ -29,13 +30,19 @@ test('veteran pageviews and events never expose the journal capability', { timeo
     // This privacy test exercises the production tracking path on the local
     // test server. Host eligibility is tested separately without this override.
     // The override exists only in the intercepted test response, never the app.
-    await page.route('**/vibe-atlas/veteran-journal?*', async route => {
-      const response = await route.fetch();
-      const body = await response.text();
-      const productionGuard = "window.location.hostname === 'fandom.justlikekatie.com'";
-      assert.ok(body.includes(productionGuard));
-      await route.fulfill({ response, body: body.replace(productionGuard, 'true /* test-only production simulation */') });
+    await page.route('**/audience-gate.js', async route => {
+      const productionGuard = "w.location.hostname === 'fandom.justlikekatie.com'";
+      assert.ok(gateSource.includes(productionGuard));
+      await route.fulfill({
+        contentType: 'application/javascript',
+        body: gateSource.replace(productionGuard, 'true /* test-only production simulation */'),
+      });
     });
+    // Non-operator positive control: an anonymous session lets tracking start.
+    await page.route('**/api/auth/session', route => route.fulfill({
+      contentType: 'application/json',
+      body: JSON.stringify({ user: null }),
+    }));
     await page.route('**/.netlify/functions/watch-journal?*', async route => {
       const url = new URL(route.request().url());
       requestedJournalIds.push(url.searchParams.get('journal') ?? '');

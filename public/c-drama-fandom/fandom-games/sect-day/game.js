@@ -9,10 +9,12 @@ const source = incomingEnding(location.search) ? "share" : "direct";
 function track(event, outcomeId, method) {
   const payload = { event, batchKey: "c-drama-fandom-sect-day", contentId: GAME_ID, source, ...(outcomeId ? { outcomeId } : {}), ...(method ? { shareMethod: method } : {}) };
   try {
-    window.dataLayer = window.dataLayer || [];
-    window.dataLayer.push({ ...payload });
+    window.__audienceGate?.run(() => {
+      window.dataLayer = window.dataLayer || [];
+      window.dataLayer.push({ ...payload });
+    });
     if (location.hostname === "localhost" || location.hostname === "127.0.0.1" || location.hostname.endsWith(".replit.dev")) return;
-    fetch("/.netlify/functions/log-engagement", { method: "POST", headers: { "Content-Type": "application/json" }, credentials: "omit", keepalive: true, body: JSON.stringify(payload) }).catch(() => {});
+    fetch("/.netlify/functions/log-engagement", { method: "POST", headers: { "Content-Type": "application/json" }, credentials: "same-origin", keepalive: true, body: JSON.stringify(payload) }).catch(() => {});
   } catch { /* Telemetry is never part of story control flow. */ }
 }
 function node(tag, text, className) {

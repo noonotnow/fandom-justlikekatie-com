@@ -21,7 +21,7 @@ test('Collection sync persists server changes and succeeds when cross-tab notifi
   const keys = ['indexedDB', 'window', 'navigator', 'localStorage', 'sessionStorage', 'fetch'] as const;
   const originals = keys.map(key => [key, Object.getOwnPropertyDescriptor(globalThis, key)] as const);
   const accountId = 'blocked-notification-account';
-  const user = { accountId, email: 'member@example.test' };
+  const user = { accountId, email: 'member@example.test', isAdmin: false };
   const card: CardRecord = {
     localId: 'blocked-notification-card',
     imageUrl: 'https://images.example/card.jpg',
@@ -137,7 +137,7 @@ test('Selected grid sync persists the server response when cross-tab notificatio
   const keys = ['indexedDB', 'window', 'navigator', 'localStorage', 'fetch'] as const;
   const originals = keys.map(key => [key, Object.getOwnPropertyDescriptor(globalThis, key)] as const);
   const accountId = 'blocked-grid-notification-account';
-  const user = { accountId, email: 'member@example.test' };
+  const user = { accountId, email: 'member@example.test', isAdmin: false };
   const grid: GridRecord = {
     localId: 'selected-grid-local-id',
     kind: 'grid',

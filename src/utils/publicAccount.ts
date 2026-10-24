@@ -71,18 +71,84 @@ async function applySyncResponseWithConflictAnalytics(
 export interface PublicUser {
   accountId: string;
   email: string;
-  isAdmin?: boolean;
+  isAdmin: boolean;
 }
 
-export async function getPublicSession(): Promise<PublicUser | null> {
-  const response = await fetch('/api/auth/session', { credentials: 'same-origin' });
+/**
+ * Reports the server-verified session to the audience measurement gate so
+ * operator sessions are never counted. A failed lookup is "unknown" and stays
+ * suppressed rather than being treated as a public visitor.
+ */
+function reportAudienceSession(user: PublicUser | null | 'unknown', verificationComplete = false): void {
+  try {
+    const gate = typeof window === 'undefined' ? undefined : window.__audienceGate;
+    if (!gate) return;
+    if (verificationComplete) gate.completeVerification(user);
+    else if (user === 'unknown') gate.unknown();
+    else gate.classify(user);
+  } catch {
+    // Measurement must never affect sign-in or session handling.
+  }
+}
+
+let sessionReadGeneration = 0;
+
+function isPublicUser(value: unknown): value is PublicUser {
+  return Boolean(
+    value
+    && typeof value === 'object'
+    && !Array.isArray(value)
+    && typeof (value as PublicUser).accountId === 'string'
+    && typeof (value as PublicUser).email === 'string'
+    && typeof (value as PublicUser).isAdmin === 'boolean',
+  );
+}
+
+export async function getPublicSession(
+  options: { verificationComplete?: boolean } = {},
+): Promise<PublicUser | null> {
+  const gate = typeof window === 'undefined' ? undefined : window.__audienceGate;
+  const startedDuringVerification = options.verificationComplete !== true
+    && gate?.verificationInProgress() === true;
+  const generation = startedDuringVerification
+    ? sessionReadGeneration
+    : ++sessionReadGeneration;
+  let response: Response;
+  try {
+    response = await fetch('/api/auth/session', { credentials: 'same-origin' });
+  } catch (error) {
+    if (generation !== sessionReadGeneration || startedDuringVerification) return null;
+    reportAudienceSession('unknown', options.verificationComplete);
+    throw error;
+  }
+  if (generation !== sessionReadGeneration || startedDuringVerification) return null;
   const isJson = response.headers.get('content-type')?.toLowerCase().includes('application/json');
   if (!response.ok || !isJson) {
+    reportAudienceSession('unknown', options.verificationComplete);
     if (response.status === 401) setDailyParticipationAuthority(false);
     await dbSetActiveAccount();
     return null;
   }
-  const user = (await response.json()).user as PublicUser | null;
+  let body: unknown;
+  try {
+    body = await response.json();
+  } catch {
+    reportAudienceSession('unknown', options.verificationComplete);
+    throw new Error('The session response was invalid.');
+  }
+  if (generation !== sessionReadGeneration) return null;
+  if (
+    !body
+    || typeof body !== 'object'
+    || Array.isArray(body)
+    || !Object.hasOwn(body, 'user')
+    || (body as { user?: unknown }).user !== null && !isPublicUser((body as { user?: unknown }).user)
+  ) {
+    reportAudienceSession('unknown', options.verificationComplete);
+    throw new Error('The session response was invalid.');
+  }
+  const user = (body as { user: PublicUser | null }).user;
+  reportAudienceSession(user, options.verificationComplete);
   setDailyParticipationAuthority(user?.isAdmin === true);
   await dbSetActiveAccount(user?.accountId);
   return user;
@@ -138,6 +204,11 @@ export async function consumeMagicLinkFromLocation(): Promise<
   );
   const response = await postJson('/api/auth/verify', { token });
   if (!response.ok) throw new Error((await response.json()).error || 'The sign-in link could not be used.');
+  try {
+    await getPublicSession({ verificationComplete: true });
+  } catch {
+    // A failed fresh lookup remains suppressed; it must not undo verification.
+  }
   notifyCollection('session-changed');
   if (archiveDate) return `archive:${archiveDate}`;
   return next === 'plan' || next === 'admin' ? 'admin' : next === 'membership' ? 'membership' : 'collection';
@@ -156,6 +227,7 @@ export async function logoutPublicAccount(user: PublicUser): Promise<void> {
   if (!response.ok) throw new Error('Could not sign out.');
   await dbRemoveAccountCache(user.accountId);
   await dbSetActiveAccount();
+  reportAudienceSession(null);
   notifyCollection('session-changed');
 }
 

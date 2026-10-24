@@ -77,8 +77,8 @@ test("superseded essay redirects to its correction, without a legacy discussion 
     'href="/c-drama-fandom/vibing-now/against-the-current-episodes-26-29/">Continue to Episodes 26–29 (later spoilers)',
     'href="/c-drama-fandom/vibing-now/against-the-current-episodes-26-30/">Continue to Episodes 26–30 (later spoilers)',
   );
-  assert.equal(hash(unchanged), "debe69d324b36971bdb0527527841a84b0f2c8eaa87c4706344b04df02417563");
-  assert.equal(hash(read(`public${root}against-the-current-episode-21/index.html`)), "5f09d04509c210c9d2c4834b5d1d77f440ce06bd332262d884b1110ef3fe7c76");
+  assert.equal(hash(unchanged), "64dd9c9b0a6bd085f4517bef2c4cbbe10afb054c8660887d91cbd47a960a389d");
+  assert.equal(hash(read(`public${root}against-the-current-episode-21/index.html`)), "649570694c5b7e28b329504f71940637e6d5817cc22296d539d76418e6ddba9e");
 });
 
 test("shelf discovers every registered bounded reading without fixed counts or availability promises", () => {

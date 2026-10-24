@@ -482,7 +482,7 @@ test('private operator queue handles legacy evidence, empty pagination, decision
   try {
     await page.route('**/api/auth/session', route => route.fulfill({
       contentType: 'application/json',
-      body: JSON.stringify({ user: { accountId: 'operator', isAdmin: true } }),
+      body: JSON.stringify({ user: { accountId: 'operator', email: 'operator@example.test', isAdmin: true } }),
     }));
     await page.route('**/api/membership/status', route => route.fulfill({
       contentType: 'application/json', body: JSON.stringify({ capabilities: [] }),
@@ -561,7 +561,11 @@ test(`same-image operator reports have copyable distinct receipts and independen
     `);
     await page.route('**/api/auth/session', route => route.fulfill({
       contentType: 'application/json', body: JSON.stringify({
-        user: { accountId: operator ? 'operator' : 'ordinary-member', isAdmin: operator },
+        user: {
+          accountId: operator ? 'operator' : 'ordinary-member',
+          email: operator ? 'operator@example.test' : 'member@example.test',
+          isAdmin: operator,
+        },
       }),
     }));
     await page.route('**/api/membership/status', route => route.fulfill({

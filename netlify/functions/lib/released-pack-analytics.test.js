@@ -18,7 +18,7 @@ function fixture() {
   } };
   return {
     blobs,
-    collect: createReleasedPackCollectHandler({ getStore: () => store, now: () => new Date("2026-09-24T12:00:00Z") }),
+    collect: createReleasedPackCollectHandler({ auth: { isOperatorRequest: async req => req.headers.get("x-operator") === "verified" }, getStore: () => store, now: () => new Date("2026-09-24T12:00:00Z") }),
     report: createReleasedPackReportHandler({ auth, getStore: () => store, now: () => new Date("2026-09-26T12:00:00Z") }),
   };
 }
