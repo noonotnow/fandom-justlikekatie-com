@@ -74,6 +74,15 @@ for (const host of ['localhost', '127.0.0.1', '[::1]', 'earnest-gecko-17eb0c.net
   });
 }
 
+test('non-production session changes do not suppress local analytics', () => {
+  const result = bootstrap('https://localhost/vibe-atlas');
+  result.window.__audienceGate.unknown();
+  assert.equal(result.window.__audienceGate.state(), 'public');
+  let ran = false;
+  result.window.__audienceGate.run(() => { ran = true; });
+  assert.equal(ran, true);
+});
+
 test('production anonymous visitor retains one GA4 config, one GTM loader and event delivery (positive control)', async () => {
   const result = await production('https://fandom.justlikekatie.com/vibe-atlas', null);
   assert.equal(result.window.__analyticsProductionHost, true);

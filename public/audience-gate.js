@@ -70,9 +70,9 @@
   }
 
   function setState(next) {
+    if (!production) return;
     var previous = state;
     state = next;
-    if (!production) return;
     if (next === 'public') {
       disableGoogle(false);
       startGoogle();
