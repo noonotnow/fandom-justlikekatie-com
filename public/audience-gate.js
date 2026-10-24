@@ -30,6 +30,9 @@
   var MAX_BUFFER = 100;
 
   var production = w.location.hostname === 'fandom.justlikekatie.com';
+  var path = w.location.pathname.replace(/\/+$/, '').toLowerCase();
+  var verificationPath = path === '/auth/verify' || path === '/zh-cn/auth/verify';
+  var verificationHold = production && verificationPath;
   w.__analyticsProductionHost = production;
 
   var state = production ? 'pending' : 'public';
@@ -108,9 +111,11 @@
   // `user` is the parsed /api/auth/session "user" value: null/undefined for
   // an anonymous visitor, otherwise an object whose isAdmin is server-derived.
   function classify(user) {
-    if (user && typeof user === 'object' && user.isAdmin === true) setState('operator');
-    else if (user === null || user === undefined || typeof user === 'object') setState('public');
-    else setState('unknown');
+    if (verificationHold) return;
+    if (user === null) setState('public');
+    else if (user && typeof user === 'object' && !Array.isArray(user) && typeof user.isAdmin === 'boolean') {
+      setState(user.isAdmin ? 'operator' : 'public');
+    } else setState('unknown');
   }
 
   function markUnknown() {
@@ -118,7 +123,7 @@
   }
 
   function refresh(background) {
-    if (!production || typeof w.fetch !== 'function') return;
+    if (!production || verificationHold || typeof w.fetch !== 'function') return;
     var current = ++generation;
     var controller = typeof w.AbortController === 'function' ? new w.AbortController() : null;
     var timer = controller ? w.setTimeout(function () { controller.abort(); }, TIMEOUT_MS) : null;
@@ -141,18 +146,26 @@
       .then(function () { if (timer) w.clearTimeout(timer); });
   }
 
+  function completeVerification(user) {
+    verificationHold = false;
+    generation += 1;
+    if (user === 'unknown') markUnknown();
+    else classify(user);
+  }
+
   w.__audienceGate = {
     state: function () { return state; },
     run: run,
     classify: function (user) { generation += 1; classify(user); },
     unknown: function () { generation += 1; markUnknown(); },
     refresh: function () { refresh(false); },
+    verificationInProgress: function () { return verificationHold; },
+    completeVerification: completeVerification,
   };
 
   if (!production) return;
   disableGoogle(true);
-  var path = w.location.pathname.replace(/\/+$/, '').toLowerCase();
-  if (path === '/auth/verify' || path === '/zh-cn/auth/verify') {
+  if (verificationPath) {
     // The URL fragment carries a sign-in token and the session cookie does not
     // exist yet. Stay suppressed until the app reports the resulting session.
     state = 'unknown';

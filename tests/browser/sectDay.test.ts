@@ -26,6 +26,58 @@ for (const engine of BROWSER_ENGINES) {
         await expect(page.locator('.sect-consequence h3')).toBeFocused();
         await page.getByRole('button', { name: i === 4 ? 'See your ending' : 'Continue', exact: true }).click();
       }
+
+      test('Sect Day sends same-origin collector requests with operator cookies and keeps anonymous/member controls', {
+        timeout: 30_000,
+      }, async () => {
+        const [{ server, origin }, browser] = await launchBrowserWithServer(startViteTestServer());
+        try {
+          const page = await browser.newPage();
+          const canonicalOrigin = `https://fandom.justlikekatie.com:${new URL(origin).port}`;
+          await page.route(`${canonicalOrigin}/**`, async route => {
+            const requestUrl = new URL(route.request().url());
+            if (requestUrl.pathname === '/.netlify/functions/log-engagement') {
+              await route.fulfill({ status: 200, contentType: 'application/json', body: '{"ok":true}' });
+              return;
+            }
+            await route.fulfill({
+              response: await route.fetch({
+                url: `${origin}${requestUrl.pathname}${requestUrl.search}`,
+              }),
+            });
+          });
+
+          const setSessionCookie = async (value?: string) => {
+            await page.context().clearCookies();
+            if (value) {
+              await page.context().addCookies([{
+                name: '__Host-fandom_session',
+                value,
+                url: canonicalOrigin,
+                secure: true,
+                httpOnly: true,
+                sameSite: 'Lax',
+              }]);
+            }
+          };
+          const playStart = async (cookieValue?: string) => {
+            await setSessionCookie(cookieValue);
+            await gotoTestPage(page, `${canonicalOrigin}${GAME_PATH}`);
+            const requestPromise = page.waitForRequest(request => (
+              request.url().includes('/.netlify/functions/log-engagement')
+            ));
+            await page.locator('#start').click();
+            const request = await requestPromise;
+            return (await request.allHeaders()).cookie;
+          };
+
+          assert.match(await playStart('operator-session-cookie') ?? '', /__Host-fandom_session=operator-session-cookie/);
+          assert.match(await playStart('member-session-cookie') ?? '', /__Host-fandom_session=member-session-cookie/);
+          assert.doesNotMatch(await playStart() ?? '', /__Host-fandom_session/);
+        } finally {
+          await closeBrowserAndServer(browser, server);
+        }
+      });
       await expect(page.locator('#sect-heading')).toHaveText('Reluctant Sect Savior');
       await expect(page.locator('.sect-recap li')).toHaveCount(5);
       const events = () => page.evaluate(() => (window as any).dataLayer || []);

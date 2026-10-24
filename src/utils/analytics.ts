@@ -129,9 +129,11 @@ declare global {
     __audienceGate?: {
       state(): 'pending' | 'public' | 'operator' | 'unknown';
       run(fn: () => void): void;
-      classify(user: { isAdmin?: boolean } | null | undefined): void;
+      classify(user: unknown): void;
       unknown(): void;
       refresh(): void;
+      verificationInProgress(): boolean;
+      completeVerification(user: unknown): void;
     };
   }
 }

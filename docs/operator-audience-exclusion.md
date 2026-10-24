@@ -36,11 +36,17 @@ Love Between Fairy and Devil guide, both locales).
   to `public`/`operator`. A background re-check that fails transiently keeps the
   last verified state.
 - Sign-in links (`/auth/verify`, `/zh-cn/auth/verify`) are suppressed until the
-  app reports the resulting session, and the page location sent to Google never
+  verification succeeds and a fresh session lookup completes. Ordinary session
+  reads started during verification are discarded and cannot release the hold.
+  Missing or malformed user roles remain `unknown`; only explicit `null` or a
+  boolean `isAdmin` role is accepted. The page location sent to Google never
   includes the URL fragment (the magic-link token lives there).
 - Logout, account switch and session changes are reported through
   `getPublicSession()`/`logoutPublicAccount()` in `src/utils/publicAccount.ts`.
 - `trackEvent` (`src/utils/analytics.ts`, Google and Umami) runs through the gate.
+- LG01 game events enter `dataLayer` only when the gate is already `public`;
+  Sect Day's first-party collector uses same-origin credentials so the server can
+  exclude a verified operator cookie.
 - **No opt-out marker is stored** (no cookie, localStorage or URL flag). State
   lives only in page memory and is re-derived from the server on every load, so
   there is nothing to expire or leak.
@@ -68,6 +74,7 @@ not audience aggregates and are unchanged.
 - `node --test tests/analyticsHostGuard.test.mjs` - gate states, hosts, fallback, token handling
 - `node --import tsx/esm --test tests/audienceAnalytics.test.ts` - `trackEvent` gating
 - `node --test netlify/functions/lib/operator-audience-exclusion.test.js` - server exclusion with ordinary-member and anonymous positive controls
+- `node --import tsx/esm --test tests/browser/audienceGateGameTelemetry.test.ts tests/browser/magicLinkAudienceHold.test.ts tests/browser/publicSessionAudienceValidation.test.ts tests/browser/sectDay.test.ts` - browser cookie, game-gate, callback-race and malformed-session controls
 
 ## Unresolved / must be verified after deployment
 

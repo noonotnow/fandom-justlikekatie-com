@@ -15,7 +15,10 @@ const sessionResponse = (user, init = {}) => ({
   ok: init.ok ?? true,
   status: init.status ?? 200,
   headers: { get: () => (init.contentType ?? 'application/json; charset=utf-8') },
-  json: async () => ({ user }),
+  json: async () => {
+    if (init.jsonError) throw new Error('invalid JSON');
+    return init.body ?? { user };
+  },
 });
 
 // `session` is a user object / null, or an Error / { ok: false } to simulate a failed lookup.
@@ -35,6 +38,7 @@ function bootstrap(url, session = null) {
       fetches.push({ target, options });
       if (session instanceof Error) return Promise.reject(session);
       if (session && session.__failed) return Promise.resolve(sessionResponse(null, session));
+      if (session && session.__body) return Promise.resolve(sessionResponse(null, session));
       return Promise.resolve(sessionResponse(session));
     },
   };
@@ -135,12 +139,39 @@ test('buffered pre-classification events are dropped for operators and flushed o
 
 test('failed or malformed classification is suppressed (fail closed) and does not throw', async () => {
   for (const session of [new Error('offline'), { __failed: true, ok: false, status: 503 },
-    { __failed: true, ok: true, contentType: 'text/html' }]) {
+    { __failed: true, ok: true, contentType: 'text/html' },
+    ...[
+      {},
+      { user: undefined },
+      { user: {} },
+      { user: [] },
+      { user: { isAdmin: 'true' } },
+      { user: { isAdmin: null } },
+      [],
+    ].map(body => ({ __body: true, body })),
+    { __body: true, jsonError: true }]) {
     const result = await production('https://fandom.justlikekatie.com/vibe-atlas', session);
     assert.equal(result.window.__audienceGate.state(), 'unknown');
     assert.deepEqual(result.loads, []);
     assert.deepEqual(result.entries(), []);
   }
+});
+
+test('direct classification requires an explicit anonymous or boolean operator role', async () => {
+  const result = await production('https://fandom.justlikekatie.com/vibe-atlas', null);
+  const gate = result.window.__audienceGate;
+  const initialLoads = result.loads.length;
+  for (const user of [undefined, {}, [], { isAdmin: 'true' }, { isAdmin: null }]) {
+    gate.classify(user);
+    assert.equal(gate.state(), 'unknown');
+    assert.equal(result.loads.length, initialLoads);
+  }
+  gate.classify({ isAdmin: false });
+  assert.equal(gate.state(), 'public');
+  gate.classify({ isAdmin: true });
+  assert.equal(gate.state(), 'operator');
+  gate.classify(null);
+  assert.equal(gate.state(), 'public');
 });
 
 test('operator sign-in, logout and account switch re-classify; opt-out is never persisted', async () => {
@@ -186,10 +217,15 @@ test('sign-in link pages stay suppressed without fetching and never expose the t
   for (const path of ['/auth/verify', '/zh-cn/auth/verify']) {
     const result = await production(`https://fandom.justlikekatie.com${path}#token=SecretTokenSentinel&next=admin`, null);
     assert.equal(result.window.__audienceGate.state(), 'unknown');
+    assert.equal(result.window.__audienceGate.verificationInProgress(), true);
     assert.deepEqual(result.fetches, []);
     assert.deepEqual(result.loads, []);
     assert.ok(!JSON.stringify(result.entries()).includes('SecretTokenSentinel'));
     result.window.__audienceGate.classify(null);
+    assert.equal(result.window.__audienceGate.state(), 'unknown');
+    result.window.__audienceGate.completeVerification({ isAdmin: true });
+    assert.equal(result.window.__audienceGate.verificationInProgress(), false);
+    assert.equal(result.window.__audienceGate.state(), 'operator');
     assert.ok(!JSON.stringify(result.entries()).includes('SecretTokenSentinel'));
     assert.ok(!JSON.stringify(result.entries()).includes('#token'));
   }

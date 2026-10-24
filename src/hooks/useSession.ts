@@ -32,11 +32,18 @@ export function useSession(): SessionState {
     let cancelled = false;
 
     const checkSession = async () => {
-      const user = await getPublicSession();
-      if (cancelled) return;
-      setIsSignedIn(Boolean(user));
-      setHasAdminAccess(user?.isAdmin === true);
-      setLoading(false);
+      try {
+        const user = await getPublicSession();
+        if (cancelled) return;
+        setIsSignedIn(Boolean(user));
+        setHasAdminAccess(user?.isAdmin === true);
+      } catch {
+        if (cancelled) return;
+        setIsSignedIn(false);
+        setHasAdminAccess(false);
+      } finally {
+        if (!cancelled) setLoading(false);
+      }
     };
 
     void checkSession();
