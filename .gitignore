@@ -37,6 +37,9 @@ attached_assets/against-the-current-34-38-private-reading_1791419145969.pdf
 
 # Local Netlify folder
 .netlify
+/public/qilin-keeper/game/
+/generated-artifacts/
+**/.godot/
 
 # Separate local worktree; never include it in this site's source.
 .archive-hotfix/

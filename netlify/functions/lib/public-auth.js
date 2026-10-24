@@ -87,7 +87,7 @@ export function createPublicAuth({
         && /^archive:\d{4}-\d{2}-\d{2}$/.test(next)
         ? next
         : null;
-      const nextView = next === "admin" || next === "plan" || next === "membership"
+      const nextView = next === "admin" || next === "plan" || next === "membership" || next === "qilin"
         ? next
         : archiveReturn;
       // Locale is a strict allowlisted preference, never a path or redirect.
@@ -112,7 +112,7 @@ export function createPublicAuth({
         const origin = new URL(env.FANDOM_PUBLIC_ORIGIN).origin;
         const nextParam = nextView ? `&next=${encodeURIComponent(nextView)}` : "";
         const localeParam = `&locale=${encodeURIComponent(requestedLocale)}`;
-        const verifyPath = requestedLocale === "zh-CN" ? "/zh-cn/auth/verify" : "/auth/verify";
+        const verifyPath = nextView === "qilin" ? "/qilin-signin/" : requestedLocale === "zh-CN" ? "/zh-cn/auth/verify" : "/auth/verify";
         await sendEmail({
           env,
           fetchImpl,

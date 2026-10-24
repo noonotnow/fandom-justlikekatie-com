@@ -1,0 +1,8 @@
+<svg xmlns="http://www.w3.org/2000/svg" width="160" height="160" viewBox="0 0 160 160">
+<clipPath id="c"><circle cx="80" cy="80" r="68"/></clipPath>
+<circle cx="80" cy="80" r="68" fill="#ff8fc8"/>
+<g clip-path="url(#c)"><path d="M0 0H60Q40 80 60 160H0Z" fill="#7fe6c4"/><path d="M160 0H100Q120 80 100 160H160Z" fill="#b9a4ee"/></g>
+<circle cx="80" cy="80" r="68" fill="none" stroke="#2a1250" stroke-width="10"/>
+<path d="M80 40L90 66L118 68L96 86L104 113L80 98L56 113L64 86L42 68L70 66Z" fill="#ffd34d" stroke="#2a1250" stroke-width="6" stroke-linejoin="round"/>
+<path d="M36 60Q44 38 66 28" stroke="#fff" stroke-width="9" stroke-linecap="round" fill="none"/>
+</svg>
