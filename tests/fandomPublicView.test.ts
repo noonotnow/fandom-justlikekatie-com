@@ -436,6 +436,18 @@ test('the homepage features Against the Current beside the guide without displac
   assert.match(rootHtml, /<noscript>[\s\S]*?<a href="\/c-drama-fandom\/vibing-now\/">choose an Against the Current Vibing Now reading<\/a>/);
 });
 
+test('both live games are directly discoverable on the homepage without opening More guides', () => {
+  const alwaysVisibleNav = launchpadSource.slice(
+    launchpadSource.indexOf('<nav className={styles.editorialNav}'),
+    launchpadSource.indexOf('<div className={styles.guideMenu}'),
+  );
+  assert.match(alwaysVisibleNav, /href=\{PUBLIC_ROUTE_PATHS\.sectDay\}[^>]*>\{t\("Play the sect adventure \(English\)", "玩宗门冒险游戏（英文）"\)/);
+  assert.match(alwaysVisibleNav, /href="\/c-drama-fandom\/fandom-games\/"[^>]*>\{t\("Play xianxia fate \(English\)", "玩仙侠命运游戏（英文）"\)/);
+  assert.match(rootHtml, /<noscript>[\s\S]*?href="\/c-drama-fandom\/fandom-games\/sect-day\/"/);
+  assert.match(rootHtml, /<noscript>[\s\S]*?href="\/c-drama-fandom\/fandom-games\/"/);
+  assert.match(rootHtml, /These games require JavaScript to play/);
+});
+
 test('public Vibe Atlas copy names the daily card-drop promise', () => {
   assert.match(appSource, /A daily C-drama card drop/);
   assert.match(appSource, /'Vibe Atlas \| Daily C-Drama Collectible Cards \| Fandom Vibes'/);
