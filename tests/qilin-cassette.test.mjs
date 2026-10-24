@@ -3,6 +3,11 @@ import assert from 'node:assert/strict';
 import { harness } from '../netlify/functions/lib/qilin-cassette-test-harness.mjs';
 import { createCassetteController } from '../public/cassette/controller.mjs';
 import { cassette, emptyCassette, GUEST_KEY, accountKey } from '../public/cassette/schema.mjs';
+import { attachGame } from '../public/cassette/vault.mjs';
+import { execFileSync } from 'node:child_process';
+import { mkdtemp, mkdir, writeFile, readFile, rm } from 'node:fs/promises';
+import { tmpdir } from 'node:os';
+import { join } from 'node:path';
 
 const origin = 'https://cassette.test';
 const example = () => ({ version:1, earned:['first_flight'], placed:{first_flight:{x:0.5,y:0.25,angle:0.12}} });
@@ -34,6 +39,68 @@ function browser(h) {
 }
 const setup = () => { const h=harness(origin), b=browser(h), s=storage(), backups=[]; const c=createCassetteController({storage:s,fetcher:b.fetcher,download:v=>backups.push(v)}); return {h,b,s,c,backups}; };
 const localChange = (c,s,doc) => { s.setItem(c.storageKey,JSON.stringify(doc)); c.gameChanged(doc,true); };
+
+test('the advertised fallback archive is built from importable source without caches or exports',async()=>{
+  const directory=await mkdtemp(join(tmpdir(),'qilin-source-'));
+  try {
+    const project=join(directory,'source'), archive=join(directory,'downloads','Qilin-Keeper-Godot.zip');
+    await mkdir(join(project,'.godot'),{recursive:true});
+    await mkdir(join(project,'assets'));
+    await writeFile(join(project,'project.godot'),'config_version=5\n');
+    await writeFile(join(project,'assets','pet.svg'),'<svg/>');
+    await writeFile(join(project,'.godot','cache'),'excluded');
+    await writeFile(join(project,'export.wasm'),'excluded');
+    const packager=new URL('../scripts/package-qilin-source.py',import.meta.url);
+    execFileSync('python3',[packager.pathname,project,archive]);
+    const files=JSON.parse(execFileSync('python3',['-c','import json,sys,zipfile; print(json.dumps(zipfile.ZipFile(sys.argv[1]).namelist()))',archive],{encoding:'utf8'}));
+    assert.deepEqual(files,['Qilin-Keeper/assets/pet.svg','Qilin-Keeper/project.godot']);
+    const shell=await readFile(new URL('../games/qilin-keeper/godot/web_shell.html',import.meta.url),'utf8');
+    const build=await readFile(new URL('../scripts/build-qilin-game.sh',import.meta.url),'utf8');
+    assert.match(shell,/href="\.\.\/downloads\/Qilin-Keeper-Godot\.zip"/);
+    assert.match(build,/python3 scripts\/package-qilin-source\.py "\$project" public\/qilin-keeper\/downloads\/Qilin-Keeper-Godot\.zip/);
+  } finally { await rm(directory,{recursive:true,force:true}); }
+});
+
+test('production Blob reads request JSON, including write confirmation and cross-device restoration',async()=>{
+  const {b,c,s,h}=setup(); await b.signin(); await c.refresh();
+  localChange(c,s,example()); await c.save();
+  assert.equal(c.state.saved,true);
+  const store=h.stores.get('fandom-qilin-cassettes');
+  const [key]=store.records.keys();
+  assert.ok((await store.getWithMetadata(key)).data instanceof ArrayBuffer);
+  assert.equal((await store.getWithMetadata(key,{type:'json'})).data.cassette.version,1);
+  await c.refresh(); assert.deepEqual(c.state.cassette,example());
+});
+
+test('unreadable guest bytes survive handshake, polling and signout until explicit backup import',async()=>{
+  const h=harness(origin), b=browser(h), s=storage();
+  const raw='{not valid json'; s.setItem(GUEST_KEY,raw);
+  const c=createCassetteController({storage:s,fetcher:b.fetcher,download:()=>{}});
+  await c.refresh(); assert.equal(c.contextWritable,false);
+  const messages=[], handlers=new Set();
+  const oldWindow=globalThis.window, oldLocation=globalThis.location;
+  globalThis.location={origin};
+  globalThis.window={addEventListener:(_,fn)=>handlers.add(fn),removeEventListener:(_,fn)=>handlers.delete(fn)};
+  const frame={contentWindow:{postMessage:value=>messages.push(value)}};
+  const detach=attachGame(c,frame);
+  try {
+    for(const handler of handlers) handler({origin,source:frame.contentWindow,data:{
+      type:'qilin-cassette-state',key:GUEST_KEY,cassette:emptyCassette(),persisted:false,damaged:true,
+    }});
+    assert.equal(messages.at(-1).writable,false);
+    c.gameChanged(example(),false);
+    await c.refresh(); await b.signin(); await c.refresh(); await c.signout();
+    assert.equal(s.getItem(GUEST_KEY),raw);
+    assert.equal(c.contextWritable,false);
+    const backup=JSON.stringify({format:'qilin-keeper-cassette',version:1,cassette:example()});
+    await c.importBackup({size:backup.length,text:async()=>backup});
+    assert.equal(c.contextWritable,true);
+    assert.equal(s.getItem(`${GUEST_KEY}.unreadable-backup`),raw);
+    assert.deepEqual(JSON.parse(s.getItem(GUEST_KEY)),example());
+  } finally {
+    detach(); globalThis.window=oldWindow; globalThis.location=oldLocation; c.destroy();
+  }
+});
 
 test('guest earned sticker and placement survive email sign-in and a second independent device',async()=>{
   const {h,b,s,c}=setup(); await c.refresh();
@@ -70,9 +137,11 @@ test('failed saves never claim account success and retry retains the same design
 test('shared-device signout drops member view and cache without copying it to guest',async()=>{
   const {b,s,c}=setup(); await c.refresh(); localChange(c,s,example()); await b.signin(); await c.refresh(); await c.save();
   const memberKey=c.storageKey; assert.notEqual(memberKey,GUEST_KEY);
+  s.setItem(`${memberKey}.unreadable-backup`,'unreadable member cache');
   await c.signout();
   assert.equal(c.storageKey,GUEST_KEY); assert.equal(c.state.user,null);
   assert.deepEqual(c.state.cassette,emptyCassette()); assert.equal(s.getItem(memberKey),null);
+  assert.equal(s.getItem(`${memberKey}.unreadable-backup`),null);
 });
 test('two devices cannot silently overwrite each other; cancelling a conflict is not permission to replace',async()=>{
   const {h,b,s,c}=setup(); await b.signin(); await c.refresh(); localChange(c,s,example()); await c.save();

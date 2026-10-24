@@ -14,6 +14,8 @@ export function createCassetteController({
 } = {}) {
   const vault = makeVault(storage);
   const listeners = new Set(), contexts = new Set();
+  const unreadableKeys = new Set();
+  const unreadableMessage = 'This device’s cassette could not be read. It has not been overwritten. Import a backup to recover it; play can continue without replacing the original.';
   let key = GUEST_KEY, remote = null, generation = 0, destroyed = false, claimedGuest = null, unresolved = false;
   let invitationDismissed = false, invitationShown = false;
   const state = {
@@ -25,9 +27,10 @@ export function createCassetteController({
   const emitContext = () => contexts.forEach(fn => fn());
   const safeRead = storageKey => {
     try { return vault.read(storageKey); }
-    catch { state.localPersistent = false; state.error = 'This device’s cassette could not be read. It has not been overwritten. You can import a backup.'; return null; }
+    catch { unreadableKeys.add(storageKey); state.localPersistent = false; state.error = unreadableMessage; return null; }
   };
   const persist = doc => {
+    if (unreadableKeys.has(key)) { state.localPersistent = false; state.error = unreadableMessage; return false; }
     try { vault.write(key, doc); state.localPersistent = true; return true; }
     catch { state.localPersistent = false; state.error = 'This browser could not save your cassette. Keep this page open and download a backup.'; return false; }
   };
@@ -69,14 +72,19 @@ export function createCassetteController({
 
   async function refresh() {
     const ticket = ++generation;
-    state.busy = true; state.error = ''; notify();
+    state.busy = true; state.error = unreadableKeys.has(key) ? unreadableMessage : ''; notify();
     try {
       const body = await request('/api/auth/session');
       if (ticket !== generation || destroyed) return;
       const user = body.user || null;
       if (!user) {
         if (state.user) {
-          try { vault.remove(accountKey(state.user.accountId)); } catch {}
+          try {
+            const memberKey = accountKey(state.user.accountId);
+            vault.remove(memberKey);
+            vault.remove(`${memberKey}.unreadable-backup`);
+            unreadableKeys.delete(memberKey);
+          } catch {}
           switchContext(GUEST_KEY, safeRead(GUEST_KEY) || emptyCassette());
         }
         state.user = null; remote = null; state.phase = 'guest'; state.saved = false;
@@ -157,6 +165,11 @@ export function createCassetteController({
   }
   const api = {
     state, get storageKey() { return key; },
+    get contextWritable() { return !unreadableKeys.has(key); },
+    protectLocalKey(storageKey) {
+      if (storageKey !== key) return;
+      unreadableKeys.add(key); state.localPersistent = false; state.error = unreadableMessage; notify();
+    },
     subscribe(fn) { listeners.add(fn); fn({ ...state }); return () => listeners.delete(fn); },
     onContext(fn) { contexts.add(fn); return () => contexts.delete(fn); },
     refresh, save,
@@ -166,13 +179,14 @@ export function createCassetteController({
       // Account choices must not replace a still-pending local version.
       const changed = !equalCassette(doc, state.cassette);
       const persistenceChanged = state.localPersistent !== !!persisted;
-      state.cassette = doc; state.localPersistent = !!persisted;
+      state.cassette = doc; state.localPersistent = !!persisted && !unreadableKeys.has(key);
       if (changed) {
         state.saved = !!remote && equalCassette(doc, remote.cassette);
         state.status = state.saved ? 'Saved to your account.' : 'Saved on this device.';
         if (state.conflict) state.conflict.local = doc;
       }
       if (!persisted) state.error = 'This browser could not save your cassette. Download a backup before leaving.';
+      if (unreadableKeys.has(key)) state.error = unreadableMessage;
       offer();
       if (changed || persistenceChanged) notify();
     },
@@ -205,7 +219,13 @@ export function createCassetteController({
       try {
         await request('/api/auth/logout', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: '{}' });
         if (state.user) {
-          try { vault.remove(accountKey(state.user.accountId)); vault.remove(`qilin-keeper.cassette-recovery.${state.user.accountId}`); } catch {}
+          try {
+            const memberKey = accountKey(state.user.accountId);
+            vault.remove(memberKey);
+            vault.remove(`${memberKey}.unreadable-backup`);
+            vault.remove(`qilin-keeper.cassette-recovery.${state.user.accountId}`);
+            unreadableKeys.delete(memberKey);
+          } catch {}
         }
         state.user = null; remote = null; claimedGuest = null; unresolved = false; state.conflict = null; state.phase = 'guest';
         switchContext(GUEST_KEY, safeRead(GUEST_KEY) || emptyCassette());
@@ -249,6 +269,12 @@ export function createCassetteController({
         const value = JSON.parse(await file.text());
         if (value.format !== 'qilin-keeper-cassette' || value.version !== 1) throw new Error('Choose a Qilin Keeper cassette backup.');
         const doc = cassette(value.cassette);
+        if (unreadableKeys.has(key)) {
+          // Import is an explicit recovery action. Retain the exact original bytes.
+          const original = vault.get(key);
+          if (original !== null) vault.set(`${key}.unreadable-backup`, original);
+          unreadableKeys.delete(key);
+        }
         // Never silently import over an existing design, even while signed out.
         if (canOffer(state.cassette) && !equalCassette(doc, state.cassette)) {
           api.exportBackup();
