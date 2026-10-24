@@ -8,6 +8,7 @@ import {
   launchBrowserWithServer,
   startViteTestServer,
   simulateProductionAudience,
+  waitForPublicAudience,
 } from './browserEngines.ts';
 
 type AnalyticsCommand = [string, string, Record<string, unknown>];
@@ -146,6 +147,7 @@ for (const engine of BROWSER_ENGINES) {
             await gotoTestPage(page, `${origin}${locale.path}?token=private-reader-content#context?filter=love&card=three-lifetimes`, {
               waitUntil: 'domcontentloaded',
             });
+            await waitForPublicAudience(page);
             await page.evaluate(`(() => {
               const mode = ${JSON.stringify(scenario.mode)};
               const transport = ${JSON.stringify(transport)};

@@ -5,6 +5,8 @@ import {
   closeBrowserAndServer,
   launchBrowserWithServer,
   startViteTestServer,
+  simulateProductionAudience,
+  waitForPublicAudience,
 } from './browserEngines.ts';
 
 test('signed-out released-pack visitors see a public teaser without fetching protected depth', {
@@ -13,6 +15,7 @@ test('signed-out released-pack visitors see a public teaser without fetching pro
   const [{ server, origin }, browser] = await launchBrowserWithServer(startViteTestServer());
   try {
     const page = await browser.newPage();
+    await simulateProductionAudience(page);
     page.setDefaultTimeout(5_000);
     await page.addInitScript(() => {
       (window as Window & { capturedAnalytics?: Array<{ name: string; data?: object }> }).capturedAnalytics = [];
@@ -90,6 +93,7 @@ test('signed-out released-pack visitors see a public teaser without fetching pro
       waitUntil: 'domcontentloaded',
       timeout: 15_000,
     });
+    await waitForPublicAudience(page);
     await page.getByRole('heading', { name: 'The Vibe Atlas library.' }).waitFor();
     assert.equal(protectedRequests, 0);
     await page.getByRole('heading', { name: /Polished Danger/ }).waitFor();

@@ -499,3 +499,9 @@ export async function simulateProductionAudience(
     body: JSON.stringify({ user }),
   }));
 }
+
+export async function waitForPublicAudience(page: Page): Promise<void> {
+  await page.waitForFunction(() => (
+    (window as Window & { __audienceGate?: { state(): string } }).__audienceGate?.state() === 'public'
+  ));
+}
