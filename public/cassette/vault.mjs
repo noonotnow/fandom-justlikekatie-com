@@ -21,11 +21,13 @@ export function attachGame(controller, frame) {
       type: 'qilin-cassette-context',
       key: controller.storageKey,
       cassette: controller.state.cassette,
+      writable: controller.contextWritable,
     }, location.origin);
   };
   const receive = event => {
     if (event.origin !== location.origin || event.source !== frame.contentWindow ||
         event.data?.type !== 'qilin-cassette-state') return;
+    if (event.data.damaged) controller.protectLocalKey(event.data.key);
     if (!ready) { ready = true; send(); return; }
     if (event.data.key !== controller.storageKey) { send(); return; }
     controller.gameChanged(event.data.cassette, event.data.persisted);

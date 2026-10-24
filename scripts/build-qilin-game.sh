@@ -31,3 +31,5 @@ if grep -E 'SCRIPT ERROR|Parse Error' "$cache/import.log"; then exit 1; fi
 "$godot_bin" --headless --path "$project" --export-release Web "$root/public/qilin-keeper/game/index.html" --quit </dev/null 2>&1 | tee "$cache/export.log"
 if grep -E 'SCRIPT ERROR|Parse Error' "$cache/export.log"; then exit 1; fi
 cp "$project/assets/cover.jpg" public/qilin-keeper/game/cover.jpg
+mkdir -p public/qilin-keeper/downloads
+python3 scripts/package-qilin-source.py "$project" public/qilin-keeper/downloads/Qilin-Keeper-Godot.zip
