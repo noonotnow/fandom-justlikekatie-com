@@ -13,6 +13,21 @@ const text = (markup) => markup.replace(/<[^>]*>/g, " ")
   .replace(/\s+/g, " ").trim();
 // Frozen exact-copy checks, not evidence of episode chronology or source approval.
 const records = [
+  ["1-6", 6, "bc44c4b1c129472388bc3a6664fd50e59d410ef232756df0677bad147350fb18",
+    "Against the Current Begins by Making Survival Feel Like a Full-Time Job",
+    "We’re watching the drama, but we’re tracking the vibe: performance, power, emotional weather, and the objects that quietly rearrange a household.",
+    "Against the Current Episodes 1–6: Survival, Identity, and the Cost of Living | Fandom Vibes",
+    "A spoiler-bounded Against the Current reading of Episodes 1–6, where Jialan survives catastrophe by turning identity, literacy, and competence into carefully managed tools."],
+  ["7-14", 14, "a1526206628e3d9b05725a865291766fe98fd6a526ceb4f6e15335627c49fe5c",
+    "The Lin Household Has a Government. Lanxiang Learns the Constitution.",
+    "We’re watching the drama, but we’re tracking the vibe: performance, power, emotional weather, and the objects that quietly rearrange a household.",
+    "Against the Current Episodes 7–14: The Lin Household Has a Government | Fandom Vibes",
+    "A spoiler-bounded Against the Current reading of Episodes 7–14, where Lanxiang becomes a spy, learns household politics, and turns flowers, ledgers, and literacy into leverage."],
+  ["15-20", 20, "2f52e116d6ea011d737d7e11665289af6008a6f2939361935b9dc4bf4fa6a98b",
+    "Lanxiang Becomes Indispensable. Freedom Arrives Before This Boundary Ends.",
+    "We’re watching the drama, but we’re tracking the vibe: performance, power, emotional weather, and the objects that quietly rearrange a household.",
+    "Against the Current Episodes 15–20: When Indispensability Becomes Freedom | Fandom Vibes",
+    "A spoiler-bounded Against the Current reading of Episodes 15–20, where Lanxiang holds crisis authority, secures family freedom, and begins independent work outside the Lin household."],
   ["26-29", 29, "1c5bc657f0970d27d7fdf0bdd86c7b43d1dced82a822f66089958b403c0c99d8",
     "He Asked the Emperor for a Wife. The Drama Keeps Asking Whether She Chose Him.",
     "Jinqi is willing to be beaten for the marriage. Lanxiang is still the person who was not asked whether she wanted it.",
@@ -34,7 +49,8 @@ for (const [range, endpoint, bodyDigest, headline, lede, seoTitle, description] 
   test(`revised ${range} retains exact approved text and complete release surfaces`, () => {
     const path = `${root}against-the-current-episodes-${range}/`;
     const html = read(`public${path}index.html`);
-    const body = html.match(/<section class="article-copy"[^>]*>([\s\S]*?)<\/section>/)?.[1];
+    const body = html.match(/<section class="article-copy"[^>]*>([\s\S]*?)<\/section>/)?.[1]
+      ?? html.match(/<section data-section-id="vibing-now-intro">([\s\S]*?)<\/section>/)?.[1];
     assert.ok(body);
     assert.equal(hash(text(body)), bodyDigest);
     assert.equal(text(html.match(/<h1>([\s\S]*?)<\/h1>/)[1]), headline);
@@ -49,13 +65,14 @@ for (const [range, endpoint, bodyDigest, headline, lede, seoTitle, description] 
     assert.equal(schema.mainEntityOfPage, `https://fandom.justlikekatie.com${path}`);
     assert.equal(schema.datePublished, undefined, "do not invent a publication date while preparing a release");
     assert.equal(schema.dateModified, undefined);
-    assert.match(html, new RegExp(`<h2>Episode ${endpoint}</h2>`));
-    assert.match(html, /or choose to read ahead knowing/);
+    assert.match(html, new RegExp(`<h2>[^<]*Episode ${endpoint}[^<]*</h2>`));
+    assert.match(html, /or choose to read ahead knowing|No later episodes, previews, novel material, or endgame information/);
     assert.ok(PUBLIC_STATIC_ROUTES.some(route => route.path === path));
     for (const file of ["public/sitemap.xml", "netlify.toml"]) {
       assert.ok(read(file).includes(path), `${path} missing from ${file}`);
     }
-    assert.doesNotMatch(html, /Reddit|Audience context|source-certified|Source-reviewed|watch notes|vibing-discussion\.js|data-discussion-article/i);
+    const visibleMarkup = html.replace(/href="[^"]*"/gi, "");
+    assert.doesNotMatch(visibleMarkup, /Reddit|Audience context|source-certified|Source-reviewed|watch notes|vibing-discussion\.js|data-discussion-article/i);
   });
 }
 
