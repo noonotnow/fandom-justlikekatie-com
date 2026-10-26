@@ -20,41 +20,19 @@
         window.history.replaceState(nextState, '', veteranPath);
       })();
     </script>
-    <!-- Google tracking is restricted to the canonical production host. -->
+    <!-- Google tracking is restricted to the canonical production host and starts
+         only after the server-verified session classification resolves to a
+         non-operator visitor (see public/audience-gate.js). -->
     <script>
-      window.__analyticsProductionHost = window.location.hostname === 'fandom.justlikekatie.com';
-      if (window.__analyticsProductionHost) {
-        window.dataLayer = window.dataLayer || [];
-        var googleTag = document.createElement('script');
-        googleTag.async = true;
-        googleTag.src = 'https://www.googletagmanager.com/gtag/js?id=G-FHZJ1T74TG';
-        document.head.appendChild(googleTag);
-      }
-      function gtag(){
-        if (window.__analyticsProductionHost) window.dataLayer.push(arguments);
-      }
-
       var analyticsPath = window.location.pathname.replace(/\/+$/, '') || '/';
-      var analyticsLocation = analyticsPath === '/vibe-atlas/veteran-journal'
+      // Never forward the URL fragment: /auth/verify carries a sign-in token there.
+      window.__initialAnalyticsLocation = analyticsPath === '/vibe-atlas/veteran-journal'
         ? window.location.origin + '/vibe-atlas/veteran-journal'
         : analyticsPath === '/vibe-atlas' && new URLSearchParams(window.location.search).get('view') === 'released'
           ? window.location.origin + '/vibe-atlas?view=released'
-        : window.location.href;
-      window.__initialAnalyticsLocation = analyticsLocation;
-      gtag('js', new Date());
-      gtag('config', 'G-FHZJ1T74TG', {
-        page_location: analyticsLocation
-      });
+        : window.location.origin + window.location.pathname + window.location.search;
     </script>
-    <!-- Google Tag Manager -->
-    <script>(function(w,d,s,l,i){
-    if (!w.__analyticsProductionHost) return;
-    w[l]=w[l]||[];w[l].push({'gtm.start':
-    new Date().getTime(),event:'gtm.js'});var f=d.getElementsByTagName(s)[0],
-    j=d.createElement(s),dl=l!='dataLayer'?'&l='+l:'';j.async=true;j.src=
-    'https://www.googletagmanager.com/gtm.js?id='+i+dl;f.parentNode.insertBefore(j,f);
-    })(window,document,'script','dataLayer','GTM-5T5P2C9S');</script>
-    <!-- End Google Tag Manager -->
+    <script src="/audience-gate.js"></script>
     <meta charset="UTF-8" />
     <link rel="icon" type="image/svg+xml" href="/favicon.svg" />
     <meta name="viewport" content="width=device-width, initial-scale=1.0" />

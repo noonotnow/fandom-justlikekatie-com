@@ -12,10 +12,12 @@ import {
 } from '../src/utils/analytics.ts';
 
 const productionDocument = await readFile(new URL('../index.html', import.meta.url), 'utf8');
+const gate = await readFile(new URL('../public/audience-gate.js', import.meta.url), 'utf8');
 
 test('creator handoff analytics reaches the configured production tracker with bounded payloads', () => {
-  assert.match(productionDocument, /googletagmanager\.com\/gtag\/js/);
-  assert.match(productionDocument, /function gtag\(\)/);
+  assert.match(productionDocument, /<script src="\/audience-gate\.js"><\/script>/);
+  assert.match(gate, /googletagmanager\.com\/gtag\/js/);
+  assert.match(gate, /function gtag\(\)/);
 
   const events: Array<{
     command: string;

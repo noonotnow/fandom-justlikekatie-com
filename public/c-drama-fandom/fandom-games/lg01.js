@@ -122,13 +122,17 @@ if (promoVideo) {
 }
 
 function track(event, outcomeId, source) {
-  window.dataLayer = window.dataLayer || [];
-  window.dataLayer.push({
-    event,
-    fandom_content_id: CONTENT_ID,
-    fandom_outcome_id: outcomeId || undefined,
-    fandom_source: source || undefined,
-  });
+  if (window.__audienceGate?.state() === "public") {
+    window.__audienceGate.run(() => {
+      window.dataLayer = window.dataLayer || [];
+      window.dataLayer.push({
+        event,
+        fandom_content_id: CONTENT_ID,
+        fandom_outcome_id: outcomeId || undefined,
+        fandom_source: source || undefined,
+      });
+    });
+  }
 
   const host = window.location.hostname;
   if (host === "localhost" || host === "127.0.0.1" || host.endsWith(".replit.dev")) return;

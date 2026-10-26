@@ -215,6 +215,25 @@ export function createPublicAuth({
       return auth;
     },
 
+    // Audience-measurement exclusion: true when the request carries a session
+    // that the server verifies as an allowlisted operator. Only the signed
+    // session cookie is consulted - never a body field, header or query value.
+    // When a session cookie is present but cannot be verified because storage
+    // failed, the request is excluded (fail closed) rather than counted as a
+    // possible public visit. Requests with no/invalid/expired/revoked sessions
+    // are not operators. Callers must use this to skip aggregate counting only,
+    // never to grant or deny access.
+    isOperatorRequest: async (req, context) => {
+      if (!parseCookies(req.headers.get("cookie") || "")[COOKIE]) return false;
+      try {
+        const auth = await authenticateSession(req, stores(context), now());
+        return Boolean(auth) && adminEmails.length > 0 && adminEmails.includes(auth.user.email);
+      } catch (error) {
+        console.warn("[public-auth] operator classification failed; excluding request from audience totals:", error?.name || "Error");
+        return true;
+      }
+    },
+
     // Public submissions may be made without an account. Signed-in users are
     // still isolated by their account, while anonymous users receive a
     // tamper-resistant browser identity cookie.

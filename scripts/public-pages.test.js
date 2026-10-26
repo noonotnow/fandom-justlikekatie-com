@@ -513,7 +513,7 @@ test("the C-drama fandom routes are substantial static HTML documents", () => {
     assert.doesNotMatch(html, /<div id="root"><\/div>/i, `${path} cannot rely on the SPA root`);
     // Interactive story text lives in the deterministic game module.
     const minimumLength = path.endsWith("/sect-day/index.html") ? 4_000
-      : path.endsWith("/untamed-name-board/index.html") ? 6_000 : 7_000;
+      : path.endsWith("/untamed-name-board/index.html") ? 6_000 : 6_500;
     assert.ok(html.length > minimumLength, `${path} should contain substantial editorial content`);
 
     const title = html.match(/<title>([^<]+)<\/title>/i)?.[1];
@@ -867,7 +867,7 @@ test("Against the Current stays within Episode 21 and uses registered static edi
   assert.equal(route.changefreq, "weekly");
   assertCanonicalMatchesRoute(html, route);
   assert.match(html, /<body data-source-page="drama-against-the-current-episode-21" data-content-mode="drama-authority">/);
-  assert.match(html, /<script async src="https:\/\/www\.googletagmanager\.com\/gtag\/js\?id=G-FHZJ1T74TG"><\/script>/);
+  assert.match(html, /<script src="\/audience-gate\.js"><\/script>/);
   assert.match(html, /<script defer src="\/c-drama-fandom\/editorial\.js"><\/script>/);
   assert.deepEqual(
     [...html.matchAll(/data-section-id="([^"]+)"/g)].map(([, id]) => id),

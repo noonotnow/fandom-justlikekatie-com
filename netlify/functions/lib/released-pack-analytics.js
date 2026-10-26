@@ -40,13 +40,15 @@ export function validateReleasedEvent(body) {
   };
 }
 
-export function createReleasedPackCollectHandler({ getStore, now = () => new Date() }) {
+export function createReleasedPackCollectHandler({ auth, getStore, now = () => new Date() }) {
   return async (req, context) => {
     if (req.method !== "POST") return json(405, { error: "Method not allowed." }, { Allow: "POST" });
     let body;
     try { body = await req.json(); } catch { return json(400, { error: "Invalid JSON." }); }
     const entry = validateReleasedEvent(body);
     if (!entry) return json(400, { error: "Invalid released-pack event." });
+    // Verified operator traffic never contributes to audience aggregates.
+    if (await auth.isOperatorRequest(req, context)) return json(200, { ok: true, excluded: true });
     try {
       const date = now().toISOString();
       await getStore(STORE, context).setJSON(
