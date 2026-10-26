@@ -16,6 +16,9 @@
     "archetypes-black-bellied-white-cut-black",
     "archetypes-white-moonlight-cinnabar-mole",
     "vibing-now-index",
+    "drama-against-the-current-episodes-1-6",
+    "drama-against-the-current-episodes-7-14",
+    "drama-against-the-current-episodes-15-20",
     "drama-against-the-current-episode-21",
     "drama-against-the-current-episodes-22-25",
     "drama-against-the-current-episodes-26-30",
@@ -162,6 +165,7 @@
   }
   if (sourcePage === "vibing-now-index") {
     const installments = new Set([
+      "episodes_1_6", "episodes_7_14", "episodes_15_20",
       "episode_21", "episodes_22_25", "episodes_26_30",
       "episodes_26_29", "episodes_30_31", "episodes_32_33", "episodes_34_38",
     ]);

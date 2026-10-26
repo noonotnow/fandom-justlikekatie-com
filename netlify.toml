@@ -366,6 +366,21 @@ force = true
 query = { ending = "back-mountain" }
 
 [[redirects]]
+from = "/c-drama-fandom/vibing-now/against-the-current-episodes-1-6"
+to = "/c-drama-fandom/vibing-now/against-the-current-episodes-1-6/index.html"
+status = 200
+
+[[redirects]]
+from = "/c-drama-fandom/vibing-now/against-the-current-episodes-7-14"
+to = "/c-drama-fandom/vibing-now/against-the-current-episodes-7-14/index.html"
+status = 200
+
+[[redirects]]
+from = "/c-drama-fandom/vibing-now/against-the-current-episodes-15-20"
+to = "/c-drama-fandom/vibing-now/against-the-current-episodes-15-20/index.html"
+status = 200
+
+[[redirects]]
 from = "/c-drama-fandom/vibing-now/against-the-current-episode-21"
 to = "/c-drama-fandom/vibing-now/against-the-current-episode-21/index.html"
 status = 200
