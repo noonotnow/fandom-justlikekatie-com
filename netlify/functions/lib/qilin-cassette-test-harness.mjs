@@ -5,6 +5,7 @@ import { readFile, stat } from 'node:fs/promises';
 import { resolve, extname } from 'node:path';
 import { createPublicAuth } from './public-auth.js';
 import { createCassetteHandler } from './qilin-cassette-api.mjs';
+import { readCassetteEntry } from '../qilin-cassette.js';
 
 export function memoryStore() {
   const records = new Map();
@@ -12,7 +13,13 @@ export function memoryStore() {
   return {
     records,
     async get(key) { return structuredClone(records.get(key)?.data ?? null); },
-    async getWithMetadata(key) { return structuredClone(records.get(key) ?? null); },
+    async getWithMetadata(key, options = {}) {
+      const entry = structuredClone(records.get(key) ?? null);
+      if (entry && options.type !== 'json') {
+        entry.data = new TextEncoder().encode(JSON.stringify(entry.data)).buffer;
+      }
+      return entry;
+    },
     async setJSON(key, data, options = {}) {
       const existing = records.get(key);
       if ((options.onlyIfNew && existing) || (options.onlyIfMatch && options.onlyIfMatch !== existing?.etag)) return { modified: false };
@@ -29,7 +36,7 @@ export function harness(origin) {
     getStore, env: { FANDOM_AUTH_ID_SECRET: 'isolated-cassette-test-only', FANDOM_PUBLIC_ORIGIN: origin, FANDOM_ADMIN_EMAILS: '' },
     sendEmail: async message => { mail.push(message); },
   });
-  const cassette = createCassetteHandler({ auth, getStore, readEntry: (store, key) => store.getWithMetadata(key) });
+  const cassette = createCassetteHandler({ auth, getStore, readEntry: readCassetteEntry });
   const routes = {
     '/api/auth/session': auth.getSession, '/api/auth/magic-link': auth.requestMagicLink,
     '/api/auth/verify': auth.verifyMagicLink, '/api/auth/logout': auth.logout,
