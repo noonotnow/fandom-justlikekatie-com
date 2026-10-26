@@ -1,6 +1,8 @@
 extends RefCounted
 ## Browser-local / Mac-local keepsakes, independent of the care reset.
 
+signal context_replaced
+
 const IDS := ["first_flight","first_landing"]
 const WEB_KEY := "qilin-keeper.keepsakes.v1"
 var web_key := WEB_KEY
@@ -10,6 +12,7 @@ var earned: Array[String] = []
 var placed: Dictionary = {}
 var last_error := ""
 var damaged_save := false
+var storage_writable := true
 
 func load_case() -> void:
 	var raw := ""
@@ -108,12 +111,14 @@ func browser_context(arguments: Array) -> void:
 	if damaged_save:
 		return
 	web_key = next_key
+	storage_writable = payload.get("writable", true) == true
+	context_replaced.emit()
 	save_case()
 
 func emit_browser_state(persisted: bool) -> void:
 	if not OS.has_feature("web"):
 		return
-	var message := {"type":"qilin-cassette-state","key":web_key,"cassette":{"version":1,"earned":earned,"placed":placed},"persisted":persisted}
+	var message := {"type":"qilin-cassette-state","key":web_key,"cassette":{"version":1,"earned":earned,"placed":placed},"persisted":persisted,"damaged":damaged_save}
 	JavaScriptBridge.eval("window.parent.postMessage(%s,location.origin)" % JSON.stringify(message))
 
 func mark_damaged() -> void:
@@ -122,6 +127,10 @@ func mark_damaged() -> void:
 
 func save_case() -> bool:
 	if damaged_save:
+		return false
+	if not storage_writable:
+		last_error = "Original cassette left untouched. Import a backup in the save panel to recover it."
+		emit_browser_state(false)
 		return false
 	var raw := JSON.stringify({"version":1,"earned":earned,"placed":placed},"",true,true)
 	if OS.has_feature("web"):
