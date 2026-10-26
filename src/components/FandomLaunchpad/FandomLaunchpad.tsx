@@ -94,6 +94,8 @@ export function FandomLaunchpad() {
         <nav className={styles.editorialNav} aria-label={t("Explore C-drama fandom", "探索中剧粉丝文化")}>
           <a className={styles.primaryGuideLink} href="/c-drama-fandom/">{t("Explore the C-drama guide (English)", "探索中剧指南（英文）")} <span aria-hidden="true">↗</span></a>
           <a className={styles.startGuideLink} href="/c-drama-fandom/getting-started/">{t("New to C-dramas? Start here (English)", "中剧新手？从这里开始（英文）")} <span aria-hidden="true">↗</span></a>
+          <a className={styles.startGuideLink} href={PUBLIC_ROUTE_PATHS.sectDay}>{t("Play the sect adventure (English)", "玩宗门冒险游戏（英文）")} <span aria-hidden="true">↗</span></a>
+          <a className={styles.startGuideLink} href="/c-drama-fandom/fandom-games/">{t("Play xianxia fate (English)", "玩仙侠命运游戏（英文）")} <span aria-hidden="true">↗</span></a>
           <div className={styles.guideMenu} ref={menuRef}>
             <button
               className={styles.guideMenuTrigger}
