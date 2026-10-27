@@ -149,6 +149,11 @@ export function FandomLaunchpad() {
         </div>
       </section>
       <section className={styles.workbenches} aria-label={t("Fandom workbenches", "粉丝创作工作台")}>
+        <a className={`${styles.workbench} ${styles.forge}`} href={PUBLIC_ROUTE_PATHS.cdramaMemeForge}>
+          <span className={styles.index}>NEW / C-DRAMA SOCIAL STUDIO</span>
+          <div className={styles.cardArt}><span>C-DRAMA<br /><b>MEMEFORGE</b></span><small>TIKTOK / INSTAGRAM</small></div>
+          <div className={styles.cardCopy}><h2>C-drama MemeForge</h2><p>Find the joke in a drama moment, pick a reaction still, and make a social-ready card. Manual posting, your voice.</p><span className={styles.enter}>Enter the C-drama studio (English) →</span></div>
+        </a>
         <a className={`${styles.workbench} ${styles.atlas}`} href={path(PUBLIC_ROUTE_PATHS.vibeAtlas)}>
           <span className={styles.index}>{t("01 / daily C-drama card drop", "01 / 每日中剧卡组")} <b className={styles.launchStatus}>{t("Now launching", "现已上线")}</b></span>
           <div className={styles.cardArt}><span>VIBE<br /><b>ATLAS</b></span><small>REDNOTE / C-DRAMA</small></div>

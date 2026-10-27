@@ -45,6 +45,14 @@
   function = "seo-indexing"
   path = "/memeforge/middle-earth/*"
 
+[[edge_functions]]
+  function = "seo-indexing"
+  path = "/memeforge/c-drama"
+
+[[edge_functions]]
+  function = "seo-indexing"
+  path = "/memeforge/c-drama/*"
+
 [[redirects]]
   from = "/api/plan-handoff"
   to = "/.netlify/functions/plan-handoff"

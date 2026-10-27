@@ -129,7 +129,8 @@ export function shouldNoindexUrl(input) {
   const isStudioRoute = englishPath === PUBLIC_ROUTE_PATHS.launchpad
     || englishPath === PUBLIC_ROUTE_PATHS.vibeAtlas
     || englishPath === PUBLIC_ROUTE_PATHS.vibeAtlasArchive
-    || englishPath === "/memeforge/middle-earth";
+    || englishPath === "/memeforge/middle-earth"
+    || englishPath === "/memeforge/c-drama";
   const isPublicRecordRoute = englishPath.startsWith(`${PUBLIC_ROUTE_PATHS.vibeAtlasActors}/`)
     || englishPath.startsWith(`${PUBLIC_ROUTE_PATHS.vibeAtlasEditions}/`)
     || englishPath.startsWith(`${PUBLIC_ROUTE_PATHS.vibeAtlasPacks}/`);

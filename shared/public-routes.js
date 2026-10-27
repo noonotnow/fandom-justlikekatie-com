@@ -14,6 +14,7 @@ export const PUBLIC_ROUTE_PATHS = Object.freeze({
   tropeDecoder: "/c-drama-fandom/trope-decoder/",
   sectDay: "/c-drama-fandom/fandom-games/sect-day/",
   qilinKeeper: "/c-drama-fandom/fandom-games/qilin-keeper/",
+  cdramaMemeForge: "/memeforge/c-drama",
 });
 
 export const PUBLIC_LOCALIZABLE_PATHS = Object.freeze([

@@ -575,8 +575,8 @@ export async function searchOneQuery(
     return response;
   };
 
-  const googleFirst = providerPolicy === "middle-earth";
-  const middleEarthFallback = providerPolicy === "middle-earth-fallback";
+  const googleFirst = providerPolicy === "middle-earth" || providerPolicy === "cdrama-stills";
+  const middleEarthFallback = providerPolicy === "middle-earth-fallback" || providerPolicy === "cdrama-stills-fallback";
   const collectorRefreshPool = providerPolicy === "collector-refresh-pool";
   const providerContributionCounts = {};
   const pooledCandidates = [];
@@ -667,7 +667,10 @@ export async function searchOneQuery(
     // now applies on BOTH the Brave path and the SerpAPI cascade below (previously it only
     // existed inside the SerpAPI loop, so Brave — the primary, most-used path — had zero
     // subject-relevance checking at all).
-    const subjectToken = q.split(/\s+/)[0] || "";
+    // Studio prompts are reaction/genre descriptions, not actor-identity
+    // searches. Their first word ("xianxia", "exhausted", "C-drama") is not
+    // a person whose name must occur in every image title.
+    const subjectToken = providerPolicy.startsWith("cdrama-stills") ? "" : (q.split(/\s+/)[0] || "");
     let subjectGuardReason = "not_applicable";
 
     if (braveResp.ok) {
@@ -882,7 +885,7 @@ export async function searchOneQuery(
         debug,
         fetchImpl,
         baiduOptions,
-        providerPolicy: "middle-earth-fallback",
+        providerPolicy: providerPolicy === "cdrama-stills" ? "cdrama-stills-fallback" : "middle-earth-fallback",
         cacheMode,
       });
     }

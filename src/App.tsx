@@ -2,6 +2,7 @@ import { useState, useEffect, useCallback, useMemo, useRef } from 'react';
 import type { ImageTier } from './types';
 import FandomLaunchpad from './components/FandomLaunchpad/FandomLaunchpad';
 import { MiddleEarthWorkspace } from './components/MiddleEarthWorkspace/MiddleEarthWorkspace';
+import { CdramaForge } from './components/CdramaForge/CdramaForge';
 import { GridItem } from './components/GridItem/GridItem';
 import { GridItemSkeleton } from './components/GridItem/GridItemSkeleton';
 import { InlinePreview } from './components/InlinePreview/InlinePreview';
@@ -200,6 +201,7 @@ function App() {
     return <VibeAtlasApp archiveEntry={isVibeAtlasArchiveLocation(window.location.pathname)} />;
   }
   if (route === 'middle-earth') return <MiddleEarthApp />;
+  if (route === 'c-drama-forge') return <CdramaForge />;
   if (route === 'veteran-journal') return <VeteranSubmissionForm />;
   return <FandomLaunchpad />;
 }
