@@ -1,7 +1,7 @@
 import { PUBLIC_ROUTE_PATHS } from '../../shared/public-routes.js';
 import { stripLocalePath } from '../../shared/locale.js';
 
-export type FandomProductRoute = 'launchpad' | 'vibe-atlas' | 'middle-earth' | 'veteran-journal';
+export type FandomProductRoute = 'launchpad' | 'vibe-atlas' | 'middle-earth' | 'c-drama-forge' | 'veteran-journal';
 
 const EDITION_DATE_RE = /^\d{4}-\d{2}-\d{2}$/;
 
@@ -26,6 +26,7 @@ export function resolveFandomProductRoute(pathname: string, search = ''): Fandom
   if (normalized === '/' && isAdminEntryLocation(normalized, search)) return 'vibe-atlas';
   if (normalized === PUBLIC_ROUTE_PATHS.vibeAtlasVeteranJournal) return 'veteran-journal';
   if (normalized === '/memeforge/middle-earth') return 'middle-earth';
+  if (normalized === PUBLIC_ROUTE_PATHS.cdramaMemeForge) return 'c-drama-forge';
   return 'launchpad';
 }
 

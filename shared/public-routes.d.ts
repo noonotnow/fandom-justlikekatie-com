@@ -20,6 +20,7 @@ export const PUBLIC_ROUTE_PATHS: Readonly<{
   vibeAtlasVeteranJournal: "/vibe-atlas/veteran-journal";
   tropeDecoder: "/c-drama-fandom/trope-decoder/";
   sectDay: "/c-drama-fandom/fandom-games/sect-day/";
+  cdramaMemeForge: "/memeforge/c-drama";
 }>;
 
 export const PUBLIC_LOCALIZABLE_PATHS: readonly string[];
