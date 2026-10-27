@@ -1,7 +1,7 @@
 import assert from 'node:assert/strict';
 import { test } from 'node:test';
 import sharp from 'sharp';
-import { createCdramaStillHandler } from '../../netlify/functions/cdrama-still-search.js';
+import { createCdramaStillHandler } from '../../netlify/functions/lib/cdrama-still-search.js';
 import {
   gotoTestPage, closeBrowserAndServer, launchPageForServer, startViteTestServer,
 } from './browserEngines.ts';

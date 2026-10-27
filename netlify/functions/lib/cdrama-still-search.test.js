@@ -1,7 +1,20 @@
 import test from "node:test";
 import assert from "node:assert/strict";
-import { createCdramaStillHandler } from "../cdrama-still-search.js";
+import { createCdramaStillHandler } from "./cdrama-still-search.js";
 import { searchOneQuery } from "../preview-search.js";
+import { readdir } from "node:fs/promises";
+import deployedHandler from "../cdrama-still-search.js";
+
+test("function discovery sees only valid endpoint names, not declaration files", async () => {
+  const files = await readdir(new URL("../", import.meta.url), { withFileTypes: true });
+  for (const file of files) {
+    if (!file.isFile() || !/\.(?:[cm]?js|ts)$/.test(file.name)) continue;
+    const name = file.name.replace(/\.(?:[cm]?js|ts)$/, "");
+    assert.match(name, /^[A-Za-z0-9_-]+$/, `Invalid deployable function name: ${file.name}`);
+  }
+  const response = await deployedHandler(new Request("https://fandom.example/.netlify/functions/cdrama-still-search"));
+  assert.equal(response.status, 400);
+});
 
 const request = (q) => new Request(`https://fandom.example/.netlify/functions/cdrama-still-search?q=${encodeURIComponent(q)}`);
 
