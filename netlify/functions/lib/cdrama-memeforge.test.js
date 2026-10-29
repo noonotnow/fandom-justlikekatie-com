@@ -11,12 +11,14 @@ const ideas = [
 function harness({ authorized = true, fail = false } = {}) {
   let calls = 0;
   let count = 0;
+  const prompts = [];
   const client = {
     async proxy(provider, path, options) {
       assert.equal(provider, "xai");
       calls++;
       if (path === "/v1/language-models") return Response.json({ data: [{ id: "grok-test" }] });
       const input = JSON.parse(options.body);
+      prompts.push(input.messages[0].content);
       assert.equal(input.model, "grok-test");
       assert.match(input.messages[0].content, /C-drama/);
       assert.doesNotMatch(input.messages[0].content, /Middle-earth|Rednote/);
@@ -41,8 +43,21 @@ function harness({ authorized = true, fail = false } = {}) {
       method: "POST", headers: { Origin: origin, "Content-Type": "application/json" },
       body: JSON.stringify(input),
     }), {});
-  return { request, getCalls: () => calls };
+  return { request, getCalls: () => calls, prompts };
 }
+
+test("conversational scene intent stays primary instead of forcing three unrelated comedy lanes", async () => {
+  const studio = harness();
+  const moment = 'The villain in Where the Mask Ends gets caught and delivers her MEI CUO monologue. I want that big dramatic defense speech.';
+  assert.equal((await studio.request({ moment, context: "", lane: "fandom" })).status, 200);
+  const prompt = studio.prompts[0];
+  assert.ok(prompt.includes(JSON.stringify(moment)));
+  assert.match(prompt, /Preserve that intent in ALL THREE options/);
+  assert.match(prompt, /brief OR context supplies a drama/);
+  assert.match(prompt, /keep the most useful supplied source anchor/);
+  assert.match(prompt, /without inventing translations/);
+  assert.doesNotMatch(prompt, /in this order: 1\)|input is inspiration/);
+});
 
 test("C-drama generation returns three validated jokes from a signed-in request", async () => {
   const { request, getCalls } = harness();

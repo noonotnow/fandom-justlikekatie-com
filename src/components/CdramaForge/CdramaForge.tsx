@@ -26,7 +26,8 @@ export function CdramaForge() {
   const [busy, setBusy] = useState('');
   const [email, setEmail] = useState('');
   const [results, setResults] = useState<Result[]>([]);
-  const [query, setQuery] = useState('');
+  const [query, setQuery] = useState(() => draft.still?.query || draft.ideas[draft.selected]?.searchQuery || '');
+  const [alternatives, setAlternatives] = useState<Joke[]>([]);
   const canvas = useRef<HTMLCanvasElement>(null);
   const requestId = useRef(0);
   const searchId = useRef(0);
@@ -81,10 +82,9 @@ export function CdramaForge() {
 
   function changeInput(next: Partial<ForgeDraft>) {
     requestId.current++;
-    searchId.current++;
-    setBusy('');
-    setDraft(current => ({ ...current, ...next, ideas: [], selected: 0, still: null, copy: null }));
-    setResults([]);
+    if (busy === 'ideas' || busy === 'download') setBusy('');
+    setDraft(current => ({ ...current, ...next }));
+    setAlternatives([]);
     setNotice('');
   }
 
@@ -106,29 +106,32 @@ export function CdramaForge() {
         throw new Error('The idea response was incomplete. Retry.');
       }
       if (id !== requestId.current) return;
-      setDraft(current => ({ ...current, ideas: data.ideas, selected: 0, still: null, copy: null }));
-      setResults([]); setQuery(data.ideas[0].searchQuery);
+      if (draft.ideas.length) {
+        setAlternatives(data.ideas);
+        setNotice('New wording is ready below. Your current joke and image are unchanged until you choose one.');
+      } else {
+        setDraft(current => ({ ...current, ideas: data.ideas, selected: 0, copy: null }));
+        setQuery(current => current || data.ideas[0].searchQuery);
+      }
     } catch (error) {
       if (id === requestId.current) setNotice(error instanceof Error ? error.message : 'Idea request failed.');
     } finally { if (id === requestId.current) setBusy(''); }
   }
 
   function selectIdea(index: number) {
-    requestId.current++; searchId.current++;
-    setBusy('');
-    setDraft(current => ({ ...current, selected: index, still: null, copy: null }));
-    setResults([]); setQuery(draft.ideas[index]?.searchQuery ?? '');
+    requestId.current++;
+    if (busy === 'ideas' || busy === 'download') setBusy('');
+    setDraft(current => ({ ...current, selected: index, copy: null }));
     setNotice('');
   }
 
   function editIdea(key: keyof Joke, value: string) {
-    requestId.current++; searchId.current++;
-    setBusy('');
+    requestId.current++;
+    if (busy === 'ideas' || busy === 'download') setBusy('');
     setDraft(current => ({
-      ...current, still: null, copy: null,
+      ...current,
       ideas: current.ideas.map((item, index) => index === current.selected ? { ...item, [key]: value } : item),
     }));
-    setResults([]);
     if (key === 'searchQuery') setQuery(value);
   }
 
@@ -136,9 +139,6 @@ export function CdramaForge() {
     const q = query.trim();
     if (!q) { setNotice('Enter a clean-still search phrase.'); return; }
     const id = ++searchId.current;
-    requestId.current++;
-    imageId.current++;
-    setDraft(current => ({ ...current, still: null, copy: null }));
     setResults([]);
     setBusy('search'); setNotice('');
     try {
@@ -158,7 +158,7 @@ export function CdramaForge() {
     requestId.current++;
     imageId.current++;
     setBusy('');
-    setDraft(current => ({ ...current, still, copy: null }));
+    setDraft(current => ({ ...current, still }));
     setNotice('');
   }
 
@@ -217,7 +217,7 @@ export function CdramaForge() {
     requestId.current++; searchId.current++; imageId.current++;
     setBusy('');
     skipEmptySave.current = true;
-    setResults([]); setQuery(''); setDraft(emptyDraft());
+    setResults([]); setAlternatives([]); setQuery(''); setDraft(emptyDraft());
     try { localStorage.removeItem(DRAFT_KEY); setSaveStatus('Draft cleared from this device'); }
     catch { setSaveStatus('Clear could not remove local storage; check browser settings.'); }
     setNotice('Working draft cleared. No Collection or cloud data was changed.');
@@ -233,20 +233,21 @@ export function CdramaForge() {
       <div className={styles.intro}>
         <p className={styles.kicker}>THE SOCIAL STUDIO / 01</p>
         <h1>Find the bit.<br /><em>Make the reaction.</em></h1>
-        <p>Turn a C-drama moment or viewer confession into an original joke, pair it with a clean still, then take the card to TikTok or Instagram yourself.</p>
+        <p>Tell us what made you laugh—in your own words. Keep that specific joke, find the right still, and make a meme with text above and below the image.</p>
       </div>
       <div className={styles.layout}>
         <section className={styles.editor} aria-label="Joke workshop">
           <div className={styles.sectionTitle}><span>01 / THE MOMENT</span><strong>Start with what happened.</strong></div>
           <label htmlFor="forge-moment">Situation, trope, dynamic, or viewer frustration</label>
-          <textarea id="forge-moment" maxLength={500} rows={3} value={draft.moment} onChange={e => changeInput({ moment: e.target.value })} placeholder="I said one episode before bed and now the sun is up." />
+          <textarea id="forge-moment" maxLength={500} rows={3} value={draft.moment} onChange={e => changeInput({ moment: e.target.value })} placeholder="The villain gets caught and somehow turns it into her big dramatic defense speech. THAT energy." />
+          <p className={styles.help}>Describe the scene, phrase, or behavior you mean. No prompt-writing required. Editing this brief keeps your current joke and image.</p>
           <details className={styles.details}>
             <summary>Optional creative direction</summary>
             <label htmlFor="forge-context">Drama or character context (optional)</label>
             <input id="forge-context" maxLength={160} value={draft.context} onChange={e => changeInput({ context: e.target.value })} placeholder="A specific drama, character, or relationship" />
             <label htmlFor="forge-lane">Comedy lane</label>
             <select id="forge-lane" value={draft.lane} onChange={e => changeInput({ lane: e.target.value as ForgeDraft['lane'] })}>
-              <option value="fandom">Surprise me · fandom humor</option>
+              <option value="fandom">Stay with my idea</option>
               <option value="self-own">Viewer self-own</option>
               <option value="trope-logic">C-drama trope logic</option>
               <option value="everyday-stakes">Everyday life, C-drama stakes</option>
@@ -264,7 +265,16 @@ export function CdramaForge() {
               <div className={styles.row}><input id="forge-email" type="email" required value={email} onChange={e => setEmail(e.target.value)} /><button disabled={!!busy}>Send sign-in link</button></div>
               <small>After verifying, come back to this studio. <button type="button" onClick={recheck}>I’ve signed in · check again</button></small>
             </form>
-          ) : <button className={styles.primary} type="button" onClick={() => void generate()} disabled={!!busy || !draft.moment.trim()}>{busy === 'ideas' ? 'Finding three angles…' : draft.ideas.length ? 'Regenerate three ideas' : 'Find three joke angles'} →</button>}
+          ) : <button className={styles.primary} type="button" onClick={() => void generate()} disabled={!!busy || !draft.moment.trim()}>{busy === 'ideas' ? 'Working on your joke…' : draft.ideas.length ? 'Suggest new wording' : 'Find three joke angles'} →</button>}
+          {alternatives.length > 0 && <section aria-label="New wording options">
+            <p>Your current meme stays as it is. Choose a version only if you want to replace its wording.</p>
+            <div className={styles.ideas}>{alternatives.map((item, index) => <button type="button" disabled={!!busy} key={index} onClick={() => {
+              requestId.current++;
+              setDraft(current => ({ ...current, copy: null, ideas: current.ideas.map((existing, i) => i === current.selected ? item : existing) }));
+              setAlternatives([]); setNotice('Wording replaced. Your selected image is unchanged.');
+            }}><small>USE WORDING 0{index + 1}</small><strong>{item.setup}</strong><span>{item.punchline}</span></button>)}</div>
+            <button type="button" onClick={() => setAlternatives([])}>Keep current wording</button>
+          </section>}
           {draft.ideas.length > 0 && <>
             <div className={styles.sectionTitle}><span>02 / THE TURN</span><strong>Pick your punchline.</strong></div>
             <div className={styles.ideas}>
@@ -280,8 +290,9 @@ export function CdramaForge() {
               <label htmlFor="forge-visual">Reaction image direction</label>
               <textarea id="forge-visual" maxLength={220} rows={2} value={idea?.visualDirection ?? ''} onChange={e => editIdea('visualDirection', e.target.value)} />
             </div>
+          </>}
             <div className={styles.sectionTitle}><span>03 / THE REACTION</span><strong>Find a clean still.</strong></div>
-            <p className={styles.help}>{idea?.visualDirection} Choose a result explicitly, or use an image you have permission to share. Check its source before posting.</p>
+            <p className={styles.help}>{idea?.visualDirection} Search with the drama, character, scene, or phrase you remember. Searching, uploading, and changing images never rewrite your joke. Check the source and sharing rights before posting.</p>
             <div className={styles.row}>
               <input aria-label="Search clean C-drama stills" maxLength={160} value={query} onChange={e => {
                 searchId.current++;
@@ -318,16 +329,15 @@ export function CdramaForge() {
                 }} />
               </>}
             </>}
-          </>}
         </section>
         <aside className={styles.output} aria-label="Post preview and handoff">
-          <div className={styles.sectionTitle}><span>THE OUTPUT</span><strong>One card. Your call.</strong></div>
+          <div className={styles.sectionTitle}><span>THE OUTPUT</span><strong>Your joke. Your meme.</strong></div>
           <div className={styles.formats} role="group" aria-label="Output size">
             <button type="button" disabled={!!busy} aria-pressed={draft.format === 'tiktok'} onClick={() => { requestId.current++; setDraft(current => ({ ...current, format: 'tiktok' })); }}>TikTok · 9:16</button>
             <button type="button" disabled={!!busy} aria-pressed={draft.format === 'instagram'} onClick={() => { requestId.current++; setDraft(current => ({ ...current, format: 'instagram' })); }}>Instagram · 4:5</button>
           </div>
           <div className={styles.preview}>
-            {idea && draft.still ? <canvas ref={canvas} width={frameFor(draft.format).width} height={frameFor(draft.format).height} aria-label={`${draft.format} reaction card preview: ${idea.setup} ${idea.punchline}`} /> :
+            {idea && draft.still ? <canvas ref={canvas} width={frameFor(draft.format).width} height={frameFor(draft.format).height} aria-label={`${draft.format} meme preview: ${idea.setup} ${idea.punchline}`} /> :
               <div className={styles.placeholder}><span>PREVIEW / WAITING</span><strong>{idea ? 'Choose a still to see your reaction.' : 'A good reaction starts with a sharp turn.'}</strong><p>Uploads and draft edits stay in this browser. Generating ideas sends your moment and optional context to the AI service.</p></div>}
           </div>
           <p className={styles.help}>TikTok’s taller card leaves extra space near the top and bottom for common interface overlays. Check the final composition in each app; safe areas vary.</p>

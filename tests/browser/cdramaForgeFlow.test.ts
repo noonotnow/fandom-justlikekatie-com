@@ -139,6 +139,67 @@ test('search and clipboard failures allow a local upload without any Collection 
   } finally { await closeBrowserAndServer(browser, server); }
 });
 
+test('image hunting and wording suggestions never discard the current meme', { timeout: 100_000 }, async () => {
+  const { server, origin } = await startViteTestServer();
+  const { browser, page } = await launchPageForServer(server);
+  const sourceImage = await sharp({ create: { width: 720, height: 460, channels: 3, background: '#19aa77' } }).png().toBuffer();
+  const requests: { moment: string }[] = [];
+  const replacements = ideas.map((idea, i) => ({ ...idea, setup: `NEW WORDING ${i + 1}` }));
+  let searches = 0;
+  const savedDraft = () => page.evaluate(() => JSON.parse(localStorage.getItem('fandom-cdrama-memeforge-draft-v1') || '{}'));
+  try {
+    await page.route('**/api/auth/session', route => route.fulfill({ status: 200, contentType: 'application/json', body: JSON.stringify({ user: { accountId: 'intent-creator', email: 'creator@example.test', isAdmin: false } }) }));
+    await page.route('**/.netlify/functions/cdrama-memeforge', route => {
+      requests.push(route.request().postDataJSON());
+      return route.fulfill({ status: 200, contentType: 'application/json', body: JSON.stringify({ ideas: requests.length === 1 ? ideas : replacements }) });
+    });
+    await page.route('**/.netlify/functions/cdrama-still-search*', route => {
+      searches++;
+      return route.fulfill({ status: searches === 2 ? 503 : 200, contentType: 'application/json', body: JSON.stringify(searches === 2 ? { error: 'Search unavailable for this attempt.' } : { results: [{ ...still, thumbnail: '/.netlify/functions/image-proxy?url=fixture' }] }) });
+    });
+    await page.route('**/.netlify/functions/image-proxy*', route => route.fulfill({ status: 200, contentType: 'image/png', body: sourceImage }));
+    await gotoTestPage(page, `${origin}/memeforge/c-drama`);
+    // An image can be chosen before generation, not only after accepting an angle.
+    await page.locator('input[type="file"]').setInputFiles({ name: 'villain.png', mimeType: 'image/png', buffer: sourceImage });
+    await page.getByText(/Selected: villain.png/).waitFor();
+    const brief = 'Where the Mask Ends villain caught delivering her MEI CUO defense speech';
+    await page.getByLabel('Situation, trope, dynamic, or viewer frustration').fill(brief);
+    await page.getByRole('button', { name: /Find three joke angles/ }).click();
+    await page.getByRole('button', { name: /ANGLE 01/ }).waitFor();
+    await page.getByLabel('Setup', { exact: true }).fill('WHEN I GET CAUGHT');
+    await page.getByLabel('Punchline', { exact: true }).fill('I HAVE PREPARED A DEFENSE');
+    await page.getByLabel('Instagram caption').fill('Keep my caption too');
+    await page.getByLabel('Reaction image direction').fill('Caught villain delivering her own defense');
+    await page.getByText(/Selected: villain.png/).waitFor();
+    await page.getByLabel('Search clean C-drama stills').fill('Where the Mask Ends villain speech still');
+    await page.getByRole('button', { name: 'Search stills' }).click();
+    await page.getByRole('button', { name: /example.test/ }).click();
+    const chosen = (await savedDraft()).still;
+    await page.getByRole('button', { name: 'Search stills' }).click();
+    await page.getByText('Search unavailable for this attempt.').waitFor();
+    assert.equal(await page.getByLabel('Setup', { exact: true }).inputValue(), 'WHEN I GET CAUGHT');
+    assert.equal(await page.getByLabel('Instagram caption').inputValue(), 'Keep my caption too');
+    assert.deepEqual((await savedDraft()).still, chosen);
+    assert.equal(requests.length, 1, 'searches must never trigger joke generation');
+    await page.getByLabel('Situation, trope, dynamic, or viewer frustration').fill(`${brief}. More defiant.`);
+    await page.getByRole('button', { name: /Suggest new wording/ }).click();
+    await page.getByRole('region', { name: 'New wording options' }).waitFor();
+    assert.equal(await page.getByLabel('Setup', { exact: true }).inputValue(), 'WHEN I GET CAUGHT');
+    assert.deepEqual((await savedDraft()).still, chosen);
+    await page.getByRole('button', { name: 'Keep current wording' }).click();
+    await page.getByRole('button', { name: /Suggest new wording/ }).click();
+    await page.getByRole('button', { name: /USE WORDING 01/ }).click();
+    assert.equal(await page.getByLabel('Setup', { exact: true }).inputValue(), 'NEW WORDING 1');
+    assert.deepEqual((await savedDraft()).still, chosen);
+    await page.reload();
+    await page.getByLabel('Setup', { exact: true }).waitFor();
+    assert.equal(await page.getByLabel('Setup', { exact: true }).inputValue(), 'NEW WORDING 1');
+    assert.deepEqual((await savedDraft()).still, chosen);
+    assert.equal(requests.length, 3);
+    assert.equal(requests[1].moment, `${brief}. More defiant.`);
+  } finally { await closeBrowserAndServer(browser, server); }
+});
+
 test('C-drama studio remains usable in a narrow phone viewport with expired generation session', { timeout: 70_000 }, async () => {
   const { server, origin } = await startViteTestServer();
   const { browser, page } = await launchPageForServer(server);

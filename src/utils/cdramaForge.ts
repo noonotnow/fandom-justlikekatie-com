@@ -55,14 +55,14 @@ export function suggestedCopy(joke: Joke): PostCopy {
 }
 export function frameFor(format: Format) {
   return format === 'instagram'
-    ? { width: 1080, height: 1350, imageTop: 308, imageBottom: 995, topBand: [70, 285] as const, bottomBand: [1015, 1250] as const }
-    : { width: 1080, height: 1920, imageTop: 420, imageBottom: 1390, topBand: [260, 400] as const, bottomBand: [1420, 1640] as const };
+    ? { width: 1080, height: 1350, imageTop: 270, imageBottom: 1010, topBand: [0, 245] as const, bottomBand: [1035, 1350] as const }
+    : { width: 1080, height: 1920, imageTop: 390, imageBottom: 1450, topBand: [0, 360] as const, bottomBand: [1480, 1920] as const };
 }
 
 function drawText(ctx: CanvasRenderingContext2D, text: string, top: number, bottom: number) {
   const content = text.trim();
   if (!content) return;
-  const maxWidth = 920;
+  const maxWidth = 960;
   let size = 66, lines: string[] = [];
   for (; size >= 32; size -= 2) {
     ctx.font = `800 ${size}px system-ui, sans-serif`;
@@ -96,15 +96,9 @@ export function renderCdramaCard(
   const { width, height, imageTop, imageBottom } = frame;
   ctx.canvas.width = width;
   ctx.canvas.height = height;
-  ctx.fillStyle = '#f7f2e8';
+  ctx.fillStyle = '#fbfaf7';
   ctx.fillRect(0, 0, width, height);
-  ctx.fillStyle = '#b25d46';
-  ctx.fillRect(0, 0, width, 14);
-  ctx.fillStyle = '#e3d5bd';
-  ctx.fillRect(38, imageTop - 6, 1004, imageBottom - imageTop + 12);
-  const box = { x: 44, y: imageTop, width: 992, height: imageBottom - imageTop };
-  ctx.fillStyle = '#203c43';
-  ctx.fillRect(box.x, box.y, box.width, box.height);
+  const box = { x: 0, y: imageTop, width, height: imageBottom - imageTop };
   const scale = options.framing === 'contain'
     ? Math.min(box.width / image.naturalWidth, box.height / image.naturalHeight)
     : Math.max(box.width / image.naturalWidth, box.height / image.naturalHeight);
@@ -118,12 +112,6 @@ export function renderCdramaCard(
   ctx.restore();
   drawText(ctx, joke.setup, frame.topBand[0], frame.topBand[1]);
   drawText(ctx, joke.punchline, frame.bottomBand[0], frame.bottomBand[1]);
-  ctx.textAlign = 'center';
-  ctx.fillStyle = '#9a5946';
-  ctx.font = '600 23px system-ui, sans-serif';
-  ctx.fillText('C-DRAMA · MEMEFORGE', 540, format === 'tiktok' ? 85 : 45);
-  ctx.font = '500 20px system-ui, sans-serif';
-  ctx.fillText('FANDOM VIBES / MANUAL POST', 540, height - (format === 'tiktok' ? 220 : 48));
 }
 
 export async function loadCardImage(src: string): Promise<HTMLImageElement> {
