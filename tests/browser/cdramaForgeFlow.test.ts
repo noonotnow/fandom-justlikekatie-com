@@ -55,6 +55,7 @@ test('C-drama studio creates a local draft, survives refresh, and exports both r
     assert.doesNotMatch(JSON.stringify(generatedRequests), /Middle-earth|rednote|mordor/i);
     await page.getByRole('button', { name: /ANGLE 02/ }).click();
     await page.getByLabel('Setup', { exact: true }).fill('A TINY TEST');
+    await page.getByRole('button', { name: 'Find reaction stills' }).click();
     await page.getByLabel('Search clean C-drama stills').fill('xianxia worried group still');
     await page.getByRole('button', { name: 'Search stills' }).click();
     await page.getByRole('button', { name: /example.test/ }).click();
@@ -118,6 +119,7 @@ test('search and clipboard failures allow a local upload without any Collection 
     await page.getByLabel('Situation, trope, dynamic, or viewer frustration').fill('Testing upload fallback');
     await page.getByRole('button', { name: /Find three joke angles/ }).click();
     await page.getByRole('button', { name: /ANGLE 01/ }).waitFor();
+    await page.getByRole('button', { name: 'Find reaction stills' }).click();
     await page.getByRole('button', { name: 'Search stills' }).click();
     await page.getByText('Still search unavailable. Upload your own image instead.').waitFor();
     await page.locator('input[type="file"]').setInputFiles({ name: 'my-reaction.png', mimeType: 'image/png', buffer: sourceImage });
@@ -171,6 +173,7 @@ test('image hunting and wording suggestions never discard the current meme', { t
     await page.getByLabel('Instagram caption').fill('Keep my caption too');
     await page.getByLabel('Reaction image direction').fill('Caught villain delivering her own defense');
     await page.getByText(/Selected: villain.png/).waitFor();
+    await page.getByRole('button', { name: 'Find reaction stills' }).click();
     await page.getByLabel('Search clean C-drama stills').fill('Where the Mask Ends villain speech still');
     await page.getByRole('button', { name: 'Search stills' }).click();
     await page.getByRole('button', { name: /example.test/ }).click();
@@ -222,5 +225,125 @@ test('C-drama studio remains usable in a narrow phone viewport with expired gene
     await page.reload();
     assert.equal(await page.getByLabel('Situation, trope, dynamic, or viewer frustration').inputValue(), 'My viewer confession survives');
     assert.equal(await page.evaluate(() => document.documentElement.scrollWidth <= window.innerWidth + 1), true);
+  } finally { await closeBrowserAndServer(browser, server); }
+});
+
+test('signed-out caption editing keeps its image and text during recap-only source searches', { timeout: 70_000 }, async () => {
+  const { server, origin } = await startViteTestServer();
+  const { browser, page } = await launchPageForServer(server);
+  const sourceImage = await sharp({ create: { width: 320, height: 480, channels: 3, background: '#a74235' } }).png().toBuffer();
+  let recapUrl = '';
+  let generationRequests = 0;
+  try {
+    await page.route('**/api/auth/session', route => route.fulfill({ status: 401, contentType: 'application/json', body: '{"error":"Signed out"}' }));
+    await page.route('**/.netlify/functions/cdrama-memeforge', route => {
+      generationRequests++;
+      return route.fulfill({ status: 500, contentType: 'application/json', body: '{"error":"AI generation must not be called"}' });
+    });
+    await page.route('**/.netlify/functions/cdrama-still-search*', route => {
+      recapUrl = route.request().url();
+      return route.fulfill({
+        status: 200, contentType: 'application/json',
+        body: JSON.stringify({ results: [], research: [
+          { title: 'Recap source', link: 'https://example.test/recap', snippet: '<img id="unsafe-snippet"> episode clue', episodeStart: 7, episodeEnd: 8 },
+        ] }),
+      });
+    });
+    await gotoTestPage(page, `${origin}/memeforge/c-drama`);
+    await page.getByRole('button', { name: /Try: the fire starter/ }).click();
+    await page.getByLabel('Setup', { exact: true }).waitFor();
+    await page.getByLabel('Setup', { exact: true }).fill('One editable line');
+    await page.getByLabel('Punchline', { exact: true }).fill('');
+    await page.locator('input[type="file"]').setInputFiles({ name: 'local-reaction.png', mimeType: 'image/png', buffer: sourceImage });
+    await page.getByText(/Selected: local-reaction.png/).waitFor();
+    await page.getByRole('button', { name: 'Look through recaps' }).click();
+    await page.getByLabel('Drama title (optional)').fill('Palace of Strings');
+    await page.getByLabel('Search recap moments or characters').fill('the palace argument');
+    await page.getByRole('button', { name: 'Search recaps' }).click();
+    await page.getByRole('link', { name: 'Recap source ↗' }).waitFor();
+    assert.equal(new URL(recapUrl).searchParams.get('mode'), 'recaps');
+    assert.equal(new URL(recapUrl).searchParams.get('q'), 'the palace argument');
+    assert.equal(new URL(recapUrl).searchParams.get('dramaTitle'), 'Palace of Strings');
+    assert.equal(new URL(recapUrl).searchParams.has('watchedThrough'), false);
+    await page.getByText('Episode range 7–8').waitFor();
+    assert.equal(await page.getByLabel('Setup', { exact: true }).inputValue(), 'One editable line');
+    await page.getByText(/Selected: local-reaction.png/).waitFor();
+    assert.equal(await page.locator('#unsafe-snippet').count(), 0);
+    assert.match(await page.getByText(/episode clue/).textContent() ?? '', /<img id="unsafe-snippet">/);
+    assert.equal(generationRequests, 0, 'manual caption creation while signed out does not call the AI endpoint');
+    assert.equal(await page.getByLabel('Watched through episode').count(), 0);
+  } finally { await closeBrowserAndServer(browser, server); }
+});
+
+test('scene-first discovery preserves the caption, exposes bilingual clues and honest candidate limits', { timeout: 100_000 }, async () => {
+  const { server, origin } = await startViteTestServer();
+  const { browser, page } = await launchPageForServer(server);
+  const sourceImage = await sharp({ create: { width: 600, height: 297, channels: 3, background: '#a74235' } }).png().toBuffer();
+  const sourceLink = 'https://recaps.example.org/ancient-love-poetry/episode-47';
+  const requests: URL[] = [];
+  const queries: string[] = [];
+  const errors: string[] = [];
+  let generationRequests = 0;
+  let empty = false;
+  const handler = createCdramaStillHandler(async q => {
+    queries.push(q);
+    return { results: empty ? [] : [
+      { title: '千古玦尘第47集剧照', thumbnail: 'https://images.example.org/defiance.jpg', link: sourceLink },
+      { title: 'Episode 48', thumbnail: 'https://images.example.org/unavailable.jpg', link: sourceLink },
+    ] };
+  }, {}, {
+    resolveScene: async () => ({
+      clues: [{ summary: 'Possible post-defeat speech; not an exact verified frame.', episodeStart: 47, episodeEnd: 47,
+        chineseTitle: '千古玦尘', chineseCharacter: '芜浣', chineseAction: '白发 认罪', sourceUrls: [sourceLink] }],
+      research: [{ title: 'Episode 47 recap', link: sourceLink, snippet: 'AI research summary of the trial.' }],
+    }),
+  });
+  try {
+    page.on('pageerror', error => errors.push(error.message));
+    await page.route('**/api/auth/session', route => route.fulfill({ status: 401, contentType: 'application/json', body: '{"error":"Signed out"}' }));
+    await page.route('**/.netlify/functions/cdrama-memeforge', route => { generationRequests++; return route.abort(); });
+    await page.route('**/.netlify/functions/cdrama-still-search*', async route => {
+      requests.push(new URL(route.request().url()));
+      const response = await handler(new Request(route.request().url()));
+      return route.fulfill({ status: response.status, contentType: 'application/json', body: await response.text() });
+    });
+    await page.route('**/.netlify/functions/image-proxy*', route => route.request().url().includes('unavailable')
+      ? route.fulfill({ status: 404, body: '' })
+      : route.fulfill({ status: 200, contentType: 'image/png', body: sourceImage }));
+    await gotoTestPage(page, `${origin}/memeforge/c-drama`);
+    await page.getByLabel('Write a caption yourself').fill('My joke stays exactly like this');
+    await page.getByRole('button', { name: 'Add caption', exact: true }).click();
+    await page.locator('input[type="file"]').setInputFiles({ name: 'original.png', mimeType: 'image/png', buffer: sourceImage });
+    await page.getByText(/Selected: original.png/).waitFor();
+    await page.getByLabel('Situation, trope, dynamic, or viewer frustration').fill('Wu Huan making a villain speech after caught');
+    await page.getByRole('button', { name: 'Use my moment description' }).click();
+    await page.getByRole('button', { name: 'Find performance stills' }).click();
+    await page.getByText('Episode-aligned lead · frame unverified', { exact: true }).waitFor();
+    await page.getByText('Different episode lead · frame unverified', { exact: true }).waitFor();
+    await page.getByText('600 × 297 · Small source; enlargement may look soft.', { exact: true }).waitFor();
+    assert.equal(await page.getByRole('button', { name: /Use this still.*Episode 48/ }).isDisabled(), true);
+    assert.equal(await page.getByLabel('Setup', { exact: true }).inputValue(), 'My joke stays exactly like this');
+    await page.getByText(/Selected: original.png/).waitFor();
+    assert.equal(requests[0].searchParams.get('mode'), 'scenes');
+    assert.equal(requests[0].searchParams.get('q'), 'Wu Huan making a villain speech after caught');
+    assert.ok(!requests[0].href.includes('My+joke'));
+    assert.ok(queries.some(query => query.includes('芜浣') && query.includes('47')));
+    await page.getByText('Subtitles not checked. Inspect the image before using it.').first().waitFor();
+    assert.equal(await page.getByLabel('Watched through episode').count(), 0);
+    await page.getByRole('button', { name: /Use this still.*第47集/ }).click();
+    assert.equal(await page.getByLabel('Setup', { exact: true }).inputValue(), 'My joke stays exactly like this');
+    const saved = await page.evaluate(() => JSON.parse(localStorage.getItem('fandom-cdrama-memeforge-draft-v1') || '{}'));
+    assert.match(saved.still.title, /第47集/);
+    empty = true;
+    await page.getByLabel('Describe the performance to find').fill('another remembered moment');
+    await page.getByRole('button', { name: 'Find performance stills' }).click();
+    await page.getByRole('link', { name: 'Episode 47 recap ↗' }).waitFor();
+    const next = await page.evaluate(() => JSON.parse(localStorage.getItem('fandom-cdrama-memeforge-draft-v1') || '{}'));
+    assert.deepEqual(next.still, saved.still);
+    assert.equal(next.ideas[0].setup, saved.ideas[0].setup);
+    assert.equal(generationRequests, 0);
+    await page.setViewportSize({ width: 390, height: 844 });
+    assert.equal(await page.evaluate(() => document.documentElement.scrollWidth > window.innerWidth), false);
+    assert.deepEqual(errors, []);
   } finally { await closeBrowserAndServer(browser, server); }
 });

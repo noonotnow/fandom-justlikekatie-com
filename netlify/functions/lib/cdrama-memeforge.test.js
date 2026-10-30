@@ -95,3 +95,20 @@ test("contract rejects legacy, commercial, duplicate, and incomplete copy", () =
   }
   assert.throws(() => validateIdeas({ ideas: ideas.slice(1) }));
 });
+
+test("one-line memes are valid without forcing an explanatory second beat", () => {
+  const oneLine = { ...ideas[0], setup: "the fire starter when they discover there's a fire", punchline: "" };
+  assert.equal(validateIdeas({ ideas: [oneLine, ...ideas.slice(1)] })[0].punchline, "");
+  assert.throws(() => validateIdeas({ ideas: [{ ...oneLine, setup: "" }, ...ideas.slice(1)] }));
+});
+
+test("calibration preserves simple humor, subject versus comparison, and separate evidence levels", async () => {
+  const studio = harness();
+  assert.equal((await studio.request()).status, 200);
+  const prompt = studio.prompts[0];
+  assert.match(prompt, /Deep context in, simple funny out/);
+  assert.match(prompt, /not templates to copy/);
+  assert.match(prompt, /do not silently replace the original subject with Wu Huan/);
+  assert.match(prompt, /Character fit, scene fit, and image-from-scene/);
+  assert.doesNotMatch(prompt, /setup ABOVE a clean still/);
+});

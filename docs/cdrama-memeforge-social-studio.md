@@ -67,13 +67,10 @@ Functions. Successful local tests and model samples are not a claim that the
 Netlify production endpoints or a signed-in live-site flow have been verified.
 Release still requires the existing independently reviewed GitHub/Netlify path.
 
-The review branch is based on GitHub main, not the workspace's divergent history.
-On that combined tree: 504 app tests, 1,398 function tests, and 628 script tests
-passed (two existing script skips); all three C-drama browser flows passed.
-Type checking, the test-import guard, and the Vite production frontend build also
-passed. The unrelated Godot game prebuild and full legacy browser suite were not
-rerun for this pull request; repository CI remains required before merge.
-
-Earlier script failures in the development workspace were not carried into this
-branch. No editorial articles or retained-reading digests were changed or
-re-certified as part of this release.
+The broad script suite also currently reports unrelated release-check failures:
+the isolated public-page preparation fixture omits `shared/watch-source-freshness.js`,
+and two retained-reading checks disagree with existing content digests.
+Those test files and editorial articles were not changed by this feature.
+Do not update editorial digests merely to make tests green. The app and function
+suites passed; the longer legacy browser run reached the execution time limit
+after its completed checks passed. All three new C-drama browser flows passed.
