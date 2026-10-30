@@ -72,7 +72,7 @@ test("claims require current, complete, non-contradictory provider evidence", ()
   updated.platforms[0].checkedAt = "2026-09-29T09:00:00Z";
   updated.checkedAt = "2026-09-29T09:00:00Z";
   assert.equal(evaluateWatchRecord(updated, new Date("2026-09-29T12:00:00Z")).publishable, true);
-  assert.match(renderWatchPage(updated, new Date("2026-09-29T12:00:00Z")), /Episodes:<\/strong> 1–25/);
+  assert.match(renderWatchPage(updated, new Date("2026-09-29T12:00:00Z")), /Episodes at check:<\/strong> 1–25/);
 });
 
 test("unknown or conflicting schedules do not grant finale publication permission", () => {
@@ -99,7 +99,7 @@ test("approved document has one safe canonical, source links and a narrow-screen
   assert.match(html, new RegExp(`href="https://fandom.justlikekatie.com${WATCH_ROUTE}"`));
   assert.match(html, /<meta name="viewport" content="width=device-width, initial-scale=1">/);
   assert.match(html, /Official source/);
-  assert.match(html, /overdue for a manual recheck/);
+  assert.match(html, /historical observations, not currently verified availability/);
   assert.match(html, /href="https:\/\/www.viki.com\/watch"/);
   for (const tag of ["<title>", 'property="og:title"', 'property="og:description"']) {
     assert.ok(html.includes(tag));
@@ -158,5 +158,5 @@ test("published US observations do not imply another country or a finale date", 
     .some((item) => item.startsWith("Viki · Viki Pass episodes")), false);
   assert.equal(evaluateWatchRecord(record, new Date(reviewTime.getTime() + 8 * 86400000)).publishable, false);
   assert.equal(existsSync(WATCH_PAGE), true);
-  assert.equal(readFileSync(WATCH_PAGE, "utf8"), html);
+  assert.equal(readFileSync(WATCH_PAGE, "utf8"), renderWatchPage(record, new Date(), { allowStale: true }));
 });

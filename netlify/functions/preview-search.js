@@ -430,13 +430,17 @@ function recordBaiduSuccess(log, baidu) {
   log.telemetry = baidu.telemetry;
 }
 
-function baiduResponse(q, baidu, baiduAttemptLog, debug) {
+function baiduResponse(q, baidu, baiduAttemptLog, debug, preferOriginal = false) {
   const response = {
     query: q,
     provider: "baidu",
     results: baidu.results
       .slice(0, 18)
-      .map(({ isLogo, thumbnailOriginal, ...result }) => ({ ...result, provider: "baidu" })),
+      .map(({ isLogo, thumbnailOriginal, ...result }) => ({
+        ...result, provider: "baidu",
+        ...(preferOriginal && /^https?:\/\//i.test(thumbnailOriginal)
+          ? { thumbnail: thumbnailOriginal.replace(/^http:/i, "https:") } : {}),
+      })),
   };
   if (debug) {
     response.version = "baidu-images-v2-primary";
@@ -486,6 +490,7 @@ export async function searchOneQuery(
     providerPolicy = "default",
     cacheMode = "default",
     resultLimit = 18,
+    preferOriginal = false,
   } = {},
 ) {
   if (!q) {
@@ -614,7 +619,7 @@ export async function searchOneQuery(
         });
       }
       if (baidu.qualified) {
-        if (!collectorRefreshPool) return attachProvenance(baiduResponse(q, baidu, baiduAttemptLog, debug));
+        if (!collectorRefreshPool) return attachProvenance(baiduResponse(q, baidu, baiduAttemptLog, debug, preferOriginal));
       }
     } catch (baiduError) {
       baiduAttemptLog.error = baiduError.message || "Baidu fetch error";
@@ -900,6 +905,9 @@ export async function searchOneQuery(
         .slice(0, Math.max(1, Number(resultLimit) || 18))
         .map(({ isLogo, thumbnailOriginal, ...result }) => ({
           ...result,
+          ...(preferOriginal && /^https?:\/\//i.test(thumbnailOriginal) ? {
+            thumbnail: thumbnailOriginal.replace(/^http:/i, "https:"),
+          } : {}),
           provider: collectorRefreshPool ? result.provider : finalProvider,
         })),
     };

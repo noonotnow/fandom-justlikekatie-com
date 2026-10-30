@@ -11,12 +11,14 @@ const ideas = [
 function harness({ authorized = true, fail = false } = {}) {
   let calls = 0;
   let count = 0;
+  const prompts = [];
   const client = {
     async proxy(provider, path, options) {
       assert.equal(provider, "xai");
       calls++;
       if (path === "/v1/language-models") return Response.json({ data: [{ id: "grok-test" }] });
       const input = JSON.parse(options.body);
+      prompts.push(input.messages[0].content);
       assert.equal(input.model, "grok-test");
       assert.match(input.messages[0].content, /C-drama/);
       assert.doesNotMatch(input.messages[0].content, /Middle-earth|Rednote/);
@@ -41,8 +43,21 @@ function harness({ authorized = true, fail = false } = {}) {
       method: "POST", headers: { Origin: origin, "Content-Type": "application/json" },
       body: JSON.stringify(input),
     }), {});
-  return { request, getCalls: () => calls };
+  return { request, getCalls: () => calls, prompts };
 }
+
+test("conversational scene intent stays primary instead of forcing three unrelated comedy lanes", async () => {
+  const studio = harness();
+  const moment = 'The villain in Where the Mask Ends gets caught and delivers her MEI CUO monologue. I want that big dramatic defense speech.';
+  assert.equal((await studio.request({ moment, context: "", lane: "fandom" })).status, 200);
+  const prompt = studio.prompts[0];
+  assert.ok(prompt.includes(JSON.stringify(moment)));
+  assert.match(prompt, /Preserve that intent in ALL THREE options/);
+  assert.match(prompt, /brief OR context supplies a drama/);
+  assert.match(prompt, /keep the most useful supplied source anchor/);
+  assert.match(prompt, /without inventing translations/);
+  assert.doesNotMatch(prompt, /in this order: 1\)|input is inspiration/);
+});
 
 test("C-drama generation returns three validated jokes from a signed-in request", async () => {
   const { request, getCalls } = harness();
@@ -79,4 +94,21 @@ test("contract rejects legacy, commercial, duplicate, and incomplete copy", () =
     assert.throws(() => validateIdeas({ ideas: [changed, ...ideas.slice(1)] }));
   }
   assert.throws(() => validateIdeas({ ideas: ideas.slice(1) }));
+});
+
+test("one-line memes are valid without forcing an explanatory second beat", () => {
+  const oneLine = { ...ideas[0], setup: "the fire starter when they discover there's a fire", punchline: "" };
+  assert.equal(validateIdeas({ ideas: [oneLine, ...ideas.slice(1)] })[0].punchline, "");
+  assert.throws(() => validateIdeas({ ideas: [{ ...oneLine, setup: "" }, ...ideas.slice(1)] }));
+});
+
+test("calibration preserves simple humor, subject versus comparison, and separate evidence levels", async () => {
+  const studio = harness();
+  assert.equal((await studio.request()).status, 200);
+  const prompt = studio.prompts[0];
+  assert.match(prompt, /Deep context in, simple funny out/);
+  assert.match(prompt, /not templates to copy/);
+  assert.match(prompt, /do not silently replace the original subject with Wu Huan/);
+  assert.match(prompt, /Character fit, scene fit, and image-from-scene/);
+  assert.doesNotMatch(prompt, /setup ABOVE a clean still/);
 });

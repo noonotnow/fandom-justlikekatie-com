@@ -3,6 +3,7 @@ import test from "node:test";
 import {
   XaiClientConfigurationError,
   createXaiClient,
+  createXaiResearchClient,
 } from "./xai-client.js";
 
 test("Netlify uses a server-side xAI key without relying on Replit identity", async () => {
@@ -78,4 +79,20 @@ test("native client rejects other providers and paths", async () => {
   await assert.rejects(() => client.proxy("github", "/v1/models"), /Only the xAI provider/);
   await assert.rejects(() => client.proxy("xai", "//evil.example/v1/models"), /Only xAI v1/);
   await assert.rejects(() => client.proxy("xai", "/v2/models"), /Only xAI v1/);
+});
+
+test("scene research uses Netlify credentials and forwards its abort budget", async () => {
+  const signal = new AbortController().signal;
+  const client = await createXaiResearchClient({
+    apiKey: "fixture-research-key",
+    netlifyRuntime: true,
+    connectorFactory: () => { throw new Error("Must not use Replit in Netlify"); },
+    fetchImpl: async (url, options) => {
+      assert.equal(String(url), "https://api.x.ai/v1/responses");
+      assert.equal(options.signal, signal);
+      assert.equal(options.headers.get("Authorization"), "Bearer fixture-research-key");
+      return Response.json({ output: [] });
+    },
+  });
+  assert.equal((await client.proxy("xai", "/v1/responses", { signal, method: "POST" })).status, 200);
 });

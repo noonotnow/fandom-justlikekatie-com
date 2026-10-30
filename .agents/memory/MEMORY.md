@@ -1,5 +1,6 @@
 - [Fandom Vibes product context](product-context.md) — Vibe Atlas is the C-drama studio; the Middle-earth meme scope is an experiment with a legacy Collection cleanup, not a roadmap.
 - [MemeForge example mechanisms](memeforge-example-mechanisms.md) — new references emphasize recontextualized reactions, sequential escalation, canon contradiction, and relationship chemistry.
+- [C-drama MemeForge intent](cdrama-memeforge-intent.md) — preserve conversational intent, refine images and jokes independently, and place text above/below clean stills.
 - [GitHub API push protocol](github-api-push.md) — use PAT-in-URL for git push; connector API write paths (PUT/trees) are unreliable, fallback needs readFile utf-8 blobs + sha verification; never pipe large blobs through shellExec.
 - [Actions token vs branch protection](actions-token-branch-protection.md) — GITHUB_TOKEN can't see required_status_checks; use REPO_ADMIN_PAT secret; `administration` is an invalid workflow permissions key.
 - [GitHub connector proxy write restrictions](github-connector-write-restrictions.md) — POST /git/trees returns 404, PUT /contents is Cloudflare-blocked; only POST /git/blobs and GETs reliably work; use GraphQL createCommitOnBranch or find alternative push path.
