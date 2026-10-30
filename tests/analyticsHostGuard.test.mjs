@@ -5,7 +5,7 @@ import vm from 'node:vm';
 
 const html = readFileSync(new URL('../index.html', import.meta.url), 'utf8');
 const gateSource = readFileSync(new URL('../public/audience-gate.js', import.meta.url), 'utf8');
-const scripts = [...html.matchAll(/<script\b([^>]*)>([\s\S]*?)<\/script>/g)]
+const executableScripts = pageHtml => [...pageHtml.matchAll(/<script\b([^>]*)>([\s\S]*?)<\/script>/g)]
   .filter(([, attrs]) => !/\btype\s*=/.test(attrs))
   .map(([, attrs, body]) => (/src="\/audience-gate\.js"/.test(attrs) ? gateSource : body))
   .filter(body => !/\bsrc\s*=/.test(body) || body.length > 40);
@@ -22,7 +22,7 @@ const sessionResponse = (user, init = {}) => ({
 });
 
 // `session` is a user object / null, or an Error / { ok: false } to simulate a failed lookup.
-function bootstrap(url, session = null) {
+function bootstrap(url, session = null, pageHtml = html) {
   const loads = [];
   const fetches = [];
   const location = new URL(url);
@@ -53,7 +53,7 @@ function bootstrap(url, session = null) {
     },
     localStorage: { getItem() { return null; } },
   });
-  for (const script of scripts) vm.runInContext(script, context);
+  for (const script of executableScripts(pageHtml)) vm.runInContext(script, context);
   const entries = () => JSON.parse(JSON.stringify((window.dataLayer || []).map(value =>
     value && typeof value === 'object' && 'length' in value ? Array.from(value) : value)));
   return { window, loads, fetches, entries, listeners, context };
@@ -250,6 +250,34 @@ test('static public pages load the shared gate instead of an unconditional Googl
     assert.ok(body.indexOf('/audience-gate.js') < body.indexOf('editorial.js') || !body.includes('editorial.js'));
   }
 });
+
+for (const range of ['1-6', '7-14', '15-20']) {
+  const path = `c-drama-fandom/vibing-now/against-the-current-episodes-${range}/index.html`;
+  const article = readFileSync(new URL(`../public/${path}`, import.meta.url), 'utf8');
+  for (const [name, session, state] of [
+    ['anonymous', null, 'public'],
+    ['ordinary member', { isAdmin: false }, 'public'],
+    ['operator', { isAdmin: true }, 'operator'],
+    ['failed session lookup', new Error('offline'), 'unknown'],
+  ]) {
+    test(`actual article ${range}: ${name} is classified before any Google load`, async () => {
+      const result = bootstrap(`https://fandom.justlikekatie.com/${path}`, session, article);
+      assert.deepEqual(result.loads, [], 'no tags load while classification is pending');
+      vm.runInContext("window.gtag('event', 'article_guard_test', {});", result.context);
+      await flush();
+      assert.equal(result.window.__audienceGate.state(), state);
+      if (state === 'public') {
+        assert.equal(result.loads.filter(src => src.includes('/gtag/js')).length, 1);
+        assert.equal(result.loads.filter(src => src.includes('/gtm.js')).length, 1);
+        assert.equal(result.entries().filter(value => value[0] === 'config').length, 1);
+        assert.equal(result.entries().filter(value => value[1] === 'article_guard_test').length, 1);
+      } else {
+        assert.deepEqual(result.loads, []);
+        assert.deepEqual(result.entries(), []);
+      }
+    });
+  }
+}
 
 test('no unconditional tracking iframe or external script survives on preview HTML', () => {
   assert.doesNotMatch(html, /<iframe[^>]+googletagmanager/);

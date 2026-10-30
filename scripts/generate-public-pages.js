@@ -13,6 +13,7 @@ import {
 import { evaluateWatchRecord, loadWatchRecord, renderWatchPage, WATCH_PAGE, WATCH_ROUTE } from "./where-to-watch.js";
 import { assertStaticGuidePublicInventory } from "./static-guide-public-inventory.js";
 import { assertVibingPublicInventory } from "./vibing-public-inventory.js";
+import { assertStaticAudienceGates } from "./static-audience-gates.js";
 import { renderUntamedNameKey } from "./untamed-name-key.js";
 import { prepareSectPages } from "./sect-day-pages.js";
 
@@ -605,6 +606,7 @@ export async function preparePublicPages(now = new Date()) {
   // Reuse the exact exclusions; registration is not source or warning approval.
   assertStaticGuidePublicInventory(root);
   assertVibingPublicInventory(root);
+  assertStaticAudienceGates(root);
   writeFileSync(resolve(root, "public/sitemap.xml"), staticSitemapXml());
 
   mkdirSync(outputDir, { recursive: true });

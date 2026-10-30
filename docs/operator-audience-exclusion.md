@@ -71,6 +71,8 @@ not audience aggregates and are unchanged.
 
 ## Tests
 
+- `node --test scripts/static-audience-gates.test.js` - filesystem-wide static HTML regression guard, including newly added nested HTML; also enforced by `prepare:public` after page generation. Tracker-free pages remain tracker-free.
+
 - `node --test tests/analyticsHostGuard.test.mjs` - gate states, hosts, fallback, token handling
 - `node --import tsx/esm --test tests/audienceAnalytics.test.ts` - `trackEvent` gating
 - `node --test netlify/functions/lib/operator-audience-exclusion.test.js` - server exclusion with ordinary-member and anonymous positive controls
@@ -101,3 +103,59 @@ not audience aggregates and are unchanged.
    subtracted with certainty; no data was deleted and no GA filter activated.
    After the deployed verification above passes, record the deployment time as a
    clean-baseline cutover; do not call earlier numbers clean.
+
+
+## October 30 article coverage follow-up
+
+The Episodes 1–6, 7–14 and 15–20 Against the Current articles still had direct
+Google bootstraps after PR #204. They now use the existing synchronous
+`/audience-gate.js` before `editorial.js`; no tracker IDs, article copy or auth
+rules are changed. The public-page build now checks all static HTML on disk for
+unconditional Google loaders, configs, queue pushes and tracking iframes, rather
+than relying on a short curated page list. This covers hand-authored future
+articles as well as generator output; intentionally tracker-free pages stay so.
+The actual three article HTML documents also run through the existing VM gate
+harness with anonymous, ordinary-member, operator and failed-lookup responses.
+These are mocked regression tests, not proof of live production identity.
+
+### Ordinary-visitor and operator acceptance test
+
+No second person or new account is needed for the anonymous positive control.
+After the reviewed fix is deployed:
+
+1. Use a fresh, signed-out browser context with no Fandom session cookies or
+   saved login, and no analytics-blocking extension. Confirm the real production
+   `/api/auth/session` response is `user: null`; do not mock that response for
+   this live test. If a consent choice is offered, use the normal permitted
+   analytics choice and record it.
+2. Start a network capture before navigation. Open the homepage and each of the
+   three fixed article routes once. Confirm classification becomes `public`,
+   Google tags initialize once, and a real `page_view` collection request is
+   sent for each initial page load. Check the request's event name and tag ID,
+   not just a loaded script or buffered `dataLayer` entry. Duplicate pageviews
+   from GA/GTM forwarding fail the control and need investigation.
+3. Repeat in Katie's genuinely signed-in operator browser. Confirm only the
+   boolean `user.isAdmin: true` and gate state `operator`, without recording or
+   sharing session cookies, tokens or raw email. Hard-reload before each test
+   so a tag from an earlier anonymous visit is not still in memory. Expect no
+   Google/GTM loaders and no audience collection requests on those routes.
+4. If an existing ordinary signed-in non-admin account is available, repeat the
+   visitor test with its actual `isAdmin: false` session. Automated fixtures
+   cover this case, but do not label that as a live member-account test.
+5. Corroborate the anonymous test in GA4 property `552138908`, stream **Fandom
+   Vibes** (`15529145995`), matching the recorded time and production hostname
+   `fandom.justlikekatie.com`. The property's reporting timezone is
+   `America/Los_Angeles`. Its picker name `G-CGWB67360Q` is not, by itself,
+   evidence of a different stream measurement ID; production code uses
+   `G-FHZJ1T74TG`. Do not change IDs just to match the property name.
+6. Keep a small receipt with deployment/commit, route, device, session class,
+   gate state, pageview request count and GA confirmation. The anonymous visits
+   intentionally add a small amount of test traffic: record their exact count
+   and times, avoid repeated test spam, and do not claim those visits are real
+   audience growth. Record the clean-baseline cutover only after both controls
+   pass. Repeat on mobile and locale-specific routes before certifying those
+   combinations.
+
+A decline or absence in aggregate pageviews is not enough to certify owner
+exclusion: both the negative operator control and the positive visitor control
+must pass. No production control is claimed completed by this source change.
