@@ -552,13 +552,14 @@ async function prepareOutcomeAssets(template) {
 }
 
 export function prepareWatchPage(now = new Date()) {
-  // Publication requires both a reviewed record and an explicit registry/redirect change.
+  // Retain reviewed guides as dated references; expiry alone must not block a build.
+  // All source-validity and editorial signoff gates remain strict.
   const watchRegistered = PUBLIC_STATIC_ROUTES.some(({ path }) => path === WATCH_ROUTE);
   if (!watchRegistered) return null;
   const record = loadWatchRecord();
   const gate = evaluateWatchRecord(record, now, { allowStale: true });
   if (!gate.publishable) throw new Error(`Where-to-watch publication blocked: ${gate.issues.join("; ")}`);
-  return renderWatchPage(record, now);
+  return renderWatchPage(record, now, { allowStale: true });
 }
 export async function preparePublicPages(now = new Date()) {
   const nameKeyPage = resolve(root, "public/c-drama-fandom/untamed-names-and-performers/index.html");
