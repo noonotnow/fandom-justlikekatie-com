@@ -3,7 +3,7 @@ import assert from "node:assert/strict";
 import { existsSync, readFileSync } from "node:fs";
 import { PUBLIC_STATIC_ROUTES, staticSitemapXml } from "../shared/public-routes.js";
 import { publicStaticNetlifyRedirects } from "./generate-public-pages.js";
-import { evaluateWatchRecord, loadWatchRecord, releaseAdvisory, renderWatchPage, WATCH_PAGE, WATCH_ROUTE } from "./where-to-watch.js";
+import { evaluateWatchRecord, loadWatchRecord, releaseAdvisory, renderWatchPage, renderRetainedWatchPage, WATCH_PAGE, WATCH_ROUTE } from "./where-to-watch.js";
 
 const now = new Date("2026-09-28T13:00:00Z");
 const fixture = () => ({
@@ -99,7 +99,7 @@ test("approved document has one safe canonical, source links and a narrow-screen
   assert.match(html, new RegExp(`href="https://fandom.justlikekatie.com${WATCH_ROUTE}"`));
   assert.match(html, /<meta name="viewport" content="width=device-width, initial-scale=1">/);
   assert.match(html, /Official source/);
-  assert.match(html, /overdue for a manual recheck/);
+  assert.match(html, /Needs recheck/);
   assert.match(html, /href="https:\/\/www.viki.com\/watch"/);
   for (const tag of ["<title>", 'property="og:title"', 'property="og:description"']) {
     assert.ok(html.includes(tag));
@@ -109,7 +109,7 @@ test("approved document has one safe canonical, source links and a narrow-screen
   const browser = await chromium.launch({ headless: true });
   try {
     const page = await browser.newPage({ viewport: { width: 375, height: 812 } });
-    await page.setContent(html);
+    await page.setContent(html, { waitUntil: "domcontentloaded" });
     await page.addStyleTag({ content: readFileSync("public/c-drama-fandom/styles.css", "utf8") });
     assert.equal(await page.evaluate(() => document.documentElement.scrollWidth <= innerWidth), true);
     assert.equal(await page.locator(".watch-option").count(), 2);
@@ -158,5 +158,97 @@ test("published US observations do not imply another country or a finale date", 
     .some((item) => item.startsWith("Viki · Viki Pass episodes")), false);
   assert.equal(evaluateWatchRecord(record, new Date(reviewTime.getTime() + 8 * 86400000)).publishable, false);
   assert.equal(existsSync(WATCH_PAGE), true);
-  assert.equal(readFileSync(WATCH_PAGE, "utf8"), html);
+  const stored = readFileSync(WATCH_PAGE, "utf8");
+  const snapshotTime = stored.includes('data-watch-state="needs-recheck"')
+    ? new Date(Date.parse(record.checkedAt) + 8 * 86400000)
+    : reviewTime;
+  assert.equal(stored, renderRetainedWatchPage(record, snapshotTime));
+});
+
+test("expiry retains the URL and real dates but withholds stale claims even without JavaScript", () => {
+  const record = loadWatchRecord();
+  const original = JSON.stringify(record);
+  const expired = new Date(Date.parse(record.checkedAt) + 8 * 86400000);
+  const gate = evaluateWatchRecord(record, expired);
+  assert.equal(gate.publishable, false);
+  assert.equal(gate.structurallyValid, true);
+  assert.equal(gate.needsRecheck, true);
+  assert.throws(() => renderWatchPage(record, expired), /publication blocked/);
+  const html = renderRetainedWatchPage(record, expired);
+  assert.match(html, /data-watch-state="needs-recheck"/);
+  assert.match(html, /Needs recheck:/);
+  assert.ok(html.includes(record.checkedAt));
+  assert.ok(html.includes(`rel="canonical" href="https://fandom.justlikekatie.com${WATCH_ROUTE}"`));
+  assert.match(html, /Viki official listing/);
+  assert.match(html, /WeTV official listing/);
+  assert.match(html, /Tencent Video official listing/);
+  assert.doesNotMatch(html, /Viki Pass|free episodes|US listing checked|Episodes:<|1–6|7–47|100%|These are verified listing/);
+  assert.doesNotMatch(html, /id="watch-current-claims"/);
+  assert.equal(JSON.stringify(record), original, "rendering must not renew evidence or signoff");
+  assert.equal(releaseAdvisory(record, expired).evergreenSafe, false);
+});
+
+test("stale retention never excuses missing signoff, unsafe links or invalid/future dates", () => {
+  const expired = new Date(now.getTime() + 8 * 86400000);
+  for (const change of [
+    r => { r.rightsReviewed = false; },
+    r => { r.spoilerReviewed = false; },
+    r => { r.checkedAt = "invalid"; },
+    r => { r.checkedAt = "2099-01-01T00:00:00Z"; },
+    r => { r.platforms[0].sourceUrl = "https://unrelated.test/"; },
+    r => { r.platforms[0].checkedAt = "2099-01-01T00:00:00Z"; },
+    r => { r.regionGuidance[0].checkedAt = "invalid"; },
+    r => { r.platforms[0].state = "conflict"; },
+  ]) {
+    const record = fixture();
+    change(record);
+    assert.equal(evaluateWatchRecord(record, expired).structurallyValid, false);
+    assert.throws(() => renderRetainedWatchPage(record, expired), /publication blocked/);
+  }
+});
+
+test("updating only the headline date cannot restore current claims; a complete fresh review can", () => {
+  const record = fixture();
+  const expired = new Date(now.getTime() + 8 * 86400000);
+  record.checkedAt = expired.toISOString();
+  assert.equal(evaluateWatchRecord(record, expired).publishable, false);
+  assert.match(renderRetainedWatchPage(record, expired), /data-watch-state="needs-recheck"/);
+  for (const entry of [...record.platforms, ...record.regionGuidance]) entry.checkedAt = expired.toISOString();
+  assert.equal(evaluateWatchRecord(record, expired).publishable, true);
+  assert.doesNotMatch(renderRetainedWatchPage(record, expired), /<html[^>]+data-watch-state="needs-recheck"/);
+  assert.match(renderRetainedWatchPage(record, expired), /Episodes:<\/strong> 1–21/);
+});
+
+test("freshly rendered page switches to the safe links when evidence expires between builds", async () => {
+  const record = fixture();
+  const html = renderWatchPage(record, now);
+  const { chromium } = await import("@playwright/test");
+  const browser = await chromium.launch({ headless: true });
+  try {
+    for (const expired of [false, true]) {
+      const page = await browser.newPage();
+      const time = expired ? now.getTime() + 8 * 86400000 : now.getTime();
+      await page.clock.setFixedTime(new Date(time));
+      await page.setContent(html, { waitUntil: "domcontentloaded" });
+      assert.equal(await page.locator("#watch-current-claims").isVisible(), !expired);
+      assert.equal(await page.locator("#watch-stale-links").isVisible(), expired);
+      if (expired) {
+        assert.match(await page.locator("#watch-freshness").innerText(), /Needs recheck/);
+        assert.doesNotMatch(await page.locator('meta[name="description"]').getAttribute("content"), /compared by verified/);
+        assert.doesNotMatch(await page.locator(".side-card p").first().innerText(), /verified listing observations/);
+      }
+      await page.close();
+    }
+    const noJs = await browser.newContext({ javaScriptEnabled: false });
+    const page = await noJs.newPage({ viewport: { width: 375, height: 812 } });
+    const staleHtml = renderRetainedWatchPage(record, new Date(now.getTime() + 8 * 86400000));
+    const styledHtml = staleHtml.replace("</head>", `<style>${readFileSync("public/c-drama-fandom/styles.css", "utf8")}</style></head>`);
+    await page.setContent(styledHtml, { waitUntil: "domcontentloaded" });
+    assert.match(await page.locator("#watch-freshness").innerText(), /Needs recheck/);
+    assert.equal(await page.locator(".watch-option").count(), 0);
+    assert.equal(await page.evaluate(() => document.documentElement.scrollWidth <= innerWidth), true);
+    await noJs.close();
+  } finally {
+    await browser.close();
+  }
 });

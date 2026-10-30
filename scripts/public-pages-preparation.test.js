@@ -12,12 +12,13 @@ function preparationFixture(t) {
   const fixtureRoot = mkdtempSync(resolve(tmpdir(), "public-pages-preparation-"));
   t.after(() => rmSync(fixtureRoot, { recursive: true, force: true }));
   for (const path of [
-    "package.json", "netlify.toml", "shared/public-routes.js", "shared/locale.js",
+    "package.json", "index.html", "netlify.toml", "shared/public-routes.js", "shared/locale.js",
     "netlify/functions/lib/public-routes.js",
     "scripts/generate-public-pages.js", "scripts/where-to-watch.js",
     "scripts/untamed-name-key.js", "docs/untamed-three-character-name-key-review.md",
     "scripts/sect-day-pages.js",
     "scripts/static-guide-public-inventory.js", "scripts/vibing-public-inventory.js",
+    "scripts/static-audience-gates.js",
     "docs/against-the-current-availability.json",
     "public/c-drama-fandom", "public/c-dramas", "public/zh-cn",
     "public/assets/c-drama-fandom/trope-decoder.js",
@@ -114,4 +115,36 @@ test("registration still cannot bypass the where-to-watch source-review gate", (
   assert.ifError(result.error);
   assert.equal(result.status, 1, result.stderr);
   assert.match(result.stderr, /Where-to-watch publication blocked: reviewer and rights\/spoiler signoff/);
+});
+
+test("existing registered guide expires into a safe retained page without blocking release preparation", (t) => {
+  const fixtureRoot = preparationFixture(t);
+  const path = resolve(fixtureRoot, "docs/against-the-current-availability.json");
+  const record = JSON.parse(readFileSync(path, "utf8"), (key, value) => (
+    key === "checkedAt" ? "2026-09-01T00:00:00Z" : value
+  ));
+  writeFileSync(path, JSON.stringify(record));
+  const before = readFileSync(path, "utf8");
+  const result = prepare(fixtureRoot);
+  assert.ifError(result.error);
+  assert.equal(result.status, 0, result.stderr);
+  const html = readFileSync(resolve(fixtureRoot, "public/c-drama-fandom/where-to-watch/against-the-current/index.html"), "utf8");
+  assert.match(html, /data-watch-state="needs-recheck"/);
+  assert.match(html, /2026-09-01T00:00:00Z/);
+  assert.doesNotMatch(html, /Viki Pass|free episodes|US listing checked/);
+  assert.equal(readFileSync(path, "utf8"), before);
+});
+
+test("a newly registered stale guide without an existing page still cannot be published", (t) => {
+  const fixtureRoot = preparationFixture(t);
+  const path = resolve(fixtureRoot, "docs/against-the-current-availability.json");
+  const record = JSON.parse(readFileSync(path, "utf8"), (key, value) => (
+    key === "checkedAt" ? "2026-09-01T00:00:00Z" : value
+  ));
+  writeFileSync(path, JSON.stringify(record));
+  rmSync(resolve(fixtureRoot, "public/c-drama-fandom/where-to-watch/against-the-current/index.html"));
+  const result = prepare(fixtureRoot);
+  assert.ifError(result.error);
+  assert.equal(result.status, 1, result.stderr);
+  assert.match(result.stderr, /Where-to-watch publication blocked/);
 });

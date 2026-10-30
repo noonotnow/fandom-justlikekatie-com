@@ -10,7 +10,7 @@ import {
   PUBLIC_LOCALIZED_STATIC_ROUTES,
   staticSitemapXml,
 } from "../netlify/functions/lib/public-routes.js";
-import { evaluateWatchRecord, loadWatchRecord, renderWatchPage, WATCH_PAGE, WATCH_ROUTE } from "./where-to-watch.js";
+import { evaluateWatchRecord, loadWatchRecord, renderRetainedWatchPage, WATCH_PAGE, WATCH_ROUTE } from "./where-to-watch.js";
 import { assertStaticGuidePublicInventory } from "./static-guide-public-inventory.js";
 import { assertVibingPublicInventory } from "./vibing-public-inventory.js";
 import { assertStaticAudienceGates } from "./static-audience-gates.js";
@@ -557,9 +557,11 @@ export function prepareWatchPage(now = new Date()) {
   const watchRegistered = PUBLIC_STATIC_ROUTES.some(({ path }) => path === WATCH_ROUTE);
   if (!watchRegistered) return null;
   const record = loadWatchRecord();
-  const gate = evaluateWatchRecord(record, now, { allowStale: true });
-  if (!gate.publishable) throw new Error(`Where-to-watch publication blocked: ${gate.issues.join("; ")}`);
-  return renderWatchPage(record, now);
+  const gate = evaluateWatchRecord(record, now);
+  if (!gate.structurallyValid || (gate.needsRecheck && !existsSync(resolve(root, WATCH_PAGE)))) {
+    throw new Error(`Where-to-watch publication blocked: ${gate.issues.join("; ")}`);
+  }
+  return renderRetainedWatchPage(record, now);
 }
 export async function preparePublicPages(now = new Date()) {
   const nameKeyPage = resolve(root, "public/c-drama-fandom/untamed-names-and-performers/index.html");
