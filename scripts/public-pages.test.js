@@ -511,10 +511,28 @@ test("the C-drama fandom routes are substantial static HTML documents", () => {
     assert.match(html, /<meta name="description" content="[^"]{80,}"/i);
     assert.match(html, /<script type="application\/ld\+json">/i);
     assert.doesNotMatch(html, /<div id="root"><\/div>/i, `${path} cannot rely on the SPA root`);
-    // Interactive story text lives in the deterministic game module.
-    const minimumLength = path.endsWith("/sect-day/index.html") ? 4_000
-      : path.endsWith("/untamed-name-board/index.html") ? 6_000 : 6_500;
-    assert.ok(html.length > minimumLength, `${path} should contain substantial editorial content`);
+    const isRetainedWatchGuide = path === "public/c-drama-fandom/where-to-watch/against-the-current/index.html"
+      && /<html[^>]+data-watch-state="needs-recheck"/.test(html);
+    if (isRetainedWatchGuide) {
+      // An expired guide deliberately removes the full availability article.
+      // Validate that exact retained-page contract, not a generic length escape.
+      const record = JSON.parse(read("docs/against-the-current-availability.json"));
+      assert.match(html, /id="watch-freshness"[^>]+role="status"/);
+      assert.match(html, /Needs recheck:/);
+      assert.ok(html.includes(`<time datetime="${record.checkedAt}">${record.checkedAt}</time>`));
+      assert.match(html, /United States — availability not verified/);
+      assert.match(html, /Mainland China — availability not verified/);
+      assert.match(html, /Viki official listing/);
+      assert.match(html, /WeTV official listing/);
+      assert.match(html, /Tencent Video official listing/);
+      assert.doesNotMatch(html, /id="watch-current-claims"|class="watch-option"|Viki Pass|free episodes|US listing checked/);
+      assert.ok(html.length > 4_000, `${path} must retain useful reader guidance, not an empty placeholder`);
+    } else {
+      // Interactive story text lives in the deterministic game module.
+      const minimumLength = path.endsWith("/sect-day/index.html") ? 4_000
+        : path.endsWith("/untamed-name-board/index.html") ? 6_000 : 6_500;
+      assert.ok(html.length > minimumLength, `${path} should contain substantial editorial content`);
+    }
 
     const title = html.match(/<title>([^<]+)<\/title>/i)?.[1];
     const canonical = html.match(/<link rel="canonical" href="([^"]+)"/i)?.[1];

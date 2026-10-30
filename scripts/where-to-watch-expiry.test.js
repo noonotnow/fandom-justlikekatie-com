@@ -21,9 +21,9 @@ test("a real current-date site build retains the old guide without renewing evid
   const now = new Date(Date.parse(record.checkedAt) + 90 * DAY);
   assert.equal(evaluateWatchRecord(record, now).publishable, false);
   const html = prepareWatchPage(now);
-  assert.match(html, /role="status"[^>]*>Dated reference:/);
-  assert.match(html, /historical observations, not currently verified availability/);
-  assert.match(html, /English subtitles at check/);
+  assert.match(html, /role="status"[^>]*>Needs recheck:/);
+  assert.match(html, /current regional access, tiers, episode ranges and English subtitles are not verified/);
+  assert.doesNotMatch(html, /English subtitles at check|class="watch-option"|Viki Pass|free episodes/);
   assert.match(html, new RegExp(record.checkedAt));
   assert.equal(releaseAdvisory(record, now).evergreenSafe, false);
   assert.equal(JSON.stringify(loadWatchRecord()), before);
@@ -41,7 +41,7 @@ test("each required date independently ages a reference while strict release che
     assert.equal(strict.publishable, false);
     assert.equal(dated.publishable, true, dated.issues.join("; "));
     assert.equal(dated.expiresAt, new Date(Date.parse(old) + 7 * DAY).toISOString());
-    assert.match(renderWatchPage(record, now, { allowStale: true }), /role="status"[^>]*>Dated reference:/);
+    assert.match(renderWatchPage(record, now, { allowStale: true }), /role="status"[^>]*>Needs recheck:/);
     assert.equal(releaseAdvisory(record, now).stage, "preview-safe");
     for (const invalid of [null, "not-a-date", new Date(now.getTime() + DAY).toISOString()]) {
       owner(record).checkedAt = invalid;
@@ -83,12 +83,27 @@ test("cached HTML ages from the oldest evidence date, not the overall review dat
   const gate = evaluateWatchRecord(record, now);
   const html = renderWatchPage(record, now);
   const note = { dataset: { expiresAt: gate.expiresAt }, textContent: "Initial dated-check notice" };
+  const claims = { hidden: false };
+  const links = { hidden: true };
+  const side = { textContent: "Dated observations" };
+  const schema = { textContent: JSON.stringify({ description: "Initial description" }) };
+  const description = { content: "Initial description" };
+  const document = {
+    documentElement: { dataset: {} },
+    querySelector: selector => ({ "#watch-freshness": note, "#watch-current-claims": claims,
+      "#watch-stale-links": links, ".side-card p": side,
+      'script[type="application/ld+json"]': schema })[selector],
+    querySelectorAll: () => [description],
+  };
   const script = html.match(/<script>(const note=document\.querySelector[\s\S]*?)<\/script>/)?.[1];
   assert.ok(script);
-  vm.runInNewContext(script, { document: { querySelector: () => note }, Date: { now: () => Date.parse(gate.expiresAt), parse: Date.parse } });
+  vm.runInNewContext(script, { document, Date: { now: () => Date.parse(gate.expiresAt), parse: Date.parse } });
   assert.equal(note.textContent, "Initial dated-check notice");
-  vm.runInNewContext(script, { document: { querySelector: () => note }, Date: { now: () => Date.parse(gate.expiresAt) + 1, parse: Date.parse } });
-  assert.match(note.textContent, /^Dated reference:/);
+  vm.runInNewContext(script, { document, Date: { now: () => Date.parse(gate.expiresAt) + 1, parse: Date.parse } });
+  assert.match(note.textContent, /^Needs recheck:/);
+  assert.equal(claims.hidden, true);
+  assert.equal(links.hidden, false);
+  assert.match(description.content, /needs recheck/);
   assert.match(html, /not live availability guarantees/);
   assert.match(html, new RegExp(`data-expires-at="${gate.expiresAt}"`));
 });
