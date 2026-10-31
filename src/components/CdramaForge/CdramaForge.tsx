@@ -8,6 +8,7 @@ import {
 } from '../../utils/cdramaForge';
 import styles from './CdramaForge.module.css';
 import { CandidateImage, SceneEvidence, SceneMatch, type SceneClue, type SceneResult } from './SceneEvidence';
+import { SimilarStills } from './SimilarStills';
 
 type Research = { title: string; link: string; snippet: string; episodeStart?: number; episodeEnd?: number };
 type Result = SceneResult & {
@@ -440,6 +441,7 @@ export function CdramaForge() {
             <label className={styles.upload}>Or upload your own JPEG, PNG, or WebP <input type="file" accept="image/jpeg,image/png,image/webp" onChange={e => void upload(e)} disabled={!!busy} /></label>
             {draft.still && <>
               <p className={styles.source}>Selected: {draft.still.title || 'Untitled image'} · {draft.still.kind === 'upload' ? 'local upload' : <a href={safeSource(draft.still.link)} target="_blank" rel="noopener noreferrer">{draft.still.source || 'View original source'} ↗</a>} <button type="button" onClick={() => selectStill(null)}>Remove image</button></p>
+              <SimilarStills still={draft.still} onSelect={selectStill} />
                <label htmlFor="forge-framing">Image framing</label>
               <select id="forge-framing" value={draft.framing} disabled={!!busy} onChange={e => {
                 requestId.current++;

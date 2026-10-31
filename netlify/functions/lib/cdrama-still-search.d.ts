@@ -7,4 +7,8 @@ export function createCdramaStillHandler(
   ) => Promise<{ results: StillSearchResult[] }>,
   recapOptions?: Record<string, unknown>,
   sceneOptions?: Record<string, unknown>,
+  similar?: (
+    image: string,
+    options: { signal: AbortSignal },
+  ) => Promise<{ results: StillSearchResult[]; warning?: string }>,
 ): (request: Request) => Promise<Response>;
