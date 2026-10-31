@@ -10,9 +10,10 @@ import {
   PUBLIC_LOCALIZED_STATIC_ROUTES,
   staticSitemapXml,
 } from "../netlify/functions/lib/public-routes.js";
-import { evaluateWatchRecord, loadWatchRecord, renderWatchPage, WATCH_PAGE, WATCH_ROUTE } from "./where-to-watch.js";
+import { evaluateWatchRecord, loadWatchRecord, renderRetainedWatchPage, WATCH_PAGE, WATCH_ROUTE } from "./where-to-watch.js";
 import { assertStaticGuidePublicInventory } from "./static-guide-public-inventory.js";
 import { assertVibingPublicInventory } from "./vibing-public-inventory.js";
+import { assertStaticAudienceGates } from "./static-audience-gates.js";
 import { renderUntamedNameKey } from "./untamed-name-key.js";
 import { prepareSectPages } from "./sect-day-pages.js";
 
@@ -552,14 +553,15 @@ async function prepareOutcomeAssets(template) {
 }
 
 export function prepareWatchPage(now = new Date()) {
-  // Retain reviewed guides as dated references; expiry alone must not block a build.
-  // All source-validity and editorial signoff gates remain strict.
+  // Publication requires both a reviewed record and an explicit registry/redirect change.
   const watchRegistered = PUBLIC_STATIC_ROUTES.some(({ path }) => path === WATCH_ROUTE);
   if (!watchRegistered) return null;
   const record = loadWatchRecord();
-  const gate = evaluateWatchRecord(record, now, { allowStale: true });
-  if (!gate.publishable) throw new Error(`Where-to-watch publication blocked: ${gate.issues.join("; ")}`);
-  return renderWatchPage(record, now, { allowStale: true });
+  const gate = evaluateWatchRecord(record, now);
+  if (!gate.structurallyValid || (gate.needsRecheck && !existsSync(resolve(root, WATCH_PAGE)))) {
+    throw new Error(`Where-to-watch publication blocked: ${gate.issues.join("; ")}`);
+  }
+  return renderRetainedWatchPage(record, now);
 }
 export async function preparePublicPages(now = new Date()) {
   const nameKeyPage = resolve(root, "public/c-drama-fandom/untamed-names-and-performers/index.html");
@@ -606,6 +608,7 @@ export async function preparePublicPages(now = new Date()) {
   // Reuse the exact exclusions; registration is not source or warning approval.
   assertStaticGuidePublicInventory(root);
   assertVibingPublicInventory(root);
+  assertStaticAudienceGates(root);
   writeFileSync(resolve(root, "public/sitemap.xml"), staticSitemapXml());
 
   mkdirSync(outputDir, { recursive: true });
