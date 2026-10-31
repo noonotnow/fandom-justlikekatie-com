@@ -2,6 +2,7 @@ import { searchOneQuery } from "../preview-search.js";
 import { isIP } from "node:net";
 import { discoverRecaps } from "./cdrama-recap-search.js";
 import { discoverScene } from "./cdrama-scene-search.js";
+import { discoverSimilarStills, publicSimilarityUrl } from "./cdrama-similar-stills.js";
 
 function publicUrl(value) {
   try {
@@ -11,11 +12,31 @@ function publicUrl(value) {
   } catch { return false; }
 }
 
-export function createCdramaStillHandler(search = searchOneQuery, recapOptions = {}, sceneOptions = {}) {
+export function createCdramaStillHandler(search = searchOneQuery, recapOptions = {}, sceneOptions = {}, similar = discoverSimilarStills) {
   return async function cdramaStillSearch(req) {
     if (req.method !== "GET") return Response.json({ error: "Method not allowed." }, { status: 405 });
     const params = new URL(req.url).searchParams;
     const mode = params.get("mode") ?? "stills";
+    if (mode === "similar") {
+      const image = publicSimilarityUrl(params.get("image"));
+      const headers = { "Cache-Control": "private, no-store" };
+      if (!image) return Response.json({ error: "Choose a public search-result still first. Device images are not uploaded." }, { status: 400, headers });
+      try {
+        const result = await similar(image, { signal: req.signal });
+        return Response.json({
+          results: result.results.map(item => ({
+            ...item,
+            thumbnail: `/.netlify/functions/image-proxy?url=${encodeURIComponent(item.thumbnail)}`,
+            evidence: "unverified",
+          })),
+          warning: result.warning,
+        }, { headers });
+      } catch {
+        return Response.json({
+          error: "Visual similarity search is unavailable. Your current meme is unchanged; try again or use keyword search.",
+        }, { status: 503, headers });
+      }
+    }
     const q = params.get("q")?.trim() ?? "";
     if (!q || q.length > (mode === "scenes" ? 500 : 160) || /[\r\n]/.test(q)) return Response.json({ error: "Enter a short scene description or image search." }, { status: 400 });
     const dramaTitle = params.get("dramaTitle")?.trim() ?? "";
