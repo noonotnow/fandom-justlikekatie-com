@@ -107,9 +107,11 @@ test('free sign-in permits Collection sync while Collector gates premium creatio
   assert.match(collectionSource, /const canSyncCloud = !isMiddleEarth \|\| hasCollectorAccess/);
   assert.match(
     collectionSource,
-    /syncEnabled \? \(isMiddleEarth \? 'Middle-earth sync enabled for' : tr\('Cloud sync enabled for', '云端同步账户：'\)\) : tr\('Signed in as', '当前登录账户：'\)/,
+    /syncEnabled \? \(isMemeLens \? 'Meme library sync enabled for' : tr\('Cloud sync enabled for', '云端同步账户：'\)\) : tr\('Signed in as', '当前登录账户：'\)/,
   );
-  assert.match(collectionSource, /activeType === 'builder' \?/);
+  assert.match(collectionSource, /const isCDrama = scope === 'c-drama'/);
+  assert.match(collectionSource, /const isMemeLens = isMemeCollection \|\| isMiddleEarth \|\| isCDrama/);
+  assert.match(collectionSource, /activeType === 'builder' && !isMemeLens \?/);
   assert.doesNotMatch(collectionSource, /Upgrade to use Grid Builder/);
   assert.doesNotMatch(collectionSource, /Cloud sync is available with Founding Member/);
   assert.match(membershipSource, /Full Collection sync after sign-in|Collection sync after sign-in and device merge/);

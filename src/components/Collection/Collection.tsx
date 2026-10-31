@@ -74,6 +74,7 @@ import {
   syncPublicCollection,
   type PublicUser,
 } from '../../utils/publicAccount';
+import { saveMemeImage, downloadSavedMeme } from '../../utils/memeLibrary';
 import styles from './Collection.module.css';
 import {
   builderActorDisplayName,
@@ -87,7 +88,8 @@ const MAX_UPLOADED_MEME_BYTES = 8 * 1024 * 1024;
 const SUPPORTED_MEME_TYPES = new Set(['image/png', 'image/jpeg', 'image/webp']);
 
 interface Props {
-  scope?: 'vibe-atlas' | 'middle-earth';
+  scope?: 'vibe-atlas' | 'middle-earth' | 'c-drama';
+  isMemeCollection?: boolean;
   initialType?: 'grids' | 'results' | 'builder';
   hasCollectorAccess?: boolean;
   membershipResolved?: boolean;
@@ -116,6 +118,7 @@ function cardRecordKey(card: CardRecord): string {
 
 export const Collection: React.FC<Props> = ({
   scope = 'vibe-atlas',
+  isMemeCollection = false,
   initialType = 'grids',
   hasCollectorAccess = false,
   membershipResolved = true,
@@ -127,6 +130,8 @@ export const Collection: React.FC<Props> = ({
   builderSourcePool = [],
 }) => {
   const isMiddleEarth = scope === 'middle-earth';
+  const isCDrama = scope === 'c-drama';
+  const isMemeLens = isMemeCollection || isMiddleEarth || isCDrama;
   const { locale, t, path } = useLocale();
   const tr = (english: string, chinese: string) => isMiddleEarth ? english : t(english, chinese);
   const errorText = (error: unknown, english: string, chinese: string) => {
@@ -154,7 +159,7 @@ export const Collection: React.FC<Props> = ({
   const [deletionConflicts, setDeletionConflicts] = useState<Record<string, 'card' | 'grid'>>({});
   const [loading, setLoading] = useState(true);
   const [activeType, setActiveType] = useState<'grids' | 'results' | 'builder'>(
-    isMiddleEarth ? 'results' : initialType,
+    isMemeLens ? 'results' : initialType,
   );
   const isExternalBuilder = !isMiddleEarth && activeType === 'builder' && builderSourceKind !== 'collection';
   const isEditionBuilder = isExternalBuilder && builderSourceKind === 'edition';
@@ -193,13 +198,17 @@ export const Collection: React.FC<Props> = ({
         .map(card => dbSaveCard(card)));
     }
     setCards(normalizedCards.sort((a, b) => (b.savedAt ?? '').localeCompare(a.savedAt ?? '')));
-    setGrids(isMiddleEarth ? [] : visibleGrids.sort((a, b) => b.savedAt.localeCompare(a.savedAt)));
+    setGrids(isMemeLens ? [] : visibleGrids.sort((a, b) => b.savedAt.localeCompare(a.savedAt)));
   }
 
   useEffect(() => {
     if (!membershipResolved) return;
     const refreshSession = async () => {
       try {
+        if (isMemeCollection) {
+          await loadCollection();
+          setLoading(false);
+        }
         const session = await getPublicSession();
         accountIdRef.current = session?.accountId;
         setUser(session);
@@ -265,7 +274,7 @@ export const Collection: React.FC<Props> = ({
       channel?.close();
       window.removeEventListener('storage', handleStorage);
     };
-  }, [membershipResolved, scope, canSyncCloud]);
+  }, [membershipResolved, scope, canSyncCloud, isMemeLens]);
 
   useEffect(() => {
     const handleExportPersisted = (event: Event) => {
@@ -688,7 +697,7 @@ export const Collection: React.FC<Props> = ({
       const localId = card.localId || crypto.randomUUID();
       if (!card.localId) await dbSaveCard({ ...card, localId });
       const dataUrl = await readFileAsDataUrl(file);
-      const media = await uploadCollectionImage(dataUrl, isMiddleEarth ? 'middle-earth' : 'vibe-atlas', localId);
+      const media = await uploadCollectionImage(dataUrl, isCDrama ? 'c-drama' : isMiddleEarth ? 'middle-earth' : 'vibe-atlas', localId);
       await dbReplaceCardImage(card.imageUrl, media);
       await loadCollection(user?.accountId);
       setAccountNotice(tr('The saved result is now backed by a canonical MEDIA reference.', '这条收藏现已关联规范的 MEDIA 媒体记录。'));
@@ -857,6 +866,42 @@ export const Collection: React.FC<Props> = ({
     }
   }
 
+  async function handleCDramaUpload(event: React.ChangeEvent<HTMLInputElement>) {
+    const file = event.target.files?.[0];
+    event.target.value = '';
+    if (!file) return;
+    if (!SUPPORTED_MEME_TYPES.has(file.type)) {
+      setAccountNotice('Upload a PNG, JPEG, or WebP image.');
+      return;
+    }
+    if (file.size > MAX_UPLOADED_MEME_BYTES) {
+      setAccountNotice('That image is larger than 8 MB. Choose a smaller meme.');
+      return;
+    }
+    const title = file.name.replace(/\.[^/.]+$/u, '').trim() || 'Uploaded C-drama meme';
+    setBusyKey('upload-meme');
+    try {
+      await saveMemeImage(file, 'c-drama', title);
+      await loadCollection(user?.accountId);
+      if (user && await shouldSyncCollection(user.accountId)) {
+        try {
+          await syncPublicCollection(user);
+          await loadCollection(user.accountId);
+          setAccountNotice(`“${file.name}” was saved and synced.`);
+        } catch (error) {
+          setAccountNotice(`“${file.name}” is saved on this device, but sync failed: ${errorText(error, 'try again after reconnecting', '请检查网络后重试。')}`);
+        }
+      } else {
+        if (user) schedulePublicCollectionSync();
+        setAccountNotice(`“${file.name}” is saved in this Collection.`);
+      }
+    } catch (error) {
+      setAccountNotice(errorText(error, 'The image could not be saved.', '无法保存此图片。'));
+    } finally {
+      setBusyKey('');
+    }
+  }
+
   if (loading) return <div className={styles.loading} role="status">{tr('Loading collection…', '正在加载收藏夹…')}</div>;
 
   const allActors = Array.from(new Set([
@@ -886,13 +931,17 @@ export const Collection: React.FC<Props> = ({
     <main className={styles.collection}>
       <header className={styles.hero}>
         <div>
-          <h2>{isMiddleEarth
+        <h2>{isMiddleEarth
             ? 'Middle-earth Collection'
+            : isCDrama
+              ? 'C-drama meme library'
             : isExternalBuilder
               ? isEditionBuilder ? tr('Archive Edition Grid Builder', '典藏期刊网格构建器') : isArchiveBuilder ? tr('Public Archive Grid Builder', '公开典藏网格构建器') : tr('Today’s Grid Builder', '今日网格构建器')
               : tr('Your Collection', '我的收藏夹')}</h2>
-          <p>{isMiddleEarth
+        <p>{isMiddleEarth
             ? 'Your separate MemeForge shelf for finished Middle-earth memes.'
+            : isCDrama
+              ? 'Finished C-drama memes, kept exactly as you saved them.'
             : isExternalBuilder
               ? isEditionBuilder
                 ? tr('Rebuild or remix this immutable historical edition. Its images are not added to My Collection.', '使用这期不可更改的历史素材重新编排或改造网格。素材不会添加到「我的收藏夹」。')
@@ -902,7 +951,7 @@ export const Collection: React.FC<Props> = ({
               : tr('Collect individual finds, keep finished worlds, and compose Event or Compiled editorial sets.', '收藏喜欢的单张图片、保存已完成的网格，再将素材编排成「单场造型」或「风格合辑」。')}</p>
         </div>
         {!isExternalBuilder && <div className={styles.heroActions}>
-          <span>{isMiddleEarth ? `${cards.length} memes` : tr(`${grids.length} grids · ${cards.length} results`, `${grids.length} 个网格 · ${cards.length} 条单图收藏`)}</span>
+          <span>{isMemeLens ? `${cards.length} memes` : tr(`${grids.length} grids · ${cards.length} results`, `${grids.length} 个网格 · ${cards.length} 条单图收藏`)}</span>
           <button
             type="button"
             disabled={Boolean(busyKey)}
@@ -916,13 +965,13 @@ export const Collection: React.FC<Props> = ({
       {!isExternalBuilder && <section className={styles.account}>
         {user ? (
           <div className={styles.signedIn}>
-            <p>{syncEnabled ? (isMiddleEarth ? 'Middle-earth sync enabled for' : tr('Cloud sync enabled for', '云端同步账户：')) : tr('Signed in as', '当前登录账户：')} <strong>{user.email}</strong></p>
+            <p>{syncEnabled ? (isMemeLens ? 'Meme library sync enabled for' : tr('Cloud sync enabled for', '云端同步账户：')) : tr('Signed in as', '当前登录账户：')} <strong>{user.email}</strong></p>
             <button type="button" onClick={() => void handleLogout()}>{tr('Sign out', '退出登录')}</button>
           </div>
         ) : (
           <form onSubmit={handleMagicLink}>
-            <label htmlFor="collection-email">{isMiddleEarth
-              ? 'Sync Middle-earth memes across devices'
+            <label htmlFor="collection-email">{isMemeLens
+              ? 'Sync saved memes across devices'
               : tr('Sync grids and saved results across devices', '在不同设备间同步网格和单图收藏')}</label>
             <div>
               <input
@@ -963,21 +1012,21 @@ export const Collection: React.FC<Props> = ({
             {isEditionBuilder && <a href={path(PUBLIC_ROUTE_PATHS.vibeAtlasArchive)}>{tr('Back to the public Archive', '返回公开典藏')}</a>}
           </div>
         </div>
-      ) : isMiddleEarth ? (
+      ) : isMemeLens ? (
         <div className={styles.collectionScopeNav}>
-          <strong>Saved memes <span>{cards.length}</span></strong>
+          <strong>{isCDrama ? 'Saved C-drama memes' : 'Saved memes'} <span>{cards.length}</span></strong>
           <div className={styles.collectionScopeActions}>
             <label className={styles.collectionUpload}>
-              {busyKey === 'upload-meme' ? 'Saving image…' : 'Upload and save image'}
+              {busyKey === 'upload-meme' ? 'Saving image…' : isCDrama ? 'Upload a finished meme' : 'Upload and save image'}
               <input
                 type="file"
                 accept="image/png,image/jpeg,image/webp"
-                aria-label="Upload and save a Middle-earth meme"
+                aria-label={isCDrama ? 'Upload and save a C-drama meme' : 'Upload and save a Middle-earth meme'}
                 disabled={Boolean(busyKey)}
-                onChange={event => void handleMiddleEarthUpload(event)}
+                onChange={event => void (isCDrama ? handleCDramaUpload(event) : handleMiddleEarthUpload(event))}
               />
             </label>
-            <a href="/memeforge/middle-earth">Back to MemeForge</a>
+            <a href={isCDrama ? '/memeforge/c-drama' : '/memeforge/middle-earth'}>{isCDrama ? 'Back to C-drama MemeForge' : 'Back to MemeForge'}</a>
           </div>
         </div>
       ) : (
@@ -1003,7 +1052,7 @@ export const Collection: React.FC<Props> = ({
         </nav>
       )}
 
-      {activeType !== 'builder' && allActors.length > 1 && (
+      {!isMemeLens && activeType !== 'builder' && allActors.length > 1 && (
         <div className={styles.filters} aria-label={tr('Filter collection by actor', '按演员筛选收藏')}>
           <button type="button" aria-pressed={filterActor === null} onClick={() => setFilterActor(null)}>{tr('All', '全部')}</button>
           {allActors.map(actor => (
@@ -1019,7 +1068,7 @@ export const Collection: React.FC<Props> = ({
         </div>
       )}
 
-      {activeType === 'builder' ? (
+      {activeType === 'builder' && !isMemeLens ? (
         <GridBuilder
           accountId={user?.accountId}
           hasCollectorAccess={hasCollectorAccess}
@@ -1038,7 +1087,7 @@ export const Collection: React.FC<Props> = ({
             void loadCollection();
           }}
         />
-      ) : activeType === 'grids' ? (
+      ) : activeType === 'grids' && !isMemeLens ? (
         displayedGrids.length === 0 ? (
           <EmptyState
             symbol="▦"
@@ -1185,9 +1234,11 @@ export const Collection: React.FC<Props> = ({
       ) : displayedCards.length === 0 ? (
         <EmptyState
           symbol="☆"
-          title={isMiddleEarth ? 'No saved Middle-earth memes yet' : tr('No saved results yet', '还没有单图收藏')}
+          title={isMiddleEarth ? 'No saved Middle-earth memes yet' : isCDrama ? 'No saved C-drama memes yet' : tr('No saved results yet', '还没有单图收藏')}
           body={isMiddleEarth
             ? 'Save an existing meme from MemeForge and it will appear here, separate from your Vibe Atlas collection.'
+            : isCDrama
+              ? 'Upload a finished meme or save one from C-drama MemeForge. Your original image stays untouched.'
             : tr('Tap ☆ in the lightbox to collect individual images without duplicating their full grid.', '在放大查看时点按 ☆，即可单独收藏图片，而不必重复保存整张网格。')}
         />
       ) : (
@@ -1201,7 +1252,7 @@ export const Collection: React.FC<Props> = ({
               note: '',
             };
             return (
-            <article key={recordKey} className={card.contentKind === 'middle-earth-meme' ? styles.memeResult : undefined}>
+            <article key={recordKey} className={card.contentKind?.endsWith('-meme') ? styles.memeResult : undefined}>
               <button
                 type="button"
                 className={styles.resultPreviewButton}
@@ -1218,13 +1269,15 @@ export const Collection: React.FC<Props> = ({
                 <span>{tr('View larger', '放大查看')}</span>
               </button>
               <div>
-                <strong>{card.vibeEmoji} {card.contentKind === 'middle-earth-meme' ? card.title || card.vibe : actorLabel(card.actor, card.actorEn, card.actorId)}</strong>
+                <strong>{card.contentKind?.endsWith('-meme') ? card.title || card.vibe : `${card.vibeEmoji} ${actorLabel(card.actor, card.actorEn, card.actorId)}`}</strong>
                 <span>{card.contentKind === 'middle-earth-meme'
                   ? `Middle-earth · ${card.actor} · ${card.memeRework
                     ? 'reworked in MemeForge · original linked'
                     : card.resultId?.startsWith('generated-')
                       ? 'reaction card forged in MemeForge'
                       : 'saved as-is'}`
+                  : card.contentKind === 'c-drama-meme'
+                    ? 'C-drama · finished meme · saved as-is'
                   : vibeLabel(card.vibe, card.vibeEn)}</span>
                 {card.memeRework && (
                   <>
@@ -1278,7 +1331,18 @@ export const Collection: React.FC<Props> = ({
                     </button>
                   </div>
                 )}
-                <small>{isMiddleEarth
+                {isMemeCollection && (
+                  <button type="button" disabled={Boolean(busyKey)} onClick={async () => {
+                    setBusyKey(`download:${recordKey}`);
+                    try {
+                      await downloadSavedMeme(card);
+                      setAccountNotice('Saved meme download started. Your library copy is unchanged.');
+                    } catch (error) {
+                      setAccountNotice(errorText(error, 'The saved meme could not be downloaded.', '无法下载已保存的表情图。'));
+                    } finally { setBusyKey(''); }
+                  }}>{busyKey === `download:${recordKey}` ? 'Preparing download…' : 'Download saved image'}</button>
+                )}
+                <small>{card.imageUrl.startsWith('data:image/') ? 'Saved on this device' : isMiddleEarth
                   ? card.media ? 'MEDIA-backed' : 'Legacy URL'
                   : card.media ? tr('MEDIA-backed', '由 MEDIA 托管') : tr('Legacy URL', '旧版图片链接')}</small>
               </div>
@@ -1296,7 +1360,7 @@ export const Collection: React.FC<Props> = ({
               )}
               {!isMiddleEarth && (
                 <>
-                  {!card.misprint && !card.legendaryMisprint && (
+                  {!isCDrama && !card.misprint && !card.legendaryMisprint && (
                     <details className={styles.misprintControls}>
                       <summary>{tr('Mark Misprint', '标记为误印')}</summary>
                       <div>
@@ -1434,13 +1498,15 @@ export const Collection: React.FC<Props> = ({
       )}
       {expandedArtifact?.kind === 'card' && (
         <ArtifactZoomDialog
-          title={expandedArtifact.record.contentKind === 'middle-earth-meme'
-            ? `${expandedArtifact.record.vibeEmoji} ${expandedArtifact.record.title || expandedArtifact.record.vibe}`
+          title={expandedArtifact.record.contentKind?.endsWith('-meme')
+            ? expandedArtifact.record.title || expandedArtifact.record.vibe
             : `${expandedArtifact.record.vibeEmoji} ${actorLabel(expandedArtifact.record.actor, expandedArtifact.record.actorEn, expandedArtifact.record.actorId)}`}
           subtitle={expandedArtifact.record.contentKind === 'middle-earth-meme'
             ? expandedArtifact.record.memeRework
               ? `Middle-earth · ${expandedArtifact.record.actor} · MemeForge rework · original preserved`
               : `Middle-earth · ${expandedArtifact.record.actor} · ${expandedArtifact.record.resultId?.startsWith('generated-') ? 'reaction card' : 'saved as-is'}`
+            : expandedArtifact.record.contentKind === 'c-drama-meme'
+              ? 'C-drama · finished meme · saved as-is'
             : `${vibeLabel(expandedArtifact.record.vibe, expandedArtifact.record.vibeEn)}${expandedArtifact.record.legendaryMisprint
               ? ` · ${tr('Legendary Misprint: unexpected ', '传奇误印：意外出现 ')}${sourceCopy(expandedArtifact.record.legendaryMisprint.unexpectedImageIdentity.label)}`
               : expandedArtifact.record.misprint
@@ -1455,7 +1521,9 @@ export const Collection: React.FC<Props> = ({
             ? `${expandedArtifact.record.publisher || 'Publisher unknown'} · Rights status unknown · ${expandedArtifact.record.memeRework
               ? `Derivative of “${expandedArtifact.record.memeRework.original.title}” · `
               : ''}${formatDate(expandedArtifact.record.capturedDate, 'en')}`
-            : formatDate(expandedArtifact.record.capturedDate, locale)}
+            : expandedArtifact.record.contentKind === 'c-drama-meme'
+              ? `Finished C-drama meme · saved as-is · ${formatDate(expandedArtifact.record.capturedDate, 'en')}`
+              : formatDate(expandedArtifact.record.capturedDate, locale)}
           onClose={() => setExpandedArtifact(null)}
         />
       )}

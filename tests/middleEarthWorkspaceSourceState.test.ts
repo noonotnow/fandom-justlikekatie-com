@@ -653,8 +653,8 @@ test('Middle-earth saves have a separate collection scope from Vibe Atlas', asyn
   );
   assert.match(
     collectionSource,
-    /uploadCollectionImage\(dataUrl, isMiddleEarth \? 'middle-earth' : 'vibe-atlas', localId\)[\s\S]*?dbReplaceCardImage\(card\.imageUrl, media\)/,
-    'legacy recovery must register canonical MEDIA before replacing only the dead image reference',
+    /uploadCollectionImage\(dataUrl, isCDrama \? 'c-drama' : isMiddleEarth \? 'middle-earth' : 'vibe-atlas', localId\)[\s\S]*?dbReplaceCardImage\(card\.imageUrl, media\)/,
+    'each lens must register canonical MEDIA in its own scope before replacing only the dead image reference',
   );
   assert.match(
     appSource,

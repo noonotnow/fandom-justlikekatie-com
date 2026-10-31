@@ -14,13 +14,13 @@ import {
   dbResolveRemoteDeletion,
   dbSetActiveAccount,
   dbSetMergeDecision,
+  type CollectionScope,
 } from './collectionDB';
 import { uploadCollectionImage } from './collectionMedia';
 import { trackEvent } from './analytics';
 import { setDailyParticipationAuthority } from './dailyParticipation';
 
 type DeletionKind = 'card' | 'grid';
-type CollectionScope = 'vibe-atlas' | 'middle-earth';
 
 function trackDeletionConflict(
   event: 'collection_deletion_conflict_discovered' | 'collection_deletion_conflict_resolved',

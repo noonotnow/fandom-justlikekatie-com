@@ -1456,6 +1456,7 @@ export function MiddleEarthWorkspace({
       <header className={styles.header}>
         <a className={styles.backLink} href="/">Fandom / launchpad</a>
         <a className={styles.collectionLink} href="/memeforge/middle-earth?view=collection">Middle-earth Collection</a>
+        <a className={styles.collectionLink} href="/memeforge/library?lens=middle-earth">Shared meme library</a>
         <div className={styles.eyebrow}><span className={styles.rune} aria-hidden="true">—</span> MemeForge / separate workbench <span className={styles.rule} /></div>
         <h1><small>Middle-earth</small><br /><em>MemeForge</em></h1>
         <p className={styles.intro}>A Middle-earth fandom angle generator with its own reaction-card craft. Say the moment badly. MemeForge finds the bit, then grounds it in a recognizable reaction image. Captions stay original.</p>

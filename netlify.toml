@@ -623,3 +623,13 @@ status = 200
   from = "/*"
   to = "/index.html"
   status = 200
+
+[[headers]]
+  for = "/memeforge/library"
+  [headers.values]
+    X-Robots-Tag = "noindex, nofollow"
+
+[[headers]]
+  for = "/memeforge/library/*"
+  [headers.values]
+    X-Robots-Tag = "noindex, nofollow"

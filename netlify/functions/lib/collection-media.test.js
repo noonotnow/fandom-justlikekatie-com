@@ -113,6 +113,12 @@ test("requires an approved operator for Middle-earth media but preserves ordinar
   }), {});
   assert.equal(vibeAtlas.status, 200);
   assert.equal(calls, 1);
+  const cdrama = await handler(request({
+    url: `${ORIGIN}/api/collection/media?collectionId=c-drama&itemId=${ITEM_ID}`,
+  }), {});
+  assert.equal(cdrama.status, 200);
+  assert.equal((await cdrama.json()).media.association.id, "c-drama");
+  assert.equal(calls, 2);
 });
 
 test("rejects invalid uploads before MEDIA and never exposes its credential", async () => {

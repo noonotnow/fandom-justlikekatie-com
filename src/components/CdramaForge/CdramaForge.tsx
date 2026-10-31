@@ -9,6 +9,7 @@ import {
 import styles from './CdramaForge.module.css';
 import { CandidateImage, SceneEvidence, SceneMatch, type SceneClue, type SceneResult } from './SceneEvidence';
 import { SimilarStills } from './SimilarStills';
+import { saveMemeImage } from '../../utils/memeLibrary';
 
 type Research = { title: string; link: string; snippet: string; episodeStart?: number; episodeEnd?: number };
 type Result = SceneResult & {
@@ -293,8 +294,17 @@ export function CdramaForge() {
         const anchor = document.createElement('a');
         anchor.href = url; anchor.download = `cdrama-memeforge-${format}.png`;
         document.body.append(anchor); anchor.click(); anchor.remove();
-        setNotice(`${format === 'tiktok' ? '1080×1920' : '1080×1350'} PNG download started. Post it manually; nothing was published.`);
       } finally { window.setTimeout(() => URL.revokeObjectURL(url), 30_000); }
+      const dimensions = format === 'tiktok' ? '1080×1920' : '1080×1350';
+      try {
+        await saveMemeImage(blob, 'c-drama', [current.setup, current.punchline].filter(Boolean).join(' / '), {
+          sourceUrl: still.kind === 'search' ? safeSource(still.link) || undefined : undefined,
+          publisher: 'Exported in C-drama MemeForge',
+        });
+        if (id === requestId.current) setNotice(`${dimensions} PNG download started and saved to your C-drama meme library on this device. Account/MEDIA sync follows your Collection settings. Nothing was published.`);
+      } catch (error) {
+        if (id === requestId.current) setNotice(`${dimensions} PNG download started, but the library copy could not be saved: ${error instanceof Error ? error.message : 'Browser storage is unavailable.'} Keep your downloaded file and upload it to the library to try again.`);
+      }
     } catch (error) { if (id === requestId.current) setNotice(error instanceof Error ? error.message : 'Download failed.'); }
     finally { if (id === requestId.current) setBusy(''); }
   }
@@ -317,6 +327,7 @@ export function CdramaForge() {
         <a href="/">← Fandom Vibes</a>
         <span>C-DRAMA / MEMEFORGE</span>
         <a href="/memeforge/middle-earth">Middle-earth studio ↗</a>
+        <a href="/memeforge/library?lens=c-drama">My meme library</a>
       </header>
       <div className={styles.intro}>
         <p className={styles.kicker}>THE SOCIAL STUDIO / 01</p>
@@ -502,7 +513,7 @@ export function CdramaForge() {
             </div>
           </>}
           <div className={styles.draftStatus}><span role="status">{saveStatus}</span><button type="button" onClick={clear}>Clear local draft</button></div>
-          <p className={styles.manual}>Manual-posting handoff only. This is a still PNG, not a video. No account is connected, post is scheduled, or publication is confirmed. Your draft is local to this browser, not a Collection save.</p>
+          <p className={styles.manual}>Downloads automatically save the finished PNG to your C-drama meme library. Your editable draft stays separate on this browser. Account/MEDIA sync uses your Collection settings. This is a still PNG, not a video; nothing is scheduled or published.</p>
           {notice && <p className={styles.notice} role="status">{notice}</p>}
         </aside>
       </div>
