@@ -17,7 +17,7 @@ const CARD_STORE = 'cards';
 const GRID_STORE = 'grids';
 const SYNC_STORE = 'sync';
 
-export type CollectionScope = 'vibe-atlas' | 'middle-earth';
+export type CollectionScope = 'vibe-atlas' | 'middle-earth' | 'c-drama';
 
 export type MisprintReason =
   | 'wrong_actor'
@@ -121,7 +121,7 @@ export interface CardRecord {
   actorId?: string;
   vibeKey?: string;
   sourceUrl?: string;
-  contentKind?: 'middle-earth-meme';
+  contentKind?: 'middle-earth-meme' | 'c-drama-meme';
   title?: string;
   publisher?: string;
   searchQuery?: string;
@@ -541,9 +541,12 @@ export async function dbGetVisibleCards(accountId?: string): Promise<CardRecord[
 }
 
 export function collectionScopeForCard(card: CardRecord): CollectionScope {
-  if (card.collectionScope === 'vibe-atlas' || card.collectionScope === 'middle-earth') {
+  if (card.collectionScope === 'vibe-atlas' || card.collectionScope === 'middle-earth' || card.collectionScope === 'c-drama') {
     return card.collectionScope;
   }
+  if (card.contentKind === 'c-drama-meme'
+    || card.sourceRoute?.startsWith('/memeforge/c-drama')
+    || (card.media?.association.type === 'collection' && card.media.association.id === 'c-drama')) return 'c-drama';
   if (
     card.contentKind === 'middle-earth-meme'
     || card.sourceRoute?.startsWith('/memeforge/middle-earth')
@@ -611,6 +614,11 @@ export async function dbReplaceCardImage(
     return;
   }
   const cards = await requestResult<CardRecord[]>(store.getAll());
+  const collision = cards.find(card => card.imageUrl === media.deliveryUrl && card.imageUrl !== oldImageUrl);
+  if (collision && collision.localId !== existing.localId) {
+    await transactionDone(tx);
+    throw new Error('This MEDIA image already belongs to another saved item. Your local copy was kept; no existing item was replaced.');
+  }
   store.delete(oldImageUrl);
   store.put({
     ...existing,
@@ -890,7 +898,7 @@ function cardUpsertOperation(
   const localId = card.localId;
   if (!localId) throw new Error('A card must have a local identity before syncing.');
   const collectionScope = collectionScopeForCard(card);
-  const scopeKey = collectionScope === 'middle-earth' ? 'm' : 'v';
+  const scopeKey = collectionScope === 'middle-earth' ? 'm' : collectionScope === 'c-drama' ? 'c' : 'v';
   const mutationId = `upsert:v3:${state.clientId}:${localId}:${card.savedAt || card.capturedDate}:${scopeKey}`;
   const compactUrl = (value: string | undefined): string | undefined =>
     value?.startsWith('data:image/') ? undefined : value;
