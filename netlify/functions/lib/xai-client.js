@@ -2,6 +2,26 @@ const XAI_ORIGIN = "https://api.x.ai";
 
 export class XaiClientConfigurationError extends Error {}
 
+/** Research must work with Netlify's server key and retain cancellation in Replit. */
+export async function createXaiResearchClient(options = {}) {
+  return createXaiClient({
+    connectorFactory: () => {
+      let adapter;
+      return {
+        async proxy(name, path, init) {
+          if (name !== "xai" || !String(path).startsWith("/v1/")) {
+            throw new TypeError("Only xAI v1 API requests are supported.");
+          }
+          adapter ??= import("@replit/connectors-sdk").then(({ ReplitConnectors }) =>
+            new ReplitConnectors().createProxyFetch("xai"));
+          return (await adapter)(`${XAI_ORIGIN}${path}`, init);
+        },
+      };
+    },
+    ...options,
+  });
+}
+
 export function createXaiClient({
   apiKey = process.env.XAI_API_KEY,
   fetchImpl = globalThis.fetch,

@@ -72,7 +72,7 @@ test("claims require current, complete, non-contradictory provider evidence", ()
   updated.platforms[0].checkedAt = "2026-09-29T09:00:00Z";
   updated.checkedAt = "2026-09-29T09:00:00Z";
   assert.equal(evaluateWatchRecord(updated, new Date("2026-09-29T12:00:00Z")).publishable, true);
-  assert.match(renderWatchPage(updated, new Date("2026-09-29T12:00:00Z")), /Episodes:<\/strong> 1–25/);
+  assert.match(renderWatchPage(updated, new Date("2026-09-29T12:00:00Z")), /Episodes at check:<\/strong> 1–25/);
 });
 
 test("unknown or conflicting schedules do not grant finale publication permission", () => {
@@ -183,6 +183,7 @@ test("expiry retains the URL and real dates but withholds stale claims even with
   assert.match(html, /WeTV official listing/);
   assert.match(html, /Tencent Video official listing/);
   assert.doesNotMatch(html, /Viki Pass|free episodes|US listing checked|Episodes:<|1–6|7–47|100%|These are verified listing/);
+  assert.doesNotMatch(html, /Viki Pass|free episodes|US listing checked|Episodes at check:<|1–6|7–47|100%|These are verified listing/);
   assert.doesNotMatch(html, /id="watch-current-claims"/);
   assert.equal(JSON.stringify(record), original, "rendering must not renew evidence or signoff");
   assert.equal(releaseAdvisory(record, expired).evergreenSafe, false);
@@ -217,6 +218,7 @@ test("updating only the headline date cannot restore current claims; a complete 
   assert.equal(evaluateWatchRecord(record, expired).publishable, true);
   assert.doesNotMatch(renderRetainedWatchPage(record, expired), /<html[^>]+data-watch-state="needs-recheck"/);
   assert.match(renderRetainedWatchPage(record, expired), /Episodes:<\/strong> 1–21/);
+  assert.match(renderRetainedWatchPage(record, expired), /Episodes at check:<\/strong> 1–21/);
 });
 
 test("freshly rendered page switches to the safe links when evidence expires between builds", async () => {
@@ -236,6 +238,7 @@ test("freshly rendered page switches to the safe links when evidence expires bet
         assert.match(await page.locator("#watch-freshness").innerText(), /Needs recheck/);
         assert.doesNotMatch(await page.locator('meta[name="description"]').getAttribute("content"), /compared by verified/);
         assert.doesNotMatch(await page.locator(".side-card p").first().innerText(), /verified listing observations/);
+        assert.doesNotMatch(await page.locator(".side-card p").first().innerText(), /dated listing observations/);
       }
       await page.close();
     }
