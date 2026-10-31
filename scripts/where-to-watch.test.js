@@ -182,6 +182,7 @@ test("expiry retains the URL and real dates but withholds stale claims even with
   assert.match(html, /Viki official listing/);
   assert.match(html, /WeTV official listing/);
   assert.match(html, /Tencent Video official listing/);
+  assert.doesNotMatch(html, /Viki Pass|free episodes|US listing checked|Episodes:<|1–6|7–47|100%|These are verified listing/);
   assert.doesNotMatch(html, /Viki Pass|free episodes|US listing checked|Episodes at check:<|1–6|7–47|100%|These are verified listing/);
   assert.doesNotMatch(html, /id="watch-current-claims"/);
   assert.equal(JSON.stringify(record), original, "rendering must not renew evidence or signoff");
@@ -216,6 +217,7 @@ test("updating only the headline date cannot restore current claims; a complete 
   for (const entry of [...record.platforms, ...record.regionGuidance]) entry.checkedAt = expired.toISOString();
   assert.equal(evaluateWatchRecord(record, expired).publishable, true);
   assert.doesNotMatch(renderRetainedWatchPage(record, expired), /<html[^>]+data-watch-state="needs-recheck"/);
+  assert.match(renderRetainedWatchPage(record, expired), /Episodes:<\/strong> 1–21/);
   assert.match(renderRetainedWatchPage(record, expired), /Episodes at check:<\/strong> 1–21/);
 });
 
@@ -235,6 +237,7 @@ test("freshly rendered page switches to the safe links when evidence expires bet
       if (expired) {
         assert.match(await page.locator("#watch-freshness").innerText(), /Needs recheck/);
         assert.doesNotMatch(await page.locator('meta[name="description"]').getAttribute("content"), /compared by verified/);
+        assert.doesNotMatch(await page.locator(".side-card p").first().innerText(), /verified listing observations/);
         assert.doesNotMatch(await page.locator(".side-card p").first().innerText(), /dated listing observations/);
       }
       await page.close();

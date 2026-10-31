@@ -78,6 +78,11 @@ export function evaluateWatchRecord(record, now = new Date(), { allowStale = fal
       issues.push("complete regional finale windows");
   }
   return {
+    publishable: issues.length === 0 && freshnessIssues.length === 0,
+    structurallyValid: issues.length === 0,
+    needsRecheck: issues.length === 0 && freshnessIssues.length > 0,
+    issues: [...issues, ...freshnessIssues],
+    freshnessIssues,
     publishable: issues.length === 0 && (allowStale || freshnessIssues.length === 0),
     structurallyValid: issues.length === 0,
     needsRecheck: issues.length === 0 && freshnessIssues.length > 0,
@@ -160,6 +165,7 @@ export function renderRetainedWatchPage(record, now = new Date()) {
 </body></html>`;
 }
 
+export function renderWatchPage(record, now = new Date()) {
 export function renderWatchPage(record, now = new Date(), { allowStale = false } = {}) {
   // Compatibility with the parallel dated-reference API: stale permission
   // renders the safe retained links, never expired current-availability claims.
@@ -195,6 +201,7 @@ ${item.state === "unknown" ? "    <p><strong>Listing only:</strong> country-spec
 <p class="hero__lede">Official viewing links and the differences that matter when you are following along in English. We cover the US, UK, Australia, Europe and mainland China separately. Access and subtitles can change without notice; a listing is not a playback guarantee.</p>
 <p class="meta-row">Checked ${escape(record.checkedAt)} · Reviewed by ${escape(record.reviewer)}</p></header>
 <div class="content-shell"><article class="article">
+<p class="callout" id="watch-freshness" role="status" data-checked-at="${escape(record.checkedAt)}" data-expires-at="${evidenceExpiry(record)}">Listing observations are checked manually, not updated live. If more than seven days have passed since the check, treat every availability claim as unverified until an editor rechecks it.</p>
 <p class="callout" id="watch-freshness" role="status" data-checked-at="${escape(record.checkedAt)}" data-expires-at="${evidenceExpiry(record)}">Listing observations are dated manual checks, not live availability guarantees. If more than seven days have passed since the check, treat every availability claim as unverified until an editor rechecks it.</p>
 <div id="watch-current-claims">
 <section><h2>Check your country first</h2><p>These are dated observations, not worldwide streaming rights. An official title page can be visible even when an episode will not play in your location. We have not verified access for the UK, Australia, individual European countries or mainland China.</p><ul>${regions}</ul></section>
