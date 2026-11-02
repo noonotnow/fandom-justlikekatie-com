@@ -65,7 +65,8 @@ test("discovery surfaces distinguish the new spotlight from the journal", () => 
 test("the launch introduction does not expose the later reveal or fabricate releases", () => {
   const introduction = current.split('aria-labelledby="new-focus"')[1].split("</section>")[0];
   assert.doesNotMatch(introduction, /Guo Yufeng|47:18|49:02|ZHEN|MEI CUO|mastermind|LYN|借名入局/);
-  assert.doesNotMatch(current, /href="[^"]*(?:lin-jinqi|where-the-mask-ends-episodes)/);
+  assert.doesNotMatch(current, /href="[^"]*lin-jinqi/);
+  assert.match(current, /href="\/c-drama-fandom\/vibing-now\/where-the-mask-ends-episodes-1-16\/"/);
   assert.match(current, /href="\/memeforge\/c-drama"/);
   assert.match(journal, /These remain two separate readings, not a new combined essay/);
 });

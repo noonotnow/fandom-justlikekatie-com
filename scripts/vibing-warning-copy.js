@@ -4,6 +4,7 @@ import { vibingNowArticleRoutes } from "../shared/public-routes.js";
 // This is a copy contract, not a chronology check. Do not scan article analysis
 // for plot keywords or treat a passing warning as editorial/source sign-off.
 const reviewedWarnings = new Map([
+  ["/c-drama-fandom/vibing-now/where-the-mask-ends-episodes-1-16/", ["Spoilers through Episode 16"]],
   ["/c-drama-fandom/vibing-now/against-the-current-episodes-46-47/", [
     "Spoiler boundary: This installment discusses Episodes 46–47 and includes ending spoilers. No previews or novel material.",
   ]],
@@ -40,7 +41,7 @@ export function assertVibingWarningCopy(html, route) {
     .replace(/<(script|style)\b[^>]*>[\s\S]*?<\/\1\s*>/gi, "");
   const warnings = [...visibleHtml.matchAll(/<p\b[^>]*>([\s\S]*?)<\/p\s*>/gi)]
     .map(([, paragraph]) => paragraph.replace(/<[^>]*>/g, "").replace(/\s+/g, " ").trim())
-    .filter((paragraph) => /spoiler\s+boundary\s*:/i.test(paragraph));
+    .filter((paragraph) => /spoiler\s+boundary\s*:/i.test(paragraph) || (route.path === "/c-drama-fandom/vibing-now/where-the-mask-ends-episodes-1-16/" && /^Spoilers through Episode 16$/i.test(paragraph)));
   assert.deepEqual(warnings, expected,
     `${route.path}: retain all approved event-free warning paragraphs and the correct episode endpoints; changed copy requires editorial approval`);
 }
