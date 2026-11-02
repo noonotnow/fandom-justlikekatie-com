@@ -368,7 +368,8 @@ test("local Vite serves registered C-drama documents before the SPA fallback", a
   assert.ok(address && typeof address !== "string", "Vite must listen on an isolated TCP port");
   const origin = `http://127.0.0.1:${address.port}`;
   const homepage = await (await fetch(origin)).text();
-  assert.match(homepage, /<a href="\/c-drama-fandom\/vibing-now\/">choose an Against the Current Vibing Now reading<\/a>/);
+  assert.match(homepage, /<a href="\/c-drama-fandom\/vibing-now\/">meet Where the Mask Ends, our current Vibing Now focus<\/a>/);
+  assert.match(homepage, /<a href="\/cdrama-fandom\/vibing-now\/field-journals\/against-the-current\/">open the Against the Current Field Journal<\/a>/);
   const fileBackedRoutes = [
     ...PUBLIC_STATIC_ROUTES,
     ...PUBLIC_LOCALIZED_STATIC_ROUTES,

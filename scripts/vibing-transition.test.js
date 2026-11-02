@@ -56,6 +56,10 @@ test("discovery surfaces distinguish the new spotlight from the journal", () => 
     assert.ok(html.includes(`href="${currentPath}"`));
     assert.doesNotMatch(html, /Follow three spoiler-bounded C-drama readings|Choose your Against the Current reading →/);
   }
+  const fallback = read("index.html").match(/<noscript>([\s\S]*?)<\/noscript>/)?.[1];
+  assert.ok(fallback, "the no-JavaScript homepage remains useful");
+  assert.match(fallback, /href="\/c-drama-fandom\/vibing-now\/">meet Where the Mask Ends, our current Vibing Now focus<\/a>/);
+  assert.ok(fallback.includes(`href="${journalPath}">open the Against the Current Field Journal</a>`));
 });
 
 test("the launch introduction does not expose the later reveal or fabricate releases", () => {
