@@ -625,6 +625,16 @@ status = 200
   query = { fate = "fated-romantic" }
 
 [[redirects]]
+from = "/c-drama-fandom/vibing-now/where-the-mask-ends-episodes-1-16"
+to = "/c-drama-fandom/vibing-now/where-the-mask-ends-episodes-1-16/index.html"
+status = 200
+
+[[redirects]]
+from = "/c-drama-fandom/where-to-watch/where-the-mask-ends"
+to = "/c-drama-fandom/where-to-watch/where-the-mask-ends/index.html"
+status = 200
+
+[[redirects]]
   from = "/*"
   to = "/index.html"
   status = 200
