@@ -87,7 +87,7 @@ test("superseded essay redirects to its correction, without a legacy discussion 
     const escaped = from.replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
     assert.match(read("netlify.toml"), new RegExp(`from = "${escaped}"\\s+to = "${to}"\\s+status = 301\\s+force = true`));
   }
-  const shelf = read(`public${root}index.html`);
+  const shelf = read("public/cdrama-fandom/vibing-now/field-journals/against-the-current/index.html");
   assert.doesNotMatch(shelf, /href="[^"]*episodes-26-30\//);
   const earlier = read(`public${root}against-the-current-episodes-22-25/index.html`);
   const unchanged = earlier.replace(
@@ -99,7 +99,7 @@ test("superseded essay redirects to its correction, without a legacy discussion 
 });
 
 test("shelf discovers every registered bounded reading without fixed counts or availability promises", () => {
-  const shelf = read(`public${root}index.html`);
+  const shelf = read("public/cdrama-fandom/vibing-now/field-journals/against-the-current/index.html");
   assert.match(shelf, /Start with the last episode you’ve finished, not the platform you use/);
   assert.match(shelf, /WeTV Express, VIP, free viewing, and Viki do not necessarily put everyone at the same point/);
   assert.match(shelf, /Read after finishing the named endpoint—or choose to read ahead/);

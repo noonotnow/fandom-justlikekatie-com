@@ -88,6 +88,7 @@ export const PUBLIC_STATIC_ROUTES = Object.freeze([
   editorial(PUBLIC_ROUTE_PATHS.sectDay, "0.9"),
   editorial(PUBLIC_ROUTE_PATHS.qilinKeeper, "0.9"),
   { ...editorial("/c-drama-fandom/vibing-now/", "0.9"), changefreq: "weekly" },
+  editorial("/cdrama-fandom/vibing-now/field-journals/against-the-current/", "0.9"),
   { ...editorial("/c-drama-fandom/vibing-now/against-the-current-episodes-1-6/", "0.9"), changefreq: "weekly" },
   { ...editorial("/c-drama-fandom/vibing-now/against-the-current-episodes-7-14/", "0.9"), changefreq: "weekly" },
   { ...editorial("/c-drama-fandom/vibing-now/against-the-current-episodes-15-20/", "0.9"), changefreq: "weekly" },

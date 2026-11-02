@@ -8,7 +8,7 @@ import { assertVibingWarningCopy } from "./vibing-warning-copy.js";
 const read = path => readFileSync(new URL(`../${path}`, import.meta.url), "utf8");
 const hash = value => createHash("sha256").update(value).digest("hex");
 const prefix = "/c-drama-fandom/vibing-now/";
-const shelf = read(`public${prefix}index.html`);
+const shelf = read("public/cdrama-fandom/vibing-now/field-journals/against-the-current/index.html");
 const schema = JSON.parse(shelf.match(/<script type="application\/ld\+json">\s*([\s\S]*?)<\/script>/)[1]);
 const cases = [
   ["43-45", 17, "0ca69d8c545708acfe564b027773badd5ddb0f27779eac6005a182998baa4426", [

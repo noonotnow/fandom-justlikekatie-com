@@ -140,11 +140,17 @@ export function FandomLaunchpad() {
             <span className={styles.gatewayPaths}>{t("Getting started · Glossary · Genres · Archetypes · Drama deep dives · Veteran journal (English)", "入门 · 术语 · 类型 · 角色原型 · 剧集深读 · 资深粉丝手记（英文）")}</span>
             <span className={styles.enter}>{t("Explore C-drama fandom (English)", "探索中剧粉丝文化（英文）")} →</span>
           </a>
-          <a className={styles.seriesFeature} href="/c-drama-fandom/vibing-now/" onClick={trackAgainstTheCurrentEntryClicked}>
-            <span className={styles.index}>{t("Featured reading / Vibing Now (English)", "精选阅读 / 正在追的剧（英文）")}</span>
+          <a className={styles.seriesFeature} href="/c-drama-fandom/vibing-now/">
+            <span className={styles.index}>{t("Current focus / Vibing Now (English)", "当前焦点 / 正在追的剧（英文）")}</span>
+            <strong>Where the Mask Ends</strong>
+            <span>{t("Two women, the same face, entirely different stakes. Start with the opening premise.", "两位女子，同一张脸，却承担着截然不同的风险。从故事的开端说起。")}</span>
+            <span className={styles.enter}>{t("Meet the new focus (English)", "认识新的焦点剧集（英文）")} →</span>
+          </a>
+          <a className={styles.seriesFeature} href="/cdrama-fandom/vibing-now/field-journals/against-the-current/" onClick={trackAgainstTheCurrentEntryClicked}>
+            <span className={styles.index}>{t("Field Journal / Final Form (English)", "追剧手记 / 最终形态（英文）")}</span>
             <strong>Against the Current</strong>
-            <span>{t("Follow three spoiler-bounded C-drama readings. Choose your safe stopping point: Episode 21, Episodes 22–25, or Episodes 26–30.", "阅读三篇标明剧透范围的中剧解读。按自己的观看进度选择：第 21 集、第 22–25 集或第 26–30 集。")}</span>
-            <span className={styles.enter}>{t("Explore the Against the Current series (English)", "阅读《逆流而上》系列（英文）")} →</span>
+            <span>{t("The closing readings are in. The journal stays open. Choose a reading at your own episode boundary.", "收官解读已上线，追剧手记仍然开放。按自己的观看进度选择阅读。")}</span>
+            <span className={styles.enter}>{t("Open the Field Journal (English)", "打开追剧手记（英文）")} →</span>
           </a>
         </div>
       </section>

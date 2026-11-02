@@ -5,7 +5,7 @@ import test from "node:test";
 
 const path = "/c-drama-fandom/vibing-now/against-the-current-episodes-34-38/";
 const article = readFileSync(new URL(`../public${path}index.html`, import.meta.url), "utf8");
-const shelf = readFileSync(new URL("../public/c-drama-fandom/vibing-now/index.html", import.meta.url), "utf8");
+const shelf = readFileSync(new URL("../public/cdrama-fandom/vibing-now/field-journals/against-the-current/index.html", import.meta.url), "utf8");
 
 test("Episodes 34–38 preserves the supplied final reading, not the older Notion draft", () => {
   const body = article.match(/<article class="article"><section>(.*?)<\/section>/s)?.[1];

@@ -322,6 +322,11 @@ to = "/c-drama-fandom/vibing-now/index.html"
 status = 200
 
 [[redirects]]
+from = "/cdrama-fandom/vibing-now/field-journals/against-the-current"
+to = "/cdrama-fandom/vibing-now/field-journals/against-the-current/index.html"
+status = 200
+
+[[redirects]]
 from = "/c-drama-fandom/fandom-games/sect-day"
 to = "/c-drama-fandom/fandom-games/sect-day/index.html"
 status = 200

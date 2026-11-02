@@ -912,7 +912,7 @@ test("Against the Current stays within Episode 21 and uses registered static edi
 });
 
 test("Against the Current follow-ups keep their declared boundaries and public routes", () => {
-  const shelf = read("public/c-drama-fandom/vibing-now/index.html");
+  const shelf = read("public/cdrama-fandom/vibing-now/field-journals/against-the-current/index.html");
   const netlify = read("netlify.toml");
   const pages = [
     { suffix: "episodes-22-25", boundary: 25, source: "drama-against-the-current-episodes-22-25" },
@@ -1071,7 +1071,7 @@ test("soundtrack freshness qualifies expired listings without refreshing evidenc
   assert.match(review, /withdraw the guide and its hub\/article links/);
 });
 
-test("Vibing Now landing page is crawlable and advertises the live spoiler boundary", () => {
+test("Vibing Now landing page introduces the new focus and retains the Field Journal", () => {
   const path = "/c-drama-fandom/vibing-now/";
   const html = read(`public${path}index.html`);
   const route = PUBLIC_STATIC_ROUTES.find((entry) => entry.path === path);
@@ -1079,14 +1079,16 @@ test("Vibing Now landing page is crawlable and advertises the live spoiler bound
   assert.equal(route.changefreq, "weekly");
   assertCanonicalMatchesRoute(html, route);
   assert.match(html, /<body data-source-page="vibing-now-index" data-content-mode="drama-authority">/);
-  assert.match(html, /Against the Current, through Episode 21/);
-  assert.match(html, /No preview material, later episodes, novel material, or endgame commentary/);
+  assert.match(html, /<h1>Where the Mask Ends<\/h1>/);
+  assert.match(html, /Opening premise only/);
+  assert.match(html, /href="\/cdrama-fandom\/vibing-now\/field-journals\/against-the-current\/"/);
   assert.match(read("public/c-drama-fandom/editorial.js"), /"vibing-now-index"/);
 });
 
 test("Against the Current discovery path and search snippets preserve episode boundaries", () => {
   const guide = read("public/c-drama-fandom/index.html");
-  const shelfPath = "/c-drama-fandom/vibing-now/";
+  const shelfPath = "/cdrama-fandom/vibing-now/field-journals/against-the-current/";
+  const articleRoot = "/c-drama-fandom/vibing-now/";
   const shelf = read(`public${shelfPath}index.html`);
   const sitemap = read("public/sitemap.xml");
   const paths = [
@@ -1101,12 +1103,13 @@ test("Against the Current discovery path and search snippets preserve episode bo
 
   assert.ok(guide.indexOf("Featured series / Currently Vibing") < guide.indexOf("01 / Fandom literacy"),
     "the show feature must lead the guide choices");
-  assert.match(guide, /<h3><a href="\/c-drama-fandom\/vibing-now\/"[^>]*>Against the Current: Vibing Now<\/a><\/h3>/);
-  assert.match(shelf, /<h1>Against the Current · Choose by last episode watched<\/h1>/);
+  assert.match(guide, /<h3><a href="\/c-drama-fandom\/vibing-now\/"[^>]*>Where the Mask Ends: Vibing Now<\/a><\/h3>/);
+  assert.match(guide, /href="\/cdrama-fandom\/vibing-now\/field-journals\/against-the-current\/"/);
+  assert.match(shelf, /<h1>Against the Current<\/h1>/);
   assert.match(shelf, /Start with the last episode you’ve finished, not the platform you use/);
 
   for (const { slug, label, boundary, headline } of paths) {
-    const path = `${shelfPath}against-the-current-${slug}/`;
+    const path = `${articleRoot}against-the-current-${slug}/`;
     const html = read(`public${path}index.html`);
     pages.push({ path, html });
     assert.match(shelf, new RegExp(`href="${path}"`));
