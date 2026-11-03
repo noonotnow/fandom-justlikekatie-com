@@ -26,7 +26,7 @@ test("the shelf exposes one explicit Episode 38 choice with matching structured 
   const entry = data.mainEntity.itemListElement.filter(item => item.url.endsWith(path));
   assert.equal(entry.length, 1);
   assert.equal(entry[0].position, 9);
-  assert.equal(entry[0].name, "Against the Current: safe through Episodes 34–38");
+  assert.equal(entry[0].name, "Safe through Episodes 34–38");
   assert.match(shelf, /data-series-installment="episodes_34_38">Safe through Episodes 34–38: Read the installment<\/a>/);
   assert.match(article, /<h2>Episode 38<\/h2>/);
   assert.match(article, /Read Episodes 32–33 →/);
