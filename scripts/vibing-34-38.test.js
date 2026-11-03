@@ -5,7 +5,7 @@ import test from "node:test";
 
 const path = "/c-drama-fandom/vibing-now/against-the-current-episodes-34-38/";
 const article = readFileSync(new URL(`../public${path}index.html`, import.meta.url), "utf8");
-const shelf = readFileSync(new URL("../public/c-drama-fandom/vibing-now/index.html", import.meta.url), "utf8");
+const shelf = readFileSync(new URL("../public/cdrama-fandom/vibing-now/field-journals/against-the-current/index.html", import.meta.url), "utf8");
 
 test("Episodes 34–38 preserves the supplied final reading, not the older Notion draft", () => {
   const body = article.match(/<article class="article"><section>(.*?)<\/section>/s)?.[1];
@@ -26,7 +26,7 @@ test("the shelf exposes one explicit Episode 38 choice with matching structured 
   const entry = data.mainEntity.itemListElement.filter(item => item.url.endsWith(path));
   assert.equal(entry.length, 1);
   assert.equal(entry[0].position, 9);
-  assert.equal(entry[0].name, "Against the Current: safe through Episodes 34–38");
+  assert.equal(entry[0].name, "Safe through Episodes 34–38");
   assert.match(shelf, /data-series-installment="episodes_34_38">Safe through Episodes 34–38: Read the installment<\/a>/);
   assert.match(article, /<h2>Episode 38<\/h2>/);
   assert.match(article, /Read Episodes 32–33 →/);

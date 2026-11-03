@@ -427,13 +427,22 @@ test('the launchpad and guide present C-drama fandom as the editorial path into 
   assert.match(guideHtml, /Take what you notice into Vibe Atlas/);
 });
 
-test('the homepage features Against the Current beside the guide without displacing the daily drop', () => {
-  const feature = launchpadSource.indexOf('Explore the Against the Current series');
+test('the homepage distinguishes the current focus and continuing journal without displacing the daily drop', () => {
+  const feature = launchpadSource.indexOf('Meet the new focus (English)');
+  const journal = launchpadSource.indexOf('Open the Field Journal (English)');
   assert.ok(feature > launchpadSource.indexOf('Explore C-drama fandom'));
-  assert.ok(feature < launchpadSource.indexOf('C-drama Vibe Atlas'));
-  assert.match(launchpadSource, /href="\/c-drama-fandom\/vibing-now\/"[^>]*>[\s\S]*?Against the Current/);
-  assert.match(launchpadSource, /Episode 21, Episodes 22–25, or Episodes 26–30/);
-  assert.match(rootHtml, /<noscript>[\s\S]*?<a href="\/c-drama-fandom\/vibing-now\/">choose an Against the Current Vibing Now reading<\/a>/);
+  assert.ok(journal > feature);
+  assert.ok(journal < launchpadSource.indexOf('C-drama Vibe Atlas'));
+  const focusCard = launchpadSource.match(/<a className=\{styles\.seriesFeature\} href="\/c-drama-fandom\/vibing-now\/">([\s\S]*?)<\/a>/)?.[1];
+  const journalCard = launchpadSource.match(/<a className=\{styles\.seriesFeature\} href="\/cdrama-fandom\/vibing-now\/field-journals\/against-the-current\/"[^>]*>([\s\S]*?)<\/a>/)?.[1];
+  assert.ok(focusCard, 'the current spotlight has its own card');
+  assert.ok(journalCard, 'the journal has its own lasting address');
+  assert.match(focusCard, /<strong>Where the Mask Ends<\/strong>/);
+  assert.doesNotMatch(focusCard, /Against the Current|trackAgainstTheCurrentEntryClicked/);
+  assert.match(journalCard, /<strong>Against the Current<\/strong>/);
+  assert.match(journalCard, /The closing readings are in\. The journal stays open\./);
+  assert.match(rootHtml, /<noscript>[\s\S]*?<a href="\/c-drama-fandom\/vibing-now\/">meet Where the Mask Ends, our current Vibing Now focus<\/a>/);
+  assert.match(rootHtml, /<noscript>[\s\S]*?<a href="\/cdrama-fandom\/vibing-now\/field-journals\/against-the-current\/">open the Against the Current Field Journal<\/a>/);
 });
 
 test('both live games are directly discoverable on the homepage without opening More guides', () => {

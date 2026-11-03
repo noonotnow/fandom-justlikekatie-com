@@ -20,7 +20,7 @@ function preparationFixture(t) {
     "scripts/static-guide-public-inventory.js", "scripts/vibing-public-inventory.js",
     "scripts/static-audience-gates.js",
     "docs/against-the-current-availability.json",
-    "public/c-drama-fandom", "public/c-dramas", "public/zh-cn",
+    "public/c-drama-fandom", "public/cdrama-fandom", "public/c-dramas", "public/zh-cn",
     "public/assets/c-drama-fandom/trope-decoder.js",
   ]) {
     mkdirSync(dirname(resolve(fixtureRoot, path)), { recursive: true });

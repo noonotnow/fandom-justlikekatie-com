@@ -322,6 +322,11 @@ to = "/c-drama-fandom/vibing-now/index.html"
 status = 200
 
 [[redirects]]
+from = "/cdrama-fandom/vibing-now/field-journals/against-the-current"
+to = "/cdrama-fandom/vibing-now/field-journals/against-the-current/index.html"
+status = 200
+
+[[redirects]]
 from = "/c-drama-fandom/fandom-games/sect-day"
 to = "/c-drama-fandom/fandom-games/sect-day/index.html"
 status = 200
@@ -618,6 +623,16 @@ status = 200
   status = 200
   force = true
   query = { fate = "fated-romantic" }
+
+[[redirects]]
+from = "/c-drama-fandom/vibing-now/where-the-mask-ends-episodes-1-16"
+to = "/c-drama-fandom/vibing-now/where-the-mask-ends-episodes-1-16/index.html"
+status = 200
+
+[[redirects]]
+from = "/c-drama-fandom/where-to-watch/where-the-mask-ends"
+to = "/c-drama-fandom/where-to-watch/where-the-mask-ends/index.html"
+status = 200
 
 [[redirects]]
   from = "/*"
