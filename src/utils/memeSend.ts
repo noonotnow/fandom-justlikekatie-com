@@ -13,7 +13,7 @@ export const MEME_SEND_URL = '/api/workstation-meme-handoff';
 export const MEME_SERIES_OPTIONS = [
   { value: 'A', label: 'A · Vibe' }, { value: 'B', label: 'B · Explainer' }, { value: 'C', label: 'C · BTS' },
   { value: 'D', label: 'D · 念无双' }, { value: 'E', label: 'E · Dog' }, { value: 'F', label: 'F · Proverb' },
-  { value: 'G', label: 'G · Aerial' }, { value: 'H', label: 'H · Cdrama' },
+  { value: 'G', label: 'G · Aerial' }, { value: 'H', label: 'H · Cdrama' }, { value: 'I', label: 'I · Meme' },
 ] as const;
 export const DEFAULT_MEME_SERIES = 'H';
 export const MEME_SEND_SCHEMA = 'fandom.meme-send.v1';

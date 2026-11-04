@@ -5,7 +5,7 @@ import { getSeriesLabel, SERIES_OPTIONS } from '../src/utils/series.ts';
 test('renders friendly labels without changing persisted series values', () => {
   assert.deepEqual(
     SERIES_OPTIONS.map(({ value }) => value),
-    ['A·Vibe', 'B·Style', 'C·Event', 'D·BTS', 'E·Fashion', 'F·Interview', 'G·Fan', 'H·Cdrama'],
+    ['A·Vibe', 'B·Style', 'C·Event', 'D·BTS', 'E·Fashion', 'F·Interview', 'G·Fan', 'H·Cdrama', 'I'],
   );
   assert.deepEqual(
     SERIES_OPTIONS.map(({ label }) => label),
@@ -18,6 +18,7 @@ test('renders friendly labels without changing persisted series values', () => {
       'F · Proverb',
       'G · Aerial',
       'H · Cdrama',
+      'I · Meme',
     ],
   );
 });
@@ -26,6 +27,7 @@ test('normalizes known aliases and safely preserves unknown values', () => {
   assert.equal(getSeriesLabel('A'), 'A · Vibe');
   assert.equal(getSeriesLabel('A·Vibe'), 'A · Vibe');
   assert.equal(getSeriesLabel('B·Style'), 'B · Explainer');
+  assert.equal(getSeriesLabel('I'), 'I · Meme');
   assert.equal(getSeriesLabel(''), '');
   assert.equal(getSeriesLabel(undefined), '');
   assert.equal(getSeriesLabel('Special'), 'Special');

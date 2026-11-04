@@ -20,9 +20,9 @@ const DEFAULT_MEDIA_URL = "https://media.justlikekatie.com/v1/assets/images";
 const DEFAULT_WORKSTATION_URL = "https://workstation.justlikekatie.com/api/integrations/fandom/projects";
 const MEDIA_SOURCE_TYPE = "fandom-memeforge";
 // Series is chosen by the operator, not tied to C-drama. These are the canonical CREATE Series values that
-// exist today (A-H). A cross-fandom Meme option is NOT added here until its name and contract are agreed;
+// exist today (A-I). A cross-fandom Meme option is NOT added here until its name and contract are agreed;
 // CREATE resolves the value to the existing Notion option and fails closed if none exists.
-export const MEME_SERIES_VALUES = ["A", "B", "C", "D", "E", "F", "G", "H"];
+export const MEME_SERIES_VALUES = ["A", "B", "C", "D", "E", "F", "G", "H", "I"];
 const DEFAULT_MEME_SERIES = "H";
 const FORMATS = {
   "tiktok-9x16": { platform: "tiktok", width: 1080, height: 1920 },

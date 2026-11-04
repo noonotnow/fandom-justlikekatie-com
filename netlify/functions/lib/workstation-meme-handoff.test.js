@@ -209,9 +209,17 @@ test("Series is operator-selectable, validated, defaults to H, and a change upda
   const { handler, calls } = harness();
   assert.equal((await send(handler, body())).status, 201);
   assert.deepEqual(calls.workstation[0].envelope.draft.series, ["H"]);
-  assert.equal((await send(handler, body({ series: "Meme" }))).status, 400, "unknown options are refused, not invented");
+  assert.equal((await send(handler, body({ series: "J" }))).status, 400, "unknown options are refused, not invented");
   const changed = await send(handler, body({ series: "A" }));
   assert.equal(changed.status, 200);
   assert.deepEqual(calls.workstation[1].envelope.publicationBrief.series, ["A"]);
   assert.equal(calls.workstation[1].envelope.sourceVersion, 2);
+});
+
+test("the canonical I = Meme Series can be sent, and nothing forces memes into it", async () => {
+  const { handler, calls } = harness();
+  assert.equal((await send(handler, body({ series: "I" }))).status, 201);
+  assert.deepEqual(calls.workstation[0].envelope.draft.series, ["I"]);
+  assert.ok((await send(handler, body({ sendIntentId: "intent-0002" }))).ok);
+  assert.deepEqual(calls.workstation[1].envelope.draft.series, ["H"], "unspecified Series still defaults to the existing option, not I");
 });
