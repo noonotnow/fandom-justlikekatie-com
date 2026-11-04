@@ -12,13 +12,14 @@ export const MEME_SEND_URL = '/api/workstation-meme-handoff';
 export const MEME_SEND_SCHEMA = 'fandom.meme-send.v1';
 
 export type SendBackup = { state: 'verified' | 'missing' | 'mismatch' | 'failed'; detail: string; assetId?: string };
+export type SendRetention = { state: 'held' | 'failed'; detail: string };
 export type SendReceipt = {
   postId: string; postUrl: string; deepLink?: string; status: 'Draft'; sourceVersion: number;
   disposition: 'created' | 'replayed' | 'updated'; mediaSyncState: 'synced' | 'operator-diverged'; warnings: string[];
 };
 export type SendState = {
   memeGroupId: string;
-  intents: Partial<Record<'tiktok' | 'instagram', { id: string; receipt?: SendReceipt; backup?: SendBackup; assetId?: string; sentSignature?: string }>>;
+  intents: Partial<Record<'tiktok' | 'instagram', { id: string; receipt?: SendReceipt; backup?: SendBackup; retention?: SendRetention; assetId?: string; sentSignature?: string }>>;
 };
 
 type Storage = Pick<globalThis.Storage, 'getItem' | 'setItem' | 'removeItem'>;
@@ -97,9 +98,9 @@ export async function sendMemeToCreate(body: unknown, fetchImpl: typeof fetch = 
       body: JSON.stringify(body), signal: AbortSignal.timeout(60_000),
     });
   } catch { throw new Error('The send timed out or could not be reached. Retrying is safe: it will not create a duplicate.'); }
-  let payload: { receipt?: SendReceipt; backup?: SendBackup; assetId?: string; error?: string } = {};
+  let payload: { receipt?: SendReceipt; backup?: SendBackup; retention?: SendRetention; assetId?: string; error?: string } = {};
   try { payload = await response.json(); } catch { /* handled below */ }
   if (!response.ok) throw new Error(payload.error || `Send failed (HTTP ${response.status}).`);
   if (!payload.receipt?.postId) throw new Error('CREATE returned an unreadable receipt.');
-  return payload as { receipt: SendReceipt; backup?: SendBackup; assetId?: string };
+  return payload as { receipt: SendReceipt; backup?: SendBackup; retention?: SendRetention; assetId?: string };
 }

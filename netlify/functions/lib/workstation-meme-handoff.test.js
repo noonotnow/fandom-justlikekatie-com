@@ -29,7 +29,7 @@ function memoryStore() {
   return { map, get: async k => map.get(k) ?? null, setJSON: async (k, v) => { map.set(k, structuredClone(v)); } };
 }
 
-function harness({ metaDedup = false, backupState = "verified", admin = true, mediaSourceType = "fandom-memeforge", dispositions = ["created", "replayed", "updated"] } = {}) {
+function harness({ retentionState = "held", metaDedup = false, backupState = "verified", admin = true, mediaSourceType = "fandom-memeforge", dispositions = ["created", "replayed", "updated"] } = {}) {
   const store = memoryStore();
   const calls = { media: 0, workstation: [] };
   let n = 0;
@@ -46,7 +46,7 @@ function harness({ metaDedup = false, backupState = "verified", admin = true, me
     const envelope = JSON.parse(init.body);
     calls.workstation.push({ envelope, headers: init.headers });
     const disposition = dispositions[Math.min(n++, dispositions.length - 1)];
-    return Response.json({ deliverableId: envelope.deliverableId, postId: "post-1", postUrl: "https://notion.so/post-1", status: "Draft", sourceVersion: envelope.sourceVersion, workflow: "direct", disposition, mediaSyncState: "synced", warnings: [], backup: { state: backupState, assetId: ASSET_ID, detail: "ok", checkedAt: "2026-01-01T00:00:00Z", recovery: { secret: "x" } } }, { status: disposition === "created" ? 201 : 200 });
+    return Response.json({ deliverableId: envelope.deliverableId, postId: "post-1", postUrl: "https://notion.so/post-1", status: "Draft", sourceVersion: envelope.sourceVersion, workflow: "direct", disposition, mediaSyncState: "synced", warnings: [], backup: { state: backupState, assetId: ASSET_ID, detail: "ok", checkedAt: "2026-01-01T00:00:00Z", recovery: { secret: "x" } }, retention: { state: retentionState, detail: "d" } }, { status: disposition === "created" ? 201 : 200 });
   };
   const auth = { authenticateAdmin: async () => { if (!admin) throw Object.assign(new Error("no"), { status: 403 }); return { user: {} }; } };
   const handler = createWorkstationMemeHandoffHandler({ env: ENV, fetchImpl, getStore: () => store, auth, now: () => new Date("2026-11-04T10:00:00Z") });
@@ -149,4 +149,12 @@ test("uses MEDIA's authoritative meta.deduplicated flag even when sourceType mat
   const { handler, calls } = harness({ metaDedup: true });
   await send(handler, body());
   assert.equal(calls.workstation[0].envelope.meme.registration.deduplicated, true);
+});
+
+test("a failed retention hold is surfaced and retried even when the backup is verified", async () => {
+  const { handler, calls } = harness({ retentionState: "failed", dispositions: ["created", "replayed"] });
+  const first = await (await send(handler, body())).json();
+  assert.equal(first.retention.state, "failed");
+  await send(handler, body());
+  assert.equal(calls.workstation.length, 2);
 });

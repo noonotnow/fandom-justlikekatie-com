@@ -81,9 +81,9 @@ async function handle(request, { env, fetchImpl, store, now, requestUrl }) {
     throw new MemeSendError("This send intent already belongs to a different meme.", 409, "request");
   }
   const sameContent = Boolean(prior && prior.contentDigest === contentDigest && prior.receipt);
-  if (sameContent && prior.backup?.state === "verified") {
+  if (sameContent && prior.backup?.state === "verified" && prior.retention?.state === "held") {
     // Exact retry of a fully backed-up send: replay the stored receipt, no upstream write, no new Post.
-    return json(200, { receipt: { ...prior.receipt, disposition: "replayed" }, backup: prior.backup, assetId: prior.assetId });
+    return json(200, { receipt: { ...prior.receipt, disposition: "replayed" }, backup: prior.backup, retention: prior.retention, assetId: prior.assetId });
   }
   // Same content with an unverified backup re-sends the SAME envelope version (CREATE replays it and
   // re-runs the idempotent backup). Changed content is an update: version + 1 with compare-and-swap.
@@ -96,6 +96,7 @@ async function handle(request, { env, fetchImpl, store, now, requestUrl }) {
   const payload = await sendToWorkstation(envelope, { env, fetchImpl, timestampDate: now() });
   const receipt = validateReceipt(payload, envelope);
   const backup = sanitizeBackup(payload.backup);
+  const retention = sanitizeRetention(payload.retention);
   await store.setJSON(key, {
     memeGroupId: request.memeGroupId,
     sendIntentId: request.sendIntentId,
@@ -107,9 +108,10 @@ async function handle(request, { env, fetchImpl, store, now, requestUrl }) {
     assetId: registration.assetId,
     receipt,
     backup,
+    retention,
     updatedAt: now().toISOString(),
   });
-  return json(receipt.disposition === "created" ? 201 : 200, { receipt, ...(backup ? { backup } : {}), assetId: registration.assetId });
+  return json(receipt.disposition === "created" ? 201 : 200, { receipt, ...(backup ? { backup } : {}), ...(retention ? { retention } : {}), assetId: registration.assetId });
 }
 
 function validateRequest(body) {
@@ -397,6 +399,11 @@ function sanitizeBackup(value) {
     detail: typeof value.detail === "string" ? value.detail.slice(0, 300) : "",
     checkedAt: typeof value.checkedAt === "string" ? value.checkedAt : undefined,
   };
+}
+
+function sanitizeRetention(value) {
+  if (!isRecord(value) || !["held", "failed"].includes(value.state)) return undefined;
+  return { state: value.state, detail: typeof value.detail === "string" ? value.detail.slice(0, 300) : "" };
 }
 
 function requireConfiguration(env) {

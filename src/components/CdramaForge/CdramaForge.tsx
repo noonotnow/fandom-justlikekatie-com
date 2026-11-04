@@ -336,7 +336,7 @@ export function CdramaForge() {
       renderCdramaCard(ctx, image, { ...idea }, format, draft);
       const blob = await new Promise<Blob>((resolve, reject) => output.toBlob(b => b ? resolve(b) : reject(new Error('PNG could not be created.')), 'image/png'));
       const result = await sendMemeToCreate(buildMemeSendBody(draft, state, resolved.intent.id, await blobToBase64(blob)));
-      const next: SendState = { ...state, intents: { ...state.intents, [format]: { id: resolved.intent.id, receipt: result.receipt, backup: result.backup, assetId: result.assetId, sentSignature: draftSignature(draft) } } };
+      const next: SendState = { ...state, intents: { ...state.intents, [format]: { id: resolved.intent.id, receipt: result.receipt, backup: result.backup, retention: result.retention, assetId: result.assetId, sentSignature: draftSignature(draft) } } };
       saveSendState(window.localStorage, next); setSendState(next);
       if (id === requestId.current) setSendStatus(result.receipt.disposition === 'created' ? 'Draft created in CREATE.' : result.receipt.disposition === 'updated' ? 'CREATE draft updated.' : 'Already in CREATE; nothing duplicated.');
     } catch (error) { setSendStatus(error instanceof Error ? error.message : 'Send failed. Retrying is safe.'); }
@@ -549,7 +549,7 @@ export function CdramaForge() {
           {postCopy && hasAdminAccess && (() => {
             const sent = sendState.intents[draft.format];
             const changed = sent?.receipt && sent.sentSignature !== draftSignature(draft);
-            const needsBackupRetry = sent?.receipt && sent.backup?.state !== 'verified' && !changed;
+            const needsBackupRetry = sent?.receipt && (sent.backup?.state !== 'verified' || sent.retention?.state !== 'held') && !changed;
             return (
               <section className={styles.manual} aria-label="Send to CREATE (operator only)">
                 <div className={styles.sectionTitle}><span>CREATE / OPERATOR</span><strong>Send this {draft.format === 'tiktok' ? 'TikTok' : 'Instagram'} meme to a CREATE draft.</strong></div>
@@ -560,7 +560,7 @@ export function CdramaForge() {
                   </button>
                   {sent?.receipt && <button type="button" disabled={!!busy} onClick={() => void sendToCreate({ another: true })}>Create another Post</button>}
                 </div>
-                {sent?.receipt && <p role="status">Post: <a href={sent.receipt.deepLink || sent.receipt.postUrl} target="_blank" rel="noreferrer noopener">open in CREATE</a> · Notion file backup: <strong>{sent.backup?.state ?? 'unknown'}</strong>{sent.backup?.detail ? ` — ${sent.backup.detail}` : ''}</p>}
+                {sent?.receipt && <p role="status">Post: <a href={sent.receipt.deepLink || sent.receipt.postUrl} target="_blank" rel="noreferrer noopener">open in CREATE</a> · Notion file backup: <strong>{sent.backup?.state ?? 'unknown'}</strong>{sent.backup?.detail ? ` — ${sent.backup.detail}` : ''} · MEDIA purge protection: <strong>{sent.retention?.state ?? 'unknown'}</strong></p>}
                 {sendStatus && <p role="status">{sendStatus}</p>}
               </section>
             );
