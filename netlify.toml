@@ -73,6 +73,11 @@
   to = "/.netlify/functions/workstation-handoff"
   status = 200
 
+[[redirects]]
+  from = "/api/workstation-meme-handoff"
+  to = "/.netlify/functions/workstation-meme-handoff"
+  status = 200
+
 # Temporary same-origin rollout alias. The function targets Workstation only.
 [[redirects]]
   from = "/api/create-handoff"

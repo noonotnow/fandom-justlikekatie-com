@@ -10,6 +10,10 @@ import styles from './CdramaForge.module.css';
 import { CandidateImage, SceneEvidence, SceneMatch, type SceneClue, type SceneResult } from './SceneEvidence';
 import { SimilarStills } from './SimilarStills';
 import { saveMemeImage } from '../../utils/memeLibrary';
+import {
+  blobToBase64, buildMemeSendBody, clearSendState, draftSignature, intentFor, loadSendState, newIntent,
+  saveSendState, sendMemeToCreate, type SendState,
+} from '../../utils/memeSend';
 
 type Research = { title: string; link: string; snippet: string; episodeStart?: number; episodeEnd?: number };
 type Result = SceneResult & {
@@ -48,7 +52,11 @@ export function CdramaForge() {
   const searchController = useRef<AbortController | null>(null);
   const imageId = useRef(0);
   const skipEmptySave = useRef(false);
-  const { isSignedIn, loading: sessionLoading, recheck } = useSession();
+  const { isSignedIn, hasAdminAccess, loading: sessionLoading, recheck } = useSession();
+  const [sendState, setSendState] = useState<SendState>(() => {
+    try { return loadSendState(window.localStorage); } catch { return { memeGroupId: `meme-${Date.now()}`, intents: {} }; }
+  });
+  const [sendStatus, setSendStatus] = useState('');
   const idea = draft.ideas[draft.selected] as Joke | undefined;
   const postCopy = idea ? draft.copy ?? suggestedCopy(idea) : null;
 
@@ -76,7 +84,8 @@ export function CdramaForge() {
       setSaveStatus('Saved on this device');
     } catch {
       // Never leave an older saved draft pretending to represent newer changes.
-      try { localStorage.removeItem(DRAFT_KEY); } catch { /* browser blocks writes */ }
+      clearSendState(window.localStorage); setSendState({ memeGroupId: `meme-${Date.now()}-${Math.random().toString(36).slice(2, 8)}`, intents: {} }); setSendStatus('');
+    try { localStorage.removeItem(DRAFT_KEY); } catch { /* browser blocks writes */ }
       setSaveStatus('Could not save locally. Keep this tab open; try a smaller image.');
     }
   }, [draft]);
@@ -309,6 +318,31 @@ export function CdramaForge() {
     finally { if (id === requestId.current) setBusy(''); }
   }
 
+  /** Operator-only: render the finished PNG and send it to a CREATE draft. Nothing is published or marked ready. */
+  async function sendToCreate(options: { another?: boolean } = {}) {
+    if (!idea || !draft.still || !postCopy || busy) return;
+    const id = requestId.current;
+    const format = draft.format;
+    setBusy('send'); setNotice(''); setSendStatus('Rendering and sending…');
+    try {
+      let state = options.another ? newIntent(sendState, format) : sendState;
+      const resolved = intentFor(state, format); state = resolved.state;
+      saveSendState(window.localStorage, state); setSendState(state);
+      const image = await loadCardImage(draft.still.thumbnail);
+      await document.fonts.ready;
+      const output = document.createElement('canvas');
+      const ctx = output.getContext('2d');
+      if (!ctx) throw new Error('Canvas unavailable.');
+      renderCdramaCard(ctx, image, { ...idea }, format, draft);
+      const blob = await new Promise<Blob>((resolve, reject) => output.toBlob(b => b ? resolve(b) : reject(new Error('PNG could not be created.')), 'image/png'));
+      const result = await sendMemeToCreate(buildMemeSendBody(draft, state, resolved.intent.id, await blobToBase64(blob)));
+      const next: SendState = { ...state, intents: { ...state.intents, [format]: { id: resolved.intent.id, receipt: result.receipt, backup: result.backup, assetId: result.assetId, sentSignature: draftSignature(draft) } } };
+      saveSendState(window.localStorage, next); setSendState(next);
+      if (id === requestId.current) setSendStatus(result.receipt.disposition === 'created' ? 'Draft created in CREATE.' : result.receipt.disposition === 'updated' ? 'CREATE draft updated.' : 'Already in CREATE; nothing duplicated.');
+    } catch (error) { setSendStatus(error instanceof Error ? error.message : 'Send failed. Retrying is safe.'); }
+    finally { setBusy(''); }
+  }
+
   function clear() {
     requestId.current++; searchId.current++; imageId.current++;
     searchController.current?.abort();
@@ -512,6 +546,25 @@ export function CdramaForge() {
               <button type="button" onClick={() => void copyText(`${postCopy.instagram}${postCopy.hashtags.trim() ? `\n\n${postCopy.hashtags}` : ''}`, 'Instagram copy')}>Copy Instagram post</button>
             </div>
           </>}
+          {postCopy && hasAdminAccess && (() => {
+            const sent = sendState.intents[draft.format];
+            const changed = sent?.receipt && sent.sentSignature !== draftSignature(draft);
+            const needsBackupRetry = sent?.receipt && sent.backup?.state !== 'verified' && !changed;
+            return (
+              <section className={styles.manual} aria-label="Send to CREATE (operator only)">
+                <div className={styles.sectionTitle}><span>CREATE / OPERATOR</span><strong>Send this {draft.format === 'tiktok' ? 'TikTok' : 'Instagram'} meme to a CREATE draft.</strong></div>
+                <p className={styles.help}>Sends only the live draft on this screen. Saved library cards keep just the image, so caption, source and rights context can't be reconstructed later. The still stays unregistered and marked not cleared; nothing is published.</p>
+                <div className={styles.actions}>
+                  <button type="button" disabled={!draft.still || !!busy || !(idea?.setup.trim() || idea?.punchline.trim())} onClick={() => void sendToCreate()}>
+                    {busy === 'send' ? 'Sending…' : needsBackupRetry ? 'Retry send + backup' : changed ? 'Update CREATE draft' : sent?.receipt ? 'Re-send (safe)' : 'Send to CREATE draft'}
+                  </button>
+                  {sent?.receipt && <button type="button" disabled={!!busy} onClick={() => void sendToCreate({ another: true })}>Create another Post</button>}
+                </div>
+                {sent?.receipt && <p role="status">Post: <a href={sent.receipt.deepLink || sent.receipt.postUrl} target="_blank" rel="noreferrer noopener">open in CREATE</a> · Notion file backup: <strong>{sent.backup?.state ?? 'unknown'}</strong>{sent.backup?.detail ? ` — ${sent.backup.detail}` : ''}</p>}
+                {sendStatus && <p role="status">{sendStatus}</p>}
+              </section>
+            );
+          })()}
           <div className={styles.draftStatus}><span role="status">{saveStatus}</span><button type="button" onClick={clear}>Clear local draft</button></div>
           <p className={styles.manual}>Downloads automatically save the finished PNG to your C-drama meme library. Your editable draft stays separate on this browser. Account/MEDIA sync uses your Collection settings. This is a still PNG, not a video; nothing is scheduled or published.</p>
           {notice && <p className={styles.notice} role="status">{notice}</p>}

@@ -1,0 +1,146 @@
+import assert from "node:assert/strict";
+import { createHash } from "node:crypto";
+import test from "node:test";
+import { createWorkstationMemeHandoffHandler, MEME_SEND_SCHEMA, memeOutputId } from "./workstation-meme-handoff.js";
+
+const ORIGIN = "https://fandom.justlikekatie.com";
+const ENV = {
+  MEDIA_ASSETS_TOKEN: "t",
+  MEDIA_ASSETS_URL: "https://media.example/v1/assets/images",
+  WORKSTATION_FANDOM_INTAKE_URL: "https://workstation.example/api/integrations/fandom/projects",
+  WORKSTATION_FANDOM_HMAC_KEY_ID: "k",
+  WORKSTATION_FANDOM_HMAC_SECRET: "s",
+};
+const ASSET_ID = "33333333-3333-4333-8333-333333333333";
+
+function png(width, height, filler = 0) {
+  const b = Buffer.alloc(64, filler);
+  Buffer.from([0x89, 0x50, 0x4e, 0x47, 0x0d, 0x0a, 0x1a, 0x0a]).copy(b, 0);
+  b.writeUInt32BE(13, 8);
+  b.write("IHDR", 12, "ascii");
+  b.writeUInt32BE(width, 16);
+  b.writeUInt32BE(height, 20);
+  return b;
+}
+const sha = b => createHash("sha256").update(b).digest("hex");
+
+function memoryStore() {
+  const map = new Map();
+  return { map, get: async k => map.get(k) ?? null, setJSON: async (k, v) => { map.set(k, structuredClone(v)); } };
+}
+
+function harness({ backupState = "verified", admin = true, mediaSourceType = "fandom-memeforge", dispositions = ["created", "replayed", "updated"] } = {}) {
+  const store = memoryStore();
+  const calls = { media: 0, workstation: [] };
+  let n = 0;
+  const fetchImpl = async (url, init) => {
+    if (String(url).startsWith("https://media.example")) {
+      calls.media++;
+      const file = init.body.get("file");
+      const bytes = Buffer.from(await file.arrayBuffer());
+      const meta = JSON.parse(init.body.get("metadata"));
+      assert.ok(!JSON.stringify(meta).includes("collection:"), "no collection association is claimed");
+      const w = bytes.readUInt32BE(16), h = bytes.readUInt32BE(20);
+      return Response.json({ data: { version: 1, assetId: ASSET_ID, mediaType: "image", mimeType: "image/png", sizeBytes: bytes.length, checksum: sha(bytes), fileUrl: "https://media.example/f.png", deliveryUrl: "https://media.example/d.png", thumbnailUrl: "https://media.example/t.png", dimensions: { width: w, height: h }, sourceType: mediaSourceType, rightsStatus: "cleared" } });
+    }
+    const envelope = JSON.parse(init.body);
+    calls.workstation.push({ envelope, headers: init.headers });
+    const disposition = dispositions[Math.min(n++, dispositions.length - 1)];
+    return Response.json({ deliverableId: envelope.deliverableId, postId: "post-1", postUrl: "https://notion.so/post-1", status: "Draft", sourceVersion: envelope.sourceVersion, workflow: "direct", disposition, mediaSyncState: "synced", warnings: [], backup: { state: backupState, assetId: ASSET_ID, detail: "ok", checkedAt: "2026-01-01T00:00:00Z", recovery: { secret: "x" } } }, { status: disposition === "created" ? 201 : 200 });
+  };
+  const auth = { authenticateAdmin: async () => { if (!admin) throw Object.assign(new Error("no"), { status: 403 }); return { user: {} }; } };
+  const handler = createWorkstationMemeHandoffHandler({ env: ENV, fetchImpl, getStore: () => store, auth, now: () => new Date("2026-11-04T10:00:00Z") });
+  return { handler, calls, store };
+}
+
+function body(overrides = {}, image = png(1080, 1920)) {
+  return {
+    schema: MEME_SEND_SCHEMA, memeGroupId: "group-00001", sendIntentId: "intent-0001", format: "tiktok-9x16",
+    hook: "Hook", setup: "Setup", punchline: "Punch", caption: "English caption", hashtags: "#CDrama #Meme",
+    stillSource: { kind: "search", title: "A still", link: "https://example.com/p", publisher: "Ex", query: "q" },
+    png: image.toString("base64"), ...overrides,
+  };
+}
+const send = (handler, b, headers = {}) => handler(new Request(`${ORIGIN}/api/workstation-meme-handoff`, {
+  method: "POST", headers: { "content-type": "application/json", origin: ORIGIN, ...headers }, body: JSON.stringify(b),
+}), {});
+
+test("sends a TikTok draft with rights, source and the correct image", async () => {
+  const { handler, calls } = harness();
+  const res = await send(handler, body());
+  assert.equal(res.status, 201);
+  const out = await res.json();
+  assert.equal(out.receipt.postId, "post-1");
+  assert.equal(out.backup.state, "verified");
+  assert.equal(out.backup.recovery, undefined);
+  const { envelope, headers } = calls.workstation[0];
+  assert.equal(envelope.publicationBrief.distribution.primaryPlatform, "tiktok");
+  assert.equal(envelope.meme.rights.posture, "not-cleared");
+  assert.equal(envelope.meme.stillSource.link, "https://example.com/p");
+  assert.equal(envelope.meme.registration.checksum, envelope.mediaAttachments[0].checksum);
+  assert.equal(headers["Idempotency-Key"], `fandom/direct/card/group-00001/${memeOutputId("tiktok", "intent-0001")}`);
+  assert.equal(envelope.sourceVersion, 1);
+  assert.equal(envelope.expectedSourceVersion, null);
+});
+
+test("retry with the same intent replays without a new upstream write", async () => {
+  const { handler, calls } = harness();
+  await send(handler, body());
+  const again = await send(handler, body());
+  const out = await again.json();
+  assert.equal(out.receipt.disposition, "replayed");
+  assert.equal(calls.workstation.length, 1);
+  assert.equal(calls.media, 1);
+});
+
+test("a new intent for the same meme and platform makes a separate Post identity", async () => {
+  const { handler, calls } = harness();
+  await send(handler, body());
+  await send(handler, body({ sendIntentId: "intent-0002" }));
+  const keys = calls.workstation.map(c => c.headers["Idempotency-Key"]);
+  assert.equal(new Set(keys).size, 2);
+});
+
+test("edited content on the same intent updates with compare-and-swap", async () => {
+  const { handler, calls } = harness();
+  await send(handler, body());
+  await send(handler, body({ caption: "Changed" }));
+  const second = calls.workstation[1].envelope;
+  assert.equal(second.sourceVersion, 2);
+  assert.equal(second.expectedSourceVersion, 1);
+});
+
+test("rejects non-admin, wrong dimensions, and non-PNG bytes", async () => {
+  assert.equal((await send(harness({ admin: false }).handler, body())).status, 403);
+  assert.equal((await send(harness().handler, body({}, png(1080, 1350)))).status, 400);
+  assert.equal((await send(harness().handler, body({ png: Buffer.from("not a png at all, sorry").toString("base64") }))).status, 400);
+});
+
+test("rejects cross-origin and unexpected fields", async () => {
+  const { handler } = harness();
+  const cross = await handler(new Request(`${ORIGIN}/api/x`, { method: "POST", headers: { "content-type": "application/json", origin: "https://evil.example" }, body: JSON.stringify(body()) }), {});
+  assert.equal(cross.status, 403);
+  assert.equal((await send(handler, body({ rights: "cleared" }))).status, 400);
+});
+
+test("flags MEDIA deduplication so a first-uploader label is not trusted, and uploads read as uploader-asserted", async () => {
+  const { handler, calls } = harness({ mediaSourceType: "someone-else" });
+  await send(handler, body({ stillSource: { kind: "upload" } }));
+  const meme = calls.workstation[0].envelope.meme;
+  assert.equal(meme.registration.deduplicated, true);
+  assert.equal(meme.registration.returnedRightsStatus, "cleared");
+  assert.equal(meme.rights.posture, "uploader-asserted");
+});
+
+test("an unverified backup is retried by re-sending the same envelope version, not a new Post", async () => {
+  const { handler, calls } = harness({ backupState: "failed", dispositions: ["created", "replayed"] });
+  const first = await (await send(handler, body())).json();
+  assert.equal(first.backup.state, "failed");
+  const retry = await (await send(handler, body())).json();
+  assert.equal(calls.workstation.length, 2);
+  const [a, b] = calls.workstation.map(c => c.envelope);
+  assert.equal(b.sourceVersion, a.sourceVersion);
+  assert.equal(b.generatedAt, a.generatedAt);
+  assert.equal(calls.workstation[0].headers["Idempotency-Key"], calls.workstation[1].headers["Idempotency-Key"]);
+  assert.equal(retry.receipt.disposition, "replayed");
+});
