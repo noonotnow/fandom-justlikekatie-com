@@ -25,12 +25,14 @@ export type SendState = {
 type Storage = Pick<globalThis.Storage, 'getItem' | 'setItem' | 'removeItem'>;
 const id = () => (globalThis.crypto?.randomUUID?.() ?? `${Date.now()}-${Math.random().toString(36).slice(2)}`).replace(/[^A-Za-z0-9._-]/g, '');
 
+export function newMemeState(): SendState { return { memeGroupId: `meme-${id()}`, intents: {} }; }
+
 export function loadSendState(storage: Storage): SendState {
   try {
     const parsed = JSON.parse(storage.getItem(MEME_SEND_KEY) ?? 'null');
     if (parsed && typeof parsed.memeGroupId === 'string' && parsed.intents && typeof parsed.intents === 'object') return parsed;
   } catch { /* unreadable state starts fresh */ }
-  return { memeGroupId: `meme-${id()}`, intents: {} };
+  return newMemeState();
 }
 export function saveSendState(storage: Storage, state: SendState) {
   try { storage.setItem(MEME_SEND_KEY, JSON.stringify(state)); } catch { /* the send still worked; only retry memory is lost */ }
@@ -48,10 +50,14 @@ export function newIntent(state: SendState, format: ForgeDraft['format']): SendS
   return { ...state, intents: { ...state.intents, [format]: { id: `send-${id()}` } } };
 }
 
-export function buildMemeSendBody(draft: ForgeDraft, state: SendState, intentId: string, pngBase64: string) {
+/**
+ * `displayedCopy` is what the operator actually sees in the copy fields. Until they edit it, `draft.copy` is
+ * null and the fields show a suggested default, so the displayed copy (not `draft.copy`) is what must be sent.
+ */
+export function buildMemeSendBody(draft: ForgeDraft, state: SendState, intentId: string, pngBase64: string, displayedCopy?: ForgeDraft['copy']) {
   const idea = draft.ideas[draft.selected];
   const still = draft.still;
-  const copy = draft.copy;
+  const copy = displayedCopy ?? draft.copy;
   if (!idea || !still || !copy) throw new Error('Choose an idea, a still and post copy before sending.');
   const caption = (draft.format === 'tiktok' ? copy.tiktok : copy.instagram).trim();
   return {
@@ -78,9 +84,9 @@ export function buildMemeSendBody(draft: ForgeDraft, state: SendState, intentId:
 }
 
 /** Cheap signature so the UI can say "Update" when the draft changed since the last send. */
-export function draftSignature(draft: ForgeDraft) {
+export function draftSignature(draft: ForgeDraft, displayedCopy?: ForgeDraft['copy']) {
   const idea = draft.ideas[draft.selected];
-  return JSON.stringify([draft.format, idea?.setup, idea?.punchline, draft.copy, draft.still?.thumbnail?.length, draft.still?.link, draft.framing, draft.focusX, draft.focusY, draft.textPlacement]);
+  return JSON.stringify([draft.format, idea?.setup, idea?.punchline, displayedCopy ?? draft.copy, draft.still?.thumbnail?.length, draft.still?.link, draft.framing, draft.focusX, draft.focusY, draft.textPlacement]);
 }
 
 export async function blobToBase64(blob: Blob) {

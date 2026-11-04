@@ -1,7 +1,7 @@
 import assert from 'node:assert/strict';
 import test from 'node:test';
 import { emptyDraft, type ForgeDraft } from '../src/utils/cdramaForge.ts';
-import { buildMemeSendBody, intentFor, loadSendState, newIntent, saveSendState, sendMemeToCreate } from '../src/utils/memeSend.ts';
+import { buildMemeSendBody, draftSignature, newMemeState, intentFor, loadSendState, newIntent, saveSendState, sendMemeToCreate } from '../src/utils/memeSend.ts';
 
 const store = () => { const m = new Map<string, string>(); return { getItem: (k: string) => m.get(k) ?? null, setItem: (k: string, v: string) => void m.set(k, v), removeItem: (k: string) => void m.delete(k) }; };
 const draft = (): ForgeDraft => ({
@@ -36,4 +36,27 @@ test('body carries caption for the chosen platform, source and no rights claim',
 test('send errors never hide that a retry is safe', async () => {
   await assert.rejects(sendMemeToCreate({}, (async () => { throw new Error('net'); }) as unknown as typeof fetch), /will not create a duplicate/);
   await assert.rejects(sendMemeToCreate({}, (async () => Response.json({ error: 'An admin account is required to send to CREATE.' }, { status: 403 })) as unknown as typeof fetch), /admin account/);
+});
+
+test('an untouched suggested caption is what gets sent, and counts for the changed-since-send signature', () => {
+  const untouched = { ...draft(), copy: null };
+  const suggested = { hook: 'Suggested hook', tiktok: 'suggested tiktok', instagram: 'suggested ig', hashtags: '#s' };
+  assert.throws(() => buildMemeSendBody(untouched, loadSendState(store()), 'send-1', 'AAAA'), /post copy/);
+  const body = buildMemeSendBody(untouched, loadSendState(store()), 'send-1', 'AAAA', suggested) as Record<string, unknown>;
+  assert.equal(body.caption, 'suggested tiktok');
+  assert.equal(body.hashtags, '#s');
+  assert.notEqual(draftSignature(untouched, suggested), draftSignature(untouched, { ...suggested, tiktok: 'edited' }));
+});
+
+test('a new meme gets a new identity; a failed save or retry does not', () => {
+  const s = store();
+  const state = loadSendState(s);
+  const { state: withIntent, intent } = intentFor(state, 'tiktok');
+  saveSendState(s, withIntent);
+  // autosave failing never touches send state: reloading still yields the same meme and intent
+  assert.equal(loadSendState(s).memeGroupId, state.memeGroupId);
+  assert.equal(intentFor(loadSendState(s), 'tiktok').intent.id, intent.id);
+  const fresh = newMemeState();
+  assert.notEqual(fresh.memeGroupId, state.memeGroupId);
+  assert.deepEqual(fresh.intents, {});
 });

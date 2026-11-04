@@ -11,7 +11,7 @@ import { CandidateImage, SceneEvidence, SceneMatch, type SceneClue, type SceneRe
 import { SimilarStills } from './SimilarStills';
 import { saveMemeImage } from '../../utils/memeLibrary';
 import {
-  blobToBase64, buildMemeSendBody, clearSendState, draftSignature, intentFor, loadSendState, newIntent,
+  blobToBase64, buildMemeSendBody, draftSignature, intentFor, loadSendState, newIntent, newMemeState,
   saveSendState, sendMemeToCreate, type SendState,
 } from '../../utils/memeSend';
 
@@ -54,8 +54,16 @@ export function CdramaForge() {
   const skipEmptySave = useRef(false);
   const { isSignedIn, hasAdminAccess, loading: sessionLoading, recheck } = useSession();
   const [sendState, setSendState] = useState<SendState>(() => {
-    try { return loadSendState(window.localStorage); } catch { return { memeGroupId: `meme-${Date.now()}`, intents: {} }; }
+    try { return loadSendState(window.localStorage); } catch { return newMemeState(); }
   });
+  const sendRef = useRef(sendState);
+  const commitSend = (next: SendState) => { sendRef.current = next; saveSendState(window.localStorage, next); setSendState(next); };
+  /**
+   * A different meme gets a different identity so it can never reuse a previous send's Post. Called only from
+   * explicit new-meme actions (new ideas, picking another angle, example/manual caption, Clear) and never from
+   * autosave or a failed save, so a send in flight or a failed send keeps the identity its retry depends on.
+   */
+  const startNewMeme = () => { commitSend(newMemeState()); setSendStatus(''); };
   const [sendStatus, setSendStatus] = useState('');
   const idea = draft.ideas[draft.selected] as Joke | undefined;
   const postCopy = idea ? draft.copy ?? suggestedCopy(idea) : null;
@@ -84,8 +92,7 @@ export function CdramaForge() {
       setSaveStatus('Saved on this device');
     } catch {
       // Never leave an older saved draft pretending to represent newer changes.
-      clearSendState(window.localStorage); setSendState({ memeGroupId: `meme-${Date.now()}-${Math.random().toString(36).slice(2, 8)}`, intents: {} }); setSendStatus('');
-    try { localStorage.removeItem(DRAFT_KEY); } catch { /* browser blocks writes */ }
+      try { localStorage.removeItem(DRAFT_KEY); } catch { /* browser blocks writes */ }
       setSaveStatus('Could not save locally. Keep this tab open; try a smaller image.');
     }
   }, [draft]);
@@ -137,6 +144,7 @@ export function CdramaForge() {
         setAlternatives(data.ideas);
         setNotice('New wording is ready below. Your current joke and image are unchanged until you choose one.');
       } else {
+        startNewMeme();
         setDraft(current => ({ ...current, ideas: data.ideas, selected: 0, copy: null }));
         setQuery(current => current || (searchMode === 'scenes' ? draft.moment : data.ideas[0].searchQuery));
       }
@@ -148,6 +156,7 @@ export function CdramaForge() {
   function selectIdea(index: number) {
     requestId.current++;
     if (busy === 'ideas' || busy === 'download') setBusy('');
+    if (index !== draft.selected) startNewMeme();
     setDraft(current => ({ ...current, selected: index, copy: null }));
     setNotice('');
   }
@@ -158,6 +167,7 @@ export function CdramaForge() {
     const example: Joke = which === 'fire'
       ? { setup: 'the fire starter when they discover there’s a fire', punchline: '', visualDirection: 'A guilty, suddenly innocent reaction', searchQuery: 'guilty dramatic reaction still' }
       : { setup: 'me after personally starting the drama', punchline: 'wait why is everyone upset', visualDirection: 'A surprised instigator playing innocent', searchQuery: 'surprised innocent reaction still' };
+    startNewMeme();
     setDraft(current => ({ ...current, ideas: [example], selected: 0, copy: null }));
     if (searchMode !== 'scenes') setQuery(example.searchQuery);
     setNotice('Calibration example added as editable caption text. It was not generated.');
@@ -172,6 +182,7 @@ export function CdramaForge() {
     };
     requestId.current++;
     setBusy('');
+    startNewMeme();
     setDraft(current => ({ ...current, ideas: [joke], selected: 0, copy: null }));
     setAlternatives([]);
     setManualCaption('');
@@ -325,9 +336,10 @@ export function CdramaForge() {
     const format = draft.format;
     setBusy('send'); setNotice(''); setSendStatus('Rendering and sending…');
     try {
-      let state = options.another ? newIntent(sendState, format) : sendState;
+      let state = options.another ? newIntent(sendRef.current, format) : sendRef.current;
       const resolved = intentFor(state, format); state = resolved.state;
-      saveSendState(window.localStorage, state); setSendState(state);
+      commitSend(state);
+      const copyAtSend = postCopy;
       const image = await loadCardImage(draft.still.thumbnail);
       await document.fonts.ready;
       const output = document.createElement('canvas');
@@ -335,9 +347,11 @@ export function CdramaForge() {
       if (!ctx) throw new Error('Canvas unavailable.');
       renderCdramaCard(ctx, image, { ...idea }, format, draft);
       const blob = await new Promise<Blob>((resolve, reject) => output.toBlob(b => b ? resolve(b) : reject(new Error('PNG could not be created.')), 'image/png'));
-      const result = await sendMemeToCreate(buildMemeSendBody(draft, state, resolved.intent.id, await blobToBase64(blob)));
-      const next: SendState = { ...state, intents: { ...state.intents, [format]: { id: resolved.intent.id, receipt: result.receipt, backup: result.backup, retention: result.retention, assetId: result.assetId, sentSignature: draftSignature(draft) } } };
-      saveSendState(window.localStorage, next); setSendState(next);
+      const result = await sendMemeToCreate(buildMemeSendBody(draft, state, resolved.intent.id, await blobToBase64(blob), copyAtSend));
+      // The operator may have started a different meme while this send was in flight; don't write this result onto it.
+      if (sendRef.current.memeGroupId !== state.memeGroupId) { setSendStatus('That send finished, but you have since started a different meme. Check CREATE for the draft.'); return; }
+      const next: SendState = { ...sendRef.current, intents: { ...sendRef.current.intents, [format]: { id: resolved.intent.id, receipt: result.receipt, backup: result.backup, retention: result.retention, assetId: result.assetId, sentSignature: draftSignature(draft, copyAtSend) } } };
+      commitSend(next);
       if (id === requestId.current) setSendStatus(result.receipt.disposition === 'created' ? 'Draft created in CREATE.' : result.receipt.disposition === 'updated' ? 'CREATE draft updated.' : 'Already in CREATE; nothing duplicated.');
     } catch (error) { setSendStatus(error instanceof Error ? error.message : 'Send failed. Retrying is safe.'); }
     finally { setBusy(''); }
@@ -348,6 +362,7 @@ export function CdramaForge() {
     searchController.current?.abort();
     setBusy('');
     skipEmptySave.current = true;
+    startNewMeme();
     setResults([]); setRecapResearch([]); setSceneClues([]); setSceneQueries([]); setHasSceneSearch(false);
     setAlternatives([]); setQuery(''); setSearchMode('scenes'); setDramaTitle(''); setManualCaption(''); setDraft(emptyDraft());
     try { localStorage.removeItem(DRAFT_KEY); setSaveStatus('Draft cleared from this device'); }
@@ -548,7 +563,7 @@ export function CdramaForge() {
           </>}
           {postCopy && hasAdminAccess && (() => {
             const sent = sendState.intents[draft.format];
-            const changed = sent?.receipt && sent.sentSignature !== draftSignature(draft);
+            const changed = sent?.receipt && sent.sentSignature !== draftSignature(draft, postCopy);
             const needsBackupRetry = sent?.receipt && (sent.backup?.state !== 'verified' || sent.retention?.state !== 'held') && !changed;
             return (
               <section className={styles.manual} aria-label="Send to CREATE (operator only)">

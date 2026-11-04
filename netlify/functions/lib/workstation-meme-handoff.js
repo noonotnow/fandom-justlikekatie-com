@@ -19,6 +19,8 @@ const UPSTREAM_TIMEOUT_MS = 30_000;
 const DEFAULT_MEDIA_URL = "https://media.justlikekatie.com/v1/assets/images";
 const DEFAULT_WORKSTATION_URL = "https://workstation.justlikekatie.com/api/integrations/fandom/projects";
 const MEDIA_SOURCE_TYPE = "fandom-memeforge";
+// Canonical Series "H" (C-drama). CREATE resolves it to the existing option and fails closed if none exists.
+const MEME_SERIES = "H";
 const FORMATS = {
   "tiktok-9x16": { platform: "tiktok", width: 1080, height: 1920 },
   "instagram-4x5": { platform: "instagram", width: 1080, height: 1350 },
@@ -80,19 +82,40 @@ async function handle(request, { env, fetchImpl, store, now, requestUrl }) {
   if (prior && prior.memeGroupId !== request.memeGroupId) {
     throw new MemeSendError("This send intent already belongs to a different meme.", 409, "request");
   }
-  const sameContent = Boolean(prior && prior.contentDigest === contentDigest && prior.receipt);
+  const confirmed = Boolean(prior?.receipt);
+  const sameContent = confirmed && prior.contentDigest === contentDigest;
   if (sameContent && prior.backup?.state === "verified" && prior.retention?.state === "held") {
     // Exact retry of a fully backed-up send: replay the stored receipt, no upstream write, no new Post.
     return json(200, { receipt: { ...prior.receipt, disposition: "replayed" }, backup: prior.backup, retention: prior.retention, assetId: prior.assetId });
   }
-  // Same content with an unverified backup re-sends the SAME envelope version (CREATE replays it and
-  // re-runs the idempotent backup). Changed content is an update: version + 1 with compare-and-swap.
-  const sourceVersion = !prior ? 1 : sameContent ? prior.sourceVersion : prior.sourceVersion + 1;
-  const expectedSourceVersion = !prior ? null : sameContent ? prior.expectedSourceVersion ?? null : prior.sourceVersion;
-  const generatedAt = sameContent && prior.generatedAt ? new Date(prior.generatedAt) : now();
 
-  const registration = await registerMedia(png, request, checksum, dims, { env, fetchImpl, requestUrl });
-  const envelope = buildEnvelope(request, registration, sourceVersion, expectedSourceVersion, generatedAt);
+  // A retry must send the SAME envelope as the attempt it retries. Rebuilding it re-registers the image
+  // (MEDIA then reports deduplicated) and takes a new timestamp, which changes the digest and can 409.
+  // So the envelope is persisted before CREATE is called and reused on any retry of the same content:
+  // - confirmed + same content: re-send the stored envelope (idempotent replay; re-runs backup/retention).
+  // - unconfirmed attempt (response lost, or CREATE failed) + same content: re-send that pending envelope.
+  // - changed content: version + 1 over the last CONFIRMED version, compare-and-swap.
+  let envelope;
+  let registration;
+  if (sameContent && isRecord(prior.envelope)) {
+    envelope = prior.envelope;
+    registration = { assetId: prior.assetId };
+  } else if (isRecord(prior?.pending) && prior.pending.contentDigest === contentDigest && isRecord(prior.pending.envelope)) {
+    envelope = prior.pending.envelope;
+    registration = { assetId: prior.pending.assetId };
+  } else {
+    const sourceVersion = confirmed ? prior.sourceVersion + 1 : 1;
+    const expectedSourceVersion = confirmed ? prior.sourceVersion : null;
+    registration = await registerMedia(png, request, checksum, dims, { env, fetchImpl, requestUrl });
+    envelope = buildEnvelope(request, registration, sourceVersion, expectedSourceVersion, now());
+    await store.setJSON(key, {
+      ...(confirmed ? prior : {}),
+      memeGroupId: request.memeGroupId,
+      sendIntentId: request.sendIntentId,
+      pending: { contentDigest, assetId: registration.assetId, envelope, attemptedAt: now().toISOString() },
+    });
+  }
+
   const payload = await sendToWorkstation(envelope, { env, fetchImpl, timestampDate: now() });
   const receipt = validateReceipt(payload, envelope);
   const backup = sanitizeBackup(payload.backup);
@@ -101,11 +124,12 @@ async function handle(request, { env, fetchImpl, store, now, requestUrl }) {
     memeGroupId: request.memeGroupId,
     sendIntentId: request.sendIntentId,
     format: request.format,
-    sourceVersion,
-    expectedSourceVersion,
-    generatedAt: generatedAt.toISOString(),
+    sourceVersion: envelope.sourceVersion,
+    expectedSourceVersion: envelope.expectedSourceVersion,
+    generatedAt: envelope.generatedAt,
     contentDigest,
     assetId: registration.assetId,
+    envelope,
     receipt,
     backup,
     retention,
@@ -186,7 +210,6 @@ async function registerMedia(png, request, checksum, dims, { env, fetchImpl, req
       note: "Finished meme composite. Rights for the underlying still are recorded on the Post, not here.",
     }),
     seriesTags: ["Fandom", "MemeForge"],
-    linkedPostIdentifiers: [`fandom/meme/${request.memeGroupId}`, `fandom/draft/${request.sendIntentId}`],
   };
   const body = new FormData();
   body.append("file", new File([png], filename, { type: "image/png" }));
@@ -268,7 +291,6 @@ function buildEnvelope(request, media, sourceVersion, expectedSourceVersion, gen
         sizeBytes: media.sizeBytes,
         checksum: media.checksum,
         dimensions: media.dimensions,
-        association: { type: "collection", id: "c-drama", itemId: `memeforge-send-${request.sendIntentId}` },
       },
     }],
     concept: "Meme",
@@ -279,13 +301,13 @@ function buildEnvelope(request, media, sourceVersion, expectedSourceVersion, gen
       provenance: "MemeForge",
       captionSeed: request.caption,
       tags: hashtags,
-      series: [],
+      series: [MEME_SERIES],
       type: "static",
     },
     publicationBrief: {
       type: "static",
       format: "Static",
-      series: [],
+      series: [MEME_SERIES],
       distribution: { primaryPlatform: platform, platforms: [platform] },
       requiredAssets: ["cover"],
       captionBrief: request.caption,

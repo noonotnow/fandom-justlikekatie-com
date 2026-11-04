@@ -29,10 +29,12 @@ function memoryStore() {
   return { map, get: async k => map.get(k) ?? null, setJSON: async (k, v) => { map.set(k, structuredClone(v)); } };
 }
 
-function harness({ retentionState = "held", metaDedup = false, backupState = "verified", admin = true, mediaSourceType = "fandom-memeforge", dispositions = ["created", "replayed", "updated"] } = {}) {
+function harness({ retentionState = "held", metaDedup = false, backupState = "verified", admin = true, mediaSourceType = "fandom-memeforge", dropFirstResponse = false, dispositions = ["created", "replayed", "updated"] } = {}) {
   const store = memoryStore();
   const calls = { media: 0, workstation: [] };
   let n = 0;
+  let seenWorkstation = 0;
+  const digests = new Map();
   const fetchImpl = async (url, init) => {
     if (String(url).startsWith("https://media.example")) {
       calls.media++;
@@ -40,12 +42,21 @@ function harness({ retentionState = "held", metaDedup = false, backupState = "ve
       const bytes = Buffer.from(await file.arrayBuffer());
       const meta = JSON.parse(init.body.get("metadata"));
       assert.ok(!JSON.stringify(meta).includes("collection:"), "no collection association is claimed");
+      assert.equal(meta.linkedPostIdentifiers, undefined, "meme identifiers are not written to MEDIA linkedPostIdentifiers");
       const w = bytes.readUInt32BE(16), h = bytes.readUInt32BE(20);
       return Response.json({ data: { version: 1, assetId: ASSET_ID, mediaType: "image", mimeType: "image/png", sizeBytes: bytes.length, checksum: sha(bytes), fileUrl: "https://media.example/f.png", deliveryUrl: "https://media.example/d.png", thumbnailUrl: "https://media.example/t.png", dimensions: { width: w, height: h }, sourceType: mediaSourceType, rightsStatus: "cleared" }, meta: { deduplicated: metaDedup } });
     }
     const envelope = JSON.parse(init.body);
     calls.workstation.push({ envelope, headers: init.headers });
-    const disposition = dispositions[Math.min(n++, dispositions.length - 1)];
+    // Model CREATE's idempotency: same key + same content replays; same key + different content is a 409.
+    const { expectedSourceVersion, ...rest } = envelope;
+    const comparable = JSON.stringify({ ...rest, meme: { ...envelope.meme, registration: { ...envelope.meme.registration, deduplicated: undefined } } });
+    const known = digests.get(init.headers["Idempotency-Key"] + ":" + envelope.sourceVersion);
+    if (known && known !== comparable) return Response.json({ error: "conflict" }, { status: 409 });
+    const replay = Boolean(known);
+    digests.set(init.headers["Idempotency-Key"] + ":" + envelope.sourceVersion, comparable);
+    if (dropFirstResponse && seenWorkstation++ === 0) throw new Error("connection lost after CREATE committed");
+    const disposition = replay ? "replayed" : dispositions[Math.min(n++, dispositions.length - 1)];
     return Response.json({ deliverableId: envelope.deliverableId, postId: "post-1", postUrl: "https://notion.so/post-1", status: "Draft", sourceVersion: envelope.sourceVersion, workflow: "direct", disposition, mediaSyncState: "synced", warnings: [{ code: "FANDOM_PLATFORM_SELECT_CONFLICT", detail: "Set Platform to TikTok.", retryable: false, secret: "x" }], backup: { state: backupState, assetId: ASSET_ID, detail: "ok", checkedAt: "2026-01-01T00:00:00Z", recovery: { secret: "x" } }, retention: { state: retentionState, detail: "d" } }, { status: disposition === "created" ? 201 : 200 });
   };
   const auth = { authenticateAdmin: async () => { if (!admin) throw Object.assign(new Error("no"), { status: 403 }); return { user: {} }; } };
@@ -163,4 +174,33 @@ test("CREATE platform warnings reach the operator with their action text and not
   const { handler } = harness();
   const out = await (await send(handler, body())).json();
   assert.deepEqual(out.receipt.warnings, [{ code: "FANDOM_PLATFORM_SELECT_CONFLICT", detail: "Set Platform to TikTok.", retryable: false }]);
+});
+
+test("a lost CREATE response is recovered by re-sending the saved envelope, not a conflicting rebuild", async () => {
+  const { handler, calls, store } = harness({ dropFirstResponse: true, metaDedup: false });
+  const first = await send(handler, body());
+  assert.equal(first.status, 502);
+  assert.ok(store.map.get("intent/intent-0001").pending, "the envelope was saved before CREATE was called");
+  const second = await send(handler, body());
+  assert.equal(second.status, 200, "retry replays instead of 409");
+  assert.deepEqual(calls.workstation[1].envelope, calls.workstation[0].envelope);
+  assert.equal(calls.media, 1, "no second MEDIA upload for the same attempt");
+  assert.equal(store.map.get("intent/intent-0001").pending, undefined);
+});
+
+test("a retry after MEDIA starts reporting deduplicated does not change the Post content", async () => {
+  const { handler, calls } = harness({ backupState: "failed" });
+  assert.equal((await send(handler, body())).status, 201);
+  const retry = await send(handler, body());
+  assert.equal(retry.status, 200);
+  assert.deepEqual(calls.workstation[1].envelope, calls.workstation[0].envelope);
+});
+
+test("a meme send does not claim a Collection, uses a canonical Series, and does not touch MEDIA linked identifiers", async () => {
+  const { handler, calls } = harness();
+  await send(handler, body());
+  const { envelope } = calls.workstation[0];
+  assert.equal(envelope.sourceCards[0].media.association, undefined);
+  assert.deepEqual(envelope.draft.series, ["H"]);
+  assert.deepEqual(envelope.publicationBrief.series, ["H"]);
 });
