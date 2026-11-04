@@ -87,58 +87,79 @@ async function handle(request, { env, fetchImpl, store, now, requestUrl }) {
   }
   const confirmed = Boolean(prior?.receipt);
   const sameContent = confirmed && prior.contentDigest === contentDigest;
-  if (sameContent && prior.backup?.state === "verified" && prior.retention?.state === "held") {
+  if (sameContent && !prior.pending && prior.backup?.state === "verified" && prior.retention?.state === "held") {
     // Exact retry of a fully backed-up send: replay the stored receipt, no upstream write, no new Post.
     return json(200, { receipt: { ...prior.receipt, disposition: "replayed" }, backup: prior.backup, retention: prior.retention, assetId: prior.assetId });
   }
 
   // A retry must send the SAME envelope as the attempt it retries. Rebuilding it re-registers the image
   // (MEDIA then reports deduplicated) and takes a new timestamp, which changes the digest and can 409.
-  // So the envelope is persisted before CREATE is called and reused on any retry of the same content:
-  // - confirmed + same content: re-send the stored envelope (idempotent replay; re-runs backup/retention).
-  // - unconfirmed attempt (response lost, or CREATE failed) + same content: re-send that pending envelope.
-  // - changed content: version + 1 over the last CONFIRMED version, compare-and-swap.
-  let envelope;
-  let registration;
-  if (sameContent && isRecord(prior.envelope)) {
-    envelope = prior.envelope;
-    registration = { assetId: prior.assetId };
-  } else if (isRecord(prior?.pending) && prior.pending.contentDigest === contentDigest && isRecord(prior.pending.envelope)) {
-    envelope = prior.pending.envelope;
-    registration = { assetId: prior.pending.assetId };
-  } else {
-    const sourceVersion = confirmed ? prior.sourceVersion + 1 : 1;
-    const expectedSourceVersion = confirmed ? prior.sourceVersion : null;
-    registration = await registerMedia(png, request, checksum, dims, { env, fetchImpl, requestUrl });
-    envelope = buildEnvelope(request, registration, sourceVersion, expectedSourceVersion, now());
-    await store.setJSON(key, {
-      ...(confirmed ? prior : {}),
+  // So the envelope is persisted before CREATE is called and reused on any retry of the same content.
+  const commit = async (envelope, digest, assetId) => {
+    const payload = await sendToWorkstation(envelope, { env, fetchImpl, timestampDate: now() });
+    const receipt = validateReceipt(payload, envelope);
+    const backup = sanitizeBackup(payload.backup);
+    const retention = sanitizeRetention(payload.retention);
+    const record = {
       memeGroupId: request.memeGroupId,
       sendIntentId: request.sendIntentId,
-      pending: { contentDigest, assetId: registration.assetId, envelope, attemptedAt: now().toISOString() },
-    });
+      format: request.format,
+      sourceVersion: envelope.sourceVersion,
+      expectedSourceVersion: envelope.expectedSourceVersion,
+      generatedAt: envelope.generatedAt,
+      contentDigest: digest,
+      assetId,
+      envelope,
+      receipt,
+      backup,
+      retention,
+      updatedAt: now().toISOString(),
+    };
+    await store.setJSON(key, record);
+    return record;
+  };
+  const respond = (record) => json(record.receipt.disposition === "created" ? 201 : 200, {
+    receipt: record.receipt,
+    ...(record.backup ? { backup: record.backup } : {}),
+    ...(record.retention ? { retention: record.retention } : {}),
+    assetId: record.assetId,
+  });
+
+  let current = prior;
+  let baseConfirmed = confirmed;
+  // An earlier attempt may have reached CREATE even though its response was lost. If the operator has since
+  // edited the meme, settle that attempt FIRST by re-sending its exact saved envelope (CREATE replays it if it
+  // committed, or creates it if not). Only then is the edit applied as the next version on top of a confirmed
+  // one, so the edit can never collide with an unconfirmed same-version attempt.
+  const pending = isRecord(prior?.pending) && isRecord(prior.pending.envelope) ? prior.pending : null;
+  if (pending && pending.contentDigest !== contentDigest) {
+    current = await commit(pending.envelope, pending.contentDigest, pending.assetId);
+    baseConfirmed = true;
+  }
+  const settledSame = baseConfirmed && current.contentDigest === contentDigest;
+  if (settledSame) {
+    // The settled attempt IS what the operator is sending now.
+    if (current.backup?.state === "verified" && current.retention?.state === "held") {
+      return json(200, { receipt: { ...current.receipt, disposition: "replayed" }, backup: current.backup, retention: current.retention, assetId: current.assetId });
+    }
+    return respond(await commit(current.envelope, contentDigest, current.assetId));
+  }
+  if (pending && pending.contentDigest === contentDigest) {
+    return respond(await commit(pending.envelope, contentDigest, pending.assetId));
   }
 
-  const payload = await sendToWorkstation(envelope, { env, fetchImpl, timestampDate: now() });
-  const receipt = validateReceipt(payload, envelope);
-  const backup = sanitizeBackup(payload.backup);
-  const retention = sanitizeRetention(payload.retention);
+  // New content: version + 1 over the last CONFIRMED version, compare-and-swap.
+  const sourceVersion = baseConfirmed ? current.sourceVersion + 1 : 1;
+  const expectedSourceVersion = baseConfirmed ? current.sourceVersion : null;
+  const registration = await registerMedia(png, request, checksum, dims, { env, fetchImpl, requestUrl });
+  const envelope = buildEnvelope(request, registration, sourceVersion, expectedSourceVersion, now());
   await store.setJSON(key, {
+    ...(baseConfirmed ? current : {}),
     memeGroupId: request.memeGroupId,
     sendIntentId: request.sendIntentId,
-    format: request.format,
-    sourceVersion: envelope.sourceVersion,
-    expectedSourceVersion: envelope.expectedSourceVersion,
-    generatedAt: envelope.generatedAt,
-    contentDigest,
-    assetId: registration.assetId,
-    envelope,
-    receipt,
-    backup,
-    retention,
-    updatedAt: now().toISOString(),
+    pending: { contentDigest, assetId: registration.assetId, envelope, attemptedAt: now().toISOString() },
   });
-  return json(receipt.disposition === "created" ? 201 : 200, { receipt, ...(backup ? { backup } : {}), ...(retention ? { retention } : {}), assetId: registration.assetId });
+  return respond(await commit(envelope, contentDigest, registration.assetId));
 }
 
 function validateRequest(body) {

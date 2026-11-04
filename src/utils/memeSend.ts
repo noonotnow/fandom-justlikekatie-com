@@ -9,7 +9,7 @@ import type { ForgeDraft } from './cdramaForge.ts';
  */
 export const MEME_SEND_KEY = 'fandom-cdrama-memeforge-send-v1';
 export const MEME_SEND_URL = '/api/workstation-meme-handoff';
-/** CREATE Series values that exist today. A cross-fandom Meme option joins this list only once agreed and added in Notion. */
+/** CREATE Series values that exist today (A-H plus I = Meme, the cross-fandom option). The operator chooses; nothing forces memes into one. */
 export const MEME_SERIES_OPTIONS = [
   { value: 'A', label: 'A · Vibe' }, { value: 'B', label: 'B · Explainer' }, { value: 'C', label: 'C · BTS' },
   { value: 'D', label: 'D · 念无双' }, { value: 'E', label: 'E · Dog' }, { value: 'F', label: 'F · Proverb' },

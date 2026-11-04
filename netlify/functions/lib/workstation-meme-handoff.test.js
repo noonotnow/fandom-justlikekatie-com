@@ -223,3 +223,44 @@ test("the canonical I = Meme Series can be sent, and nothing forces memes into i
   assert.ok((await send(handler, body({ sendIntentId: "intent-0002" }))).ok);
   assert.deepEqual(calls.workstation[1].envelope.draft.series, ["H"], "unspecified Series still defaults to the existing option, not I");
 });
+
+test("lost response, then an edit: the old attempt is settled first and the edit becomes the next version", async () => {
+  const { handler, calls, store } = harness({ dropFirstResponse: true });
+  assert.equal((await send(handler, body())).status, 502);
+  const edited = await send(handler, body({ caption: "Edited caption" }));
+  assert.ok(edited.ok, "no version conflict");
+  const [lost, replayOfLost, edit] = calls.workstation.map(c => c.envelope);
+  assert.deepEqual(replayOfLost, lost, "the lost attempt is re-sent exactly as saved");
+  assert.equal(edit.sourceVersion, 2);
+  assert.equal(edit.expectedSourceVersion, 1);
+  assert.equal(edit.draft.caption, "Edited caption");
+  assert.equal(store.map.get("intent/intent-0001").pending, undefined);
+  assert.equal(store.map.get("intent/intent-0001").sourceVersion, 2);
+});
+
+test("successive edits chain versions 1, 2, 3 with compare-and-swap", async () => {
+  const { handler, calls } = harness();
+  assert.ok((await send(handler, body())).ok);
+  assert.ok((await send(handler, body({ caption: "Edit A" }))).ok);
+  assert.ok((await send(handler, body({ caption: "Edit B" }))).ok);
+  assert.deepEqual(calls.workstation.map(c => c.envelope.sourceVersion), [1, 2, 3]);
+  assert.deepEqual(calls.workstation.map(c => c.envelope.expectedSourceVersion), [null, 1, 2]);
+});
+
+test("a retry of an unconfirmed UPDATE with unchanged content re-sends that update's saved envelope", async () => {
+  const state = harness();
+  const { handler, calls, store } = state;
+  assert.equal((await send(handler, body())).status, 201);
+  // Simulate a lost update response: persist the pending update the way the handler does, without a receipt for it.
+  const prior = store.map.get("intent/intent-0001");
+  const edited = body({ caption: "Edit A" });
+  const res = await send(handler, edited);
+  assert.equal(res.status, 200);
+  const saved = JSON.parse(JSON.stringify(store.map.get("intent/intent-0001")));
+  store.map.set("intent/intent-0001", { ...prior, pending: { contentDigest: saved.contentDigest, assetId: saved.assetId, envelope: saved.envelope } });
+  const before = calls.workstation.length;
+  const retry = await send(handler, edited);
+  assert.equal(retry.status, 200);
+  assert.equal(calls.workstation.length, before + 1);
+  assert.deepEqual(calls.workstation.at(-1).envelope, saved.envelope, "same envelope, not a rebuilt one");
+});

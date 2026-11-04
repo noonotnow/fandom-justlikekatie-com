@@ -15,7 +15,8 @@ const MANAGED_NEXT_ACTIONS = new Set([
 ]);
 
 const PLATFORMS = new Set(["Weibo", "Rednote", "WeChat", "Douyin"]);
-const SERIES = new Set([
+// Must contain every value the Send to Plan picker offers (src/utils/series.ts); tests/series.test.ts enforces it.
+export const SERIES = new Set([
   "A·Vibe",
   "B·Style",
   "C·Event",
@@ -24,6 +25,7 @@ const SERIES = new Set([
   "F·Interview",
   "G·Fan",
   "H·Cdrama",
+  "I",
 ]);
 const TOP_LEVEL_FIELDS = new Set([
   "headline",

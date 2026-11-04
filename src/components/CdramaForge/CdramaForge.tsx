@@ -574,7 +574,7 @@ export function CdramaForge() {
                 <select id="forge-series" value={memeSeries} onChange={e => setMemeSeries(e.target.value)} disabled={busy === 'send'}>
                   {MEME_SERIES_OPTIONS.map(option => <option key={option.value} value={option.value}>{option.label}</option>)}
                 </select>
-                <p className={styles.help}>Pick the Series this draft belongs to. A dedicated cross-fandom Meme Series isn't set up yet.</p>
+                <p className={styles.help}>Pick the Series this draft belongs to (I · Meme is the cross-fandom option).</p>
                 <div className={styles.actions}>
                   <button type="button" disabled={!draft.still || !!busy || !(idea?.setup.trim() || idea?.punchline.trim())} onClick={() => void sendToCreate()}>
                     {busy === 'send' ? 'Sending…' : needsBackupRetry ? 'Retry send + backup' : changed ? 'Update CREATE draft' : sent?.receipt ? 'Re-send (safe)' : 'Send to CREATE draft'}
