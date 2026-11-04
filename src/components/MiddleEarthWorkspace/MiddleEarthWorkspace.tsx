@@ -1,4 +1,4 @@
-import { useEffect, useMemo, useState, type ChangeEvent, type FormEvent } from "react";
+import { useEffect, useMemo, useRef, useState, type ChangeEvent, type FormEvent } from "react";
 import { PUBLIC_ROUTE_PATHS } from "../../../shared/public-routes.js";
 import {
   generateRednoteCopy,
@@ -9,8 +9,18 @@ import {
   type GeneratedMemeTranslation,
   type MiddleEarthAiSource,
   type MemeCardFormat,
+  type MemeCardText,
   type ReactionImageBrief,
 } from "../../utils/middleEarthAi";
+import {
+  frameFor,
+  loadCardImage,
+  MEME_TEXT_PLACEMENTS,
+  renderMemeCanvas,
+  type MemeFormat,
+  type MemeFraming,
+  type MemeTextPlacement,
+} from "../../utils/memeCanvas";
 import {
   aesthetics,
   artifactTypes,
@@ -78,6 +88,22 @@ type ReactionSearchMode = "clean-still" | "existing-meme";
 export type MemeSourceTreatment = "new-overlay" | "as-is";
 type MemeSourcePath = "new-image" | "rework-existing" | "existing-meme";
 
+export interface MiddleEarthMemeFrame {
+  format: MemeFormat;
+  framing: MemeFraming;
+  focusX: number;
+  focusY: number;
+  textPlacement: MemeTextPlacement;
+}
+
+export const defaultMiddleEarthMemeFrame: MiddleEarthMemeFrame = {
+  format: "instagram",
+  framing: "cover",
+  focusX: 50,
+  focusY: 0,
+  textPlacement: "top-bottom",
+};
+
 export interface MiddleEarthDraft {
   kind: MiddleEarthContentKind;
   title: string;
@@ -102,6 +128,8 @@ export interface MiddleEarthDraft {
     model?: string;
   };
   creationPath?: "reaction-card" | "meme-rework";
+  /** Shared C-drama meme frame settings for reaction memes made from a clean still. */
+  memeFrame?: MiddleEarthMemeFrame;
   memeRework?: ReturnType<typeof createMemeReworkMetadata>;
   asset?: MiddleEarthAsset;
   createdAt: string;
@@ -128,7 +156,9 @@ const suggestions = [
 ];
 
 const memeTones = ["Deadpan", "Tender", "Chaotic", "Dramatic"];
-const memeLayouts = ["Classic top / bottom", "Editorial caption", "Tiny confession"];
+// Reaction memes always render with the shared C-drama meme renderer; the
+// layout value is kept only as AI/Collection metadata.
+const defaultMemeLayout = "Classic top / bottom";
 const autoSteering = "Auto / surprise me";
 const characterFilters = [
   autoSteering,
@@ -194,26 +224,6 @@ function canLoadReactionImage(url: string, timeoutMs = 4000): Promise<boolean> {
   });
 }
 
-function drawCanvasImageCover(
-  context: CanvasRenderingContext2D,
-  image: HTMLImageElement,
-  x: number,
-  y: number,
-  width: number,
-  height: number,
-): void {
-  const ratio = Math.max(width / image.width, height / image.height);
-  const renderedWidth = image.width * ratio;
-  const renderedHeight = image.height * ratio;
-  context.drawImage(
-    image,
-    x + (width - renderedWidth) / 2,
-    y + (height - renderedHeight) / 2,
-    renderedWidth,
-    renderedHeight,
-  );
-}
-
 function drawCanvasImageContain(
   context: CanvasRenderingContext2D,
   image: HTMLImageElement,
@@ -272,70 +282,6 @@ export async function downloadExistingMeme(asset: MiddleEarthAsset): Promise<voi
   link.href = objectUrl;
   link.click();
   window.setTimeout(() => URL.revokeObjectURL(objectUrl), 0);
-}
-
-function drawClassicReactionFrame(
-  context: CanvasRenderingContext2D,
-  draft: MiddleEarthDraft,
-  image: HTMLImageElement | null,
-): void {
-  const reactionStillFrame = { x: 54, y: 364, width: 972, height: 548 };
-  context.fillStyle = "#f4eee2";
-  context.fillRect(0, 0, 1080, 1350);
-  context.fillStyle = "#193b3b";
-  context.fillRect(0, 0, 1080, 26);
-  context.fillStyle = "#dfb65b";
-  context.fillRect(0, 1324, 1080, 26);
-
-  context.fillStyle = "#193b3b";
-  context.fillRect(
-    reactionStillFrame.x,
-    reactionStillFrame.y,
-    reactionStillFrame.width,
-    reactionStillFrame.height,
-  );
-  if (image) {
-    drawCanvasImageCover(
-      context,
-      image,
-      reactionStillFrame.x + 6,
-      reactionStillFrame.y + 6,
-      reactionStillFrame.width - 12,
-      reactionStillFrame.height - 12,
-    );
-  }
-
-  const drawTextBand = (copy: string, y: number, height: number) => {
-    const fontSize = 64;
-    const lineHeight = 72;
-    context.fillStyle = "#193b3b";
-    context.textAlign = "center";
-    context.font = `700 ${fontSize}px Arial`;
-    const lines = wrapCanvasText(context, copy.toUpperCase(), 880).slice(0, 2);
-    const blockHeight = lines.length * lineHeight;
-    const firstBaseline = y + (height - blockHeight) / 2 + fontSize;
-    lines.forEach((line, index) => {
-      context.fillText(line, 540, firstBaseline + index * lineHeight);
-    });
-  };
-
-  context.fillStyle = "#a55439";
-  context.textAlign = "center";
-  context.font = "600 18px monospace";
-  context.fillText("MEMEFORGE // REACTION", 540, 68);
-  drawTextBand(draft.text || "YOUR SETUP BELONGS HERE.", 26, 338);
-  drawTextBand(draft.secondaryText || "YOUR REACTION BELONGS HERE.", 912, 412);
-
-  if (draft.cardFooter) {
-    context.fillStyle = "#a55439";
-    context.textAlign = "center";
-    context.font = "500 17px monospace";
-    context.fillText(draft.cardFooter.toUpperCase().slice(0, 54), 540, 1284);
-  }
-  context.fillStyle = "#193b3b";
-  context.textAlign = "center";
-  context.font = "500 16px monospace";
-  context.fillText("fandom.justlikekatie.com/memeforge/middle-earth", 540, 1342);
 }
 
 function drawMemeReworkFrame(
@@ -398,15 +344,8 @@ export async function exportMiddleEarthPng(
   canvas.height = 1350;
   const context = canvas.getContext("2d");
   if (!context) throw new Error("Your browser could not prepare the export canvas.");
-  context.fillStyle = "#f4eee2";
-  context.fillRect(0, 0, canvas.width, canvas.height);
-  context.fillStyle = "#193b3b";
-  context.fillRect(0, 0, canvas.width, 26);
-  context.fillStyle = "#dfb65b";
-  context.fillRect(0, 1324, canvas.width, 26);
 
-  const shouldRenderImage = Boolean(draft.asset?.thumbnail && !(draft.kind === "spellbook" && draft.layout === "Type specimen"));
-  const image = shouldRenderImage && draft.asset?.thumbnail
+  const image = draft.asset?.thumbnail
     ? await new Promise<HTMLImageElement | null>((resolve) => {
         const loaded = new Image();
         loaded.crossOrigin = "anonymous";
@@ -415,122 +354,22 @@ export async function exportMiddleEarthPng(
         loaded.src = draft.asset?.thumbnail ?? "";
       })
     : null;
-  if (shouldRenderImage && draft.asset && !image) {
+  if (draft.asset && !image) {
     throw new Error("The selected image could not be loaded for export. Choose another record or use typography-only.");
   }
-  const hasImage = Boolean(image) && draft.layout !== "Type specimen";
-  const isStructuredReaction = draft.kind === "meme" && Boolean(draft.cardFormat);
   const isMemeRework = draft.creationPath === "meme-rework" && Boolean(draft.memeRework);
   if (isMemeRework) {
+    // Reworks keep solid cover bands: an outline cannot hide captions baked into the original.
     if (!image) throw new Error("The original meme could not be loaded for this rework export.");
     drawMemeReworkFrame(context, draft, image);
     const imageUrl = canvas.toDataURL("image/png");
     if (options.download !== false) downloadCanvasPng(canvas, `${draft.title || "middle-earth"}-rework`);
     return imageUrl;
   }
-  const isClassicReactionFrame = isStructuredReaction && draft.layout === "Classic top / bottom";
-  if (isClassicReactionFrame) {
-    drawClassicReactionFrame(context, draft, image);
-    const imageUrl = canvas.toDataURL("image/png");
-    if (options.download !== false) downloadCanvasPng(canvas, draft.title);
-    return imageUrl;
-  }
-  if (hasImage && image) {
-    context.save();
-    context.globalAlpha = 0.72;
-    drawCanvasImageCover(context, image, 0, 0, 1080, 1350);
-    context.restore();
-  }
-  context.fillStyle = hasImage ? "rgba(8,18,19,.22)" : "#a55439";
-  context.fillRect(0, 0, canvas.width, canvas.height);
-  const gradient = context.createLinearGradient(0, 0, 0, 1350);
-  gradient.addColorStop(0, "rgba(8,18,19,.58)");
-  gradient.addColorStop(.42, "rgba(8,18,19,.05)");
-  gradient.addColorStop(1, "rgba(8,18,19,.65)");
-  context.fillStyle = gradient;
-  context.fillRect(0, 0, canvas.width, canvas.height);
-  if (draft.layout === "Marginalia") {
-    context.fillStyle = "rgba(16,45,46,.78)";
-    context.fillRect(540, 0, 540, 1350);
-    context.fillStyle = "#d4a951";
-    context.fillRect(600, 235, 2, 865);
-  } else if (draft.layout === "Quote card") {
-    context.fillStyle = "rgba(16,45,46,.62)";
-    context.fillRect(80, 250, 920, 780);
-  }
-  context.fillStyle = "rgba(8,18,19,.86)";
-  context.fillRect(82, 112, 470, 58);
-  context.fillStyle = "#f4eee2";
-  context.textAlign = "left";
-  context.font = "600 20px monospace";
-  const artifactLabel = draft.cardFormat || draft.artifactType || (draft.kind === "meme" ? "Meme card" : "Spellbook");
-  context.fillText(`MEMEFORGE // ${artifactLabel.toUpperCase()}`.slice(0, 48), 108, 149);
-  const layout = draft.layout === "Editorial caption"
-    ? { x: 92, y: 800, width: 896, size: 58, lineHeight: 70, maxLines: 6, align: "left" as CanvasTextAlign }
-    : draft.layout === "Tiny confession"
-      ? { x: 92, y: 930, width: 680, size: 42, lineHeight: 54, maxLines: 4, align: "left" as CanvasTextAlign }
-      : draft.layout === "Quote card" || draft.layout === "Type specimen"
-        ? { x: 540, y: 410, width: 820, size: 64, lineHeight: 76, maxLines: 9, align: "center" as CanvasTextAlign }
-        : draft.layout === "Marginalia"
-          ? { x: 640, y: 330, width: 360, size: 46, lineHeight: 58, maxLines: 10, align: "left" as CanvasTextAlign }
-          : { x: 108, y: 650, width: 864, size: 66, lineHeight: 78, maxLines: 7, align: "left" as CanvasTextAlign };
-  context.textAlign = layout.align;
-  context.font = `700 ${layout.size}px Georgia`;
-  const lines = isStructuredReaction
-    ? [draft.text || "Your setup belongs here."]
-    : wrapCanvasText(context, draft.text || "Your words belong here.", layout.width);
-  if (isStructuredReaction) {
-    const reactionLines = [lines[0], draft.secondaryText || "Your reaction belongs here."];
-    const reactionFontSize = 58;
-    const reactionLineHeight = 66;
-    context.font = `700 ${reactionFontSize}px Arial`;
-    const reactionBlocks = reactionLines.map((line) => (
-      wrapCanvasText(context, line.toUpperCase(), 840).slice(0, 2)
-    ));
-    const drawReactionBlock = (block: string[], top: number) => {
-      const height = block.length * reactionLineHeight + 38;
-      context.fillStyle = "rgba(8,18,19,.88)";
-      context.fillRect(80, top, 920, height);
-      context.fillStyle = "#f8f3e8";
-      block.forEach((line, index) => {
-        context.fillText(line, 108, top + reactionFontSize + 10 + index * reactionLineHeight);
-      });
-    };
-    drawReactionBlock(reactionBlocks[0], 430);
-    drawReactionBlock(reactionBlocks[1], 860);
-  } else {
-    lines.slice(0, layout.maxLines).forEach((line, index) => {
-      context.fillText(line, layout.x, layout.y + index * layout.lineHeight);
-    });
-  }
-  if (draft.secondaryText && !isStructuredReaction) {
-    context.fillStyle = "#d4b068";
-    const secondarySize = draft.kind === "meme" ? Math.max(38, Math.round(layout.size * .78)) : 30;
-    const secondaryLineHeight = draft.kind === "meme" ? Math.max(46, Math.round(layout.lineHeight * .8)) : 38;
-    context.font = `${draft.kind === "meme" ? "700" : "500"} ${secondarySize}px Georgia`;
-    const secondaryY = Math.min(
-      1180,
-      layout.y + Math.min(lines.length, layout.maxLines) * layout.lineHeight + 42,
-    );
-    wrapCanvasText(context, draft.secondaryText, layout.width).slice(0, draft.kind === "meme" ? 2 : 3).forEach((line, index) => {
-      context.fillText(line, layout.x, secondaryY + index * secondaryLineHeight);
-    });
-  }
-  context.textAlign = "left";
-  context.font = "500 17px monospace";
-  const footerLabel = draft.cardFormat
-    ? draft.cardFooter
-    : [draft.memeFlavor, draft.aesthetic].filter(Boolean).join(" · ");
-  if (footerLabel) {
-    context.fillStyle = "rgba(8,18,19,.82)";
-    context.fillRect(82, 1214, 700, 58);
-    context.fillStyle = "#d8cdb8";
-    context.fillText(footerLabel.toUpperCase().slice(0, 54), 108, 1252);
-  }
-  context.fillStyle = "#193b3b";
-  context.textAlign = "center";
-  context.font = "500 16px monospace";
-  context.fillText("fandom.justlikekatie.com/memeforge/middle-earth", canvas.width / 2, canvas.height - 8);
+  // Every new meme from a clean still uses the shared C-drama renderer, so the
+  // preview canvas and this download are pixel-identical.
+  const frame = draft.memeFrame ?? defaultMiddleEarthMemeFrame;
+  renderMemeCanvas(context, image, { setup: draft.text, punchline: draft.secondaryText || "" }, frame.format, frame);
   const imageUrl = canvas.toDataURL("image/png");
   if (options.download !== false) downloadCanvasPng(canvas, draft.title);
   return imageUrl;
@@ -609,7 +448,7 @@ export function MiddleEarthWorkspace({
   const [secondaryText, setSecondaryText] = useState("");
   const [cardFormat, setCardFormat] = useState<MemeCardFormat>();
   const [tone, setTone] = useState(memeTones[0]);
-  const [layout, setLayout] = useState(memeLayouts[0]);
+  const [layout, setLayout] = useState(defaultMemeLayout);
   const [visualGeneration, setVisualGeneration] = useState<MiddleEarthDraft["aiGeneration"]>();
   const [rednoteTitle, setRednoteTitle] = useState("");
   const [rednoteCaption, setRednoteCaption] = useState("");
@@ -623,6 +462,13 @@ export function MiddleEarthWorkspace({
   const [collectionSaved, setCollectionSaved] = useState(false);
   const [originalCollectionSaved, setOriginalCollectionSaved] = useState(false);
   const [reworkEditMode, setReworkEditMode] = useState<MemeReworkEditMode>("cover-and-replace");
+  const [angles, setAngles] = useState<MemeCardText[]>([]);
+  const [selectedAngle, setSelectedAngle] = useState(0);
+  const [alternativeAngles, setAlternativeAngles] = useState<MemeCardText[]>([]);
+  const [memeFrame, setMemeFrame] = useState<MiddleEarthMemeFrame>(defaultMiddleEarthMemeFrame);
+  const [previewWarning, setPreviewWarning] = useState("");
+  const memeCanvasRef = useRef<HTMLCanvasElement>(null);
+  const activeAngle = angles[selectedAngle];
 
   const isAuto = (value: string) => value === autoSteering;
   const resolvedCharacter = isAuto(character) ? translation?.character ?? "The Fellowship" : character;
@@ -679,6 +525,35 @@ export function MiddleEarthWorkspace({
 
   const invalidateGeneratedVisual = () => {
     setVisualGeneration(undefined);
+  };
+
+  const applyAngle = (angle: MemeCardText) => {
+    setTitle(angle.footer);
+    setText(angle.line1);
+    setSecondaryText(angle.line2);
+    setCardFormat(angle.format);
+  };
+
+  // Switching angles keeps the chosen still, like the C-drama studio.
+  const selectAngle = (index: number) => {
+    const angle = angles[index];
+    if (!angle || busy) return;
+    setSelectedAngle(index);
+    applyAngle(angle);
+    invalidateGeneratedVisual();
+    setStatus(`Angle 0${index + 1} selected. Your reaction still is unchanged.`);
+  };
+
+  const chooseAlternativeAngle = (angle: MemeCardText) => {
+    setAngles((current) => current.map((existing, index) => index === selectedAngle ? angle : existing));
+    setAlternativeAngles([]);
+    applyAngle(angle);
+    invalidateGeneratedVisual();
+    setStatus("Wording replaced. Your selected image is unchanged.");
+  };
+
+  const updateMemeFrame = (next: Partial<MiddleEarthMemeFrame>) => {
+    setMemeFrame((current) => ({ ...current, ...next }));
   };
 
   useEffect(() => {
@@ -781,6 +656,9 @@ export function MiddleEarthWorkspace({
     setText("");
     setSecondaryText("");
     setCardFormat(undefined);
+    setAngles([]);
+    setSelectedAngle(0);
+    setAlternativeAngles([]);
     invalidateGeneratedVisual();
   };
 
@@ -808,6 +686,9 @@ export function MiddleEarthWorkspace({
     setText("");
     setSecondaryText("");
     setCardFormat(undefined);
+    setAngles([]);
+    setSelectedAngle(0);
+    setAlternativeAngles([]);
     invalidateGeneratedVisual();
   };
 
@@ -1037,10 +918,16 @@ export function MiddleEarthWorkspace({
       return;
     }
     const translatingRework = isReworkExisting;
+    // Like the C-drama studio: once angles exist, new wording is staged and the
+    // current joke and image stay put until the creator explicitly picks one.
+    const stagingNewWording = !translatingRework && Boolean(translation) && angles.length > 0;
     const requestId = translationRequestGate.begin();
-    if (!translatingRework) setSelected(undefined);
-    setPreviewImageFailed(false); setVisualGeneration(undefined);
-    setBusy(true); setError(""); setStatus("MemeForge is finding the fandom angle…");
+    if (!stagingNewWording) {
+      if (!translatingRework) setSelected(undefined);
+      setPreviewImageFailed(false); setVisualGeneration(undefined);
+    }
+    setAlternativeAngles([]);
+    setBusy(true); setError(""); setStatus(stagingNewWording ? "MemeForge is writing new wording…" : "MemeForge is finding the fandom angle…");
     try {
       const generated = await translateMemeMoment({
         moment: moment.trim(),
@@ -1051,14 +938,19 @@ export function MiddleEarthWorkspace({
         ...(creativeDirection.trim() ? { guidance: creativeDirection.trim() } : {}),
       });
       if (!translationRequestGate.isCurrent(requestId)) return;
+      const generatedAngles = generated.cardTextOptions?.length ? generated.cardTextOptions : [generated.cardText];
+      if (stagingNewWording) {
+        setAlternativeAngles(generatedAngles);
+        setStatus("New wording is ready below. Your current joke and image are unchanged until you choose one.");
+        return;
+      }
       setTranslation(generated);
       setComparisonEmotion(undefined);
       setReferenceStillFamily(generated.referenceStillFamily);
       setTone(generated.tone);
-      setTitle(generated.cardText.footer);
-      setText(generated.cardText.line1);
-      setSecondaryText(generated.cardText.line2);
-      setCardFormat(generated.cardText.format);
+      setAngles(generatedAngles);
+      setSelectedAngle(0);
+      applyAngle(generatedAngles[0]);
       setReactionSearchMode("clean-still");
       setSourceTreatment("new-overlay");
       if (translatingRework) {
@@ -1074,7 +966,7 @@ export function MiddleEarthWorkspace({
       invalidateGeneratedVisual();
       await searchReactionLadder(generated.reactionImageBrief, curatedSceneQueries);
       if (!translationRequestGate.isCurrent(requestId)) return;
-      setStatus("Moment translated. The text joke and image joke are paired; choose the reaction still that lands the bit, then forge the card.");
+      setStatus(`Moment translated into ${generatedAngles.length} ${generatedAngles.length === 1 ? "angle" : "angles"}. Pick the one you like, choose the reaction still that lands the bit, then download or forge.`);
     } catch (translationError) {
       if (translationError instanceof MiddleEarthAiError && translationError.status === 401) {
         onSessionExpired?.();
@@ -1128,9 +1020,44 @@ export function MiddleEarthWorkspace({
     aiGeneration: visualGeneration,
     creationPath: isReworkExisting ? "meme-rework" : "reaction-card",
     ...(memeRework ? { memeRework } : {}),
+    ...(!isReworkExisting ? { memeFrame } : {}),
     asset: selected,
     createdAt: new Date().toISOString(),
-  }), [title, text, secondaryText, tone, layout, cardFormat, resolvedCharacter, resolvedMemeFlavor, resolvedComicMechanism, resolvedAesthetic, resolvedArtifactType, referenceStillFamily, activeReferenceStillFamily, translation, generationGuidance, visualGeneration, isReworkExisting, memeRework, selected]);
+  }), [memeFrame, title, text, secondaryText, tone, layout, cardFormat, resolvedCharacter, resolvedMemeFlavor, resolvedComicMechanism, resolvedAesthetic, resolvedArtifactType, referenceStillFamily, activeReferenceStillFamily, translation, generationGuidance, visualGeneration, isReworkExisting, memeRework, selected]);
+
+  const previewImageCache = useRef<{ src: string; image: HTMLImageElement | null } | null>(null);
+  const previewThumbnail = selected && !previewImageFailed && !isExistingMemeAsIs ? selected.thumbnail : "";
+  useEffect(() => {
+    const target = memeCanvasRef.current;
+    if (!target || isExistingMemeAsIs) return;
+    const context = target.getContext("2d");
+    if (!context) { setPreviewWarning("This browser cannot render the meme preview."); return; }
+    let current = true;
+    const loadPreviewImage = async (): Promise<HTMLImageElement | null> => {
+      if (!previewThumbnail) return null;
+      if (previewImageCache.current?.src === previewThumbnail) return previewImageCache.current.image;
+      const image = await loadCardImage(previewThumbnail).catch(() => null);
+      previewImageCache.current = { src: previewThumbnail, image };
+      return image;
+    };
+    void loadPreviewImage().then(async (image) => {
+      await document.fonts?.ready;
+      if (!current) return;
+      const isEmpty = !text.trim() && !secondaryText.trim();
+      try {
+        renderMemeCanvas(context, image, {
+          setup: isEmpty ? "Your setup belongs here." : text,
+          punchline: isEmpty ? "Your punchline belongs here." : secondaryText,
+        }, memeFrame.format, memeFrame);
+        setPreviewWarning(previewThumbnail && !image
+          ? "This still could not be drawn into the meme. Choose another candidate or upload your own."
+          : "");
+      } catch (renderError) {
+        setPreviewWarning(renderError instanceof Error ? renderError.message : "The meme preview could not be drawn.");
+      }
+    });
+    return () => { current = false; };
+  }, [previewThumbnail, isExistingMemeAsIs, isReworkExisting, isEditorRequired, text, secondaryText, memeFrame]);
 
   const sourceContext = useMemo<MiddleEarthAiSource | undefined>(() => selected ? {
     title: selected.title,
@@ -1152,13 +1079,17 @@ export function MiddleEarthWorkspace({
       setError("Choose Rework in MemeForge before forging a new overlay card.");
       return;
     }
-    if (
-      title !== translation.cardText.footer
-      || text !== translation.cardText.line1
-      || secondaryText !== translation.cardText.line2
-      || cardFormat !== translation.cardText.format
-    ) {
-      setError("The paired setup or punchline was edited. Translate the moment again so MemeForge can match a new reaction brief and image search.");
+    const angle = activeAngle ?? translation.cardText;
+    // Edited lines are sent as the locked card text, so the creator's own
+    // wording is preserved (the server still validates the card format).
+    const lockedCardText: MemeCardText = {
+      format: cardFormat ?? angle.format,
+      line1: text.trim(),
+      line2: secondaryText.trim(),
+      footer: title.trim(),
+    };
+    if (!lockedCardText.line1 || !lockedCardText.line2) {
+      setError("Fill in both the setup and punchline before forging.");
       return;
     }
     setBusy(true); setError(""); setStatus("MemeForge is shaping the shareable object…");
@@ -1175,7 +1106,7 @@ export function MiddleEarthWorkspace({
         guidance: generationGuidance || undefined,
         source: sourceContext,
         reactionImageBrief: translation.reactionImageBrief,
-        cardText: translation.cardText,
+        cardText: lockedCardText,
       });
       setTitle(generated.cardText.footer);
       setText(generated.primaryText);
@@ -1277,7 +1208,8 @@ export function MiddleEarthWorkspace({
       setError("The live preview is unavailable. Try again.");
       return;
     }
-    setBusy(true); setStatus("Preparing a 1080 × 1350 PNG…"); setError("");
+    const exportSize = isReworkExisting ? "1080 × 1350" : `${frameFor(memeFrame.format).width} × ${frameFor(memeFrame.format).height}`;
+    setBusy(true); setStatus(`Preparing a ${exportSize} PNG…`); setError("");
     try {
       await exportMiddleEarthPng(draft, previewNode);
       setStatus(isReworkExisting
@@ -1516,7 +1448,7 @@ export function MiddleEarthWorkspace({
             {momentExamples.map((example) => <button key={example} type="button" onClick={() => updateMoment(example)} disabled={busy}>{example}</button>)}
           </div>
            {canGenerate
-             ? <button className={styles.translateAction} type="button" onClick={() => void translateMoment()} disabled={busy || !moment.trim()}>{busy ? "Working…" : isReworkExisting ? "Suggest a joke" : "Translate moment"}</button>
+             ? <button className={styles.translateAction} type="button" onClick={() => void translateMoment()} disabled={busy || !moment.trim()}>{busy ? "Working…" : isReworkExisting ? "Suggest a joke" : angles.length ? "Suggest new wording" : "Translate moment"}</button>
             : <a className={styles.stagingLink} href={`${PUBLIC_ROUTE_PATHS.vibeAtlas}?view=plan`}>Sign in to translate</a>}
         </div>
         {translation && <div className={styles.translationResult}>
@@ -1527,10 +1459,29 @@ export function MiddleEarthWorkspace({
             <div><span>Archetype</span><p>{translation.memeFlavor} · {translation.character}</p></div>
               <div><span>Comic mechanism</span><p>{translation.comicMechanism}</p></div>
             <div><span>Vibe</span><p>{translation.tone} · {translation.aesthetic}</p></div>
-              <div><span>Text joke</span><p>{translation.cardText.line1} / {translation.cardText.line2}</p></div>
               <div><span>Visual joke role</span><p>{translation.reactionImageBrief.visualRole}</p></div>
               <div><span>Performed reaction</span><p>{translation.reactionImageBrief.performedEmotion.join(" · ")}</p></div>
           </div>
+        </div>}
+        {translation && angles.length > 0 && <div className={styles.angleChooser}>
+          <div className={styles.angleHead}>
+            <span>Pick your punchline</span>
+            <p>{angles.length === 1 ? "One wording came back for this bit." : `${angles.length} wordings of the same bit.`} Switching angles keeps your reaction still. Edit the lines below any time.</p>
+          </div>
+          <div className={styles.angleGrid}>
+            {angles.map((angle, index) => <button type="button" key={`${angle.line1}-${index}`} className={index === selectedAngle ? styles.angleActive : ""} aria-pressed={index === selectedAngle} onClick={() => selectAngle(index)} disabled={busy}>
+              <small>ANGLE 0{index + 1} · {angle.format}</small><strong>{angle.line1}</strong><span>{angle.line2}</span>
+            </button>)}
+          </div>
+          {alternativeAngles.length > 0 && <section className={styles.angleAlternatives} aria-label="New wording options">
+            <p>Your current meme stays as it is. Choose a version only if you want to replace angle 0{selectedAngle + 1}.</p>
+            <div className={styles.angleGrid}>
+              {alternativeAngles.map((angle, index) => <button type="button" key={`${angle.line1}-${index}`} onClick={() => chooseAlternativeAngle(angle)} disabled={busy}>
+                <small>USE WORDING 0{index + 1} · {angle.format}</small><strong>{angle.line1}</strong><span>{angle.line2}</span>
+              </button>)}
+            </div>
+            <button type="button" className={styles.angleKeep} onClick={() => setAlternativeAngles([])} disabled={busy}>Keep current wording</button>
+          </section>}
         </div>}
       </section>
        ) : (
@@ -1763,12 +1714,33 @@ export function MiddleEarthWorkspace({
                 ? <button className={styles.aiAction} onClick={() => void generateVisual()} disabled={busy || !translation || isExistingMemeAsIs}>{busy ? "Generating…" : isExistingMemeAsIs ? "Choose Rework to forge" : visualGeneration ? "Reforge card" : "Forge card"}</button>
                 : <a className={styles.stagingLink} href={`${PUBLIC_ROUTE_PATHS.vibeAtlas}?view=plan`}>Sign in to generate</a>}
             </div>
-            {cardFormat && <div className={styles.cardFormat}><span>Reaction format</span><strong>{cardFormat}</strong><p>Two lines only: setup, then punchline. Keep longer interpretation in “Translated as.”</p></div>}
-            <label>Tiny footer <small className={styles.optional}>optional</small><input value={title} onChange={(event) => { setTitle(event.target.value); }} maxLength={45} disabled={busy} /></label>
-            <label>{isReworkExisting ? "Joke line 1" : "Setup line"}{isReworkExisting && <small className={styles.optional}> optional</small>}<textarea value={text} onChange={(event) => { setText(event.target.value); }} rows={2} maxLength={36} disabled={busy} /></label>
-            <label>{isReworkExisting ? "Joke line 2" : "Punchline / reaction line"}{isReworkExisting && <small className={styles.optional}> optional</small>}<input value={secondaryText} onChange={(event) => { setSecondaryText(event.target.value); }} maxLength={36} disabled={busy} /></label>
+            {cardFormat && <div className={styles.cardFormat}><span>Reaction format</span><strong>{cardFormat}</strong><p>Setup over the top, punchline over the bottom. Keep longer interpretation in “Translated as.”</p></div>}
+            {isReworkExisting && <label>Tiny footer <small className={styles.optional}>optional</small><input value={title} onChange={(event) => { setTitle(event.target.value); }} maxLength={45} disabled={busy} /></label>}
+            <label>{isReworkExisting ? "Joke line 1" : "Setup line"}{isReworkExisting && <small className={styles.optional}> optional</small>}<textarea value={text} onChange={(event) => { setText(event.target.value); }} rows={2} maxLength={isReworkExisting ? 36 : 90} disabled={busy} /></label>
+            <label>{isReworkExisting ? "Joke line 2" : "Punchline / reaction line"}{isReworkExisting && <small className={styles.optional}> optional</small>}<textarea value={secondaryText} onChange={(event) => { setSecondaryText(event.target.value); }} rows={2} maxLength={isReworkExisting ? 36 : 90} disabled={busy} /></label>
             <div className={styles.choiceGroup}><span>Tone</span><div>{memeTones.map((option) => <button key={option} className={tone === option ? styles.choiceActive : ""} onClick={() => { if (tone === option) return; setTone(option); invalidateGeneratedVisual(); }} disabled={busy}>{option}</button>)}</div></div>
-            <div className={styles.choiceGroup}><span>Layout</span><div>{memeLayouts.map((option) => <button key={option} className={layout === option ? styles.choiceActive : ""} onClick={() => { if (layout === option) return; setLayout(option); invalidateGeneratedVisual(); }} disabled={busy}>{option}</button>)}</div></div>
+            {!isReworkExisting && <div className={styles.memeFrameControls} aria-label="Meme frame">
+              <div className={styles.choiceGroup}><span>Output size</span><div>
+                <button type="button" className={memeFrame.format === "tiktok" ? styles.choiceActive : ""} aria-pressed={memeFrame.format === "tiktok"} onClick={() => updateMemeFrame({ format: "tiktok" })} disabled={busy}>TikTok · 9:16</button>
+                <button type="button" className={memeFrame.format === "instagram" ? styles.choiceActive : ""} aria-pressed={memeFrame.format === "instagram"} onClick={() => updateMemeFrame({ format: "instagram" })} disabled={busy}>Instagram · 4:5</button>
+              </div></div>
+              <label>Image framing
+                <select value={memeFrame.framing} onChange={(event) => updateMemeFrame({ framing: event.target.value as MemeFraming })} disabled={busy}>
+                  <option value="cover">Full-bleed · crop edges</option>
+                  <option value="contain">Keep the whole still</option>
+                </select>
+              </label>
+              {memeFrame.framing === "cover" && <>
+                <label>Horizontal crop position<input type="range" min="0" max="100" value={memeFrame.focusX} onChange={(event) => updateMemeFrame({ focusX: Number(event.target.value) })} disabled={busy} /></label>
+                <label>Vertical crop position<input type="range" min="0" max="100" value={memeFrame.focusY} onChange={(event) => updateMemeFrame({ focusY: Number(event.target.value) })} disabled={busy} /></label>
+              </>}
+              <label>Text placement
+                <select value={memeFrame.textPlacement} onChange={(event) => updateMemeFrame({ textPlacement: event.target.value as MemeTextPlacement })} disabled={busy}>
+                  {MEME_TEXT_PLACEMENTS.map((option) => <option key={option.value} value={option.value}>{option.label}</option>)}
+                </select>
+              </label>
+              <p className={styles.copyNote}>Text sits directly over the still with a dark outline for contrast. Move it away from faces and check platform overlays before posting.</p>
+            </div>}
           </> : <>
             <div className={styles.visualContext}>
               <span>Grounded in the finished visual</span>
@@ -1841,23 +1813,22 @@ export function MiddleEarthWorkspace({
               </section>
             </div>
           ) : (
-          <div className={`${styles.preview} ${isExistingMemeAsIs ? styles.previewAsIs : ""}`} data-layout={isExistingMemeAsIs ? undefined : layout} ref={setPreviewNode} aria-label={isExistingMemeAsIs ? "Unchanged existing meme preview" : "Live 4 by 5 preview"}>
-            {selected && !previewImageFailed && (isExistingMemeAsIs
-              ? <img className={styles.asIsImage} src={selected.thumbnail} alt={selected.title} onError={() => setPreviewImageFailed(true)} />
-              : <div className={styles.previewStillFrame}><img src={selected.thumbnail} alt="" onError={() => setPreviewImageFailed(true)} /></div>)}
-            {!isExistingMemeAsIs && <>
-              <div className={styles.previewShade} />
-                <div className={styles.previewCopy}>
-                  <span>MEMEFORGE // {(cardFormat || resolvedArtifactType || "Reaction").toUpperCase()}</span>
-                  <div className={styles.previewLines}>
-                    <strong>{text || "Your setup belongs here."}</strong>
-                    {secondaryText && <em>{secondaryText}</em>}
-                  </div>
-                </div>
-              {title && <small>{title}</small>}
-            </>}
+          isExistingMemeAsIs ? (
+          <div className={`${styles.preview} ${styles.previewAsIs}`} ref={setPreviewNode} aria-label="Unchanged existing meme preview">
+            {selected && !previewImageFailed && <img className={styles.asIsImage} src={selected.thumbnail} alt={selected.title} onError={() => setPreviewImageFailed(true)} />}
           </div>
+          ) : (
+          <div className={styles.memePreview} data-format={memeFrame.format} ref={setPreviewNode}>
+            <canvas
+              ref={memeCanvasRef}
+              width={frameFor(memeFrame.format).width}
+              height={frameFor(memeFrame.format).height}
+              aria-label={`${memeFrame.format === "tiktok" ? "TikTok 9:16" : "Instagram 4:5"} meme preview: ${text} ${secondaryText}`}
+            />
+          </div>
+          )
           )}
+          {previewWarning && !isExistingMemeAsIs && !(isReworkExisting && selected) && <p className={styles.copyWarning} role="status">{previewWarning}</p>}
            {selected && <div className={styles.provenance}><strong>{isExistingMemeAsIs ? "Existing meme · unchanged" : isReworkExisting ? "Original source · locked and linked" : "Source attached"}</strong><span>{selected.title}</span><span>{selected.publisher || "Publisher unknown"} · {selected.provider || "Provider unknown"}</span>{selected.provider === "local-upload" ? <small>Your uploaded image is stored locally and will be registered in MEDIA when your Collection syncs.</small> : <a href={selected.url} target="_blank" rel="noreferrer">Open original source</a>}<small>Rights status: unknown. This is a personal draft; confirm permission before publishing.</small></div>}
           {isEditorRequired && selected && <button className={styles.typeFallback} type="button" onClick={() => { setSelected(undefined); setVisualGeneration(undefined); setStatus("Typography-only fallback selected. Choose a reaction image any time to restore image-backed rendering."); }} disabled={busy}>Use typography-only fallback</button>}
            {isEditorRequired && !selected && <div className={styles.provenanceMuted}>Typography-only fallback is active. Choose a reaction image to restore image-backed rendering.</div>}
@@ -1867,7 +1838,7 @@ export function MiddleEarthWorkspace({
               : <><strong>Your generated draft stays here.</strong> PNG export and Collection save remain independent.</>
             : <><strong>The original stays original.</strong> Export and Collection save use the selected source image without MemeForge overlays or branding.</>}</p>
           <div className={styles.actions}>
-             {isEditorRequired && <button className={styles.export} onClick={() => void exportEditedPng()} disabled={busy || (isReworkExisting && !hasReworkOverlay)}>{busy ? "Working…" : isReworkExisting ? "Export rework" : "Export reaction card"}</button>}
+             {isEditorRequired && <button className={styles.export} onClick={() => void exportEditedPng()} disabled={busy || (isReworkExisting && !hasReworkOverlay)}>{busy ? "Working…" : isReworkExisting ? "Export rework" : `Download ${memeFrame.format === "tiktok" ? "TikTok" : "Instagram"} PNG`}</button>}
               {canSaveOriginalMeme && <button className={styles.exportSecondary} onClick={() => void exportOriginalMeme()} disabled={busy}>{busy ? "Working…" : "Export original"}</button>}
              {canSaveOriginalMeme && <button className={styles.save} onClick={() => void saveExistingMeme()} disabled={busy || originalCollectionSaved}>{originalCollectionSaved ? isExistingMemeAsIs ? "Saved to Collection" : "Original saved" : isExistingMemeAsIs ? "Save to Collection" : "Save original to Collection"}</button>}
               {isEditorRequired && hasSavableGeneratedCard && <button className={styles.save} onClick={() => void saveGeneratedMeme()} disabled={busy || collectionSaved}>{collectionSaved ? "Saved to Collection" : isReworkExisting ? "Save linked rework" : "Save reaction card"}</button>}

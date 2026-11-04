@@ -1,4 +1,5 @@
 import assert from 'node:assert/strict';
+import { readFile } from 'node:fs/promises';
 import { test } from 'node:test';
 import {
   gotoTestPage,
@@ -664,6 +665,11 @@ test('a signed-in creator can translate, swap reaction stills, export, and prese
                 line2: 'ME: I NEED SECOND BREAKFAST.',
                 footer: 'Friday fellowship',
               },
+              cardTextOptions: [
+                { format: 'Reaction Card', line1: 'WHEN THE TASK BECOMES A QUEST', line2: 'ME: I NEED SECOND BREAKFAST.', footer: 'Friday fellowship' },
+                { format: 'Internal Debate Card', line1: 'ME: ONE SMALL TASK', line2: 'ALSO ME: PACKS FOR MORDOR', footer: '' },
+                { format: 'Dialogue Card', line1: 'FRODO: IT IS ONE EMAIL', line2: 'SAM: THEN I AM COMING WITH YOU', footer: '' },
+              ],
               reactionImageBrief: {
                 socialUseQuery: 'Sam carrying Frodo reaction still Lord of the Rings',
                 characterEmotionQueries: ['Samwise patient support reaction still Lord of the Rings'],
@@ -996,13 +1002,21 @@ test('a signed-in creator can translate, swap reaction stills, export, and prese
     );
     assert.equal(await initialCandidate.getAttribute('aria-pressed'), 'true');
 
-    const previewImage = page.locator('[aria-label="Live 4 by 5 preview"] img');
-    await previewImage.waitFor();
-    await page.waitForFunction(
-      selector => (document.querySelector(selector) as HTMLImageElement | null)?.naturalWidth === 1,
-      '[aria-label="Live 4 by 5 preview"] img',
-    );
+    const previewCanvas = page.locator('canvas[aria-label^="Instagram 4:5 meme preview"]');
+    await previewCanvas.waitFor();
+    await page.waitForFunction(() => {
+      const canvas = document.querySelector('canvas[aria-label^="Instagram 4:5 meme preview"]') as HTMLCanvasElement | null;
+      return canvas?.width === 1080 && canvas.height === 1350;
+    });
     assert.ok(imageProxyLoads > 0, 'the selected still must be fetched through the image proxy');
+
+    const angleButtons = page.getByRole('button', { name: /^ANGLE 0\d/ });
+    assert.equal(await angleButtons.count(), 3, 'translation offers three joke angles like the C-drama studio');
+    await page.getByRole('button', { name: /^ANGLE 02/ }).click();
+    assert.equal(await page.getByLabel('Setup line').inputValue(), 'ME: ONE SMALL TASK');
+    assert.equal(await page.getByLabel('Punchline / reaction line').inputValue(), 'ALSO ME: PACKS FOR MORDOR');
+    assert.equal(await initialCandidate.getAttribute('aria-pressed'), 'true', 'switching angles keeps the chosen still');
+    await page.getByRole('button', { name: /^ANGLE 01/ }).click();
 
     await page.getByRole('button', { name: 'Forge card' }).click();
     const setupLine = page.getByLabel('Setup line');
@@ -1015,9 +1029,15 @@ test('a signed-in creator can translate, swap reaction stills, export, and prese
     assert.equal((visualRequests[0].source as { sourceUrl?: string }).sourceUrl, selectedSource.link);
 
     const downloadPromise = page.waitForEvent('download');
-    await page.getByRole('button', { name: 'Export reaction card' }).click();
+    await page.getByRole('button', { name: 'Download Instagram PNG' }).click();
     const download = await downloadPromise;
     assert.match(download.suggestedFilename(), /friday-fellowship\.png/i);
+    const downloadedPng = await readFile(await download.path());
+    assert.deepEqual(
+      [downloadedPng.readUInt32BE(16), downloadedPng.readUInt32BE(20)],
+      [1080, 1350],
+      'the reaction meme downloads at the shared Instagram 4:5 size',
+    );
     await page.getByText('PNG downloaded. No publish or schedule action was taken.').waitFor();
 
     const generatedUploadsBeforeSave = collectionMediaUploads;
@@ -1046,6 +1066,12 @@ test('a signed-in creator can translate, swap reaction stills, export, and prese
     await page.getByText('Typography-only fallback is active.').waitFor();
     assert.equal(await setupLine.inputValue(), originalSetup);
     assert.equal(await punchlineLine.inputValue(), originalPunchline);
+
+    await page.getByRole('button', { name: 'TikTok · 9:16' }).click();
+    await page.waitForFunction(() => {
+      const canvas = document.querySelector('canvas[aria-label^="TikTok 9:16 meme preview"]') as HTMLCanvasElement | null;
+      return canvas?.width === 1080 && canvas.height === 1920;
+    });
   } finally {
     await closeBrowserAndServer(browser, server);
   }
