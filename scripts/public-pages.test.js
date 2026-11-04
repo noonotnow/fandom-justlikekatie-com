@@ -590,6 +590,8 @@ test("robots and sitemap expose only intended public surfaces", () => {
     "https://fandom.justlikekatie.com/c-drama-fandom/where-to-watch/against-the-current/",
     "https://fandom.justlikekatie.com/c-drama-fandom/soundtrack/against-the-current/",
     "https://fandom.justlikekatie.com/c-drama-fandom/vibing-now/where-the-mask-ends-episodes-1-16/",
+    "https://fandom.justlikekatie.com/c-drama-fandom/vibing-now/where-the-mask-ends-episode-17/",
+    "https://fandom.justlikekatie.com/c-drama-fandom/vibing-now/where-the-mask-ends-episode-18/",
     "https://fandom.justlikekatie.com/c-drama-fandom/where-to-watch/where-the-mask-ends/",
   ];
   const journalUrls = WATCH_JOURNAL_PUBLIC_PAGES.map((path) => (
