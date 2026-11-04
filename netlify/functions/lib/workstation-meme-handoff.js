@@ -19,8 +19,11 @@ const UPSTREAM_TIMEOUT_MS = 30_000;
 const DEFAULT_MEDIA_URL = "https://media.justlikekatie.com/v1/assets/images";
 const DEFAULT_WORKSTATION_URL = "https://workstation.justlikekatie.com/api/integrations/fandom/projects";
 const MEDIA_SOURCE_TYPE = "fandom-memeforge";
-// Canonical Series "H" (C-drama). CREATE resolves it to the existing option and fails closed if none exists.
-const MEME_SERIES = "H";
+// Series is chosen by the operator, not tied to C-drama. These are the canonical CREATE Series values that
+// exist today (A-H). A cross-fandom Meme option is NOT added here until its name and contract are agreed;
+// CREATE resolves the value to the existing Notion option and fails closed if none exists.
+export const MEME_SERIES_VALUES = ["A", "B", "C", "D", "E", "F", "G", "H"];
+const DEFAULT_MEME_SERIES = "H";
 const FORMATS = {
   "tiktok-9x16": { platform: "tiktok", width: 1080, height: 1920 },
   "instagram-4x5": { platform: "instagram", width: 1080, height: 1350 },
@@ -140,7 +143,7 @@ async function handle(request, { env, fetchImpl, store, now, requestUrl }) {
 
 function validateRequest(body) {
   if (!isRecord(body) || body.schema !== MEME_SEND_SCHEMA) throw new MemeSendError("Unsupported MemeForge send schema.");
-  const allowed = ["schema", "memeGroupId", "sendIntentId", "format", "hook", "setup", "punchline", "caption", "hashtags", "visualDirection", "framing", "stillSource", "png"];
+  const allowed = ["schema", "memeGroupId", "sendIntentId", "format", "hook", "setup", "punchline", "caption", "hashtags", "visualDirection", "framing", "stillSource", "series", "png"];
   const extra = Object.keys(body).filter(key => !allowed.includes(key));
   if (extra.length) throw new MemeSendError(`Unexpected field: ${extra[0]}.`);
   for (const id of ["memeGroupId", "sendIntentId"]) {
@@ -154,6 +157,9 @@ function validateRequest(body) {
     if (typeof value !== "string" || value.length > limit) throw new MemeSendError(`${name} is invalid.`);
     content[name] = value.trim();
   }
+  const series = body.series === undefined ? DEFAULT_MEME_SERIES : body.series;
+  if (typeof series !== "string" || !MEME_SERIES_VALUES.includes(series)) throw new MemeSendError("series is not a recognized CREATE Series.");
+  content.series = series;
   if (!content.caption) throw new MemeSendError("A caption is required to send a draft.");
   const still = body.stillSource;
   if (!isRecord(still) || !STILL_KINDS.includes(still.kind)) throw new MemeSendError("stillSource.kind must be search or upload.");
@@ -185,6 +191,7 @@ function validateRequest(body) {
     ...content,
     stillSource,
     framing,
+    series,
   };
 }
 
@@ -301,13 +308,13 @@ function buildEnvelope(request, media, sourceVersion, expectedSourceVersion, gen
       provenance: "MemeForge",
       captionSeed: request.caption,
       tags: hashtags,
-      series: [MEME_SERIES],
+      series: [request.series],
       type: "static",
     },
     publicationBrief: {
       type: "static",
       format: "Static",
-      series: [MEME_SERIES],
+      series: [request.series],
       distribution: { primaryPlatform: platform, platforms: [platform] },
       requiredAssets: ["cover"],
       captionBrief: request.caption,

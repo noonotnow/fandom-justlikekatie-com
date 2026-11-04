@@ -204,3 +204,14 @@ test("a meme send does not claim a Collection, uses a canonical Series, and does
   assert.deepEqual(envelope.draft.series, ["H"]);
   assert.deepEqual(envelope.publicationBrief.series, ["H"]);
 });
+
+test("Series is operator-selectable, validated, defaults to H, and a change updates the same Post", async () => {
+  const { handler, calls } = harness();
+  assert.equal((await send(handler, body())).status, 201);
+  assert.deepEqual(calls.workstation[0].envelope.draft.series, ["H"]);
+  assert.equal((await send(handler, body({ series: "Meme" }))).status, 400, "unknown options are refused, not invented");
+  const changed = await send(handler, body({ series: "A" }));
+  assert.equal(changed.status, 200);
+  assert.deepEqual(calls.workstation[1].envelope.publicationBrief.series, ["A"]);
+  assert.equal(calls.workstation[1].envelope.sourceVersion, 2);
+});

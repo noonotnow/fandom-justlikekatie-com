@@ -9,6 +9,13 @@ import type { ForgeDraft } from './cdramaForge.ts';
  */
 export const MEME_SEND_KEY = 'fandom-cdrama-memeforge-send-v1';
 export const MEME_SEND_URL = '/api/workstation-meme-handoff';
+/** CREATE Series values that exist today. A cross-fandom Meme option joins this list only once agreed and added in Notion. */
+export const MEME_SERIES_OPTIONS = [
+  { value: 'A', label: 'A · Vibe' }, { value: 'B', label: 'B · Explainer' }, { value: 'C', label: 'C · BTS' },
+  { value: 'D', label: 'D · 念无双' }, { value: 'E', label: 'E · Dog' }, { value: 'F', label: 'F · Proverb' },
+  { value: 'G', label: 'G · Aerial' }, { value: 'H', label: 'H · Cdrama' },
+] as const;
+export const DEFAULT_MEME_SERIES = 'H';
 export const MEME_SEND_SCHEMA = 'fandom.meme-send.v1';
 
 export type SendBackup = { state: 'verified' | 'missing' | 'mismatch' | 'failed'; detail: string; assetId?: string };
@@ -54,7 +61,7 @@ export function newIntent(state: SendState, format: ForgeDraft['format']): SendS
  * `displayedCopy` is what the operator actually sees in the copy fields. Until they edit it, `draft.copy` is
  * null and the fields show a suggested default, so the displayed copy (not `draft.copy`) is what must be sent.
  */
-export function buildMemeSendBody(draft: ForgeDraft, state: SendState, intentId: string, pngBase64: string, displayedCopy?: ForgeDraft['copy']) {
+export function buildMemeSendBody(draft: ForgeDraft, state: SendState, intentId: string, pngBase64: string, displayedCopy?: ForgeDraft['copy'], series?: string) {
   const idea = draft.ideas[draft.selected];
   const still = draft.still;
   const copy = displayedCopy ?? draft.copy;
@@ -70,6 +77,7 @@ export function buildMemeSendBody(draft: ForgeDraft, state: SendState, intentId:
     punchline: idea.punchline,
     caption,
     hashtags: copy.hashtags,
+    ...(series ? { series } : {}),
     ...(idea.visualDirection ? { visualDirection: idea.visualDirection } : {}),
     framing: { framing: draft.framing, focusX: draft.focusX, focusY: draft.focusY, textPlacement: draft.textPlacement },
     stillSource: {
@@ -84,9 +92,9 @@ export function buildMemeSendBody(draft: ForgeDraft, state: SendState, intentId:
 }
 
 /** Cheap signature so the UI can say "Update" when the draft changed since the last send. */
-export function draftSignature(draft: ForgeDraft, displayedCopy?: ForgeDraft['copy']) {
+export function draftSignature(draft: ForgeDraft, displayedCopy?: ForgeDraft['copy'], series?: string) {
   const idea = draft.ideas[draft.selected];
-  return JSON.stringify([draft.format, idea?.setup, idea?.punchline, displayedCopy ?? draft.copy, draft.still?.thumbnail?.length, draft.still?.link, draft.framing, draft.focusX, draft.focusY, draft.textPlacement]);
+  return JSON.stringify([series, draft.format, idea?.setup, idea?.punchline, displayedCopy ?? draft.copy, draft.still?.thumbnail?.length, draft.still?.link, draft.framing, draft.focusX, draft.focusY, draft.textPlacement]);
 }
 
 export async function blobToBase64(blob: Blob) {
