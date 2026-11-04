@@ -3,11 +3,11 @@ name: C-drama MemeForge intent
 description: Preserve conversational creative intent and independent joke/image refinement.
 ---
 
-The creator wants actual memes: setup above the clean still and punchline below, not text overlaid on a designed reaction card.
+The creator wants actual memes: a full-bleed clean still with the setup over the top and the punchline over the bottom in heavy white, dark-outlined type. No parchment frame, kicker, or watermark. This is the shared `renderMemeCanvas` look (`src/utils/memeCanvas.ts`).
 
-**Why:** The creator loves C-drama MemeForge but explicitly asked for this format instead of a quote-card presentation.
+**Why:** The creator loves the C-drama aesthetic "entirely" and asked for Middle-earth reaction memes to use it too, along with C-drama's three-angle joke picker.
 
-**How to apply:** Keep this direction scoped to the C-drama studio; do not silently change Middle-earth.
+**How to apply:** Every new meme made from a clean still, in either studio, uses `renderMemeCanvas` for both preview and download. The outline only adds contrast; it cannot hide captions already in an image, so the Middle-earth "Rework meme" path keeps its solid cover-band renderer and "Keep original" stays byte-for-byte.
 
 The tool must understand the creator's own conversational description, preserve the specific performed behavior that they find funny, and allow independent image and wording refinement.
 

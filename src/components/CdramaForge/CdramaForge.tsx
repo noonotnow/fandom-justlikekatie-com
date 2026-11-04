@@ -94,7 +94,7 @@ export function CdramaForge() {
         renderCdramaCard(ctx, image, idea, draft.format, draft);
       })
       .catch(error => { if (thisImage === imageId.current) setNotice(error.message); });
-  }, [idea, draft.still, draft.format, draft.framing, draft.focusY]);
+  }, [idea, draft.still, draft.format, draft.framing, draft.focusX, draft.focusY, draft.textPlacement]);
 
   function changeInput(next: Partial<ForgeDraft>) {
     requestId.current++;

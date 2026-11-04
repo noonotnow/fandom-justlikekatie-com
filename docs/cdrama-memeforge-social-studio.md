@@ -23,8 +23,12 @@ The existing `/memeforge/middle-earth` studio remains separate.
    if not wanted. Copy and download are separate actions.
 
 The PNG is a still composition for manual posting, not a video or carousel.
-The setup sits above a clean image and the punchline below it. Text never
-overlays the still; preview and download use the same rendering function.
+The still fills the whole frame. The setup is drawn over the top and the
+punchline over the bottom in heavy white type with a dark outline (or as a
+single line / subtitle when that placement is chosen). There is no frame,
+kicker, or watermark. Preview and download use the same function,
+`renderMemeCanvas` in `src/utils/memeCanvas.ts`, which the Middle-earth
+studio now shares for its reaction memes.
 No platform account, scheduler, publication receipt, or storefront is involved.
 The vertical layout reserves room around essential copy, but TikTok's actual
 overlays vary by device and composition mode.

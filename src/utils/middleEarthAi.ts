@@ -74,6 +74,8 @@ export interface GeneratedMemeTranslation {
   visualDirection: string;
   referenceStillFamily: ReferenceStillFamilyId;
   cardText: MemeCardText;
+  /** Up to three distinct joke angles on the same bit; cardText is the first. */
+  cardTextOptions?: MemeCardText[];
   reactionImageBrief: ReactionImageBrief;
   model?: string;
 }

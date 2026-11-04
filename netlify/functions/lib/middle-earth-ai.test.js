@@ -1,6 +1,6 @@
 import test from "node:test";
 import assert from "node:assert/strict";
-import { createMiddleEarthAIHandler } from "./middle-earth-ai.js";
+import { createMiddleEarthAIHandler, normalizeCardTextOptions } from "./middle-earth-ai.js";
 
 // ---------------------------------------------------------------------------
 // Shared constants
@@ -572,7 +572,10 @@ test("translation mode uses a strict meme_translation schema", async () => {
   assert.ok(schema.schema.required.includes("translatedMoment"));
   assert.ok(schema.schema.required.includes("referenceStillFamily"));
   assert.ok(schema.schema.required.includes("comicMechanism"));
-  assert.ok(schema.schema.required.includes("cardText"));
+  assert.ok(schema.schema.required.includes("cardTextOptions"));
+  assert.equal(schema.schema.properties.cardTextOptions.minItems, 3);
+  assert.equal(schema.schema.properties.cardTextOptions.maxItems, 3);
+  assert.deepEqual(body.result.cardTextOptions, [body.result.cardText], "a legacy single cardText still yields one angle");
   assert.ok(schema.schema.required.includes("reactionImageBrief"));
   assert.ok(schema.schema.properties.referenceStillFamily.enum.includes("sam-carrying-frodo"));
   assert.equal(schema.schema.properties.reactionImageBrief.properties.characterEmotionQueries.minItems, 1);
@@ -1755,4 +1758,40 @@ test("real auth: signed-in non-admin and admin sessions succeed", async () => {
   const body = await allowed.json();
   assert.equal(body.mode, "visual");
   assert.ok(body.result.title);
+});
+
+test("translation keeps up to three distinct joke angles and drops invalid or duplicate ones", () => {
+  const result = normalizeCardTextOptions({
+    cardTextOptions: [
+      { format: "Reaction Card", line1: "ONE EMAIL ON A FRIDAY", line2: "ME: THIS IS MORDOR.", footer: "" },
+      { format: "Internal Debate Card", line1: "ME: I'll answer Monday", line2: "ALSO ME: opens it at 11pm", footer: "" },
+      { format: "Dialogue Card", line1: "no speaker here", line2: "still no speaker", footer: "" },
+    ],
+  }, "Mordor Commute");
+  assert.equal(result.cardTextOptions.length, 2);
+  assert.equal(result.cardText, result.cardTextOptions[0]);
+  assert.equal(result.cardTextOptions[1].format, "Internal Debate Card");
+
+  const deduped = normalizeCardTextOptions({
+    cardTextOptions: [
+      { format: "Reaction Card", line1: "ONE EMAIL ON A FRIDAY", line2: "ME: THIS IS MORDOR.", footer: "" },
+      { format: "Reaction Card", line1: "one email on a friday", line2: "ME: an entire quest", footer: "" },
+    ],
+  }, "Mordor Commute");
+  assert.equal(deduped.cardTextOptions.length, 1);
+});
+
+test("translation fails when no joke angle survives the contract", () => {
+  assert.throws(() => normalizeCardTextOptions({
+    cardTextOptions: [{ format: "Internal Debate Card", line1: "no voices", line2: "at all", footer: "" }],
+  }, "Mordor Commute"), /Internal Debate Card/);
+  assert.throws(() => normalizeCardTextOptions({}, "Mordor Commute"), /no joke angles/);
+});
+
+test("card lines allow full meme-length captions up to 90 characters", () => {
+  const long = "the fellowship when the group chat plans dinner for nine people";
+  const result = normalizeCardTextOptions({
+    cardTextOptions: [{ format: "Reaction Card", line1: long, line2: "me: already ordering for everyone", footer: "" }],
+  }, "Council of Elrond");
+  assert.equal(result.cardText.line1, long);
 });

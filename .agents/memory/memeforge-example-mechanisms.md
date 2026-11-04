@@ -30,7 +30,7 @@ The extraction should remain separate from the source wording and composition:
 
 **Why:** The examples repeatedly create a second beat through mismatch, interruption, escalation, or contradiction. A merely accurate Middle-earth mood still reads as a poster.
 
-**How to apply:** During translation, resolve the user's mundane situation and the social behavior that makes it funny before choosing card copy. Use references for mechanism, caption rhythm, and reaction vocabulary only; never copy their wording, watermarks, multi-panel composites, or source-specific layouts. Reject or repair outputs that become inspirational, explanatory, solemn, or feeling-only. Keep the production default as the clean top-band / landscape-still / bottom-band frame unless a sequential treatment is intentionally selected.
+**How to apply:** During translation, resolve the user's mundane situation and the social behavior that makes it funny before choosing card copy. Use references for mechanism, caption rhythm, and reaction vocabulary only; never copy their wording, watermarks, multi-panel composites, or source-specific layouts. Reject or repair outputs that become inspirational, explanatory, solemn, or feeling-only. Render with the shared full-bleed meme renderer (setup over the top, punchline over the bottom) unless a sequential treatment is intentionally selected.
 
 ## Human-native reaction search
 

@@ -419,7 +419,7 @@ test('new cards require translation while reworks and unchanged memes can search
     'the unchanged path must visibly bypass translation instead of presenting irrelevant controls',
   );
   assert.match(source, /02 \/ \{isReworkExisting \? "optional joke assist" : "meme translation"\}/);
-  assert.match(source, /isReworkExisting \? "Suggest a joke" : "Translate moment"/);
+  assert.match(source, /isReworkExisting \? "Suggest a joke" : angles\.length \? "Suggest new wording" : "Translate moment"/);
 
   const translationResult = source.slice(
     source.indexOf('{translation && <div className={styles.translationResult}>'),
@@ -451,7 +451,7 @@ test('new cards require translation while reworks and unchanged memes can search
   );
   assert.match(
     source,
-    /source: sourceContext,\s*\n\s*reactionImageBrief: translation\.reactionImageBrief,\s*\n\s*cardText: translation\.cardText,\s*\n\s*\}\);\s*\n\s*setTitle\(generated\.cardText\.footer\)/,
+    /source: sourceContext,\s*\n\s*reactionImageBrief: translation\.reactionImageBrief,\s*\n\s*cardText: lockedCardText,\s*\n\s*\}\);\s*\n\s*setTitle\(generated\.cardText\.footer\)/,
     'the reforge path must send the selected source, paired image brief, and exact text contract as grounding context',
   );
   assert.match(
@@ -461,8 +461,8 @@ test('new cards require translation while reworks and unchanged memes can search
   );
   assert.match(
     source,
-    /The paired setup or punchline was edited\. Translate the moment again/,
-    'editing paired text must require a fresh visual brief instead of forging it against a stale reaction contract',
+    /const lockedCardText: MemeCardText = \{\s*\n\s*format: cardFormat \?\? angle\.format,\s*\n\s*line1: text\.trim\(\),\s*\n\s*line2: secondaryText\.trim\(\),/,
+    'forging must keep the selected angle and the creator\'s own edits instead of discarding them',
   );
   assert.match(
     source,
@@ -738,36 +738,46 @@ test('resolved comic mechanism survives visual grounding and packet staging', as
   assert.match(source, /Performed reaction<\/span><p>\{translation\.reactionImageBrief\.performedEmotion\.join\(" · "\)\}<\/p>/);
 });
 
-test('the forge editor keeps reaction cards to a setup line, punchline line, and optional tiny footer', async () => {
+test('reaction memes use the shared C-drama renderer while reworks keep cover bands', async () => {
   const source = await readFile(
     new URL('../src/components/MiddleEarthWorkspace/MiddleEarthWorkspace.tsx', import.meta.url),
     'utf8',
   );
 
-  assert.match(source, /<label>Tiny footer[\s\S]*?maxLength=\{45\}/);
-  assert.match(source, /isReworkExisting \? "Joke line 1" : "Setup line"[\s\S]*?maxLength=\{36\}/);
-  assert.match(source, /isReworkExisting \? "Joke line 2" : "Punchline \/ reaction line"[\s\S]*?maxLength=\{36\}/);
-  assert.match(source, /const isStructuredReaction = draft\.kind === "meme" && Boolean\(draft\.cardFormat\);/);
+  assert.match(source, /\{isReworkExisting && <label>Tiny footer[\s\S]*?maxLength=\{45\}/, 'the footer only renders on reworks');
+  assert.match(source, /isReworkExisting \? "Joke line 1" : "Setup line"[\s\S]*?maxLength=\{isReworkExisting \? 36 : 90\}/);
+  assert.match(source, /isReworkExisting \? "Joke line 2" : "Punchline \/ reaction line"[\s\S]*?maxLength=\{isReworkExisting \? 36 : 90\}/);
   assert.match(
     source,
-    /const isClassicReactionFrame = isStructuredReaction && draft\.layout === "Classic top \/ bottom";[\s\S]*?drawClassicReactionFrame\(context, draft, image\);/,
-    'export must route default reaction cards through the dedicated meme-frame renderer',
+    /if \(isMemeRework\) \{[\s\S]*?drawMemeReworkFrame\(context, draft, image\);[\s\S]*?renderMemeCanvas\(context, image, \{ setup: draft\.text, punchline: draft\.secondaryText \|\| "" \}, frame\.format, frame\);/,
+    'export must keep cover bands for reworks and use the shared meme renderer for everything else',
   );
-  assert.match(
-    source,
-    /const reactionStillFrame = \{ x: 54, y: 364, width: 972, height: 548 \};[\s\S]*?drawTextBand\(draft\.text \|\| "YOUR SETUP BELONGS HERE\.", 26, 338\);[\s\S]*?drawTextBand\(draft\.secondaryText \|\| "YOUR REACTION BELONGS HERE\.", 912, 412\);/,
-    'export must reserve separate top, still, and bottom regions for reaction cards',
-  );
-  assert.match(source, /MEMEFORGE \/\/ \{\(cardFormat \|\| resolvedArtifactType \|\| "Reaction"\)\.toUpperCase\(\)\}/);
+  assert.doesNotMatch(source, /drawClassicReactionFrame|MEMEFORGE \/\/ REACTION|fandom\.justlikekatie\.com\/memeforge\/middle-earth", 540/,
+    'reaction memes carry no parchment frame, kicker, or URL watermark');
+  assert.match(source, /renderMemeCanvas\(context, image, \{\s*\n\s*setup: isEmpty/, 'the preview draws with the same renderer as the download');
   assert.match(
     source,
     /const hasSavableGeneratedCard = Boolean\(visualGeneration \|\| hasReworkOverlay\);/,
     'only forged reaction cards or explicit reworks should expose the Collection save action',
   );
-  assert.match(
-    source,
-    /Two lines only: setup, then punchline\. Keep longer interpretation in “Translated as\.”/,
+  assert.match(source, /Setup over the top, punchline over the bottom\. Keep longer interpretation in “Translated as\.”/);
+});
+
+test('translation offers up to three joke angles and stages new wording without replacing the meme', async () => {
+  const source = await readFile(
+    new URL('../src/components/MiddleEarthWorkspace/MiddleEarthWorkspace.tsx', import.meta.url),
+    'utf8',
   );
+  assert.match(source, /const generatedAngles = generated\.cardTextOptions\?\.length \? generated\.cardTextOptions : \[generated\.cardText\];/);
+  assert.match(source, /if \(stagingNewWording\) \{\s*\n\s*setAlternativeAngles\(generatedAngles\);[\s\S]*?return;/,
+    'new wording is staged, never applied over the current joke');
+  assert.match(source, /const stagingNewWording = !translatingRework && Boolean\(translation\) && angles\.length > 0;/);
+  assert.match(source, /if \(!stagingNewWording\) \{\s*\n\s*if \(!translatingRework\) setSelected\(undefined\);/,
+    'staging new wording keeps the selected still');
+  const selectAngle = source.slice(source.indexOf('const selectAngle = '), source.indexOf('const chooseAlternativeAngle = '));
+  assert.doesNotMatch(selectAngle, /setSelected\(/, 'switching angles keeps the chosen image');
+  assert.match(source, /ANGLE 0\{index \+ 1\} · \{angle\.format\}/);
+  assert.match(source, /USE WORDING 0\{index \+ 1\}/);
 });
 
 test('every reaction-card layout keeps setup and punchline at one shared type scale', async () => {
@@ -778,9 +788,7 @@ test('every reaction-card layout keeps setup and punchline at one shared type sc
   assert.match(css, /\.previewCopy strong,\.previewCopy em \{[\s\S]*?font:700 clamp\(18px,7\.5cqi,29px\)/);
   assert.doesNotMatch(css, /--card-copy-length/);
   assert.doesNotMatch(css, /Tiny confession"\] \.previewCopy (?:strong|em)[\s\S]*?font-size/);
-  assert.match(
-    css,
-    /\.preview\[data-layout="Classic top \/ bottom"\] \.previewStillFrame \{[\s\S]*?inset:28% 7% 29%[\s\S]*?\.preview\[data-layout="Classic top \/ bottom"\] \.previewLines \{[\s\S]*?grid-template-rows:28% 43% 29%/,
-    'the default preview must reserve top/bottom text bands around a dedicated reaction-still frame',
-  );
+  assert.match(css, /\.memePreview canvas \{ display:block; width:100%; height:auto; \}/,
+    'reaction memes preview as the shared full-bleed canvas');
+  assert.doesNotMatch(css, /data-layout="Classic top \/ bottom"/, 'the old parchment band layout is retired');
 });
