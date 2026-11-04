@@ -90,6 +90,8 @@ export const PUBLIC_STATIC_ROUTES = Object.freeze([
   { ...editorial("/c-drama-fandom/vibing-now/", "0.9"), changefreq: "weekly" },
   editorial("/cdrama-fandom/vibing-now/field-journals/against-the-current/", "0.9"),
   editorial("/c-drama-fandom/vibing-now/where-the-mask-ends-episodes-1-16/", "0.9"),
+  editorial("/c-drama-fandom/vibing-now/where-the-mask-ends-episode-17/", "0.9"),
+  editorial("/c-drama-fandom/vibing-now/where-the-mask-ends-episode-18/", "0.9"),
   editorial("/c-drama-fandom/where-to-watch/where-the-mask-ends/", "0.8"),
   { ...editorial("/c-drama-fandom/vibing-now/against-the-current-episodes-1-6/", "0.9"), changefreq: "weekly" },
   { ...editorial("/c-drama-fandom/vibing-now/against-the-current-episodes-7-14/", "0.9"), changefreq: "weekly" },

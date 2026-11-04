@@ -8,6 +8,7 @@ for (const ep of [17,18]) test(`episode ${ep}: images, boundary, routes and no e
  const route=`/c-drama-fandom/vibing-now/where-the-mask-ends-episode-${ep}/`;
  const text=readFileSync(`public${route}index.html`,'utf8');
  assert.match(text,new RegExp(`Spoilers through Episode ${ep}`));
+ assert.match(text,new RegExp(`Spoiler boundary:</strong> This installment stops at the end of Episode ${ep}\\.`));
  assert.equal((text.match(/<figure/g)||[]).length,ep===17?4:5);
  assert.equal((text.match(/<figcaption/g)||[]).length,ep===17?4:5);
  assert.doesNotMatch(text,/Editorial notes · not for publication|Source and verification|Katie’s MemeForge creations/);
