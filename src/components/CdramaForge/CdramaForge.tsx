@@ -561,6 +561,7 @@ export function CdramaForge() {
                   {sent?.receipt && <button type="button" disabled={!!busy} onClick={() => void sendToCreate({ another: true })}>Create another Post</button>}
                 </div>
                 {sent?.receipt && <p role="status">Post: <a href={sent.receipt.deepLink || sent.receipt.postUrl} target="_blank" rel="noreferrer noopener">open in CREATE</a> · Notion file backup: <strong>{sent.backup?.state ?? 'unknown'}</strong>{sent.backup?.detail ? ` — ${sent.backup.detail}` : ''} · MEDIA purge protection: <strong>{sent.retention?.state ?? 'unknown'}</strong></p>}
+                {sent?.receipt?.warnings?.length ? <ul role="alert">{sent.receipt.warnings.map(w => <li key={w.code}><strong>{w.code.replace(/^FANDOM_/, '').replaceAll('_', ' ').toLowerCase()}</strong>{w.detail ? `: ${w.detail}` : ''}</li>)}</ul> : null}
                 {sendStatus && <p role="status">{sendStatus}</p>}
               </section>
             );

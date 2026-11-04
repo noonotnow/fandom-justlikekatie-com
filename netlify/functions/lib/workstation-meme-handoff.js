@@ -387,8 +387,20 @@ function validateReceipt(payload, envelope) {
     sourceVersion: r.sourceVersion,
     disposition: r.disposition,
     mediaSyncState: r.mediaSyncState === "operator-diverged" ? "operator-diverged" : "synced",
-    warnings: Array.isArray(r.warnings) ? r.warnings.filter(w => typeof w === "string").slice(0, 20) : [],
+    warnings: sanitizeWarnings(r.warnings),
   };
+}
+
+// CREATE warnings are objects ({ code, detail, retryable }); keep them so conflicts stay visible and actionable.
+function sanitizeWarnings(value) {
+  if (!Array.isArray(value)) return [];
+  return value.map(w => {
+    if (typeof w === "string") return { code: w.slice(0, 80), detail: "", retryable: false };
+    if (isRecord(w) && typeof w.code === "string") {
+      return { code: w.code.slice(0, 80), detail: typeof w.detail === "string" ? w.detail.slice(0, 500) : "", retryable: w.retryable === true };
+    }
+    return null;
+  }).filter(Boolean).slice(0, 20);
 }
 
 function sanitizeBackup(value) {

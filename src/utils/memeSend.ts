@@ -15,7 +15,7 @@ export type SendBackup = { state: 'verified' | 'missing' | 'mismatch' | 'failed'
 export type SendRetention = { state: 'held' | 'failed'; detail: string };
 export type SendReceipt = {
   postId: string; postUrl: string; deepLink?: string; status: 'Draft'; sourceVersion: number;
-  disposition: 'created' | 'replayed' | 'updated'; mediaSyncState: 'synced' | 'operator-diverged'; warnings: string[];
+  disposition: 'created' | 'replayed' | 'updated'; mediaSyncState: 'synced' | 'operator-diverged'; warnings: Array<{ code: string; detail: string; retryable: boolean }>;
 };
 export type SendState = {
   memeGroupId: string;

@@ -46,7 +46,7 @@ function harness({ retentionState = "held", metaDedup = false, backupState = "ve
     const envelope = JSON.parse(init.body);
     calls.workstation.push({ envelope, headers: init.headers });
     const disposition = dispositions[Math.min(n++, dispositions.length - 1)];
-    return Response.json({ deliverableId: envelope.deliverableId, postId: "post-1", postUrl: "https://notion.so/post-1", status: "Draft", sourceVersion: envelope.sourceVersion, workflow: "direct", disposition, mediaSyncState: "synced", warnings: [], backup: { state: backupState, assetId: ASSET_ID, detail: "ok", checkedAt: "2026-01-01T00:00:00Z", recovery: { secret: "x" } }, retention: { state: retentionState, detail: "d" } }, { status: disposition === "created" ? 201 : 200 });
+    return Response.json({ deliverableId: envelope.deliverableId, postId: "post-1", postUrl: "https://notion.so/post-1", status: "Draft", sourceVersion: envelope.sourceVersion, workflow: "direct", disposition, mediaSyncState: "synced", warnings: [{ code: "FANDOM_PLATFORM_SELECT_CONFLICT", detail: "Set Platform to TikTok.", retryable: false, secret: "x" }], backup: { state: backupState, assetId: ASSET_ID, detail: "ok", checkedAt: "2026-01-01T00:00:00Z", recovery: { secret: "x" } }, retention: { state: retentionState, detail: "d" } }, { status: disposition === "created" ? 201 : 200 });
   };
   const auth = { authenticateAdmin: async () => { if (!admin) throw Object.assign(new Error("no"), { status: 403 }); return { user: {} }; } };
   const handler = createWorkstationMemeHandoffHandler({ env: ENV, fetchImpl, getStore: () => store, auth, now: () => new Date("2026-11-04T10:00:00Z") });
@@ -157,4 +157,10 @@ test("a failed retention hold is surfaced and retried even when the backup is ve
   assert.equal(first.retention.state, "failed");
   await send(handler, body());
   assert.equal(calls.workstation.length, 2);
+});
+
+test("CREATE platform warnings reach the operator with their action text and nothing extra", async () => {
+  const { handler } = harness();
+  const out = await (await send(handler, body())).json();
+  assert.deepEqual(out.receipt.warnings, [{ code: "FANDOM_PLATFORM_SELECT_CONFLICT", detail: "Set Platform to TikTok.", retryable: false }]);
 });
