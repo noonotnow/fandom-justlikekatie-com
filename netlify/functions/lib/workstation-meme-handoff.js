@@ -210,7 +210,9 @@ async function registerMedia(png, request, checksum, dims, { env, fetchImpl, req
     || d.dimensions?.width !== dims.width || d.dimensions?.height !== dims.height
   ) throw new MemeSendError("MEDIA returned an invalid or mismatched image descriptor.", 502, "media");
   // MEDIA keeps one asset per SHA-256 and the first uploader's labels win. Detect that rather than assume.
-  const deduplicated = d.sourceType !== undefined && d.sourceType !== MEDIA_SOURCE_TYPE;
+  // MEDIA reports this authoritatively in meta.deduplicated; the sourceType comparison is a fallback.
+  const deduplicated = payload?.meta?.deduplicated === true
+    || (d.sourceType !== undefined && d.sourceType !== MEDIA_SOURCE_TYPE);
   return {
     assetId: d.assetId, checksum, filename, deliveryUrl: d.deliveryUrl, thumbnailUrl: d.thumbnailUrl,
     sizeBytes: d.sizeBytes, dimensions: dims, deduplicated,

@@ -29,7 +29,7 @@ function memoryStore() {
   return { map, get: async k => map.get(k) ?? null, setJSON: async (k, v) => { map.set(k, structuredClone(v)); } };
 }
 
-function harness({ backupState = "verified", admin = true, mediaSourceType = "fandom-memeforge", dispositions = ["created", "replayed", "updated"] } = {}) {
+function harness({ metaDedup = false, backupState = "verified", admin = true, mediaSourceType = "fandom-memeforge", dispositions = ["created", "replayed", "updated"] } = {}) {
   const store = memoryStore();
   const calls = { media: 0, workstation: [] };
   let n = 0;
@@ -41,7 +41,7 @@ function harness({ backupState = "verified", admin = true, mediaSourceType = "fa
       const meta = JSON.parse(init.body.get("metadata"));
       assert.ok(!JSON.stringify(meta).includes("collection:"), "no collection association is claimed");
       const w = bytes.readUInt32BE(16), h = bytes.readUInt32BE(20);
-      return Response.json({ data: { version: 1, assetId: ASSET_ID, mediaType: "image", mimeType: "image/png", sizeBytes: bytes.length, checksum: sha(bytes), fileUrl: "https://media.example/f.png", deliveryUrl: "https://media.example/d.png", thumbnailUrl: "https://media.example/t.png", dimensions: { width: w, height: h }, sourceType: mediaSourceType, rightsStatus: "cleared" } });
+      return Response.json({ data: { version: 1, assetId: ASSET_ID, mediaType: "image", mimeType: "image/png", sizeBytes: bytes.length, checksum: sha(bytes), fileUrl: "https://media.example/f.png", deliveryUrl: "https://media.example/d.png", thumbnailUrl: "https://media.example/t.png", dimensions: { width: w, height: h }, sourceType: mediaSourceType, rightsStatus: "cleared" }, meta: { deduplicated: metaDedup } });
     }
     const envelope = JSON.parse(init.body);
     calls.workstation.push({ envelope, headers: init.headers });
@@ -143,4 +143,10 @@ test("an unverified backup is retried by re-sending the same envelope version, n
   assert.equal(b.generatedAt, a.generatedAt);
   assert.equal(calls.workstation[0].headers["Idempotency-Key"], calls.workstation[1].headers["Idempotency-Key"]);
   assert.equal(retry.receipt.disposition, "replayed");
+});
+
+test("uses MEDIA's authoritative meta.deduplicated flag even when sourceType matches", async () => {
+  const { handler, calls } = harness({ metaDedup: true });
+  await send(handler, body());
+  assert.equal(calls.workstation[0].envelope.meme.registration.deduplicated, true);
 });
