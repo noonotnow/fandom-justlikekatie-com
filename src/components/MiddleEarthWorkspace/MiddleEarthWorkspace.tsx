@@ -46,6 +46,13 @@ import {
 } from "../../utils/reactionImageAssets";
 import { createArchiveSearchRequestGate } from "./archiveSearchRequestGate";
 import {
+  emptyMiddleEarthDraft,
+  MIDDLE_EARTH_DRAFT_KEY,
+  restoreMiddleEarthDraft,
+  writeMiddleEarthDraft,
+  type MiddleEarthWorkingDraft,
+} from "../../utils/middleEarthDraft";
+import {
   dbGetVisibleCardsByScope,
   dbIsCardSaved,
   dbReplaceCardImage,
@@ -421,51 +428,86 @@ export function MiddleEarthWorkspace({
   onSessionExpired?: () => void;
 }) {
   const kind: MiddleEarthContentKind = "meme";
+  // Restore the local "Make reaction card" draft once. A `?rework=` link has its
+  // own Collection-backed restore, so it never loads this draft.
+  const [initialDraft] = useState<MiddleEarthWorkingDraft>(() => {
+    try {
+      if (new URLSearchParams(window.location.search).get("rework")) return emptyMiddleEarthDraft();
+      return restoreMiddleEarthDraft(window.localStorage);
+    } catch {
+      return emptyMiddleEarthDraft();
+    }
+  });
+  const [draftStatus, setDraftStatus] = useState(() => (
+    initialDraft.moment || initialDraft.text || initialDraft.selected ? "Draft restored from this device" : "No local draft"
+  ));
+  // Only write when the draft differs from what was loaded or last written. The
+  // first run just records a baseline: storage already holds a restored draft,
+  // and a `?rework=` link starts empty, which must never erase the saved draft.
+  // (A content check, unlike "skip the first run", also survives StrictMode's
+  // double-invoked effects in development.)
+  const lastDraftJson = useRef<string | null>(null);
   const [activeStep, setActiveStep] = useState<"forge" | "spellbook">("forge");
   const [archiveSearchRequestGate] = useState(createArchiveSearchRequestGate);
   const [translationRequestGate] = useState(createArchiveSearchRequestGate);
-  const [query, setQuery] = useState("");
-  const [searchedQuery, setSearchedQuery] = useState("");
+  const [query, setQuery] = useState(initialDraft.query);
+  const [searchedQuery, setSearchedQuery] = useState(initialDraft.searchedQuery);
   const [reactionSearchMode, setReactionSearchMode] = useState<ReactionSearchMode>("clean-still");
   const [sourceTreatment, setSourceTreatment] = useState<MemeSourceTreatment>("new-overlay");
-  const [results, setResults] = useState<MiddleEarthAsset[]>([]);
+  const [results, setResults] = useState<MiddleEarthAsset[]>(initialDraft.results as MiddleEarthAsset[]);
   const [comparisonEmotion, setComparisonEmotion] = useState<string>();
-  const [selected, setSelected] = useState<MiddleEarthAsset>();
+  const [selected, setSelected] = useState<MiddleEarthAsset | undefined>(
+    (initialDraft.selected as MiddleEarthAsset | null) ?? undefined,
+  );
   const [searching, setSearching] = useState(false);
   const [busy, setBusy] = useState(false);
   const [status, setStatus] = useState("");
   const [error, setError] = useState("");
-  const [moment, setMoment] = useState("");
-  const [translation, setTranslation] = useState<GeneratedMemeTranslation>();
-  const [referenceStillFamily, setReferenceStillFamily] = useState<ReferenceStillFamilyId>();
-  const [character, setCharacter] = useState(characterFilters[0]);
-  const [memeFlavor, setMemeFlavor] = useState<MemeFlavorName | typeof autoSteering>(autoSteering);
-  const [aesthetic, setAesthetic] = useState<AestheticName | typeof autoSteering>(autoSteering);
-  const [artifactType, setArtifactType] = useState<ArtifactType | typeof autoSteering>(autoSteering);
-  const [creativeDirection, setCreativeDirection] = useState("");
-  const [title, setTitle] = useState("");
-  const [text, setText] = useState("");
-  const [secondaryText, setSecondaryText] = useState("");
-  const [cardFormat, setCardFormat] = useState<MemeCardFormat>();
-  const [tone, setTone] = useState(memeTones[0]);
+  const [moment, setMoment] = useState(initialDraft.moment);
+  const [translation, setTranslation] = useState<GeneratedMemeTranslation | undefined>(
+    (initialDraft.translation as GeneratedMemeTranslation | null) ?? undefined,
+  );
+  const [referenceStillFamily, setReferenceStillFamily] = useState<ReferenceStillFamilyId | undefined>(
+    (initialDraft.referenceStillFamily as ReferenceStillFamilyId | null) ?? undefined,
+  );
+  const [character, setCharacter] = useState(initialDraft.character);
+  const [memeFlavor, setMemeFlavor] = useState<MemeFlavorName | typeof autoSteering>(
+    initialDraft.memeFlavor as MemeFlavorName | typeof autoSteering,
+  );
+  const [aesthetic, setAesthetic] = useState<AestheticName | typeof autoSteering>(
+    initialDraft.aesthetic as AestheticName | typeof autoSteering,
+  );
+  const [artifactType, setArtifactType] = useState<ArtifactType | typeof autoSteering>(
+    initialDraft.artifactType as ArtifactType | typeof autoSteering,
+  );
+  const [creativeDirection, setCreativeDirection] = useState(initialDraft.creativeDirection);
+  const [title, setTitle] = useState(initialDraft.title);
+  const [text, setText] = useState(initialDraft.text);
+  const [secondaryText, setSecondaryText] = useState(initialDraft.secondaryText);
+  const [cardFormat, setCardFormat] = useState<MemeCardFormat | undefined>(
+    (initialDraft.cardFormat as MemeCardFormat | null) ?? undefined,
+  );
+  const [tone, setTone] = useState(initialDraft.tone);
   const [layout, setLayout] = useState(defaultMemeLayout);
-  const [visualGeneration, setVisualGeneration] = useState<MiddleEarthDraft["aiGeneration"]>();
-  const [rednoteTitle, setRednoteTitle] = useState("");
-  const [rednoteCaption, setRednoteCaption] = useState("");
-  const [rednoteTags, setRednoteTags] = useState<string[]>([]);
+  const [visualGeneration, setVisualGeneration] = useState<MiddleEarthDraft["aiGeneration"]>(
+    initialDraft.visualGeneration ?? undefined,
+  );
+  const [rednoteTitle, setRednoteTitle] = useState(initialDraft.rednoteTitle);
+  const [rednoteCaption, setRednoteCaption] = useState(initialDraft.rednoteCaption);
+  const [rednoteTags, setRednoteTags] = useState<string[]>(initialDraft.rednoteTags);
   const [, setRednoteGeneratedAt] = useState("");
   const [, setRednoteModel] = useState("");
   const [, setRednoteCharacter] = useState("");
-  const [rednoteGroundingFingerprint, setRednoteGroundingFingerprint] = useState("");
+  const [rednoteGroundingFingerprint, setRednoteGroundingFingerprint] = useState(initialDraft.rednoteGroundingFingerprint);
   const [previewImageFailed, setPreviewImageFailed] = useState(false);
   const [previewNode, setPreviewNode] = useState<HTMLElement | null>(null);
   const [collectionSaved, setCollectionSaved] = useState(false);
   const [originalCollectionSaved, setOriginalCollectionSaved] = useState(false);
   const [reworkEditMode, setReworkEditMode] = useState<MemeReworkEditMode>("cover-and-replace");
-  const [angles, setAngles] = useState<MemeCardText[]>([]);
-  const [selectedAngle, setSelectedAngle] = useState(0);
+  const [angles, setAngles] = useState<MemeCardText[]>(initialDraft.angles as MemeCardText[]);
+  const [selectedAngle, setSelectedAngle] = useState(initialDraft.selectedAngle);
   const [alternativeAngles, setAlternativeAngles] = useState<MemeCardText[]>([]);
-  const [memeFrame, setMemeFrame] = useState<MiddleEarthMemeFrame>(defaultMiddleEarthMemeFrame);
+  const [memeFrame, setMemeFrame] = useState<MiddleEarthMemeFrame>(initialDraft.memeFrame);
   const [previewWarning, setPreviewWarning] = useState("");
   const memeCanvasRef = useRef<HTMLCanvasElement>(null);
   const activeAngle = angles[selectedAngle];
@@ -525,6 +567,72 @@ export function MiddleEarthWorkspace({
 
   const invalidateGeneratedVisual = () => {
     setVisualGeneration(undefined);
+  };
+
+  // Local working draft: only the "Make reaction card" path is written. Reworks
+  // and unchanged originals keep their existing Collection-backed behavior.
+  const isReactionCardPath = sourcePath === "new-image";
+  useEffect(() => {
+    if (!isReactionCardPath) return;
+    const workingDraft: MiddleEarthWorkingDraft = {
+      version: 1,
+      moment, query, searchedQuery,
+      character, memeFlavor, aesthetic, artifactType, creativeDirection,
+      translation: (translation as unknown as Record<string, unknown>) ?? null,
+      referenceStillFamily: referenceStillFamily ?? null,
+      angles, selectedAngle,
+      title, text, secondaryText, cardFormat: cardFormat ?? null, tone,
+      memeFrame,
+      selected: selected && !selected.thumbnail.startsWith("data:") ? selected : null,
+      results: results.filter((item) => !item.thumbnail.startsWith("data:")),
+      visualGeneration: visualGeneration ?? null,
+      rednoteTitle, rednoteCaption, rednoteTags, rednoteGroundingFingerprint,
+    };
+    const json = JSON.stringify(workingDraft);
+    if (lastDraftJson.current === null) { lastDraftJson.current = json; return; }
+    if (json === lastDraftJson.current) return;
+    lastDraftJson.current = json;
+    let storage: Storage;
+    try { storage = window.localStorage; } catch {
+      setDraftStatus("Could not save locally. Keep this tab open.");
+      return;
+    }
+    const outcome = writeMiddleEarthDraft(storage, workingDraft);
+    setDraftStatus(outcome === "saved"
+      ? "Draft saved on this device"
+      : outcome === "removed" ? "No local draft" : "Could not save locally. Keep this tab open.");
+  }, [isReactionCardPath, moment, query, searchedQuery, character, memeFlavor, aesthetic, artifactType, creativeDirection,
+    translation, referenceStillFamily, angles, selectedAngle, title, text, secondaryText, cardFormat, tone, memeFrame,
+    selected, results, visualGeneration, rednoteTitle, rednoteCaption, rednoteTags, rednoteGroundingFingerprint]);
+
+  const clearLocalDraft = () => {
+    archiveSearchRequestGate.invalidate();
+    translationRequestGate.invalidate();
+    const empty = emptyMiddleEarthDraft();
+    lastDraftJson.current = null;
+    setMoment(empty.moment); setQuery(empty.query); setSearchedQuery(empty.searchedQuery);
+    setCharacter(empty.character);
+    setMemeFlavor(empty.memeFlavor as MemeFlavorName | typeof autoSteering);
+    setAesthetic(empty.aesthetic as AestheticName | typeof autoSteering);
+    setArtifactType(empty.artifactType as ArtifactType | typeof autoSteering);
+    setCreativeDirection(empty.creativeDirection);
+    setTranslation(undefined); setReferenceStillFamily(undefined);
+    setAngles([]); setSelectedAngle(0); setAlternativeAngles([]);
+    setTitle(""); setText(""); setSecondaryText(""); setCardFormat(undefined); setTone(empty.tone);
+    setMemeFrame(empty.memeFrame);
+    setSelected(undefined); setResults([]); setComparisonEmotion(undefined); setSearching(false);
+    setPreviewImageFailed(false);
+    setVisualGeneration(undefined);
+    setRednoteTitle(""); setRednoteCaption(""); setRednoteTags([]); setRednoteGroundingFingerprint("");
+    setActiveStep("forge");
+    setError("");
+    try {
+      window.localStorage.removeItem(MIDDLE_EARTH_DRAFT_KEY);
+      setDraftStatus("Draft cleared from this device");
+    } catch {
+      setDraftStatus("Clear could not remove local storage; check browser settings.");
+    }
+    setStatus("Working draft cleared. Your Collection was not changed.");
   };
 
   const applyAngle = (angle: MemeCardText) => {
@@ -1845,6 +1953,10 @@ export function MiddleEarthWorkspace({
              {(canSaveOriginalMeme && originalCollectionSaved || isEditorRequired && hasSavableGeneratedCard && collectionSaved) && <a className={styles.stagingLink} href="/memeforge/middle-earth?view=collection">Open Collection</a>}
             {!isEditorRequired && !selected && <span className={styles.actionHint}>Choose a source to unlock export and Collection save.</span>}
           </div>
+          {isReactionCardPath && <div className={styles.draftStatus}>
+            <span role="status">{draftStatus}</span>
+            <button type="button" onClick={clearLocalDraft} disabled={busy}>Clear local draft</button>
+          </div>}
           <div className={styles.status} role="status">{error && <span className={styles.statusError}>{error}</span>}{!error && status}</div>
         </section>
       </div>
