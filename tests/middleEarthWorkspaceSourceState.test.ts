@@ -792,3 +792,16 @@ test('every reaction-card layout keeps setup and punchline at one shared type sc
     'reaction memes preview as the shared full-bleed canvas');
   assert.doesNotMatch(css, /data-layout="Classic top \/ bottom"/, 'the old parchment band layout is retired');
 });
+
+test('the Middle-earth draft shares the workspace vocabulary and empty-draft rule', async () => {
+  const workspace = await readFile(
+    new URL('../src/components/MiddleEarthWorkspace/MiddleEarthWorkspace.tsx', import.meta.url),
+    'utf8',
+  );
+  const draft = await readFile(new URL('../src/utils/middleEarthDraft.ts', import.meta.url), 'utf8');
+  for (const name of ['memeTones', 'characterFilters', 'autoSteering']) {
+    assert.doesNotMatch(workspace, new RegExp(`^const ${name} =`, 'm'), `${name} is imported, not redeclared`);
+  }
+  assert.doesNotMatch(draft, /'Deadpan'|'Boromir'|'Reaction Card'/, 'the draft module must not hand-copy vocabularies');
+  assert.match(workspace, /isEmptyMiddleEarthDraft\(initialDraft\) \? "No local draft" : "Draft restored from this device"/);
+});
