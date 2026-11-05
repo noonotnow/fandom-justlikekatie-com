@@ -515,7 +515,7 @@ test('new cards require translation while reworks and unchanged memes can search
   );
   const search = source.slice(
     source.indexOf('const search ='),
-    source.indexOf('const selectStep =', source.indexOf('const search =')),
+    source.indexOf('const compareReactionEmotion =', source.indexOf('const search =')),
   );
   assert.doesNotMatch(
     search,
@@ -560,14 +560,17 @@ test('source treatment supports clean-still forging, existing-meme rework, and u
   );
   assert.match(
     source,
-    /\{!isEditorRequired && activeStep === "forge" \? \([\s\S]*?Editor bypassed[\s\S]*?Switch to rework and open the editor[\s\S]*?\) : \([\s\S]*?<div className=\{styles\.editorPanel\}>/,
+    /\{!isEditorRequired \? \([\s\S]*?Editor bypassed[\s\S]*?Switch to rework and open the editor[\s\S]*?\) : \([\s\S]*?<div className=\{styles\.editorPanel\}>/,
     'unchanged memes must bypass the editor while offering an explicit route into rework',
   );
   assert.match(
     source,
-    /disabled=\{busy \|\| !isEditorRequired\}>2\. Rednote Spellbook/,
-    'the copy editor must remain unavailable when an unchanged source needs no editing',
+    /\{isEditorRequired && <details className=\{styles\.sharePanel\}>[\s\S]*?<strong>Rednote copy<\/strong>/,
+    'the Share panel must remain unavailable when an unchanged source needs no editing',
   );
+  assert.doesNotMatch(source, /Rednote Spellbook|activeStep|selectStep/, 'the Spellbook is no longer a top-level mode');
+  assert.match(source, /disabled=\{busy \|\| !visualGeneration \|\| !text\.trim\(\)\}>\{busy \? "Writing…"/,
+    'copy writing keeps its Forge gate in this step');
   assert.match(
     source,
     /setQuery\(moment\.trim\(\)[\s\S]*?\[resolvedCharacter, moment\.trim\(\), "meme"\]/,

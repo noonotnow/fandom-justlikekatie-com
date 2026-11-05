@@ -434,7 +434,6 @@ export function MiddleEarthWorkspace({
   // (A content check, unlike "skip the first run", also survives StrictMode's
   // double-invoked effects in development.)
   const lastDraftJson = useRef<string | null>(null);
-  const [activeStep, setActiveStep] = useState<"forge" | "spellbook">("forge");
   const [archiveSearchRequestGate] = useState(createArchiveSearchRequestGate);
   const [translationRequestGate] = useState(createArchiveSearchRequestGate);
   const [query, setQuery] = useState(initialDraft.query);
@@ -611,7 +610,6 @@ export function MiddleEarthWorkspace({
     setPreviewImageFailed(false);
     setVisualGeneration(undefined);
     setRednoteTitle(""); setRednoteCaption(""); setRednoteTags([]); setRednoteGroundingFingerprint("");
-    setActiveStep("forge");
     setError("");
     try {
       window.localStorage.removeItem(MIDDLE_EARTH_DRAFT_KEY);
@@ -901,12 +899,6 @@ export function MiddleEarthWorkspace({
     }
   };
 
-  const selectStep = (next: "forge" | "spellbook") => {
-    if (next === "spellbook" && !isEditorRequired) return;
-    setActiveStep(next);
-    setStatus("");
-  };
-
   const compareReactionEmotion = (nextEmotion?: string) => {
     setComparisonEmotion(nextEmotion);
     setStatus(nextEmotion
@@ -993,7 +985,6 @@ export function MiddleEarthWorkspace({
     const nextMode: ReactionSearchMode = nextPath === "new-image" ? "clean-still" : "existing-meme";
     if (nextMode !== reactionSearchMode) changeReactionSearchMode(nextMode);
     setSourceTreatment(nextPath === "existing-meme" ? "as-is" : "new-overlay");
-    setActiveStep("forge");
     if (nextPath === "existing-meme") {
       setStatus("Unchanged export selected. Find a finished meme, then export or save its original bytes without opening the editor.");
     } else if (nextPath === "rework-existing") {
@@ -1230,15 +1221,14 @@ export function MiddleEarthWorkspace({
       return;
     }
     if (!visualGeneration) {
-      setError("Generate the MemeForge visual object before asking Spellbook for Rednote copy.");
-      setActiveStep("forge");
+      setError("Forge the card before writing its Rednote copy.");
       return;
     }
     if (!resolvedCharacter.trim() || !text.trim() || !secondaryText.trim()) {
       setError("Finish both lines of the reaction card and translate the moment first.");
       return;
     }
-    setBusy(true); setError(""); setStatus("Spellbook is drafting the Rednote copy package…");
+    setBusy(true); setError(""); setStatus("Writing the Rednote copy…");
     try {
       const generated = await generateRednoteCopy({
         character: resolvedCharacter.trim(),
@@ -1275,7 +1265,7 @@ export function MiddleEarthWorkspace({
       if (generationError instanceof MiddleEarthAiError && generationError.status === 401) {
         onSessionExpired?.();
       }
-      setError(generationError instanceof Error ? generationError.message : "Spellbook could not generate the Rednote copy.");
+      setError(generationError instanceof Error ? generationError.message : "The Rednote copy could not be written.");
     } finally {
       setBusy(false);
     }
@@ -1489,11 +1479,6 @@ export function MiddleEarthWorkspace({
         <p className={styles.intro}>A Middle-earth fandom angle generator with its own reaction-card craft. Say the moment badly. MemeForge finds the bit, then grounds it in a recognizable reaction image. Captions stay original.</p>
       </header>
 
-      <section className={styles.modeSwitch} aria-label="Creation mode">
-        <button className={activeStep === "forge" ? styles.modeActive : ""} onClick={() => selectStep("forge")} disabled={busy}>1. MemeForge <small>{isEditorRequired ? "translate, then forge" : "search, then save"}</small></button>
-        <button className={activeStep === "spellbook" ? styles.modeActive : ""} onClick={() => selectStep("spellbook")} disabled={busy || !isEditorRequired}>2. Rednote Spellbook <small>{isEditorRequired ? "title · caption · tags" : "not needed for unchanged memes"}</small></button>
-      </section>
-
       <section className={styles.pathChooser} aria-labelledby="path-heading">
         <div className={styles.sectionKicker}>01 / choose the outcome</div>
         <fieldset className={styles.sourceMode}>
@@ -1672,11 +1657,11 @@ export function MiddleEarthWorkspace({
         <section className={styles.forge}>
           <div className={styles.sectionKicker}>05 / {isEditorRequired ? "forge, then finish" : "review, then save"}</div>
           <div className={styles.forgeHead}>
-            <h2>{activeStep === "forge" ? "MemeForge" : "Rednote Spellbook"}</h2>
-            <span className={styles.liveMark}>{activeStep === "forge" ? "Shareable object" : "Copy package"}</span>
+            <h2>MemeForge</h2>
+            <span className={styles.liveMark}>Shareable object</span>
           </div>
 
-          {!isEditorRequired && activeStep === "forge" ? (
+          {!isEditorRequired ? (
             <div className={styles.editorBypass}>
               <span>Editor bypassed</span>
               <strong>This path preserves the finished meme exactly.</strong>
@@ -1802,7 +1787,6 @@ export function MiddleEarthWorkspace({
           </label>
           </>}
 
-          {activeStep === "forge" ? <>
             <div className={styles.aiPanel}>
                 <div><strong>{reworkPanelTitle}</strong><p>{isReworkExisting ? "AI is optional. Describe a moment above if you want a joke suggestion, or type your own overlay below." : "Uses the translated moment first, then the selected clean reaction still as its visual anchor. The new card copy remains yours to edit."}</p></div>
               {canGenerate
@@ -1836,35 +1820,6 @@ export function MiddleEarthWorkspace({
               </label>
               <p className={styles.copyNote}>Text sits directly over the still with a dark outline for contrast. Move it away from faces and check platform overlays before posting.</p>
             </div>}
-          </> : <>
-            <div className={styles.visualContext}>
-              <span>Grounded in the finished visual</span>
-              <strong>{title}</strong>
-              <p>{text || "Finish the MemeForge object before generating its Rednote copy."}</p>
-            </div>
-            {!visualGeneration && <p className={styles.copyWarning}>Generate the visual object in step 1 before using Spellbook.</p>}
-            {visualGeneration && rednoteTouched && !rednoteIsCurrent && <p className={styles.copyWarning}>The grounding changed. Regenerate this copy before saving it.</p>}
-            <div className={styles.aiPanel}>
-              <div><strong>Character-filtered Rednote writer</strong><p>Generates a separate editable title, caption, and tag set. Existing edits are used as refinement context.</p></div>
-              {canGenerate
-                ? <button className={styles.aiAction} onClick={() => void generateCopy()} disabled={busy || !visualGeneration || !text.trim()}>{busy ? "Writing…" : rednoteIsCurrent ? "Refine copy" : "Generate copy"}</button>
-                : <a className={styles.stagingLink} href={`${PUBLIC_ROUTE_PATHS.vibeAtlas}?view=plan`}>Sign in to generate</a>}
-            </div>
-            <label>Rednote title<input value={rednoteTitle} onChange={(event) => { setRednoteTitle(event.target.value); }} maxLength={120} placeholder="A scroll-stopping title" disabled={busy} /></label>
-            <label>Rednote caption<textarea value={rednoteCaption} onChange={(event) => { setRednoteCaption(event.target.value); }} rows={8} maxLength={2200} placeholder="The editable caption draft will appear here." disabled={busy} /></label>
-            <label>
-              Rednote tags
-              <input
-                value={rednoteTags.join(" ")}
-                onChange={(event) => {
-                  setRednoteTags(parseTagList(event.target.value));
-                }}
-                placeholder="#MiddleEarth #Gandalf #Fandom"
-                disabled={busy}
-              />
-            </label>
-            <p className={styles.copyNote}>Draft only. Review names, tone, source rights, and tags before moving the packet to CREATE.</p>
-          </>}
           </div>
           )}
 
@@ -1940,6 +1895,35 @@ export function MiddleEarthWorkspace({
              {(canSaveOriginalMeme && originalCollectionSaved || isEditorRequired && hasSavableGeneratedCard && collectionSaved) && <a className={styles.stagingLink} href="/memeforge/middle-earth?view=collection">Open Collection</a>}
             {!isEditorRequired && !selected && <span className={styles.actionHint}>Choose a source to unlock export and Collection save.</span>}
           </div>
+          {isEditorRequired && <details className={styles.sharePanel}>
+            <summary>
+              <span>Share</span>
+              <strong>Rednote copy</strong>
+              <small>{rednoteTouched ? "Drafted" : "Optional · write post copy when you're ready to post"}</small>
+            </summary>
+            {!visualGeneration && <p className={styles.copyWarning}>Forge the card above before writing its Rednote copy.</p>}
+            {visualGeneration && rednoteTouched && !rednoteIsCurrent && <p className={styles.copyWarning}>The grounding changed. Regenerate this copy before saving it.</p>}
+            <div className={styles.aiPanel}>
+              <div><strong>Rednote copy writer</strong><p>Generates a separate editable title, caption, and tag set. Existing edits are used as refinement context.</p></div>
+              {canGenerate
+                ? <button className={styles.aiAction} onClick={() => void generateCopy()} disabled={busy || !visualGeneration || !text.trim()}>{busy ? "Writing…" : rednoteIsCurrent ? "Refine copy" : "Generate copy"}</button>
+                : <a className={styles.stagingLink} href={`${PUBLIC_ROUTE_PATHS.vibeAtlas}?view=plan`}>Sign in to generate</a>}
+            </div>
+            <label>Rednote title<input value={rednoteTitle} onChange={(event) => { setRednoteTitle(event.target.value); }} maxLength={120} placeholder="A scroll-stopping title" disabled={busy} /></label>
+            <label>Rednote caption<textarea value={rednoteCaption} onChange={(event) => { setRednoteCaption(event.target.value); }} rows={8} maxLength={2200} placeholder="The editable caption draft will appear here." disabled={busy} /></label>
+            <label>
+              Rednote tags
+              <input
+                value={rednoteTags.join(" ")}
+                onChange={(event) => {
+                  setRednoteTags(parseTagList(event.target.value));
+                }}
+                placeholder="#MiddleEarth #Gandalf #Fandom"
+                disabled={busy}
+              />
+            </label>
+            <p className={styles.copyNote}>Draft only. Review names, tone, source rights, and tags before moving the packet to CREATE.</p>
+          </details>}
           {isReactionCardPath && <div className={styles.draftStatus}>
             <span role="status">{draftStatus}</span>
             <button type="button" onClick={clearLocalDraft} disabled={busy}>Clear local draft</button>
