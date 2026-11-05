@@ -24,7 +24,10 @@ import {
 import {
   aesthetics,
   artifactTypes,
+  autoSteering,
+  characterFilters,
   memeFlavors,
+  memeTones,
   type AestheticName,
   type ArtifactType,
   type ComicMechanismName,
@@ -47,6 +50,7 @@ import {
 import { createArchiveSearchRequestGate } from "./archiveSearchRequestGate";
 import {
   emptyMiddleEarthDraft,
+  isEmptyMiddleEarthDraft,
   MIDDLE_EARTH_DRAFT_KEY,
   restoreMiddleEarthDraft,
   writeMiddleEarthDraft,
@@ -162,26 +166,9 @@ const suggestions = [
   { label: "Moods", items: ["melancholy Middle-earth", "cozy Shire", "ominous Mordor"] },
 ];
 
-const memeTones = ["Deadpan", "Tender", "Chaotic", "Dramatic"];
 // Reaction memes always render with the shared C-drama meme renderer; the
 // layout value is kept only as AI/Collection metadata.
 const defaultMemeLayout = "Classic top / bottom";
-const autoSteering = "Auto / surprise me";
-const characterFilters = [
-  autoSteering,
-  "Boromir",
-  "Gandalf",
-  "Éowyn",
-  "Frodo",
-  "Samwise",
-  "Aragorn",
-  "Galadriel",
-  "Legolas",
-  "Gimli",
-  "Bilbo",
-  "Gollum",
-  "The Fellowship",
-];
 const momentExamples = [
   "Not wanting to go to work on Friday",
   "Sam and Frodo funny",
@@ -439,7 +426,7 @@ export function MiddleEarthWorkspace({
     }
   });
   const [draftStatus, setDraftStatus] = useState(() => (
-    initialDraft.moment || initialDraft.text || initialDraft.selected ? "Draft restored from this device" : "No local draft"
+    isEmptyMiddleEarthDraft(initialDraft) ? "No local draft" : "Draft restored from this device"
   ));
   // Only write when the draft differs from what was loaded or last written. The
   // first run just records a baseline: storage already holds a restored draft,

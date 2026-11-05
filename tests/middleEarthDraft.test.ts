@@ -113,3 +113,30 @@ test('a failed write removes the older copy rather than leaving it stale', () =>
   assert.equal(writeMiddleEarthDraft(failing, filledDraft()), 'failed');
   assert.equal(storage.map.has(MIDDLE_EARTH_DRAFT_KEY), false);
 });
+
+test('every steering option the workspace offers survives a restore', async () => {
+  const { characterFilters, memeTones, memeCardFormats } = await import('../src/data/middleEarthCreativeGrammar.ts');
+  for (const character of characterFilters) {
+    for (const tone of memeTones) {
+      const storage = memoryStorage();
+      writeMiddleEarthDraft(storage, { ...filledDraft(), character, tone });
+      const restored = restoreMiddleEarthDraft(storage);
+      assert.equal(restored.character, character);
+      assert.equal(restored.tone, tone);
+    }
+  }
+  for (const format of memeCardFormats) {
+    const storage = memoryStorage();
+    writeMiddleEarthDraft(storage, { ...filledDraft(), cardFormat: format, angles: [{ format, line1: 'a', line2: 'b', footer: '' }] });
+    const restored = restoreMiddleEarthDraft(storage);
+    assert.equal(restored.cardFormat, format);
+    assert.equal(restored.angles[0].format, format);
+  }
+});
+
+test('a draft holding only angles or Rednote copy still counts as a draft', () => {
+  const anglesOnly = { ...emptyMiddleEarthDraft(), angles: [{ format: 'Reaction Card', line1: 'a', line2: 'b', footer: '' }] };
+  const copyOnly = { ...emptyMiddleEarthDraft(), rednoteCaption: 'caption' };
+  assert.equal(isEmptyMiddleEarthDraft(anglesOnly), false);
+  assert.equal(isEmptyMiddleEarthDraft(copyOnly), false);
+});

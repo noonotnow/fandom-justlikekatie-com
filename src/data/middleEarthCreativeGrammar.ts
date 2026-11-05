@@ -312,3 +312,31 @@ export const artifactTypes = [
 ] as const;
 
 export type ArtifactType = (typeof artifactTypes)[number];
+/** The "let the moment decide" choice shared by every steering control. */
+export const autoSteering = 'Auto / surprise me';
+
+export const memeTones = ['Deadpan', 'Tender', 'Chaotic', 'Dramatic'] as const;
+
+export const characterFilters = [
+  autoSteering,
+  'Boromir',
+  'Gandalf',
+  'Éowyn',
+  'Frodo',
+  'Samwise',
+  'Aragorn',
+  'Galadriel',
+  'Legolas',
+  'Gimli',
+  'Bilbo',
+  'Gollum',
+  'The Fellowship',
+] as const;
+
+export const memeCardFormats = [
+  'Reaction Card',
+  'Dialogue Card',
+  'Proverb Card',
+  'Boundary Card',
+  'Internal Debate Card',
+] as const;

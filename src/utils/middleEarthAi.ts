@@ -3,6 +3,7 @@ import type {
   ArtifactType,
   ComicMechanismName,
   MemeFlavorName,
+  memeCardFormats,
 } from '../data/middleEarthCreativeGrammar';
 import type { ReferenceStillFamilyId } from '../data/middleEarthReferenceStills';
 
@@ -48,12 +49,7 @@ export interface GeneratedVisualObject {
   model?: string;
 }
 
-export type MemeCardFormat =
-  | 'Reaction Card'
-  | 'Dialogue Card'
-  | 'Proverb Card'
-  | 'Boundary Card'
-  | 'Internal Debate Card';
+export type MemeCardFormat = (typeof memeCardFormats)[number];
 
 export interface GeneratedRednoteCopy {
   title: string;

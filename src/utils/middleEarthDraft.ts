@@ -8,7 +8,15 @@
  * they hold uploaded originals and linked-rework recipes that already have
  * their own Collection-backed restore (`?rework=`).
  */
-import { aesthetics, artifactTypes, memeFlavors } from '../data/middleEarthCreativeGrammar.ts';
+import {
+  aesthetics,
+  artifactTypes,
+  autoSteering,
+  characterFilters,
+  memeCardFormats,
+  memeFlavors,
+  memeTones,
+} from '../data/middleEarthCreativeGrammar.ts';
 import { referenceStillFamilies } from '../data/middleEarthReferenceStills.ts';
 import type { MemeFormat, MemeFraming, MemeTextPlacement } from './memeCanvas.ts';
 
@@ -73,14 +81,17 @@ export interface MiddleEarthWorkingDraft {
   rednoteGroundingFingerprint: string;
 }
 
-const AUTO = 'Auto / surprise me';
-const CHARACTERS = [AUTO, 'Boromir', 'Gandalf', 'Éowyn', 'Frodo', 'Samwise', 'Aragorn', 'Galadriel', 'Legolas', 'Gimli', 'Bilbo', 'Gollum', 'The Fellowship'];
-const TONES = ['Deadpan', 'Tender', 'Chaotic', 'Dramatic'];
+// Every list comes from the same data module the workspace renders from, so a
+// new character, tone or format can never be offered on screen but rejected
+// on restore.
+const AUTO = autoSteering;
+const CHARACTERS: readonly string[] = characterFilters;
+const TONES: readonly string[] = memeTones;
 const FLAVORS: readonly string[] = [AUTO, ...memeFlavors.map((flavor) => flavor.name)];
 const AESTHETICS: readonly string[] = [AUTO, ...aesthetics.map((item) => item.name)];
 const ARTIFACTS: readonly string[] = [AUTO, ...artifactTypes];
 const FAMILIES: readonly string[] = referenceStillFamilies.map((family) => family.id);
-const CARD_FORMATS = ['Reaction Card', 'Dialogue Card', 'Proverb Card', 'Boundary Card', 'Internal Debate Card'];
+const CARD_FORMATS: readonly string[] = memeCardFormats;
 
 export function emptyMiddleEarthDraft(): MiddleEarthWorkingDraft {
   return {
