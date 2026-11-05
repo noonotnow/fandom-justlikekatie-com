@@ -540,7 +540,7 @@ const TRANSLATION_JSON_SCHEMA = {
 // xAI chat completion via connector proxy
 // ---------------------------------------------------------------------------
 
-async function callXAI({ connectorClient, model, prompt, jsonSchema }) {
+async function callXAI({ connectorClient, model, prompt, jsonSchema, maxTokens = 900 }) {
   let res;
   try {
     res = await connectorClient.proxy("xai", "/v1/chat/completions", {
@@ -550,7 +550,7 @@ async function callXAI({ connectorClient, model, prompt, jsonSchema }) {
         messages: [{ role: "user", content: prompt }],
         response_format: { type: "json_schema", json_schema: jsonSchema },
         temperature: 0.7,
-        max_tokens: 900,
+        max_tokens: maxTokens,
       }),
       headers: { "Content-Type": "application/json" },
     });
@@ -654,13 +654,18 @@ function normalizeCardText(value, memeFlavor) {
   const upperLine1 = line1.toUpperCase();
   const upperLine2 = line2.toUpperCase();
 
-  if (format === "Dialogue Card" && (!/^[A-Z][A-Z .'-]{0,24}:\s+\S/u.test(line1) || !/^[A-Z][A-Z .'-]{0,24}:\s+\S/u.test(line2))) {
+  // Speakers may be written in any case ("FRODO:", "Frodo:", "me:"); the
+  // shared renderer no longer forces an all-caps card style.
+  const hasSpeaker = (line) => /^\p{L}[\p{L} .'’-]{0,24}:\s+\S/u.test(line);
+  if (format === "Dialogue Card" && (!hasSpeaker(line1) || !hasSpeaker(line2))) {
     throw new AppError("AI returned a Dialogue Card without a speaker on both lines.", 502);
   }
   if (format === "Internal Debate Card" && (!upperLine1.startsWith("ME:") || !upperLine2.startsWith("ALSO ME:"))) {
     throw new AppError("AI returned an Internal Debate Card without the two opposing voices.", 502);
   }
-  if (format === "Reaction Card" && /\b(?:where|while|because|standing|contemplating|sun-dappled)\b/iu.test(`${line1} ${line2}`)) {
+  // "me while…" / "when… because…" are native meme phrasing; only reject
+  // descriptive scene-setting words.
+  if (format === "Reaction Card" && /\b(?:standing|stands|stood|sitting|sits|beside|wondering|gazing|contemplating|sun-dappled|bathed)\b/iu.test(`${line1} ${line2}`)) {
     throw new AppError("AI returned scene prose instead of a reaction card.", 502);
   }
   const combinedCopy = `${line1} ${line2}`;
@@ -869,30 +874,108 @@ function requireChoice(value, fieldName, allowed) {
  * not throw away two good ones; the translation only fails when none survive.
  * A legacy single `cardText` is accepted as a one-angle result.
  */
+export function collectCardTextOptions(candidates, memeFlavor) {
+  const options = [];
+  const rejections = [];
+  const setups = new Set();
+  const punchlines = new Set();
+  for (const candidate of candidates) {
+    if (options.length >= CARD_TEXT_OPTION_COUNT) break;
+    try {
+      const option = normalizeCardText(candidate, memeFlavor);
+      const setup = option.line1.toLocaleLowerCase();
+      const punchline = option.line2.toLocaleLowerCase();
+      if (setups.has(setup) || punchlines.has(punchline)) {
+        rejections.push("Repeated an existing setup or punchline.");
+        continue;
+      }
+      setups.add(setup);
+      punchlines.add(punchline);
+      options.push(option);
+    } catch (error) {
+      rejections.push(error instanceof Error ? error.message : "Invalid angle.");
+    }
+  }
+  return { options, rejections };
+}
+
 export function normalizeCardTextOptions(raw, memeFlavor) {
   const candidates = Array.isArray(raw?.cardTextOptions)
     ? raw.cardTextOptions.slice(0, CARD_TEXT_OPTION_COUNT)
     : raw?.cardText !== undefined ? [raw.cardText] : [];
   if (!candidates.length) throw new AppError("AI returned no joke angles.", 502);
-  const options = [];
-  const setups = new Set();
-  const punchlines = new Set();
-  let firstError;
-  for (const candidate of candidates) {
-    try {
-      const option = normalizeCardText(candidate, memeFlavor);
-      const setup = option.line1.toLocaleLowerCase();
-      const punchline = option.line2.toLocaleLowerCase();
-      if (setups.has(setup) || punchlines.has(punchline)) continue;
-      setups.add(setup);
-      punchlines.add(punchline);
-      options.push(option);
-    } catch (error) {
-      firstError ??= error;
-    }
+  const { options, rejections } = collectCardTextOptions(candidates, memeFlavor);
+  if (!options.length) throw new AppError(rejections[0] ?? "AI returned no usable joke angles.", 502);
+  return { cardText: options[0], cardTextOptions: options, rejectedAngleReasons: rejections };
+}
+
+const CARD_TEXT_TOP_UP_SCHEMA = {
+  name: "meme_angle_top_up",
+  strict: true,
+  schema: {
+    type: "object",
+    properties: {
+      cardTextOptions: {
+        type: "array",
+        minItems: 1,
+        maxItems: CARD_TEXT_OPTION_COUNT,
+        items: {
+          type: "object",
+          properties: {
+            format: { type: "string", enum: MEME_CARD_FORMATS },
+            line1: { type: "string", minLength: 1, maxLength: MAX_CARD_LINE_ONE_LEN },
+            line2: { type: "string", minLength: 1, maxLength: MAX_CARD_LINE_TWO_LEN },
+            footer: { type: "string", maxLength: MAX_CARD_FOOTER_LEN },
+          },
+          required: ["format", "line1", "line2", "footer"],
+          additionalProperties: false,
+        },
+      },
+    },
+    required: ["cardTextOptions"],
+    additionalProperties: false,
+  },
+};
+
+function buildAngleTopUpPrompt(basePrompt, kept, rejections) {
+  const missing = CARD_TEXT_OPTION_COUNT - kept.length;
+  return [
+    basePrompt,
+    ``,
+    `MemeForge kept ${kept.length} of your joke angles:`,
+    ...kept.map((option, index) => `${index + 1}. [${option.format}] ${option.line1} / ${option.line2}`),
+    rejections.length ? `Other angles were rejected because: ${[...new Set(rejections)].join(" ")}` : null,
+    `Write ${missing} more angle${missing === 1 ? "" : "s"} on the same bit and reaction still. Do not repeat any kept setup or punchline.`,
+    `Respond with ONLY a JSON object: { "cardTextOptions": [ { "format", "line1", "line2", "footer" } ] }.`,
+  ].filter((line) => line !== null).join("\n");
+}
+
+/**
+ * When fewer than three angles survive validation, ask once for replacements.
+ * Best effort: a failed top-up never fails the translation itself.
+ */
+export async function topUpCardTextOptions(result, { connectorClient, model, prompt, memeFlavor, logger = console }) {
+  const { rejectedAngleReasons = [], ...clean } = result;
+  if (clean.cardTextOptions.length >= CARD_TEXT_OPTION_COUNT) return clean;
+  try {
+    const raw = await callXAI({
+      connectorClient,
+      model,
+      prompt: buildAngleTopUpPrompt(prompt, clean.cardTextOptions, rejectedAngleReasons),
+      jsonSchema: CARD_TEXT_TOP_UP_SCHEMA,
+    });
+    const extra = Array.isArray(raw?.cardTextOptions) ? raw.cardTextOptions : [];
+    const { options, rejections } = collectCardTextOptions([...clean.cardTextOptions, ...extra], memeFlavor);
+    logger.log?.("[middle-earth-ai] angle top-up", {
+      before: clean.cardTextOptions.length,
+      after: options.length,
+      rejected: [...rejectedAngleReasons, ...rejections],
+    });
+    return { ...clean, cardText: options[0], cardTextOptions: options };
+  } catch (error) {
+    logger.warn?.("[middle-earth-ai] angle top-up failed", error instanceof Error ? error.message : "unknown");
+    return clean;
   }
-  if (!options.length) throw firstError ?? new AppError("AI returned no usable joke angles.", 502);
-  return { cardText: options[0], cardTextOptions: options };
 }
 
 function normalizeTranslationOutput(raw, requestedModel) {
@@ -1179,7 +1262,8 @@ export function createMiddleEarthAIHandler({
         result = normalizeRednoteOutput(raw, model);
       } else {
         const prompt = buildTranslationPrompt(validated);
-        const raw = await callXAI({ connectorClient, model, prompt, jsonSchema: TRANSLATION_JSON_SCHEMA });
+        // Three angles plus the image brief need more room than one card did.
+        const raw = await callXAI({ connectorClient, model, prompt, jsonSchema: TRANSLATION_JSON_SCHEMA, maxTokens: 1600 });
         try {
           result = normalizeTranslationOutput(raw, model);
         } catch (err) {
@@ -1189,9 +1273,17 @@ export function createMiddleEarthAIHandler({
             model,
             prompt: buildTranslationRepairPrompt(prompt, err.message),
             jsonSchema: TRANSLATION_JSON_SCHEMA,
+            maxTokens: 1600,
           });
           result = normalizeTranslationOutput(repaired, model);
         }
+        result = await topUpCardTextOptions(result, {
+          connectorClient,
+          model,
+          prompt,
+          memeFlavor: result.memeFlavor,
+          logger,
+        });
       }
 
       logger.log?.("[middle-earth-ai] completion succeeded", {

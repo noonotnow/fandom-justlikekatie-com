@@ -1,6 +1,6 @@
 import test from "node:test";
 import assert from "node:assert/strict";
-import { createMiddleEarthAIHandler, normalizeCardTextOptions } from "./middle-earth-ai.js";
+import { createMiddleEarthAIHandler, normalizeCardTextOptions, topUpCardTextOptions } from "./middle-earth-ai.js";
 
 // ---------------------------------------------------------------------------
 // Shared constants
@@ -155,6 +155,11 @@ const VALID_TRANSLATION_RESPONSE = {
     line2: "ME: THIS IS MORDOR.",
     footer: "",
   },
+  cardTextOptions: [
+    { format: "Dialogue Card", line1: "FRIDAY: ONE MORE MEETING.", line2: "ME: THIS IS MORDOR.", footer: "" },
+    { format: "Internal Debate Card", line1: "me: I'll log off at five", line2: "also me: walks into Mordor at 6:40", footer: "" },
+    { format: "Reaction Card", line1: "me while the meeting could've been an email", line2: "an entire quest", footer: "" },
+  ],
   reactionImageBrief: {
     socialUseQuery: "Frodo on the road to Mordor still",
     characterEmotionQueries: ["Frodo exhausted Mordor still"],
@@ -575,7 +580,9 @@ test("translation mode uses a strict meme_translation schema", async () => {
   assert.ok(schema.schema.required.includes("cardTextOptions"));
   assert.equal(schema.schema.properties.cardTextOptions.minItems, 3);
   assert.equal(schema.schema.properties.cardTextOptions.maxItems, 3);
-  assert.deepEqual(body.result.cardTextOptions, [body.result.cardText], "a legacy single cardText still yields one angle");
+  assert.equal(body.result.cardTextOptions.length, 3);
+  assert.deepEqual(body.result.cardText, body.result.cardTextOptions[0]);
+  assert.equal("rejectedAngleReasons" in body.result, false, "internal rejection notes never reach the client");
   assert.ok(schema.schema.required.includes("reactionImageBrief"));
   assert.ok(schema.schema.properties.referenceStillFamily.enum.includes("sam-carrying-frodo"));
   assert.equal(schema.schema.properties.reactionImageBrief.properties.characterEmotionQueries.minItems, 1);
@@ -1150,6 +1157,9 @@ test("translation allows a canonical catchphrase in image lookup while repairing
       line2: "ME, TO THIS STUDY GUIDE.",
       footer: "",
     },
+    cardTextOptions: [
+      { format: "Boundary Card", line1: "YOU SHALL NOT PASS.", line2: "ME, TO THIS STUDY GUIDE.", footer: "" },
+    ],
     reactionImageBrief: {
       ...VALID_TRANSLATION_RESPONSE.reactionImageBrief,
       socialUseQuery: "Gandalf you shall not pass bridge",
@@ -1166,6 +1176,11 @@ test("translation allows a canonical catchphrase in image lookup while repairing
       line2: "IT DECLARED ME UNWORTHY.",
       footer: "",
     },
+    cardTextOptions: [
+      { format: "Boundary Card", line1: "I OPENED THE STUDY GUIDE.", line2: "IT DECLARED ME UNWORTHY.", footer: "" },
+      { format: "Boundary Card", line1: "chapter one", line2: "closed until further notice", footer: "" },
+      { format: "Internal Debate Card", line1: "me: one quick review", line2: "also me: guards the couch instead", footer: "" },
+    ],
   };
   const connector = makeConnector({ chatResponses: [copiedOverlay, repairedOverlay] });
   const handler = makeHandler({ connector });
@@ -1794,4 +1809,70 @@ test("card lines allow full meme-length captions up to 90 characters", () => {
     cardTextOptions: [{ format: "Reaction Card", line1: long, line2: "me: already ordering for everyone", footer: "" }],
   }, "Council of Elrond");
   assert.equal(result.cardText.line1, long);
+});
+
+test("dialogue speakers and everyday meme phrasing are accepted in any case", () => {
+  const result = normalizeCardTextOptions({
+    cardTextOptions: [
+      { format: "Dialogue Card", line1: "Frodo: it's one email", line2: "Sam: then I'm coming with you", footer: "" },
+      { format: "Reaction Card", line1: "me while the meeting could've been an email", line2: "an entire quest", footer: "" },
+    ],
+  }, "Mordor Commute");
+  assert.equal(result.cardTextOptions.length, 2);
+});
+
+function topUpConnector(content) {
+  const calls = [];
+  return {
+    calls,
+    async proxy(_provider, path, init) {
+      calls.push({ path, body: JSON.parse(init.body) });
+      if (content instanceof Error) throw content;
+      return new Response(JSON.stringify({ choices: [{ message: { content: JSON.stringify(content) } }] }), { status: 200 });
+    },
+  };
+}
+
+test("fewer than three surviving angles are topped up once", async () => {
+  const first = normalizeCardTextOptions({
+    cardTextOptions: [
+      { format: "Reaction Card", line1: "ONE EMAIL ON A FRIDAY", line2: "ME: THIS IS MORDOR.", footer: "" },
+      { format: "Dialogue Card", line1: "no speaker here", line2: "still none", footer: "" },
+    ],
+  }, "Mordor Commute");
+  const connector = topUpConnector({
+    cardTextOptions: [
+      { format: "Reaction Card", line1: "ONE EMAIL ON A FRIDAY", line2: "duplicate setup", footer: "" },
+      { format: "Internal Debate Card", line1: "me: I'll answer Monday", line2: "also me: opens it at 11pm", footer: "" },
+      { format: "Boundary Card", line1: "my weekend", line2: "closed to all emails", footer: "" },
+    ],
+  });
+  const logged = [];
+  const result = await topUpCardTextOptions(first, {
+    connectorClient: connector, model: "grok-test", prompt: "base", memeFlavor: "Mordor Commute",
+    logger: { log: (...args) => logged.push(args) },
+  });
+  assert.equal(connector.calls.length, 1);
+  assert.equal(connector.calls[0].body.response_format.json_schema.name, "meme_angle_top_up");
+  assert.match(connector.calls[0].body.messages[0].content, /Dialogue Card without a speaker/);
+  assert.equal(result.cardTextOptions.length, 3);
+  assert.equal(result.cardText.line1, "ONE EMAIL ON A FRIDAY");
+  assert.equal("rejectedAngleReasons" in result, false);
+  assert.equal(logged[0][1].after, 3);
+});
+
+test("a full set skips the top-up and a failed top-up keeps the angles it has", async () => {
+  const full = normalizeCardTextOptions({ cardTextOptions: [
+    { format: "Reaction Card", line1: "a", line2: "b", footer: "" },
+    { format: "Reaction Card", line1: "c", line2: "d", footer: "" },
+    { format: "Reaction Card", line1: "e", line2: "f", footer: "" },
+  ] }, "Mordor Commute");
+  const idle = topUpConnector({ cardTextOptions: [] });
+  assert.equal((await topUpCardTextOptions(full, { connectorClient: idle, model: "m", prompt: "p", memeFlavor: "Mordor Commute", logger: {} })).cardTextOptions.length, 3);
+  assert.equal(idle.calls.length, 0);
+
+  const one = normalizeCardTextOptions({ cardText: { format: "Reaction Card", line1: "a", line2: "b", footer: "" } }, "Mordor Commute");
+  const broken = topUpConnector(new Error("network"));
+  const kept = await topUpCardTextOptions(one, { connectorClient: broken, model: "m", prompt: "p", memeFlavor: "Mordor Commute", logger: {} });
+  assert.equal(kept.cardTextOptions.length, 1);
 });
