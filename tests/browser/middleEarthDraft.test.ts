@@ -186,6 +186,11 @@ test('the Share panel flags stale Rednote copy on its collapsed summary', { time
     const summary = page.locator('details summary', { hasText: 'Rednote copy' });
     await summary.click();
     await page.getByText('Writing copy for').waitFor();
+    // Hand-written copy after forging has nothing to be stale against.
+    await page.getByLabel('Rednote title').fill('My own title');
+    await page.getByLabel('Setup line').fill('an edit before any copy was generated');
+    await summary.getByText('Drafted', { exact: true }).waitFor();
+    assert.equal(await page.getByText('The grounding changed. Regenerate this copy before saving it.').count(), 0);
     await page.getByRole('button', { name: 'Generate copy' }).click();
     await page.getByText('Rednote title, caption, and tags generated.', { exact: false }).waitFor();
     await summary.getByText('Drafted', { exact: true }).waitFor();

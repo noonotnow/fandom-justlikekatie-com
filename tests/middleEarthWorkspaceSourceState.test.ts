@@ -571,7 +571,8 @@ test('source treatment supports clean-still forging, existing-meme rework, and u
   assert.doesNotMatch(source, /Rednote Spellbook|activeStep|selectStep/, 'the Spellbook is no longer a top-level mode');
   assert.equal(source.match(/>Sign in to generate</g)?.length, 1, 'the editor and Share panel use distinct sign-in prompts');
   assert.match(source, />Sign in to write copy</);
-  assert.match(source, /const rednoteIsStale = Boolean\(visualGeneration && rednoteTouched && !rednoteIsCurrent\);/);
+  assert.match(source, /const rednoteIsStale = Boolean\(\s*visualGeneration && rednoteGroundingFingerprint && rednoteTouched && !rednoteIsCurrent,\s*\);/,
+    'only generated copy can be stale');
   assert.match(source, /rednoteIsStale \? "Copy is stale · reopen to regenerate" : "Drafted"/,
     'the collapsed summary must surface stale copy instead of a plain "Drafted"');
   assert.match(source, /<span>Writing copy for<\/span>/, 'the panel shows which card the copy describes');

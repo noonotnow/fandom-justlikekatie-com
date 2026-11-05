@@ -1094,8 +1094,11 @@ export function MiddleEarthWorkspace({
     && rednoteGroundingFingerprint === currentGroundingFingerprint
   );
   // Shown both in the open panel and on its collapsed summary, so a stale
-  // "Drafted" badge never hides the regenerate warning.
-  const rednoteIsStale = Boolean(visualGeneration && rednoteTouched && !rednoteIsCurrent);
+  // "Drafted" badge never hides the regenerate warning. Only generated copy can
+  // be stale: hand-written copy has no grounding fingerprint to compare against.
+  const rednoteIsStale = Boolean(
+    visualGeneration && rednoteGroundingFingerprint && rednoteTouched && !rednoteIsCurrent,
+  );
   const draft = useMemo<MiddleEarthDraft>(() => ({
     kind, title: title.trim() || cardFormat || "Untitled Middle-earth idea", text: text.trim(),
     secondaryText: secondaryText.trim() || undefined, tone, layout,
