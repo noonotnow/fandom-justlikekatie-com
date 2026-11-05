@@ -1093,6 +1093,9 @@ export function MiddleEarthWorkspace({
     rednoteGroundingFingerprint
     && rednoteGroundingFingerprint === currentGroundingFingerprint
   );
+  // Shown both in the open panel and on its collapsed summary, so a stale
+  // "Drafted" badge never hides the regenerate warning.
+  const rednoteIsStale = Boolean(visualGeneration && rednoteTouched && !rednoteIsCurrent);
   const draft = useMemo<MiddleEarthDraft>(() => ({
     kind, title: title.trim() || cardFormat || "Untitled Middle-earth idea", text: text.trim(),
     secondaryText: secondaryText.trim() || undefined, tone, layout,
@@ -1899,15 +1902,22 @@ export function MiddleEarthWorkspace({
             <summary>
               <span>Share</span>
               <strong>Rednote copy</strong>
-              <small>{rednoteTouched ? "Drafted" : "Optional · write post copy when you're ready to post"}</small>
+              <small className={rednoteIsStale ? styles.shareStale : undefined}>{!rednoteTouched
+                ? "Optional · write post copy when you're ready to post"
+                : rednoteIsStale ? "Copy is stale · reopen to regenerate" : "Drafted"}</small>
             </summary>
+            <div className={styles.visualContext}>
+              <span>Writing copy for</span>
+              <strong>{text || "Your setup line"}</strong>
+              <p>{secondaryText || "Finish the card above before writing its Rednote copy."}</p>
+            </div>
             {!visualGeneration && <p className={styles.copyWarning}>Forge the card above before writing its Rednote copy.</p>}
-            {visualGeneration && rednoteTouched && !rednoteIsCurrent && <p className={styles.copyWarning}>The grounding changed. Regenerate this copy before saving it.</p>}
+            {rednoteIsStale && <p className={styles.copyWarning}>The grounding changed. Regenerate this copy before saving it.</p>}
             <div className={styles.aiPanel}>
               <div><strong>Rednote copy writer</strong><p>Generates a separate editable title, caption, and tag set. Existing edits are used as refinement context.</p></div>
               {canGenerate
                 ? <button className={styles.aiAction} onClick={() => void generateCopy()} disabled={busy || !visualGeneration || !text.trim()}>{busy ? "Writing…" : rednoteIsCurrent ? "Refine copy" : "Generate copy"}</button>
-                : <a className={styles.stagingLink} href={`${PUBLIC_ROUTE_PATHS.vibeAtlas}?view=plan`}>Sign in to generate</a>}
+                : <a className={styles.stagingLink} href={`${PUBLIC_ROUTE_PATHS.vibeAtlas}?view=plan`}>Sign in to write copy</a>}
             </div>
             <label>Rednote title<input value={rednoteTitle} onChange={(event) => { setRednoteTitle(event.target.value); }} maxLength={120} placeholder="A scroll-stopping title" disabled={busy} /></label>
             <label>Rednote caption<textarea value={rednoteCaption} onChange={(event) => { setRednoteCaption(event.target.value); }} rows={8} maxLength={2200} placeholder="The editable caption draft will appear here." disabled={busy} /></label>

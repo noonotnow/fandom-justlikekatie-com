@@ -201,7 +201,9 @@ test(`an expired Rednote Spellbook session returns copy generation to sign-in wi
     await page.getByLabel('Rednote title').fill('My unfinished title');
     await page.getByRole('button', { name: 'Generate copy' }).click();
     await page.getByRole('status').getByText('Your session expired. Sign in again.').waitFor();
-    await page.getByRole('link', { name: 'Sign in to generate' }).first().waitFor();
+    await page.getByRole('link', { name: 'Sign in to generate' }).waitFor();
+    await page.getByRole('link', { name: 'Sign in to write copy' }).waitFor();
+    assert.equal(await page.getByRole('link', { name: 'Sign in to generate' }).count(), 1, 'one sign-in prompt per action');
     assert.ok(sessionChecks >= 2, 'the 401 must trigger a public session refresh');
     assert.equal(await page.getByRole('button', { name: 'Generate copy' }).count(), 0, 'copy generation must not remain available');
     assert.equal(await page.getByLabel('Rednote title').inputValue(), 'My unfinished title');
