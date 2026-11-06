@@ -453,16 +453,35 @@ async function sendToWorkstation(envelope, { env, fetchImpl, timestampDate }) {
 }
 
 // Surface CREATE's machine-readable error code so a rejection can be diagnosed without server logs. The code is
-// accepted only in a strict shape. The human message is passed through ONLY for validation errors, whose text names
-// field paths (e.g. "meme.punchline must not be empty"), never values, and is length-limited and stripped of
-// control characters. Nothing else from the response body is exposed.
+// accepted only in a strict shape. A human-readable detail is passed through ONLY when the whole message matches a
+// closed allowlist: a known MemeForge field path followed by one of a few fixed phrases (for example
+// "meme.punchline must not be empty"). Anything else, including messages that echo caller-supplied key names
+// ("contains unexpected field(s): ..."), idempotency keys or free text, is dropped and only the code is returned.
+const SAFE_VALIDATION_PATH_PARTS = new Set([
+  "meme", "schema", "format", "hook", "setup", "punchline", "caption", "hashtags", "visualDirection",
+  "stillSource", "kind", "title", "publisher", "query", "link",
+  "rights", "posture", "note", "registration", "deduplicated",
+  "framing", "focusX", "focusY", "textPlacement",
+]);
+const SAFE_VALIDATION_PHRASES = [
+  "must not be empty", "must be a string", "must be an object", "must be a boolean", "must be a finite number",
+  "must be an HTTPS URL", "must be a valid HTTPS URL", "must be greater than zero",
+];
+function safeValidationDetail(message) {
+  if (typeof message !== "string" || message.length > 200) return undefined;
+  const space = message.indexOf(" ");
+  if (space < 1) return undefined;
+  const path = message.slice(0, space);
+  const phrase = message.slice(space + 1);
+  const parts = path.split(".");
+  if (parts[0] !== "meme" || parts.length > 4 || !parts.every(part => SAFE_VALIDATION_PATH_PARTS.has(part))) return undefined;
+  if (SAFE_VALIDATION_PHRASES.includes(phrase)) return `${path} ${phrase}.`;
+  const atMost = /^must be at most (\d{1,5}) characters$/.exec(phrase);
+  return atMost ? `${path} ${phrase}.` : undefined;
+}
 function safeCreateError(payload, status) {
   const code = isRecord(payload) && typeof payload.code === "string" && /^[A-Z][A-Z0-9_]{2,63}$/.test(payload.code) ? payload.code : undefined;
-  let detail;
-  if (code === "FANDOM_PROJECT_VALIDATION_ERROR" && status === 400 && typeof payload.error === "string") {
-    detail = payload.error.replace(/[^\x20-\x7e]/g, " ").trim().slice(0, 200).replace(/[.\s]+$/, "") + ".";
-    if (detail === ".") detail = undefined;
-  }
+  const detail = code === "FANDOM_PROJECT_VALIDATION_ERROR" && status === 400 ? safeValidationDetail(payload.error) : undefined;
   return { code, detail };
 }
 
