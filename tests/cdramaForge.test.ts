@@ -90,3 +90,19 @@ test('cover crop responds independently to horizontal and vertical focus; one-li
   assert.equal(migrated.textPlacement, 'top-bottom');
   assert.deepEqual(restoreDraft({ getItem: () => JSON.stringify({ ...draft, ideas: [{ ...joke, setup: '', punchline: '' }] }) }), emptyDraft());
 });
+
+test('C-drama template copy is unchanged after moving to the shared per-platform template', () => {
+  const joke = { setup: 'One episode before bed', punchline: 'The sun: good morning', visualDirection: '', searchQuery: '' };
+  assert.deepEqual(suggestedCopy(joke), {
+    hook: 'One episode before bed',
+    tiktok: 'The sun: good morning',
+    instagram: 'One episode before bed\nThe sun: good morning',
+    hashtags: '#CDrama #CDramaFans #DramaHumor',
+  });
+  assert.deepEqual(suggestedCopy({ ...joke, setup: '  ', punchline: ' only a punchline ' }), {
+    hook: '',
+    tiktok: 'only a punchline',
+    instagram: '\nonly a punchline',
+    hashtags: '#CDrama #CDramaFans #DramaHumor',
+  });
+});

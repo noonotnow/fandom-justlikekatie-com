@@ -1,3 +1,4 @@
+import { platformAllowlist } from "../../../shared/social-platforms.js";
 import { createHash, createHmac } from "node:crypto";
 import { isIP } from "node:net";
 import { renderCanonicalOutput } from "./canonical-render.js";
@@ -14,7 +15,8 @@ import {
 export const CREATOR_DRAFT_SOURCE_SCHEMA = "fandom.creator-draft-source.v1";
 export const WORKSTATION_DELIVERABLE_SCHEMA = "fandom.static-deliverable.v1";
 export const WORKSTATION_WORKFLOW = "direct";
-export const CREATOR_PLATFORMS = ["rednote", "weibo", "instagram"];
+// CREATE's accepted set for grid handoffs; names come from the shared vocabulary.
+export const CREATOR_PLATFORMS = platformAllowlist(["rednote", "weibo", "instagram"]);
 const COLLECTION_STORE = "fandom-user-collections";
 const APPROVED_BOARD_AUTHORITY_STORE = "actor-audit";
 const RECEIPT_STORE = "creator-draft-handoffs";

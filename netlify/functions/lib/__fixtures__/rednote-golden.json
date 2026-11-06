@@ -1,0 +1,130 @@
+[
+  {
+    "status": 200,
+    "response": {
+      "mode": "rednote",
+      "result": {
+        "title": "T",
+        "caption": "C",
+        "tags": [
+          "#a",
+          "#b",
+          "#c"
+        ],
+        "model": "grok-2-test"
+      }
+    },
+    "request": {
+      "model": "grok-2-test",
+      "messages": [
+        {
+          "role": "user",
+          "content": "You are a Middle-earth Rednote (小红书) copy writer.\n\nCharacter steering: Legolas\nRequested tone: Dramatic\nLayout context: Classic top / bottom\nThe creative grammar controls style and emotional structure only. The selected source and final visual remain the factual anchors.\n\nSource record (use ONLY facts stated here — do NOT fabricate source details or quote long copyrighted Tolkien passages):\n(no source selected)\n\nFinal visual copy to ground your Rednote post on:\n  Title: Into the Shadow\n  Primary text: Not all those who wander are lost.\n  Layout: Classic top / bottom\n\nWrite a short, engaging Rednote post. The title and caption are REQUIRED and must be non-empty.\nProvide 3–8 hashtags. Each tag must start with # followed by 1–49 non-space, non-#, non-comma characters.\n\nRespond with ONLY a JSON object matching this exact schema — no markdown, no explanation:\n{\n  \"title\": \"non-empty string, max 120 chars\",\n  \"caption\": \"non-empty string, max 2200 chars\",\n  \"tags\": [\"#hashtag1\", \"#hashtag2\", \"… 3–8 tags, each #prefixed\"]\n}"
+        }
+      ],
+      "response_format": {
+        "type": "json_schema",
+        "json_schema": {
+          "name": "rednote_copy",
+          "strict": true,
+          "schema": {
+            "type": "object",
+            "properties": {
+              "title": {
+                "type": "string",
+                "minLength": 1,
+                "maxLength": 120
+              },
+              "caption": {
+                "type": "string",
+                "minLength": 1,
+                "maxLength": 2200
+              },
+              "tags": {
+                "type": "array",
+                "items": {
+                  "type": "string",
+                  "pattern": "^#[^\\s#,]{1,49}$"
+                },
+                "minItems": 3,
+                "maxItems": 8
+              }
+            },
+            "required": [
+              "title",
+              "caption",
+              "tags"
+            ],
+            "additionalProperties": false
+          }
+        }
+      },
+      "temperature": 0.7,
+      "max_tokens": 900
+    }
+  },
+  {
+    "status": 200,
+    "response": {
+      "mode": "rednote",
+      "result": {
+        "title": "T",
+        "caption": "C",
+        "tags": [
+          "#a",
+          "#b",
+          "#c"
+        ],
+        "model": "grok-2-test"
+      }
+    },
+    "request": {
+      "model": "grok-2-test",
+      "messages": [
+        {
+          "role": "user",
+          "content": "You are a Middle-earth Rednote (小红书) copy writer.\n\nFree-response moment: Defending my little treat with my life\nCharacter steering: Samwise\nMeme Flavor: Samwise Loyalty\nCore emotion: gentle enforcement\nSocial situation: a supportive friend refuses to let someone self-isolate, quit, or suffer quietly\nVisual cues: road companionship, exasperated support, practical resolve\nCreative guardrail: Make support funny through a practical refusal or contradiction, never an encouragement poster.\nDefault comic mechanisms: Relationship-specific contradiction | Severity inversion.\nPrototype social pattern: One friend tries to suffer alone; the loyal friend refuses the premise.\nDefault reaction-still family: sam-carrying-frodo\nGold-standard example shape (do not copy its wording): ME: I'LL SUFFER QUIETLY. / MY SAMWISE FRIEND: INCORRECT.\nComedy mechanism: Supportive contradiction: the friend agrees it is bad, then joins or intervenes anyway.\nAvoid: carries the load; generic encouragement; inspirational quote language; a tender summary.\nMutation rules: Map the moment to someone trying to quit, deny, or suffer alone. Make the friend practical, loyal, and slightly deadpan. Include a refusal, twist, or social contradiction.\nUse the prototype as the comedy spine, then write a fresh mutant for this user's moment. This is an original creative archetype, not permission to reproduce a meme template, movie still, lyric, or quotation.\nResolved comic mechanism: Intent reversal\nAesthetic: Cozy Hobbiton\nArtifact type: Meme card\nRequested tone: Deadpan\nLayout context: Classic top / bottom\nCreative direction: Keep it warm\nThe creative grammar controls style and emotional structure only. The selected source and final visual remain the factual anchors.\n\nSource record (use ONLY facts stated here — do NOT fabricate source details or quote long copyrighted Tolkien passages):\nTitle: Sam and Frodo | Publisher: publisher.example | Search query that surfaced it: Sam protective\n\nFinal visual copy to ground your Rednote post on:\n  Title: Snack defense\n  Primary text: ME: ONE LITTLE TREAT ONLY\n  Secondary text: ALSO ME: GUARD THE STASH WITH SWORD\n  Card format: Internal Debate Card\n  Layout: Classic top / bottom\n\nExisting draft to REFINE (edit and improve; do not start from scratch unless it is blank):\n  Current title: Old title\n  Current caption: Old caption\n  Current tags: #LOTR #Samwise #Snacks\n\nWrite a short, engaging Rednote post. The title and caption are REQUIRED and must be non-empty.\nProvide 3–8 hashtags. Each tag must start with # followed by 1–49 non-space, non-#, non-comma characters.\n\nRespond with ONLY a JSON object matching this exact schema — no markdown, no explanation:\n{\n  \"title\": \"non-empty string, max 120 chars\",\n  \"caption\": \"non-empty string, max 2200 chars\",\n  \"tags\": [\"#hashtag1\", \"#hashtag2\", \"… 3–8 tags, each #prefixed\"]\n}"
+        }
+      ],
+      "response_format": {
+        "type": "json_schema",
+        "json_schema": {
+          "name": "rednote_copy",
+          "strict": true,
+          "schema": {
+            "type": "object",
+            "properties": {
+              "title": {
+                "type": "string",
+                "minLength": 1,
+                "maxLength": 120
+              },
+              "caption": {
+                "type": "string",
+                "minLength": 1,
+                "maxLength": 2200
+              },
+              "tags": {
+                "type": "array",
+                "items": {
+                  "type": "string",
+                  "pattern": "^#[^\\s#,]{1,49}$"
+                },
+                "minItems": 3,
+                "maxItems": 8
+              }
+            },
+            "required": [
+              "title",
+              "caption",
+              "tags"
+            ],
+            "additionalProperties": false
+          }
+        }
+      },
+      "temperature": 0.7,
+      "max_tokens": 900
+    }
+  }
+]
