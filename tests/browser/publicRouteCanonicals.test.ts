@@ -368,8 +368,13 @@ for (const engine of BROWSER_ENGINES.filter(({ id }) => id === 'firefox' || id =
         await gotoTestPage(page, origin, { waitUntil: 'domcontentloaded' });
         // Playwright's click completion is not a React render-completion signal.
         // Wait for each state transition rather than sampling the old DOM state.
-        await more.click();
-        await expect(more).toHaveAttribute('aria-expanded', 'true');
+        // The first click after a fresh load can land before React has hydrated the menu (observed intermittently in
+        // Firefox on CI), and a pre-hydration click is silently dropped. Click only while the menu is still closed, so
+        // retrying can never toggle it back, and wait for the open state each time.
+        await expect(async () => {
+          if ((await more.getAttribute('aria-expanded')) !== 'true') await more.click();
+          await expect(more).toHaveAttribute('aria-expanded', 'true', { timeout: 1_500 });
+        }, `${engine.name} ${width}px: first click opens the menu once hydrated`).toPass({ timeout: 20_000 });
         await more.click();
         await expect(more, `${engine.name} ${width}px: trigger click toggles the menu`).toHaveAttribute('aria-expanded', 'false');
         await more.click();
