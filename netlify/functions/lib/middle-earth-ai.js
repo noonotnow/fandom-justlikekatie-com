@@ -1,4 +1,9 @@
 import { json } from "./public-auth.js";
+import {
+  SHARE_KIT_PLATFORMS,
+  normalizeShareTag,
+  shareCopyContract,
+} from "../../../shared/meme-share-copy.js";
 import { getWithResolvedEtag } from "./blob-store.js";
 import {
   AESTHETIC_NAMES,
@@ -344,11 +349,28 @@ function buildTranslationPrompt({ moment, character, memeFlavor, aesthetic, arti
   ].filter(line => line !== null).join("\n");
 }
 
-function buildRednotePrompt({ moment, character, memeFlavor, comicMechanism, aesthetic, artifactType, tone, layout, guidance, source, visual, currentCopy }) {
-  const hasCurrentCopy = currentCopy && (currentCopy.title || currentCopy.caption || (currentCopy.tags && currentCopy.tags.length));
+/**
+ * One copy writer for every share-kit platform. The lens (Middle-earth) supplies
+ * the creative context; the platform contract supplies the post's fields,
+ * hashtag bounds and guidance. Rednote's contract has no extra guidance, so its
+ * prompt is exactly what the Rednote writer always sent (pinned by
+ * __fixtures__/rednote-golden.json).
+ */
+function buildCopyPrompt(
+  { moment, character, memeFlavor, comicMechanism, aesthetic, artifactType, tone, layout, guidance, source, visual, currentCopy },
+  contract,
+) {
+  const fieldKeys = contract.fields.map(field => field.key);
+  const hasCurrentCopy = currentCopy && (
+    fieldKeys.some(key => currentCopy[key]) || (currentCopy.tags && currentCopy.tags.length)
+  );
   const flavorDetails = memeFlavorPromptDetails(memeFlavor);
+  const required = contract.fields.filter(field => field.required).map(field => field.key);
+  const requiredList = required.length > 1
+    ? `${required.slice(0, -1).join(", ")} and ${required[required.length - 1]}`
+    : required[0];
   return [
-    `You are a Middle-earth Rednote (小红书) copy writer.`,
+    `You are a Middle-earth ${contract.writerName} copy writer.`,
     ``,
     moment ? `Free-response moment: ${moment}` : null,
     `Character steering: ${character || "Auto"}`,
@@ -364,7 +386,7 @@ function buildRednotePrompt({ moment, character, memeFlavor, comicMechanism, aes
     `Source record (use ONLY facts stated here — do NOT fabricate source details or quote long copyrighted Tolkien passages):`,
     renderSource(source),
     ``,
-    `Final visual copy to ground your Rednote post on:`,
+    `Final visual copy to ground your ${contract.postName} post on:`,
     `  Title: ${visual.title}`,
     `  Primary text: ${visual.primaryText}`,
     visual.secondaryText ? `  Secondary text: ${visual.secondaryText}` : null,
@@ -374,24 +396,27 @@ function buildRednotePrompt({ moment, character, memeFlavor, comicMechanism, aes
       ? [
           ``,
           `Existing draft to REFINE (edit and improve; do not start from scratch unless it is blank):`,
-          currentCopy.title ? `  Current title: ${currentCopy.title}` : null,
-          currentCopy.caption ? `  Current caption: ${currentCopy.caption}` : null,
+          ...fieldKeys.map(key => currentCopy[key] ? `  Current ${key}: ${currentCopy[key]}` : null),
           currentCopy.tags && currentCopy.tags.length
             ? `  Current tags: ${currentCopy.tags.join(" ")}`
             : null,
         ].filter(line => line !== null).join("\n")
       : null,
     ``,
-    `Write a short, engaging Rednote post. The title and caption are REQUIRED and must be non-empty.`,
-    `Provide ${MIN_HASHTAGS}–${MAX_HASHTAGS} hashtags. Each tag must start with # followed by 1–${MAX_TAG_BODY_LEN} non-space, non-#, non-comma characters.`,
+    `Write a short, engaging ${contract.postName} post. The ${requiredList} ${required.length > 1 ? "are" : "is"} REQUIRED and must be non-empty.`,
+    ...contract.guidance,
+    `Provide ${contract.tags.min}–${contract.tags.max} hashtags. Each tag must start with # followed by 1–${MAX_TAG_BODY_LEN} non-space, non-#, non-comma characters.`,
     ``,
     `Respond with ONLY a JSON object matching this exact schema — no markdown, no explanation:`,
     `{`,
-    `  "title": "non-empty string, max ${MAX_TITLE_LEN} chars",`,
-    `  "caption": "non-empty string, max ${MAX_CAPTION_LEN} chars",`,
-    `  "tags": ["#hashtag1", "#hashtag2", "… ${MIN_HASHTAGS}–${MAX_HASHTAGS} tags, each #prefixed"]`,
+    ...contract.fields.map(field => `  "${field.key}": "non-empty string, max ${field.maxLength} chars",`),
+    `  "tags": ["#hashtag1", "#hashtag2", "… ${contract.tags.min}–${contract.tags.max} tags, each #prefixed"]`,
     `}`,
   ].filter(line => line !== null).join("\n");
+}
+
+function buildRednotePrompt(validated) {
+  return buildCopyPrompt(validated, shareCopyContract("rednote"));
 }
 
 // ---------------------------------------------------------------------------
@@ -434,25 +459,32 @@ const VISUAL_JSON_SCHEMA = {
   },
 };
 
-const REDNOTE_JSON_SCHEMA = {
-  name: "rednote_copy",
-  strict: true,
-  schema: {
-    type: "object",
-    properties: {
-      title:   { type: "string", minLength: 1, maxLength: MAX_TITLE_LEN },
-      caption: { type: "string", minLength: 1, maxLength: MAX_CAPTION_LEN },
-      tags:    {
-        type: "array",
-        items: { type: "string", pattern: "^#[^\\s#,]{1,49}$" },
-        minItems: MIN_HASHTAGS,
-        maxItems: MAX_HASHTAGS,
-      },
+function copyJsonSchema(contract) {
+  const properties = {};
+  for (const field of contract.fields) {
+    properties[field.key] = field.required
+      ? { type: "string", minLength: 1, maxLength: field.maxLength }
+      : { type: "string", maxLength: field.maxLength };
+  }
+  properties.tags = {
+    type: "array",
+    items: { type: "string", pattern: "^#[^\\s#,]{1,49}$" },
+    minItems: contract.tags.min,
+    maxItems: contract.tags.max,
+  };
+  return {
+    name: `${contract.platform}_copy`,
+    strict: true,
+    schema: {
+      type: "object",
+      properties,
+      required: [...contract.fields.map(field => field.key), "tags"],
+      additionalProperties: false,
     },
-    required: ["title", "caption", "tags"],
-    additionalProperties: false,
-  },
-};
+  };
+}
+
+const REDNOTE_JSON_SCHEMA = copyJsonSchema(shareCopyContract("rednote"));
 
 const TRANSLATION_JSON_SCHEMA = {
   name: "meme_translation",
@@ -827,6 +859,27 @@ function normalizeVisualOutput(raw, requestedModel, memeFlavor, comicMechanism, 
   };
 }
 
+/** TikTok / Instagram output: same tag rules as Rednote, bounds from the platform contract. */
+function normalizeShareCopyOutput(raw, contract, requestedModel) {
+  if (typeof raw !== "object" || raw === null) {
+    throw new AppError("AI returned an unexpected response format.", 502);
+  }
+  const fields = {};
+  for (const field of contract.fields) {
+    const value = clamp(raw[field.key], field.maxLength);
+    fields[field.key] = field.required ? requireNonempty(value, field.key) : value;
+  }
+  const seen = new Set();
+  const tags = (Array.isArray(raw.tags) ? raw.tags : [])
+    .map(normalizeShareTag)
+    .filter(tag => tag && !seen.has(tag) && seen.add(tag))
+    .slice(0, contract.tags.max);
+  if (tags.length < contract.tags.min) {
+    throw new AppError(`AI returned too few valid hashtags (got ${tags.length}, need ${contract.tags.min}).`, 502);
+  }
+  return { fields, tags, ...(requestedModel ? { model: requestedModel } : {}) };
+}
+
 function normalizeRednoteOutput(raw, requestedModel) {
   if (typeof raw !== "object" || raw === null) {
     throw new AppError("AI returned an unexpected response format.", 502);
@@ -1100,6 +1153,21 @@ function validateVisual(v) {
   };
 }
 
+function validateShareCurrentCopy(c, contract) {
+  if (!c || typeof c !== "object") return undefined;
+  const copy = {};
+  for (const field of contract.fields) {
+    copy[field.key] = str(c.fields?.[field.key], field.maxLength, `currentCopy.fields.${field.key}`);
+  }
+  copy.tags = Array.isArray(c.tags)
+    ? c.tags
+        .filter(t => typeof t === "string" && t.trim())
+        .slice(0, contract.tags.max)
+        .map((tag, index) => str(tag, 1 + MAX_TAG_BODY_LEN, `currentCopy.tags[${index}]`))
+    : undefined;
+  return copy;
+}
+
 function validateCurrentCopy(c) {
   if (!c || typeof c !== "object") return undefined;
   return {
@@ -1119,8 +1187,8 @@ function validateBody(body) {
     throw new AppError("Request body must be a JSON object.");
   }
   const mode = body.mode;
-  if (mode !== "visual" && mode !== "rednote" && mode !== "translation") {
-    throw new AppError('mode must be "visual", "rednote", or "translation".');
+  if (mode !== "visual" && mode !== "rednote" && mode !== "translation" && mode !== "share-copy") {
+    throw new AppError('mode must be "visual", "rednote", "share-copy", or "translation".');
   }
 
   if (mode === "translation") {
@@ -1162,6 +1230,23 @@ function validateBody(body) {
     const visual = validateVisual(body.visual);
     const currentCopy = validateCurrentCopy(body.currentCopy);
     return { mode, moment, character, memeFlavor, comicMechanism, aesthetic, artifactType, tone, layout, guidance, source, reactionImageBrief, visual, currentCopy };
+  }
+
+  if (mode === "share-copy") {
+    const platform = body.platform;
+    if (!SHARE_KIT_PLATFORMS.includes(platform)) {
+      throw new AppError(`platform must be one of: ${SHARE_KIT_PLATFORMS.join(", ")}.`);
+    }
+    const visual = validateVisual(body.visual);
+    const currentCopy = platform === "rednote"
+      // Rednote keeps its original validation, so the request it builds is unchanged.
+      ? validateCurrentCopy(body.currentCopy && {
+          title: body.currentCopy.fields?.title,
+          caption: body.currentCopy.fields?.caption,
+          tags: body.currentCopy.tags,
+        })
+      : validateShareCurrentCopy(body.currentCopy, shareCopyContract(platform));
+    return { mode, platform, moment, character, memeFlavor, comicMechanism, aesthetic, artifactType, tone, layout, guidance, source, reactionImageBrief, visual, currentCopy };
   }
 
   let cardText;
@@ -1260,6 +1345,27 @@ export function createMiddleEarthAIHandler({
         const prompt = buildRednotePrompt(validated);
         const raw = await callXAI({ connectorClient, model, prompt, jsonSchema: REDNOTE_JSON_SCHEMA });
         result = normalizeRednoteOutput(raw, model);
+      } else if (validated.mode === "share-copy") {
+        const contract = shareCopyContract(validated.platform);
+        if (validated.platform === "rednote") {
+          // Exactly the Rednote writer's request and normalization, reshaped for the share kit.
+          const raw = await callXAI({ connectorClient, model, prompt: buildRednotePrompt(validated), jsonSchema: REDNOTE_JSON_SCHEMA });
+          const rednote = normalizeRednoteOutput(raw, model);
+          result = {
+            platform: "rednote",
+            fields: { title: rednote.title, caption: rednote.caption },
+            tags: rednote.tags,
+            ...(rednote.model ? { model: rednote.model } : {}),
+          };
+        } else {
+          const raw = await callXAI({
+            connectorClient,
+            model,
+            prompt: buildCopyPrompt(validated, contract),
+            jsonSchema: copyJsonSchema(contract),
+          });
+          result = { platform: validated.platform, ...normalizeShareCopyOutput(raw, contract, model) };
+        }
       } else {
         const prompt = buildTranslationPrompt(validated);
         // Three angles plus the image brief need more room than one card did.

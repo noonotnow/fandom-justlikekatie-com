@@ -565,16 +565,18 @@ test('source treatment supports clean-still forging, existing-meme rework, and u
   );
   assert.match(
     source,
-    /\{isEditorRequired && <details className=\{styles\.sharePanel\}>[\s\S]*?<strong>Rednote copy<\/strong>/,
+    /\{isEditorRequired && <details className=\{styles\.sharePanel\}>[\s\S]*?<strong>Post copy<\/strong>/,
     'the Share panel must remain unavailable when an unchanged source needs no editing',
   );
   assert.doesNotMatch(source, /Rednote Spellbook|activeStep|selectStep/, 'the Spellbook is no longer a top-level mode');
   assert.equal(source.match(/>Sign in to generate</g)?.length, 1, 'the editor and Share panel use distinct sign-in prompts');
   assert.match(source, />Sign in to write copy</);
-  assert.match(source, /const rednoteIsStale = Boolean\(\s*visualGeneration && rednoteGroundingFingerprint && rednoteTouched && !rednoteIsCurrent,\s*\);/,
-    'only generated copy can be stale');
-  assert.match(source, /rednoteIsStale \? "Copy is stale · reopen to regenerate" : "Drafted"/,
+  assert.match(source, /const shareIsStale = \(platform: SharePlatform\) => Boolean\(\s*visualGeneration && shareCopy\[platform\]\.fingerprint && shareCopy\[platform\]\.copy && !shareIsCurrent\(platform\),\s*\);/,
+    'only AI-written copy can be stale');
+  assert.match(source, /copy is stale · reopen to regenerate`\s*\n\s*: anyShareEdited \? "Drafted"/,
     'the collapsed summary must surface stale copy instead of a plain "Drafted"');
+  assert.match(source, /\.\.\.\(edited \? \{/, 'untouched template copy is never sent to the writer');
+  assert.doesNotMatch(source, /generateRednoteCopy|rednoteTitle|rednoteGroundingFingerprint/, 'Rednote is one platform, not a special case');
   assert.match(source, /<span>Writing copy for<\/span>/, 'the panel shows which card the copy describes');
   assert.match(source, /disabled=\{busy \|\| !visualGeneration \|\| !text\.trim\(\)\}>\{busy \? "Writing…"/,
     'copy writing keeps its Forge gate in this step');

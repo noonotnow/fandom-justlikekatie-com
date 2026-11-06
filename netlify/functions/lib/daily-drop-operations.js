@@ -1,3 +1,4 @@
+import { platformAllowlist } from "../../../shared/social-platforms.js";
 import { randomUUID } from "node:crypto";
 import {
   GRID_MANIFEST_PREFIX,
@@ -9,7 +10,8 @@ import { archiveReaderLinkDiagnostic } from "./archive-access.js";
 
 const RECEIPT_PREFIX = "vibeAtlas:publication-receipts:v1:";
 const DATE_RE = /^\d{4}-\d{2}-\d{2}$/;
-const CHANNELS = ["rednote", "weibo", "instagram"];
+// Daily-drop's own channel set; names come from the shared vocabulary.
+const CHANNELS = platformAllowlist(["rednote", "weibo", "instagram"]);
 const CHANNEL_SET = new Set(CHANNELS);
 
 export const dailyDropReceiptKey = (date, channel) =>

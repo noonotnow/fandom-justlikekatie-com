@@ -117,7 +117,7 @@ test(`an expired Rednote Spellbook session returns copy generation to sign-in wi
     });
     await page.route('**/api/middle-earth-ai', route => {
       const { mode } = route.request().postDataJSON() as { mode: string };
-      if (mode === 'rednote') {
+      if (mode === 'share-copy') {
         sessionActive = false;
         return route.fulfill({
           status: 401,
@@ -197,18 +197,18 @@ test(`an expired Rednote Spellbook session returns copy generation to sign-in wi
     await page.getByRole('button', { name: 'Forge card' }).click();
     await page.getByText('Visual object generated').waitFor();
     await page.getByLabel('Setup line').fill('MY EDITED VISUAL SETUP');
-    await page.getByText('Rednote copy', { exact: true }).click();
+    await page.getByText('Post copy', { exact: true }).click();
     await page.getByLabel('Rednote title').fill('My unfinished title');
-    await page.getByRole('button', { name: 'Generate copy' }).click();
+    await page.getByRole('button', { name: 'Write with AI' }).click();
     await page.getByRole('status').getByText('Your session expired. Sign in again.').waitFor();
     await page.getByRole('link', { name: 'Sign in to generate' }).waitFor();
     await page.getByRole('link', { name: 'Sign in to write copy' }).waitFor();
     assert.equal(await page.getByRole('link', { name: 'Sign in to generate' }).count(), 1, 'one sign-in prompt per action');
     assert.ok(sessionChecks >= 2, 'the 401 must trigger a public session refresh');
-    assert.equal(await page.getByRole('button', { name: 'Generate copy' }).count(), 0, 'copy generation must not remain available');
+    assert.equal(await page.getByRole('button', { name: 'Write with AI' }).count(), 0, 'copy generation must not remain available');
     assert.equal(await page.getByLabel('Rednote title').inputValue(), 'My unfinished title');
     assert.equal(await page.getByLabel('Setup line').inputValue(), 'MY EDITED VISUAL SETUP', 'the editor and Share panel are visible together');
-    assert.equal(await page.getByText('Forge the card above before writing its Rednote copy.').count(), 0);
+    assert.equal(await page.getByText('Template copy works now. Forge the card above to write it with AI.').count(), 0);
 
     const savedRecords = await page.evaluate(async () => new Promise<Record<string, unknown>[]>((resolve, reject) => {
       const request = indexedDB.open('vibe-atlas-collection', 3);
@@ -823,7 +823,7 @@ test('a signed-in creator can translate, swap reaction stills, export, and prese
     assert.equal(await page.getByLabel('The moment').count(), 0, 'unchanged memes should bypass translation');
     assert.equal(await page.getByText('This path preserves the finished meme exactly.').isVisible(), true);
     assert.equal(
-      await page.getByText('Rednote copy', { exact: true }).count(),
+      await page.getByText('Post copy', { exact: true }).count(),
       0,
       'the Share panel should not appear when the selected path has no editor',
     );

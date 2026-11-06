@@ -2,6 +2,7 @@ import assert from 'node:assert/strict';
 import test from 'node:test';
 import {
   emptyMiddleEarthDraft,
+  emptyShareCopy,
   isEmptyMiddleEarthDraft,
   MIDDLE_EARTH_DRAFT_KEY,
   restoreMiddleEarthDraft,
@@ -80,7 +81,7 @@ test('an empty draft removes the key instead of storing blanks', () => {
 });
 
 test('corrupt, foreign or oversized storage restores an empty draft', () => {
-  for (const raw of ['not json', '{"version":2,"moment":"x"}', 'null', 'x'.repeat(1_000_001)]) {
+  for (const raw of ['not json', '{"version":3,"moment":"x"}', 'null', 'x'.repeat(1_000_001)]) {
     assert.deepEqual(restoreMiddleEarthDraft(memoryStorage({ [MIDDLE_EARTH_DRAFT_KEY]: raw })), emptyMiddleEarthDraft());
   }
 });
@@ -136,7 +137,42 @@ test('every steering option the workspace offers survives a restore', async () =
 
 test('a draft holding only angles or Rednote copy still counts as a draft', () => {
   const anglesOnly = { ...emptyMiddleEarthDraft(), angles: [{ format: 'Reaction Card', line1: 'a', line2: 'b', footer: '' }] };
-  const copyOnly = { ...emptyMiddleEarthDraft(), rednoteCaption: 'caption' };
+  const copyOnly = {
+    ...emptyMiddleEarthDraft(),
+    shareCopy: { ...emptyShareCopy(), tiktok: { copy: { fields: { hook: 'h', caption: 'c' }, tags: [] }, fingerprint: '' } },
+  };
   assert.equal(isEmptyMiddleEarthDraft(anglesOnly), false);
   assert.equal(isEmptyMiddleEarthDraft(copyOnly), false);
+});
+
+test('a v1 draft migrates its Rednote copy into the Rednote slot', () => {
+  const v1 = {
+    version: 1, moment: 'Old draft', text: 'setup', secondaryText: 'punch',
+    rednoteTitle: 'Old title', rednoteCaption: 'Old caption', rednoteTags: ['#lotr', '#sam', '#snacks'], rednoteGroundingFingerprint: 'fp-1',
+  };
+  const restored = restoreMiddleEarthDraft(memoryStorage({ [MIDDLE_EARTH_DRAFT_KEY]: JSON.stringify(v1) }));
+  assert.equal(restored.version, 2);
+  assert.equal(restored.moment, 'Old draft');
+  assert.equal(restored.sharePlatform, 'rednote');
+  assert.deepEqual(restored.shareCopy.rednote, { copy: { fields: { title: 'Old title', caption: 'Old caption' }, tags: ['#lotr', '#sam', '#snacks'] }, fingerprint: 'fp-1' });
+  assert.equal(restored.shareCopy.tiktok.copy, null);
+  const blank = restoreMiddleEarthDraft(memoryStorage({ [MIDDLE_EARTH_DRAFT_KEY]: JSON.stringify({ ...v1, rednoteTitle: '', rednoteCaption: '', rednoteTags: [] }) }));
+  assert.equal(blank.shareCopy.rednote.copy, null, 'an empty v1 Rednote copy follows the template');
+});
+
+test('v2 share copy round-trips per platform and drops unknown fields', () => {
+  const storage = memoryStorage();
+  const shareCopy = {
+    ...emptyShareCopy(),
+    tiktok: { copy: { fields: { hook: 'Hook', caption: 'Joke' }, tags: ['#lotr'] }, fingerprint: 'fp' },
+    instagram: { copy: { fields: { caption: 'Caption', title: 'not an Instagram field' }, tags: [] }, fingerprint: '' },
+  };
+  writeMiddleEarthDraft(storage, { ...filledDraft(), sharePlatform: 'instagram', shareCopy });
+  const restored = restoreMiddleEarthDraft(storage);
+  assert.equal(restored.sharePlatform, 'instagram');
+  assert.deepEqual(restored.shareCopy.tiktok, shareCopy.tiktok);
+  assert.deepEqual(restored.shareCopy.instagram.copy?.fields, { caption: 'Caption' });
+  assert.equal(restored.shareCopy.rednote.copy, null);
+  const foreign = restoreMiddleEarthDraft(memoryStorage({ [MIDDLE_EARTH_DRAFT_KEY]: JSON.stringify({ ...filledDraft(), sharePlatform: 'weibo' }) }));
+  assert.equal(foreign.sharePlatform, 'rednote', 'platforms outside the share kit fall back to Rednote');
 });

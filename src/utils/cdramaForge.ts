@@ -1,3 +1,5 @@
+import { templateShareCopy } from '../../shared/meme-share-copy.js';
+import { MEME_LENSES } from '../data/memeLenses.ts';
 import { loadCardImage as loadMemeImage, type MemeFormat, type MemeTextPlacement } from './memeCanvas.ts';
 
 // The C-drama renderer now lives in memeCanvas so Middle-earth reaction memes
@@ -54,13 +56,16 @@ export function restoreDraft(storage: Pick<Storage, 'getItem'>): ForgeDraft {
     };
   } catch { return emptyDraft(); }
 }
+/** C-drama's default post copy, built from the shared per-platform template and the lens's topic tags. */
 export function suggestedCopy(joke: Joke): PostCopy {
-  const setup = joke.setup.trim(), punchline = joke.punchline.trim();
+  const tags = MEME_LENSES['c-drama'].topicTags;
+  const tiktok = templateShareCopy('tiktok', joke, tags);
+  const instagram = templateShareCopy('instagram', joke, tags);
   return {
-    hook: setup,
-    tiktok: punchline,
-    instagram: `${setup}\n${punchline}`,
-    hashtags: '#CDrama #CDramaFans #DramaHumor',
+    hook: tiktok.fields.hook,
+    tiktok: tiktok.fields.caption,
+    instagram: instagram.fields.caption,
+    hashtags: tags.join(' '),
   };
 }
 export function readLocalImage(file: File): Promise<string> {

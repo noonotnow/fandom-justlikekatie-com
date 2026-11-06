@@ -46,7 +46,9 @@ const translation = {
   model: 'grok-test',
 };
 
-async function mockServices(page: Page, counters: { collectionWrites: number }) {
+type Counters = { collectionWrites: number; shareRequests: Record<string, unknown>[] };
+
+async function mockServices(page: Page, counters: Counters) {
   await page.route('**/api/auth/session', route => route.fulfill({
     contentType: 'application/json',
     body: JSON.stringify({ user: { accountId: 'draft-member', email: 'member@example.test', isAdmin: false } }),
@@ -64,11 +66,12 @@ async function mockServices(page: Page, counters: { collectionWrites: number }) 
     if (request.mode === 'translation') {
       return route.fulfill({ contentType: 'application/json', body: JSON.stringify({ result: translation }) });
     }
-    if (request.mode === 'rednote') {
-      return route.fulfill({
-        contentType: 'application/json',
-        body: JSON.stringify({ result: { title: 'Snack defense', caption: 'Guarding the stash.', tags: ['#LOTR', '#Samwise', '#Snacks'], model: 'grok-test' } }),
-      });
+    if (request.mode === 'share-copy') {
+      counters.shareRequests.push(request);
+      const result = request.platform === 'tiktok'
+        ? { platform: 'tiktok', fields: { hook: 'Snack defense mode', caption: 'ME: one treat. ALSO ME: sword.' }, tags: ['#lotr'], model: 'grok-test' }
+        : { platform: 'rednote', fields: { title: 'Snack defense', caption: 'Guarding the stash.' }, tags: ['#lotr', '#samwise', '#snacks'], model: 'grok-test' };
+      return route.fulfill({ contentType: 'application/json', body: JSON.stringify({ result }) });
     }
     const card = request.cardText as Record<string, string>;
     return route.fulfill({
@@ -101,7 +104,7 @@ const storedDraft = (page: Page) => page.evaluate(key => window.localStorage.get
 test('the Middle-earth reaction draft survives reload, clears, and starts fresh, all on this device', { timeout: 120_000 }, async () => {
   const { server, origin } = await startViteTestServer();
   const { browser, page } = await launchPageForServer(server);
-  const counters = { collectionWrites: 0 };
+  const counters: Counters = { collectionWrites: 0, shareRequests: [] };
   try {
     await mockServices(page, counters);
     await gotoTestPage(page, `${origin}/memeforge/middle-earth`);
@@ -120,7 +123,7 @@ test('the Middle-earth reaction draft survives reload, clears, and starts fresh,
     await page.getByText('Draft saved on this device').waitFor();
 
     const saved = JSON.parse(await storedDraft(page) ?? 'null');
-    assert.equal(saved.version, 1, 'the draft is stored in localStorage under its own versioned key');
+    assert.equal(saved.version, 2, 'the draft is stored in localStorage under its own versioned key');
     assert.equal(saved.selectedAngle, 1);
     assert.equal(saved.text, 'my snack drawer, guarded');
     assert.equal(saved.memeFrame.format, 'tiktok');
@@ -171,37 +174,89 @@ test('the Middle-earth reaction draft survives reload, clears, and starts fresh,
   }
 });
 
-test('the Share panel flags stale Rednote copy on its collapsed summary', { timeout: 90_000 }, async () => {
+test('the Share panel gives every platform template copy, AI on request, and flags stale AI copy', { timeout: 120_000 }, async () => {
   const { server, origin } = await startViteTestServer();
   const { browser, page } = await launchPageForServer(server);
+  const counters: Counters = { collectionWrites: 0, shareRequests: [] };
   try {
-    await mockServices(page, { collectionWrites: 0 });
+    await page.context().grantPermissions(['clipboard-read', 'clipboard-write']);
+    await mockServices(page, counters);
     await gotoTestPage(page, `${origin}/memeforge/middle-earth`);
     await page.getByLabel('The moment').fill('Defending my little treat with my life');
     await page.getByRole('button', { name: 'Translate moment' }).click();
     await page.getByRole('button', { name: /^Sam guards Frodo/ }).waitFor();
-    await page.getByRole('button', { name: 'Forge card' }).click();
-    await page.getByText('Visual object generated').waitFor();
 
-    const summary = page.locator('details summary', { hasText: 'Rednote copy' });
+    const summary = page.locator('details summary', { hasText: 'Post copy' });
+    await summary.getByText('Optional · template copy is ready for each platform').waitFor();
     await summary.click();
     await page.getByText('Writing copy for').waitFor();
-    // Hand-written copy after forging has nothing to be stale against.
-    await page.getByLabel('Rednote title').fill('My own title');
-    await page.getByLabel('Setup line').fill('an edit before any copy was generated');
-    await summary.getByText('Drafted', { exact: true }).waitFor();
-    assert.equal(await page.getByText('The grounding changed. Regenerate this copy before saving it.').count(), 0);
-    await page.getByRole('button', { name: 'Generate copy' }).click();
-    await page.getByText('Rednote title, caption, and tags generated.', { exact: false }).waitFor();
-    await summary.getByText('Drafted', { exact: true }).waitFor();
+
+    // Template copy works before forging, on every platform, with no AI call.
+    assert.equal(await page.getByLabel('Rednote title').inputValue(), 'ME: ONE LITTLE TREAT ONLY');
+    assert.equal(await page.getByLabel('Rednote caption').inputValue(), 'ME: ONE LITTLE TREAT ONLY\nALSO ME: GUARD THE STASH WITH SWORD');
+    assert.equal(await page.getByLabel(/^Rednote tags/).inputValue(), '#LOTR #MiddleEarth #LordOfTheRings');
+    await page.getByRole('tab', { name: /^TikTok/ }).click();
+    assert.equal(await page.getByLabel('TikTok hook').inputValue(), 'ME: ONE LITTLE TREAT ONLY');
+    assert.equal(await page.getByLabel('TikTok caption').inputValue(), 'ALSO ME: GUARD THE STASH WITH SWORD');
+    await page.getByRole('button', { name: 'Copy TikTok post' }).click();
+    assert.equal(await page.evaluate(() => navigator.clipboard.readText()),
+      'ME: ONE LITTLE TREAT ONLY\n\nALSO ME: GUARD THE STASH WITH SWORD\n\n#LOTR #MiddleEarth #LordOfTheRings');
+    await page.getByRole('tab', { name: /^Instagram/ }).click();
+    assert.equal(await page.getByLabel('Instagram caption').inputValue(), 'ME: ONE LITTLE TREAT ONLY\nALSO ME: GUARD THE STASH WITH SWORD');
+    assert.equal(await page.getByRole('button', { name: 'Write with AI' }).isDisabled(), true, 'AI stays behind the Forge gate');
+    await page.getByText('Template copy works now. Forge the card above to write it with AI.').waitFor();
+    assert.equal(counters.shareRequests.length, 0);
+
+    // Tags can be typed with spaces between them.
+    await page.getByLabel(/^Instagram tags/).fill('');
+    await page.getByLabel(/^Instagram tags/).pressSequentially('#LOTR #Sam');
+    assert.equal(await page.getByLabel(/^Instagram tags/).inputValue(), '#LOTR #Sam');
+    await page.getByRole('tab', { name: /^Instagram.*edited/ }).waitFor();
 
     await summary.click();
-    await page.getByLabel('Setup line').fill('a different setup');
-    await summary.getByText('Copy is stale · reopen to regenerate').waitFor();
-    assert.equal(await page.getByText('The grounding changed. Regenerate this copy before saving it.').isVisible(), false,
-      'the detailed warning stays inside the collapsed panel');
+    await page.getByRole('button', { name: 'Forge card' }).click();
+    await page.getByText('Visual object generated').waitFor();
     await summary.click();
-    await page.getByText('The grounding changed. Regenerate this copy before saving it.').waitFor();
+
+    // Rednote: untouched template copy is not sent, so the writer starts fresh as before.
+    await page.getByRole('tab', { name: /^Rednote/ }).click();
+    await page.getByRole('button', { name: 'Write with AI' }).click();
+    await page.getByText('Rednote copy written. Edit anything before posting.').waitFor();
+    assert.equal(counters.shareRequests[0].platform, 'rednote');
+    assert.equal('currentCopy' in counters.shareRequests[0], false, 'template copy is not sent as refinement context');
+    assert.equal(await page.getByLabel('Rednote title').inputValue(), 'Snack defense');
+    await page.getByRole('tab', { name: /^Rednote.*AI/ }).waitFor();
+    await summary.getByText('Drafted', { exact: true }).waitFor();
+
+    // TikTok: edited copy is sent for refinement.
+    await page.getByRole('tab', { name: /^TikTok/ }).click();
+    await page.getByLabel('TikTok hook').fill('My hook');
+    await page.getByRole('button', { name: 'Write with AI' }).click();
+    await page.getByText('TikTok copy written. Edit anything before posting.').waitFor();
+    assert.deepEqual(counters.shareRequests[1].currentCopy, {
+      fields: { hook: 'My hook', caption: 'ALSO ME: GUARD THE STASH WITH SWORD' },
+      tags: ['#LOTR', '#MiddleEarth', '#LordOfTheRings'],
+    });
+
+    // Editing the card makes AI copy stale; the closed summary says which platforms.
+    await summary.click();
+    await page.getByLabel('Setup line').fill('a different setup');
+    await summary.getByText('Rednote, TikTok copy is stale · reopen to regenerate').waitFor();
+    await summary.click();
+    await page.getByText('The grounding changed. Regenerate this copy before posting.').waitFor();
+    await page.getByRole('button', { name: 'Reset to template' }).click();
+    assert.equal(await page.getByLabel('TikTok hook').inputValue(), 'a different setup', 'reset follows the card again');
+    await summary.click();
+    await summary.getByText('Rednote copy is stale · reopen to regenerate').waitFor();
+
+    // Per-platform copy survives a reload through the v2 draft.
+    await page.reload();
+    await page.getByText('Draft restored from this device').waitFor();
+    await summary.click();
+    await page.getByRole('tab', { name: /^Rednote/ }).click();
+    assert.equal(await page.getByLabel('Rednote title').inputValue(), 'Snack defense');
+    await page.getByRole('tab', { name: /^Instagram/ }).click();
+    assert.equal(await page.getByLabel(/^Instagram tags/).inputValue(), '#LOTR #Sam');
   } finally {
     await closeBrowserAndServer(browser, server);
   }

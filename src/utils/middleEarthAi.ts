@@ -1,3 +1,4 @@
+import type { SharePlatform } from '../../shared/meme-share-copy.js';
 import type {
   AestheticName,
   ArtifactType,
@@ -184,6 +185,24 @@ export async function translateMemeMoment(input: TranslationInput): Promise<Gene
 
 export async function generateRednoteCopy(input: RednoteInput): Promise<GeneratedRednoteCopy> {
   return requestGeneration<GeneratedRednoteCopy>({ mode: 'rednote', ...input });
+}
+
+export interface GeneratedShareCopy {
+  platform: SharePlatform;
+  fields: Record<string, string>;
+  tags: string[];
+  model?: string;
+}
+
+interface ShareCopyInput extends Omit<RednoteInput, 'currentCopy'> {
+  platform: SharePlatform;
+  /** Only edited or AI-written copy is sent; untouched template copy is not, so the writer starts fresh. */
+  currentCopy?: { fields: Record<string, string>; tags: string[] };
+}
+
+/** One writer for every share-kit platform; each platform's contract lives in shared/meme-share-copy.js. */
+export async function generateShareCopy(input: ShareCopyInput): Promise<GeneratedShareCopy> {
+  return requestGeneration<GeneratedShareCopy>({ mode: 'share-copy', ...input });
 }
 
 export class MiddleEarthAiError extends Error {
