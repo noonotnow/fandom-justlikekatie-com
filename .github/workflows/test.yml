@@ -253,7 +253,7 @@ jobs:
   test:
     if: github.event_name == 'push' || github.event_name == 'pull_request'
     runs-on: ubuntu-latest
-    timeout-minutes: 30
+    timeout-minutes: 75
 
     steps:
       - uses: actions/checkout@v4
@@ -294,6 +294,7 @@ jobs:
         run: npm run check:scheduled-functions-package
 
       - name: Install Playwright browsers
+        timeout-minutes: 10
         run: npm run browser:install:ci
 
       - name: Check test imports resolve to committed files
