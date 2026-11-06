@@ -10,6 +10,10 @@ import styles from './CdramaForge.module.css';
 import { CandidateImage, SceneEvidence, SceneMatch, type SceneClue, type SceneResult } from './SceneEvidence';
 import { SimilarStills } from './SimilarStills';
 import { saveMemeImage } from '../../utils/memeLibrary';
+import {
+  blobToBase64, buildMemeSendBody, DEFAULT_MEME_SERIES, MEME_SERIES_OPTIONS, draftSignature, intentFor, loadSendState, newIntent, newMemeState,
+  saveSendState, sendMemeToCreate, type SendState,
+} from '../../utils/memeSend';
 
 type Research = { title: string; link: string; snippet: string; episodeStart?: number; episodeEnd?: number };
 type Result = SceneResult & {
@@ -48,7 +52,20 @@ export function CdramaForge() {
   const searchController = useRef<AbortController | null>(null);
   const imageId = useRef(0);
   const skipEmptySave = useRef(false);
-  const { isSignedIn, loading: sessionLoading, recheck } = useSession();
+  const { isSignedIn, hasAdminAccess, loading: sessionLoading, recheck } = useSession();
+  const [sendState, setSendState] = useState<SendState>(() => {
+    try { return loadSendState(window.localStorage); } catch { return newMemeState(); }
+  });
+  const [memeSeries, setMemeSeries] = useState<string>(DEFAULT_MEME_SERIES);
+  const sendRef = useRef(sendState);
+  const commitSend = (next: SendState) => { sendRef.current = next; saveSendState(window.localStorage, next); setSendState(next); };
+  /**
+   * A different meme gets a different identity so it can never reuse a previous send's Post. Called only from
+   * explicit new-meme actions (new ideas, picking another angle, example/manual caption, Clear) and never from
+   * autosave or a failed save, so a send in flight or a failed send keeps the identity its retry depends on.
+   */
+  const startNewMeme = () => { commitSend(newMemeState()); setSendStatus(''); };
+  const [sendStatus, setSendStatus] = useState('');
   const idea = draft.ideas[draft.selected] as Joke | undefined;
   const postCopy = idea ? draft.copy ?? suggestedCopy(idea) : null;
 
@@ -128,6 +145,7 @@ export function CdramaForge() {
         setAlternatives(data.ideas);
         setNotice('New wording is ready below. Your current joke and image are unchanged until you choose one.');
       } else {
+        startNewMeme();
         setDraft(current => ({ ...current, ideas: data.ideas, selected: 0, copy: null }));
         setQuery(current => current || (searchMode === 'scenes' ? draft.moment : data.ideas[0].searchQuery));
       }
@@ -139,6 +157,7 @@ export function CdramaForge() {
   function selectIdea(index: number) {
     requestId.current++;
     if (busy === 'ideas' || busy === 'download') setBusy('');
+    if (index !== draft.selected) startNewMeme();
     setDraft(current => ({ ...current, selected: index, copy: null }));
     setNotice('');
   }
@@ -149,6 +168,7 @@ export function CdramaForge() {
     const example: Joke = which === 'fire'
       ? { setup: 'the fire starter when they discover there’s a fire', punchline: '', visualDirection: 'A guilty, suddenly innocent reaction', searchQuery: 'guilty dramatic reaction still' }
       : { setup: 'me after personally starting the drama', punchline: 'wait why is everyone upset', visualDirection: 'A surprised instigator playing innocent', searchQuery: 'surprised innocent reaction still' };
+    startNewMeme();
     setDraft(current => ({ ...current, ideas: [example], selected: 0, copy: null }));
     if (searchMode !== 'scenes') setQuery(example.searchQuery);
     setNotice('Calibration example added as editable caption text. It was not generated.');
@@ -163,6 +183,7 @@ export function CdramaForge() {
     };
     requestId.current++;
     setBusy('');
+    startNewMeme();
     setDraft(current => ({ ...current, ideas: [joke], selected: 0, copy: null }));
     setAlternatives([]);
     setManualCaption('');
@@ -309,11 +330,40 @@ export function CdramaForge() {
     finally { if (id === requestId.current) setBusy(''); }
   }
 
+  /** Operator-only: render the finished PNG and send it to a CREATE draft. Nothing is published or marked ready. */
+  async function sendToCreate(options: { another?: boolean } = {}) {
+    if (!idea || !draft.still || !postCopy || busy) return;
+    const id = requestId.current;
+    const format = draft.format;
+    setBusy('send'); setNotice(''); setSendStatus('Rendering and sending…');
+    try {
+      let state = options.another ? newIntent(sendRef.current, format) : sendRef.current;
+      const resolved = intentFor(state, format); state = resolved.state;
+      commitSend(state);
+      const copyAtSend = postCopy;
+      const image = await loadCardImage(draft.still.thumbnail);
+      await document.fonts.ready;
+      const output = document.createElement('canvas');
+      const ctx = output.getContext('2d');
+      if (!ctx) throw new Error('Canvas unavailable.');
+      renderCdramaCard(ctx, image, { ...idea }, format, draft);
+      const blob = await new Promise<Blob>((resolve, reject) => output.toBlob(b => b ? resolve(b) : reject(new Error('PNG could not be created.')), 'image/png'));
+      const result = await sendMemeToCreate(buildMemeSendBody(draft, state, resolved.intent.id, await blobToBase64(blob), copyAtSend, memeSeries));
+      // The operator may have started a different meme while this send was in flight; don't write this result onto it.
+      if (sendRef.current.memeGroupId !== state.memeGroupId) { setSendStatus('That send finished, but you have since started a different meme. Check CREATE for the draft.'); return; }
+      const next: SendState = { ...sendRef.current, intents: { ...sendRef.current.intents, [format]: { id: resolved.intent.id, receipt: result.receipt, backup: result.backup, retention: result.retention, assetId: result.assetId, sentSignature: draftSignature(draft, copyAtSend, memeSeries) } } };
+      commitSend(next);
+      if (id === requestId.current) setSendStatus(result.receipt.disposition === 'created' ? 'Draft created in CREATE.' : result.receipt.disposition === 'updated' ? 'CREATE draft updated.' : 'Already in CREATE; nothing duplicated.');
+    } catch (error) { setSendStatus(error instanceof Error ? error.message : 'Send failed. Retrying is safe.'); }
+    finally { setBusy(''); }
+  }
+
   function clear() {
     requestId.current++; searchId.current++; imageId.current++;
     searchController.current?.abort();
     setBusy('');
     skipEmptySave.current = true;
+    startNewMeme();
     setResults([]); setRecapResearch([]); setSceneClues([]); setSceneQueries([]); setHasSceneSearch(false);
     setAlternatives([]); setQuery(''); setSearchMode('scenes'); setDramaTitle(''); setManualCaption(''); setDraft(emptyDraft());
     try { localStorage.removeItem(DRAFT_KEY); setSaveStatus('Draft cleared from this device'); }
@@ -512,6 +562,31 @@ export function CdramaForge() {
               <button type="button" onClick={() => void copyText(`${postCopy.instagram}${postCopy.hashtags.trim() ? `\n\n${postCopy.hashtags}` : ''}`, 'Instagram copy')}>Copy Instagram post</button>
             </div>
           </>}
+          {postCopy && hasAdminAccess && (() => {
+            const sent = sendState.intents[draft.format];
+            const changed = sent?.receipt && sent.sentSignature !== draftSignature(draft, postCopy, memeSeries);
+            const needsBackupRetry = sent?.receipt && (sent.backup?.state !== 'verified' || sent.retention?.state !== 'held') && !changed;
+            return (
+              <section className={styles.manual} aria-label="Send to CREATE (operator only)">
+                <div className={styles.sectionTitle}><span>CREATE / OPERATOR</span><strong>Send this {draft.format === 'tiktok' ? 'TikTok' : 'Instagram'} meme to a CREATE draft.</strong></div>
+                <p className={styles.help}>Sends only the live draft on this screen. Saved library cards keep just the image, so caption, source and rights context can't be reconstructed later. The still stays unregistered and marked not cleared; nothing is published.</p>
+                <label htmlFor="forge-series">CREATE Series</label>
+                <select id="forge-series" value={memeSeries} onChange={e => setMemeSeries(e.target.value)} disabled={busy === 'send'}>
+                  {MEME_SERIES_OPTIONS.map(option => <option key={option.value} value={option.value}>{option.label}</option>)}
+                </select>
+                <p className={styles.help}>Pick the Series this draft belongs to (I · Meme is the cross-fandom option).</p>
+                <div className={styles.actions}>
+                  <button type="button" disabled={!draft.still || !!busy || !(idea?.setup.trim() || idea?.punchline.trim())} onClick={() => void sendToCreate()}>
+                    {busy === 'send' ? 'Sending…' : needsBackupRetry ? 'Retry send + backup' : changed ? 'Update CREATE draft' : sent?.receipt ? 'Re-send (safe)' : 'Send to CREATE draft'}
+                  </button>
+                  {sent?.receipt && <button type="button" disabled={!!busy} onClick={() => void sendToCreate({ another: true })}>Create another Post</button>}
+                </div>
+                {sent?.receipt && <p role="status">Post: <a href={sent.receipt.deepLink || sent.receipt.postUrl} target="_blank" rel="noreferrer noopener">open in CREATE</a> · Notion file backup: <strong>{sent.backup?.state ?? 'unknown'}</strong>{sent.backup?.detail ? ` — ${sent.backup.detail}` : ''} · MEDIA purge protection: <strong>{sent.retention?.state ?? 'unknown'}</strong></p>}
+                {sent?.receipt?.warnings?.length ? <ul role="alert">{sent.receipt.warnings.map(w => <li key={w.code}><strong>{w.code.replace(/^FANDOM_/, '').replaceAll('_', ' ').toLowerCase()}</strong>{w.detail ? `: ${w.detail}` : ''}</li>)}</ul> : null}
+                {sendStatus && <p role="status">{sendStatus}</p>}
+              </section>
+            );
+          })()}
           <div className={styles.draftStatus}><span role="status">{saveStatus}</span><button type="button" onClick={clear}>Clear local draft</button></div>
           <p className={styles.manual}>Downloads automatically save the finished PNG to your C-drama meme library. Your editable draft stays separate on this browser. Account/MEDIA sync uses your Collection settings. This is a still PNG, not a video; nothing is scheduled or published.</p>
           {notice && <p className={styles.notice} role="status">{notice}</p>}

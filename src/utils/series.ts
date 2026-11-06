@@ -7,6 +7,7 @@ export const SERIES_OPTIONS = [
   { value: 'F·Interview', label: 'F · Proverb' },
   { value: 'G·Fan', label: 'G · Aerial' },
   { value: 'H·Cdrama', label: 'H · Cdrama' },
+  { value: 'I', label: 'I · Meme' },
 ] as const;
 
 const SERIES_LABELS: Readonly<Record<string, string>> = Object.freeze(
@@ -17,6 +18,6 @@ export function getSeriesLabel(series: string | null | undefined): string {
   const value = series?.trim() ?? '';
   if (!value) return '';
 
-  const code = value.match(/^([A-H])(?:\s*·|\s*$)/)?.[1];
+  const code = value.match(/^([A-I])(?:\s*·|\s*$)/)?.[1];
   return code ? SERIES_LABELS[code] : value;
 }

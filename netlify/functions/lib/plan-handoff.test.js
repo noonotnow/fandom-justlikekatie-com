@@ -55,6 +55,23 @@ test("uploads media and registers the enriched draft with separate credentials",
   assert.match(registered.requirements, /Media attached/);
 });
 
+test("accepts the Meme Series (I) and forwards it unchanged, while still rejecting unknown Series", async () => {
+  const registered = [];
+  const handler = createPlanHandoffHandler({
+    env,
+    fetchImpl: async (url, init) => {
+      if (url === MEDIA_URL) return Response.json({ url: "https://cdn.example/card.png" }, { status: 201 });
+      registered.push(JSON.parse(init.body));
+      return Response.json({ ok: true, id: "plan-draft-id" });
+    },
+  });
+  const ok = await handler(handoffRequest({ ...validDraft(), series: "I" }));
+  assert.equal(ok.status, 201);
+  assert.equal(registered[0].series, "I");
+  const bad = await handler(handoffRequest({ ...validDraft(), series: "J" }));
+  assert.equal(bad.status, 400);
+});
+
 test("registers a media-blocked draft when upload fails", async () => {
   let registered;
   const handler = createPlanHandoffHandler({
