@@ -95,7 +95,8 @@ async function handle(request, { env, fetchImpl, store, now, requestUrl }) {
   // A retry must send the SAME envelope as the attempt it retries. Rebuilding it re-registers the image
   // (MEDIA then reports deduplicated) and takes a new timestamp, which changes the digest and can 409.
   // So the envelope is persisted before CREATE is called and reused on any retry of the same content.
-  const commit = async (envelope, digest, assetId) => {
+  const commit = async (savedEnvelope, digest, assetId) => {
+    const envelope = prepareEnvelopeForCreate(savedEnvelope);
     const payload = await sendToWorkstation(envelope, { env, fetchImpl, timestampDate: now() });
     const receipt = validateReceipt(payload, envelope);
     const backup = sanitizeBackup(payload.backup);
@@ -181,6 +182,7 @@ function validateRequest(body) {
   const series = body.series === undefined ? DEFAULT_MEME_SERIES : body.series;
   if (typeof series !== "string" || !MEME_SERIES_VALUES.includes(series)) throw new MemeSendError("series is not a recognized CREATE Series.");
   content.series = series;
+  if (!content.hook) throw new MemeSendError("A hook is required to send a draft.");
   if (!content.caption) throw new MemeSendError("A caption is required to send a draft.");
   const still = body.stillSource;
   if (!isRecord(still) || !STILL_KINDS.includes(still.kind)) throw new MemeSendError("stillSource.kind must be search or upload.");
@@ -308,7 +310,7 @@ function buildEnvelope(request, media, sourceVersion, expectedSourceVersion, gen
       order: 0,
       imageUrl: media.deliveryUrl,
       sourceUrl: new URL("/memeforge/c-drama", "https://fandom.justlikekatie.com").toString(),
-      title: `${request.setup} / ${request.punchline}`.slice(0, 200),
+      title: ([request.setup, request.punchline].filter(Boolean).join(" / ") || request.hook || "MemeForge meme").slice(0, 200),
       provenance: "MemeForge export; still source and rights are recorded in the meme snapshot",
       media: {
         schemaVersion: 1,
@@ -366,10 +368,10 @@ function buildEnvelope(request, media, sourceVersion, expectedSourceVersion, gen
       sendIntentId: request.sendIntentId,
       format: request.format,
       hook: request.hook,
-      setup: request.setup,
-      punchline: request.punchline,
+      ...(request.setup ? { setup: request.setup } : {}),
+      ...(request.punchline ? { punchline: request.punchline } : {}),
       caption: request.caption,
-      hashtags: request.hashtags,
+      ...(request.hashtags ? { hashtags: request.hashtags } : {}),
       ...(request.visualDirection ? { visualDirection: request.visualDirection } : {}),
       ...(request.framing ? { framing: request.framing } : {}),
       stillSource: request.stillSource,
@@ -382,6 +384,32 @@ function buildEnvelope(request, media, sourceVersion, expectedSourceVersion, gen
       },
     },
   };
+}
+
+// CREATE treats these meme snapshot fields as optional, but a field that is PRESENT must not be empty
+// ("meme.punchline must not be empty"). A real draft can legitimately leave them blank, so blanks are omitted.
+const OPTIONAL_MEME_TEXT = ["setup", "punchline", "hashtags", "visualDirection"];
+const OPTIONAL_STILL_TEXT = ["title", "publisher", "query"];
+const OPTIONAL_FRAMING_TEXT = ["framing", "textPlacement"];
+const isBlank = value => typeof value === "string" && value.trim() === "";
+
+function withoutBlankKeys(object, keys) {
+  const next = { ...object };
+  for (const key of keys) if (isBlank(next[key])) delete next[key];
+  return next;
+}
+
+/**
+ * Returns a copy of an envelope with blank OPTIONAL meme text omitted. Applied to every envelope right before it
+ * is sent, including one saved as pending by an earlier attempt (which may still hold blanks), so a retry of the
+ * same intent can succeed. Identity, image, checksum, version and every non-blank value are left untouched.
+ */
+export function prepareEnvelopeForCreate(envelope) {
+  if (!isRecord(envelope) || !isRecord(envelope.meme)) return envelope;
+  const meme = withoutBlankKeys(envelope.meme, OPTIONAL_MEME_TEXT);
+  if (isRecord(meme.stillSource)) meme.stillSource = withoutBlankKeys(meme.stillSource, OPTIONAL_STILL_TEXT);
+  if (isRecord(meme.framing)) meme.framing = withoutBlankKeys(meme.framing, OPTIONAL_FRAMING_TEXT);
+  return { ...envelope, meme };
 }
 
 async function sendToWorkstation(envelope, { env, fetchImpl, timestampDate }) {
