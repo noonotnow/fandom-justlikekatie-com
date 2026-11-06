@@ -35,10 +35,11 @@ const TEXT_LIMITS = { hook: 300, setup: 600, punchline: 600, caption: 2000, hash
 const locks = new Map();
 
 class MemeSendError extends Error {
-  constructor(message, status = 400, stage = "request") {
+  constructor(message, status = 400, stage = "request", code = undefined) {
     super(message);
     this.status = status;
     this.stage = stage;
+    if (code) this.code = code;
   }
 }
 
@@ -63,7 +64,7 @@ export function createWorkstationMemeHandoffHandler({
       const store = getStore(RECEIPT_STORE);
       return await withLock(request.sendIntentId, () => handle(request, { env, fetchImpl, store, now, requestUrl: req.url }));
     } catch (error) {
-      if (error instanceof MemeSendError) return json(error.status, { error: error.message, stage: error.stage });
+      if (error instanceof MemeSendError) return json(error.status, { error: error.message, stage: error.stage, ...(error.code ? { code: error.code } : {}) });
       console.error("[workstation-meme-handoff] unexpected error", error);
       return json(500, { error: "Internal server error", stage: "server" });
     }
@@ -438,15 +439,31 @@ async function sendToWorkstation(envelope, { env, fetchImpl, timestampDate }) {
   }
   const payload = await readJson(response, "Workstation");
   if (!response.ok) {
+    const { code, detail } = safeCreateError(payload, response.status);
     throw new MemeSendError(
       response.status === 409
         ? "CREATE changed this draft since your last send; reload before updating."
-        : `CREATE rejected the draft (HTTP ${response.status}).`,
+        : `CREATE rejected the draft (HTTP ${response.status})${detail ? `: ${detail}` : "."}`,
       response.status === 409 ? 409 : 502,
       "workstation",
+      code,
     );
   }
   return payload;
+}
+
+// Surface CREATE's machine-readable error code so a rejection can be diagnosed without server logs. The code is
+// accepted only in a strict shape. The human message is passed through ONLY for validation errors, whose text names
+// field paths (e.g. "meme.punchline must not be empty"), never values, and is length-limited and stripped of
+// control characters. Nothing else from the response body is exposed.
+function safeCreateError(payload, status) {
+  const code = isRecord(payload) && typeof payload.code === "string" && /^[A-Z][A-Z0-9_]{2,63}$/.test(payload.code) ? payload.code : undefined;
+  let detail;
+  if (code === "FANDOM_PROJECT_VALIDATION_ERROR" && status === 400 && typeof payload.error === "string") {
+    detail = payload.error.replace(/[^\x20-\x7e]/g, " ").trim().slice(0, 200).replace(/[.\s]+$/, "") + ".";
+    if (detail === ".") detail = undefined;
+  }
+  return { code, detail };
 }
 
 function validateReceipt(payload, envelope) {
