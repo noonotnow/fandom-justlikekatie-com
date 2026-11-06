@@ -1,7 +1,7 @@
 import assert from "node:assert/strict";
 import { createHash } from "node:crypto";
 import test from "node:test";
-import { createWorkstationMemeHandoffHandler, MEME_SEND_SCHEMA, memeOutputId } from "./workstation-meme-handoff.js";
+import { createWorkstationMemeHandoffHandler, MEME_SEND_SCHEMA, memeOutputId, prepareEnvelopeForCreate } from "./workstation-meme-handoff.js";
 
 const ORIGIN = "https://fandom.justlikekatie.com";
 const ENV = {
@@ -48,6 +48,15 @@ function harness({ retentionState = "held", metaDedup = false, backupState = "ve
     }
     const envelope = JSON.parse(init.body);
     calls.workstation.push({ envelope, headers: init.headers });
+    // Model CREATE's validator for the meme snapshot: optional text may be ABSENT but a present field must not be blank,
+    // and hook/caption are required. (CREATE: "meme.punchline must not be empty".)
+    const blank = (v) => typeof v === "string" && v.trim() === "";
+    const blanks = [
+      ...Object.entries(envelope.meme).filter(([, v]) => blank(v)).map(([k]) => `meme.${k}`),
+      ...Object.entries(envelope.meme.stillSource ?? {}).filter(([, v]) => blank(v)).map(([k]) => `meme.stillSource.${k}`),
+      ...Object.entries(envelope.meme.framing ?? {}).filter(([, v]) => blank(v)).map(([k]) => `meme.framing.${k}`),
+    ];
+    if (blanks.length) return Response.json({ error: `${blanks[0]} must not be empty`, code: "FANDOM_PROJECT_VALIDATION_ERROR" }, { status: 400 });
     // Model CREATE's idempotency: same key + same content replays; same key + different content is a 409.
     const { expectedSourceVersion, ...rest } = envelope;
     const comparable = JSON.stringify({ ...rest, meme: { ...envelope.meme, registration: { ...envelope.meme.registration, deduplicated: undefined } } });
@@ -61,7 +70,7 @@ function harness({ retentionState = "held", metaDedup = false, backupState = "ve
   };
   const auth = { authenticateAdmin: async () => { if (!admin) throw Object.assign(new Error("no"), { status: 403 }); return { user: {} }; } };
   const handler = createWorkstationMemeHandoffHandler({ env: ENV, fetchImpl, getStore: () => store, auth, now: () => new Date("2026-11-04T10:00:00Z") });
-  return { handler, calls, store };
+  return { handler, calls, store, digests };
 }
 
 function body(overrides = {}, image = png(1080, 1920)) {
@@ -263,4 +272,96 @@ test("a retry of an unconfirmed UPDATE with unchanged content re-sends that upda
   assert.equal(retry.status, 200);
   assert.equal(calls.workstation.length, before + 1);
   assert.deepEqual(calls.workstation.at(-1).envelope, saved.envelope, "same envelope, not a rebuilt one");
+});
+
+const BLANK_OPTIONALS = { setup: "", punchline: "", hashtags: "   ", stillSource: { kind: "upload", title: " ", publisher: "", query: "" }, framing: { framing: "", focusX: 0.5, focusY: 0.5, textPlacement: "" } };
+
+test("a draft with blank optional text is omitted from the envelope, not sent as empty strings", async () => {
+  const { handler, calls } = harness();
+  const res = await send(handler, body({ ...BLANK_OPTIONALS }));
+  assert.equal(res.status, 201, "CREATE accepts an envelope with the blank optionals omitted");
+  const { meme, sourceCards } = calls.workstation[0].envelope;
+  for (const key of ["setup", "punchline", "hashtags", "visualDirection"]) assert.equal(Object.hasOwn(meme, key), false, key);
+  for (const key of ["title", "publisher", "query"]) assert.equal(Object.hasOwn(meme.stillSource, key), false, key);
+  assert.deepEqual(meme.framing, { focusX: 0.5, focusY: 0.5 });
+  assert.equal(meme.hook, "Hook");
+  assert.equal(meme.caption, "English caption");
+  assert.equal(sourceCards[0].title, "Hook", "no dangling ' / ' title when setup and punchline are blank");
+});
+
+test("a single blank optional keeps the other text and a readable title", async () => {
+  const { handler, calls } = harness();
+  assert.equal((await send(handler, body({ punchline: "" }))).status, 201);
+  const { meme, sourceCards } = calls.workstation[0].envelope;
+  assert.equal(meme.setup, "Setup");
+  assert.equal(Object.hasOwn(meme, "punchline"), false);
+  assert.equal(sourceCards[0].title, "Setup");
+});
+
+test("recovery: a saved pending envelope that still holds a blank punchline is sent clean on the same-intent retry", async () => {
+  const { handler, calls, store, digests } = harness();
+  // First, a normal send builds a valid envelope; then rewrite the store the way the failed hosted attempt left it:
+  // an unconfirmed pending record whose saved envelope contains punchline: "".
+  assert.equal((await send(handler, body({ punchline: "" }))).status, 201);
+  const good = JSON.parse(JSON.stringify(store.map.get("intent/intent-0001")));
+  const legacyEnvelope = JSON.parse(JSON.stringify(good.envelope));
+  legacyEnvelope.meme.punchline = "";
+  legacyEnvelope.sourceCards[0].title = "Setup / ";
+  store.map.set("intent/intent-0001", {
+    memeGroupId: good.memeGroupId,
+    sendIntentId: good.sendIntentId,
+    pending: { contentDigest: good.contentDigest, assetId: good.assetId, envelope: legacyEnvelope, attemptedAt: "2026-11-06T16:03:04Z" },
+  });
+  digests.clear(); // CREATE never accepted the failed hosted attempt, so it holds no prior record for this key
+  const mediaBefore = calls.media;
+  const sentBefore = calls.workstation.length;
+  const retry = await send(handler, body({ punchline: "" }));
+  assert.ok(retry.status === 200 || retry.status === 201, `same intent now reaches CREATE and succeeds (got ${retry.status})`);
+  assert.equal(calls.media, mediaBefore, "the saved asset is reused, not re-registered");
+  assert.equal(calls.workstation.length, sentBefore + 1);
+  const sent = calls.workstation.at(-1).envelope;
+  assert.equal(Object.hasOwn(sent.meme, "punchline"), false);
+  const { meme: sentMeme, ...sentRest } = sent;
+  const { meme: legacyMeme, ...legacyRest } = legacyEnvelope;
+  assert.deepEqual(sentRest, legacyRest, "intent, version, identity, image and every other field are unchanged");
+  const { punchline, ...legacyMemeRest } = legacyMeme;
+  assert.deepEqual(sentMeme, legacyMemeRest);
+  const record = store.map.get("intent/intent-0001");
+  assert.equal(record.pending, undefined, "pending is cleared only after CREATE confirmed");
+  assert.equal(record.receipt.postId, "post-1");
+  // A further identical retry replays and creates nothing new.
+  const again = await send(handler, body({ punchline: "" }));
+  assert.ok(again.status === 200 || again.status === 201);
+  assert.equal(calls.workstation.length, sentBefore + 1, "no duplicate Post or upstream write");
+});
+
+test("the saved pending record is kept if CREATE still refuses the recovery attempt", async () => {
+  const { handler, store } = harness();
+  assert.equal((await send(handler, body({ punchline: "" }))).status, 201);
+  const good = JSON.parse(JSON.stringify(store.map.get("intent/intent-0001")));
+  const legacyEnvelope = JSON.parse(JSON.stringify(good.envelope));
+  legacyEnvelope.meme.hook = "";
+  store.map.set("intent/intent-0001", { memeGroupId: good.memeGroupId, sendIntentId: good.sendIntentId, pending: { contentDigest: good.contentDigest, assetId: good.assetId, envelope: legacyEnvelope } });
+  const before = JSON.stringify(store.map.get("intent/intent-0001").pending.envelope);
+  const retry = await send(handler, body({ punchline: "" }));
+  assert.equal(retry.status, 502);
+  assert.equal(JSON.stringify(store.map.get("intent/intent-0001").pending.envelope), before, "original pending envelope is untouched");
+});
+
+test("an empty hook is refused before any MEDIA upload, so no orphan asset is created", async () => {
+  const { handler, calls } = harness();
+  const res = await send(handler, body({ hook: "  " }));
+  assert.equal(res.status, 400);
+  assert.match((await res.json()).error, /hook is required/i);
+  assert.equal(calls.media, 0);
+  assert.equal(calls.workstation.length, 0);
+});
+
+test("prepareEnvelopeForCreate leaves non-blank values and required fields alone and is idempotent", () => {
+  const envelope = { sourceVersion: 1, meme: { hook: "H", caption: "C", setup: "S", punchline: "", stillSource: { kind: "search", title: "T", publisher: "" }, registration: { assetId: "a" } } };
+  const once = prepareEnvelopeForCreate(envelope);
+  assert.deepEqual(once.meme, { hook: "H", caption: "C", setup: "S", stillSource: { kind: "search", title: "T" }, registration: { assetId: "a" } });
+  assert.deepEqual(prepareEnvelopeForCreate(once), once);
+  assert.equal(envelope.meme.punchline, "", "the input is not mutated");
+  assert.deepEqual(prepareEnvelopeForCreate({ nope: 1 }), { nope: 1 });
 });
