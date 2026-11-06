@@ -253,7 +253,7 @@ jobs:
   test:
     if: github.event_name == 'push' || github.event_name == 'pull_request'
     runs-on: ubuntu-latest
-    timeout-minutes: 75
+    timeout-minutes: 45
 
     steps:
       - uses: actions/checkout@v4
