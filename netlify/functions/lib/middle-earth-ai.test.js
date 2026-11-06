@@ -1,5 +1,6 @@
 import test from "node:test";
 import assert from "node:assert/strict";
+import { readFile } from "node:fs/promises";
 import { createMiddleEarthAIHandler, normalizeCardTextOptions, topUpCardTextOptions } from "./middle-earth-ai.js";
 
 // ---------------------------------------------------------------------------
@@ -1875,4 +1876,121 @@ test("a full set skips the top-up and a failed top-up keeps the angles it has", 
   const broken = topUpConnector(new Error("network"));
   const kept = await topUpCardTextOptions(one, { connectorClient: broken, model: "m", prompt: "p", memeFlavor: "Mordor Commute", logger: {} });
   assert.equal(kept.cardTextOptions.length, 1);
+});
+
+// ---------------------------------------------------------------------------
+// Share-copy writer: Rednote output is pinned to what main sent before the
+// platform-aware refactor (captured into __fixtures__/rednote-golden.json).
+// ---------------------------------------------------------------------------
+
+const GOLDEN_BODIES = [
+  REDNOTE_BODY,
+  {
+    mode: "rednote",
+    moment: "Defending my little treat with my life",
+    character: "Samwise",
+    memeFlavor: "Samwise Loyalty",
+    comicMechanism: "Intent reversal",
+    aesthetic: "Cozy Hobbiton",
+    artifactType: "Meme card",
+    tone: "Deadpan",
+    layout: "Classic top / bottom",
+    guidance: "Keep it warm",
+    source: { title: "Sam and Frodo", url: "https://publisher.example/sam", publisher: "publisher.example", query: "Sam protective" },
+    visual: {
+      title: "Snack defense",
+      primaryText: "ME: ONE LITTLE TREAT ONLY",
+      secondaryText: "ALSO ME: GUARD THE STASH WITH SWORD",
+      cardFormat: "Internal Debate Card",
+      layout: "Classic top / bottom",
+    },
+    currentCopy: { title: "Old title", caption: "Old caption", tags: ["#LOTR", "#Samwise", "#Snacks"] },
+  },
+];
+
+async function chatRequestFor(body) {
+  const connector = makeConnector({
+    discoveryModels: [{ id: "grok-2-test" }],
+    chatResponse: { title: "T", caption: "C", tags: ["#a", "#b", "#c"] },
+  });
+  const res = await makeHandler({ connector })(makeRequest(body), {});
+  const chat = connector.calls.find(call => call.path === "/v1/chat/completions");
+  return { res, request: chat ? JSON.parse(chat.options.body) : null };
+}
+
+test("Rednote requests are byte-identical to the pre-refactor golden fixture", async () => {
+  const golden = JSON.parse(await readFile(new URL("./__fixtures__/rednote-golden.json", import.meta.url), "utf8"));
+  assert.equal(golden.length, GOLDEN_BODIES.length);
+  for (const [index, body] of GOLDEN_BODIES.entries()) {
+    const { res, request } = await chatRequestFor(body);
+    assert.equal(res.status, 200);
+    assert.deepEqual(request, golden[index].request, `rednote request ${index} changed`);
+    assert.deepEqual(await res.json(), golden[index].response, `rednote response ${index} changed`);
+  }
+});
+
+test("share-copy for Rednote sends the same request as the Rednote writer", async () => {
+  const golden = JSON.parse(await readFile(new URL("./__fixtures__/rednote-golden.json", import.meta.url), "utf8"));
+  for (const [index, body] of GOLDEN_BODIES.entries()) {
+    const { currentCopy, ...rest } = body;
+    const shareBody = {
+      ...rest,
+      mode: "share-copy",
+      platform: "rednote",
+      ...(currentCopy ? { currentCopy: { fields: { title: currentCopy.title, caption: currentCopy.caption }, tags: currentCopy.tags } } : {}),
+    };
+    const { res, request } = await chatRequestFor(shareBody);
+    assert.equal(res.status, 200);
+    assert.deepEqual(request, golden[index].request, `share-copy rednote request ${index} differs from the Rednote writer`);
+    const json = await res.json();
+    assert.equal(json.mode, "share-copy");
+    assert.deepEqual(json.result, {
+      platform: "rednote",
+      fields: { title: golden[index].response.result.title, caption: golden[index].response.result.caption },
+      tags: golden[index].response.result.tags,
+      model: golden[index].response.result.model,
+    });
+  }
+});
+
+test("share-copy for TikTok and Instagram uses each platform's own contract", async () => {
+  const visual = GOLDEN_BODIES[1].visual;
+  const base = { mode: "share-copy", character: "Samwise", tone: "Deadpan", layout: "Classic top / bottom", visual };
+
+  const tiktok = makeConnector({ chatResponse: { hook: "Snack defense mode", caption: "ME: one treat. ALSO ME: sword.", tags: ["LOTR", "#Samwise", "#lotr"] } });
+  const tiktokRes = await makeHandler({ connector: tiktok })(makeRequest({ ...base, platform: "tiktok", currentCopy: { fields: { hook: "Old hook", caption: "" }, tags: ["#LOTR"] } }), {});
+  assert.equal(tiktokRes.status, 200);
+  const tiktokJson = await tiktokRes.json();
+  assert.deepEqual(tiktokJson.result, { platform: "tiktok", fields: { hook: "Snack defense mode", caption: "ME: one treat. ALSO ME: sword." }, tags: ["#lotr", "#samwise"], model: "grok-2-test" });
+  const tiktokRequest = JSON.parse(tiktok.calls.find(call => call.path === "/v1/chat/completions").options.body);
+  const tiktokPrompt = tiktokRequest.messages[0].content;
+  assert.match(tiktokPrompt, /^You are a Middle-earth TikTok copy writer\./);
+  assert.match(tiktokPrompt, /The hook and caption are REQUIRED/);
+  assert.match(tiktokPrompt, /The hook is the first line people read/);
+  assert.match(tiktokPrompt, /Provide 0–5 hashtags\./);
+  assert.match(tiktokPrompt, /Current hook: Old hook/);
+  assert.doesNotMatch(tiktokPrompt, /Rednote|小红书/);
+  assert.equal(tiktokRequest.response_format.json_schema.name, "tiktok_copy");
+  assert.deepEqual(tiktokRequest.response_format.json_schema.schema.required, ["hook", "caption", "tags"]);
+  assert.equal(tiktokRequest.response_format.json_schema.schema.properties.tags.maxItems, 5);
+
+  const instagram = makeConnector({ chatResponse: { caption: "One little treat. Guarded like the Ring.", tags: [] } });
+  const instagramRes = await makeHandler({ connector: instagram })(makeRequest({ ...base, platform: "instagram" }), {});
+  assert.equal(instagramRes.status, 200);
+  assert.deepEqual((await instagramRes.json()).result.tags, [], "Instagram allows zero hashtags");
+  const instagramPrompt = JSON.parse(instagram.calls.find(call => call.path === "/v1/chat/completions").options.body).messages[0].content;
+  assert.match(instagramPrompt, /The caption is REQUIRED/);
+  assert.match(instagramPrompt, /Provide 0–10 hashtags\./);
+});
+
+test("share-copy rejects platforms outside the share kit and empty required fields", async () => {
+  const base = { mode: "share-copy", character: "Samwise", tone: "Deadpan", layout: "Classic top / bottom", visual: REDNOTE_BODY.visual };
+  for (const platform of ["weibo", "myspace", undefined]) {
+    const res = await makeHandler()(makeRequest({ ...base, platform }), {});
+    assert.equal(res.status, 400);
+    assert.match((await res.json()).error, /platform must be one of: rednote, tiktok, instagram/);
+  }
+  const connector = makeConnector({ chatResponse: { hook: "", caption: "Joke", tags: [] } });
+  const res = await makeHandler({ connector })(makeRequest({ ...base, platform: "tiktok" }), {});
+  assert.equal(res.status, 502);
 });

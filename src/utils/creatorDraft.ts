@@ -1,3 +1,4 @@
+import { platformAllowlist } from '../../shared/social-platforms.js';
 import { PUBLIC_ROUTE_PATHS } from '../../shared/public-routes.js';
 import { assertPublicArchiveRecord } from '../contracts/publicArchiveRecord.js';
 import type { PublicArchiveRecord } from '../contracts/publicArchiveRecord.js';
@@ -11,7 +12,9 @@ import {
 } from './approvedBoardProvenance';
 
 export const CREATOR_DRAFT_SOURCE_SCHEMA = 'fandom.creator-draft-source.v1';
-export const CREATOR_PLATFORMS = ['rednote', 'weibo', 'instagram'] as const;
+// CREATE's accepted set for grid handoffs. The platform names come from the
+// shared vocabulary; this list (not the vocabulary) decides what CREATE accepts.
+export const CREATOR_PLATFORMS = platformAllowlist(['rednote', 'weibo', 'instagram'] as const);
 export type CreatorPlatform = typeof CREATOR_PLATFORMS[number];
 
 export interface CreatorDraftSource {

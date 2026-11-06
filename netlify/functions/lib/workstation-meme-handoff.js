@@ -1,3 +1,4 @@
+import { platformAllowlist } from "../../../shared/social-platforms.js";
 import { createHash, createHmac } from "node:crypto";
 
 /**
@@ -24,9 +25,11 @@ const MEDIA_SOURCE_TYPE = "fandom-memeforge";
 // CREATE resolves the value to the existing Notion option and fails closed if none exists.
 export const MEME_SERIES_VALUES = ["A", "B", "C", "D", "E", "F", "G", "H", "I"];
 const DEFAULT_MEME_SERIES = "H";
+// Meme send's own accepted platforms (names from the shared vocabulary).
+export const MEME_SEND_PLATFORMS = platformAllowlist(["tiktok", "instagram"]);
 const FORMATS = {
-  "tiktok-9x16": { platform: "tiktok", width: 1080, height: 1920 },
-  "instagram-4x5": { platform: "instagram", width: 1080, height: 1350 },
+  "tiktok-9x16": { platform: MEME_SEND_PLATFORMS[0], width: 1080, height: 1920 },
+  "instagram-4x5": { platform: MEME_SEND_PLATFORMS[1], width: 1080, height: 1350 },
 };
 const STILL_KINDS = ["search", "upload"];
 const ID_PATTERN = /^[A-Za-z0-9][A-Za-z0-9._-]{7,79}$/;

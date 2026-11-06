@@ -1,7 +1,7 @@
 import assert from 'node:assert/strict';
 import test from 'node:test';
 import { emptyDraft, type ForgeDraft } from '../src/utils/cdramaForge.ts';
-import { buildMemeSendBody, draftSignature, newMemeState, intentFor, loadSendState, newIntent, saveSendState, sendMemeToCreate } from '../src/utils/memeSend.ts';
+import { buildMemeSendBody, draftSignature, newMemeState, intentFor, loadSendState, newIntent, saveSendState, sendMemeToCreate, seriesFor, withSeries } from '../src/utils/memeSend.ts';
 
 const store = () => { const m = new Map<string, string>(); return { getItem: (k: string) => m.get(k) ?? null, setItem: (k: string, v: string) => void m.set(k, v), removeItem: (k: string) => void m.delete(k) }; };
 const draft = (): ForgeDraft => ({
@@ -66,4 +66,26 @@ test('a rejected send shows CREATE\'s error code in the message the operator see
   await assert.rejects(sendMemeToCreate({}, rejected({ error: 'CREATE rejected the draft (HTTP 400): meme.hook must not be empty.', code: 'FANDOM_PROJECT_VALIDATION_ERROR' })), /meme\.hook must not be empty\. \[FANDOM_PROJECT_VALIDATION_ERROR\]$/);
   await assert.rejects(sendMemeToCreate({}, rejected({ error: 'CREATE rejected the draft (HTTP 503).', code: '<b>x</b>' })), (e: Error) => e.message === 'CREATE rejected the draft (HTTP 503).');
   await assert.rejects(sendMemeToCreate({}, rejected({ error: 'Nope' }, 403)), (e: Error) => e.message === 'Nope');
+});
+
+test('the chosen Series survives a reload and stays with the meme through retries', () => {
+  const s = store();
+  let state = loadSendState(s);
+  assert.equal(seriesFor(state), 'H', 'default until the operator chooses');
+  state = withSeries(state, 'I');
+  saveSendState(s, state);
+  const reopened = loadSendState(s);
+  assert.equal(seriesFor(reopened), 'I', 'reopening keeps the operator\'s choice');
+  const retry = intentFor(reopened, 'tiktok').state;
+  assert.equal(seriesFor(newIntent(retry, 'tiktok')), 'I', 'a second Post for the same meme keeps its Series');
+  assert.equal(seriesFor(newMemeState()), 'H', 'a brand-new meme starts at the default');
+});
+
+test('an unknown or corrupt saved Series falls back to the default and cannot be set', () => {
+  const s = store();
+  s.setItem('fandom-cdrama-memeforge-send-v1', JSON.stringify({ memeGroupId: 'meme-1', intents: {}, series: 'ZZ' }));
+  assert.equal(seriesFor(loadSendState(s)), 'H');
+  const base = newMemeState();
+  assert.equal(withSeries(base, 'nope'), base);
+  assert.equal(buildMemeSendBody(draft(), withSeries(base, 'I'), 'send-1', 'AAAA', undefined, seriesFor(withSeries(base, 'I'))).series, 'I');
 });

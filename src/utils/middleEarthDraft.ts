@@ -19,6 +19,7 @@ import {
 } from '../data/middleEarthCreativeGrammar.ts';
 import { referenceStillFamilies } from '../data/middleEarthReferenceStills.ts';
 import type { MemeFormat, MemeFraming, MemeTextPlacement } from './memeCanvas.ts';
+import { SHARE_COPY_CONTRACTS, SHARE_KIT_PLATFORMS, type SharePlatform } from '../../shared/meme-share-copy.js';
 
 export const MIDDLE_EARTH_DRAFT_KEY = 'fandom-middle-earth-memeforge-draft-v1';
 const MAX_DRAFT_CHARS = 1_000_000;
@@ -45,8 +46,29 @@ export interface MiddleEarthDraftCardText {
   footer: string;
 }
 
+/**
+ * Post copy for one platform. `copy: null` means "follow the template" (it is
+ * rebuilt from the card lines), so only edited or AI-written copy is stored.
+ * `fingerprint` is set only when AI wrote the copy; it is what staleness is
+ * measured against.
+ */
+export interface MiddleEarthShareSlot {
+  copy: { fields: Record<string, string>; tags: string[] } | null;
+  fingerprint: string;
+}
+export type MiddleEarthShareCopy = Record<SharePlatform, MiddleEarthShareSlot>;
+
+export function emptyShareCopy(): MiddleEarthShareCopy {
+  return {
+    rednote: { copy: null, fingerprint: '' },
+    tiktok: { copy: null, fingerprint: '' },
+    instagram: { copy: null, fingerprint: '' },
+  };
+}
+
 export interface MiddleEarthWorkingDraft {
-  version: 1;
+  /** v2 replaced the Rednote-only fields with per-platform share copy; v1 drafts migrate on restore. */
+  version: 2;
   moment: string;
   query: string;
   searchedQuery: string;
@@ -75,10 +97,8 @@ export interface MiddleEarthWorkingDraft {
   selected: MiddleEarthDraftAsset | null;
   results: MiddleEarthDraftAsset[];
   visualGeneration: { provider: 'xai'; generatedAt: string; model?: string } | null;
-  rednoteTitle: string;
-  rednoteCaption: string;
-  rednoteTags: string[];
-  rednoteGroundingFingerprint: string;
+  sharePlatform: SharePlatform;
+  shareCopy: MiddleEarthShareCopy;
 }
 
 // Every list comes from the same data module the workspace renders from, so a
@@ -95,7 +115,7 @@ const CARD_FORMATS: readonly string[] = memeCardFormats;
 
 export function emptyMiddleEarthDraft(): MiddleEarthWorkingDraft {
   return {
-    version: 1,
+    version: 2,
     moment: '', query: '', searchedQuery: '',
     character: AUTO, memeFlavor: AUTO, aesthetic: AUTO, artifactType: AUTO, creativeDirection: '',
     translation: null, referenceStillFamily: null,
@@ -103,7 +123,7 @@ export function emptyMiddleEarthDraft(): MiddleEarthWorkingDraft {
     title: '', text: '', secondaryText: '', cardFormat: null, tone: TONES[0],
     memeFrame: { format: 'instagram', framing: 'cover', focusX: 50, focusY: 0, textPlacement: 'top-bottom' },
     selected: null, results: [], visualGeneration: null,
-    rednoteTitle: '', rednoteCaption: '', rednoteTags: [], rednoteGroundingFingerprint: '',
+    sharePlatform: 'rednote', shareCopy: emptyShareCopy(),
   };
 }
 
@@ -111,7 +131,8 @@ export function emptyMiddleEarthDraft(): MiddleEarthWorkingDraft {
 export function isEmptyMiddleEarthDraft(draft: MiddleEarthWorkingDraft): boolean {
   return !draft.moment.trim() && !draft.text.trim() && !draft.secondaryText.trim()
     && !draft.translation && !draft.selected && !draft.angles.length
-    && !draft.rednoteTitle.trim() && !draft.rednoteCaption.trim() && !draft.creativeDirection.trim();
+    && !SHARE_KIT_PLATFORMS.some((platform) => draft.shareCopy[platform].copy !== null)
+    && !draft.creativeDirection.trim();
 }
 
 const str = (value: unknown, max: number, fallback = ''): string =>
@@ -173,13 +194,53 @@ function translationShape(value: unknown): Record<string, unknown> | null {
   return ok ? v : null;
 }
 
+const tagList = (value: unknown, max: number): string[] =>
+  Array.isArray(value)
+    ? value.filter((tag): tag is string => typeof tag === 'string' && tag.length <= 50).slice(0, max)
+    : [];
+
+function restoreShareSlot(platform: SharePlatform, value: unknown): MiddleEarthShareSlot {
+  const contract = SHARE_COPY_CONTRACTS[platform];
+  const v = (value && typeof value === 'object' ? value : {}) as Record<string, unknown>;
+  const fingerprint = str(v.fingerprint, 20_000);
+  const raw = v.copy && typeof v.copy === 'object' ? v.copy as Record<string, unknown> : null;
+  if (!raw) return { copy: null, fingerprint: '' };
+  const rawFields = (raw.fields && typeof raw.fields === 'object' ? raw.fields : {}) as Record<string, unknown>;
+  const fields: Record<string, string> = {};
+  for (const field of contract.fields) fields[field.key] = str(rawFields[field.key], field.maxLength);
+  // Allow a few more tags than the platform's limit so an over-long edit is shown, not silently lost.
+  return { copy: { fields, tags: tagList(raw.tags, contract.tags.max + 12) }, fingerprint };
+}
+
+function restoreShareCopy(value: unknown): MiddleEarthShareCopy {
+  const v = (value && typeof value === 'object' ? value : {}) as Record<string, unknown>;
+  const result = emptyShareCopy();
+  for (const platform of SHARE_KIT_PLATFORMS) result[platform] = restoreShareSlot(platform, v[platform]);
+  return result;
+}
+
+/** v1 stored Rednote copy only; empty v1 fields mean the Rednote slot follows the template. */
+function migrateV1ShareCopy(data: Record<string, unknown>): MiddleEarthShareCopy {
+  const result = emptyShareCopy();
+  const title = str(data.rednoteTitle, 120);
+  const caption = str(data.rednoteCaption, 2200);
+  const tags = tagList(data.rednoteTags, 12);
+  if (title.trim() || caption.trim() || tags.length) {
+    result.rednote = {
+      copy: { fields: { title, caption }, tags },
+      fingerprint: str(data.rednoteGroundingFingerprint, 20_000),
+    };
+  }
+  return result;
+}
+
 export function restoreMiddleEarthDraft(storage: Pick<Storage, 'getItem'>): MiddleEarthWorkingDraft {
   const empty = emptyMiddleEarthDraft();
   try {
     const raw = storage.getItem(MIDDLE_EARTH_DRAFT_KEY);
     if (!raw || raw.length > MAX_DRAFT_CHARS) return empty;
     const data = JSON.parse(raw) as Record<string, unknown>;
-    if (!data || data.version !== 1) return empty;
+    if (!data || (data.version !== 1 && data.version !== 2)) return empty;
     const angles = Array.isArray(data.angles)
       ? data.angles.slice(0, 3).map(cardText).filter((item): item is MiddleEarthDraftCardText => item !== null)
       : [];
@@ -192,7 +253,7 @@ export function restoreMiddleEarthDraft(storage: Pick<Storage, 'getItem'>): Midd
       ? data.results.slice(0, MAX_RESULTS).map(asset).filter((item): item is MiddleEarthDraftAsset => item !== null)
       : [];
     return {
-      version: 1,
+      version: 2,
       moment: str(data.moment, 500),
       query: str(data.query, 200),
       searchedQuery: str(data.searchedQuery, 200),
@@ -223,12 +284,8 @@ export function restoreMiddleEarthDraft(storage: Pick<Storage, 'getItem'>): Midd
       visualGeneration: generation && generation.provider === 'xai' && typeof generation.generatedAt === 'string'
         ? { provider: 'xai', generatedAt: generation.generatedAt, ...(typeof generation.model === 'string' ? { model: generation.model } : {}) }
         : null,
-      rednoteTitle: str(data.rednoteTitle, 120),
-      rednoteCaption: str(data.rednoteCaption, 2200),
-      rednoteTags: Array.isArray(data.rednoteTags)
-        ? data.rednoteTags.filter((tag): tag is string => typeof tag === 'string' && tag.length <= 50).slice(0, 12)
-        : [],
-      rednoteGroundingFingerprint: str(data.rednoteGroundingFingerprint, 20_000),
+      sharePlatform: oneOf(data.sharePlatform, SHARE_KIT_PLATFORMS, 'rednote') as SharePlatform,
+      shareCopy: data.version === 1 ? migrateV1ShareCopy(data) : restoreShareCopy(data.shareCopy),
     };
   } catch {
     return empty;

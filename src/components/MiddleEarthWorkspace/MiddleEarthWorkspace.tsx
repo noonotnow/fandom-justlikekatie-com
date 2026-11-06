@@ -1,7 +1,18 @@
 import { useEffect, useMemo, useRef, useState, type ChangeEvent, type FormEvent } from "react";
 import { PUBLIC_ROUTE_PATHS } from "../../../shared/public-routes.js";
 import {
-  generateRednoteCopy,
+  SHARE_KIT_PLATFORMS,
+  formatSharePost,
+  shareCopyContract,
+  shareCopyProblem,
+  templateShareCopy,
+  type ShareCopy,
+  type SharePlatform,
+} from "../../../shared/meme-share-copy.js";
+import { platformLabel } from "../../../shared/social-platforms.js";
+import { MEME_LENSES } from "../../data/memeLenses";
+import {
+  generateShareCopy,
   generateVisualObject,
   middleEarthGroundingFingerprint,
   MiddleEarthAiError,
@@ -50,10 +61,12 @@ import {
 import { createArchiveSearchRequestGate } from "./archiveSearchRequestGate";
 import {
   emptyMiddleEarthDraft,
+  emptyShareCopy,
   isEmptyMiddleEarthDraft,
   MIDDLE_EARTH_DRAFT_KEY,
   restoreMiddleEarthDraft,
   writeMiddleEarthDraft,
+  type MiddleEarthShareCopy,
   type MiddleEarthWorkingDraft,
 } from "../../utils/middleEarthDraft";
 import {
@@ -396,13 +409,38 @@ function wrapCanvasText(context: CanvasRenderingContext2D, value: string, maxWid
   });
 }
 
-function parseTagList(value: string): string[] {
+function parseTagList(value: string, max = 8): string[] {
   return value
     .split(/[\s,]+/)
     .map((tag) => tag.trim().replace(/^#+/, "").replace(/[^\p{L}\p{N}_-]/gu, ""))
     .filter(Boolean)
-    .slice(0, 8)
+    .slice(0, max)
     .map((tag) => `#${tag.slice(0, 49)}`);
+}
+
+/**
+ * Keeps the text exactly as typed (so a space can separate tags) and reports
+ * parsed tags upward. Outside changes (template, AI, reset) replace the text.
+ */
+function TagField({ label, tags, max, placeholder, disabled, onChange }: {
+  label: string; tags: string[]; max: number; placeholder: string; disabled: boolean; onChange: (tags: string[]) => void;
+}) {
+  const [text, setText] = useState(tags.join(" "));
+  const joined = tags.join(" ");
+  useEffect(() => {
+    setText((current) => (parseTagList(current, max).join(" ") === joined ? current : joined));
+  }, [joined, max]);
+  return (
+    <label>
+      {label}
+      <input
+        value={text}
+        onChange={(event) => { setText(event.target.value); onChange(parseTagList(event.target.value, max)); }}
+        placeholder={placeholder}
+        disabled={disabled}
+      />
+    </label>
+  );
 }
 
 export function MiddleEarthWorkspace({
@@ -478,13 +516,9 @@ export function MiddleEarthWorkspace({
   const [visualGeneration, setVisualGeneration] = useState<MiddleEarthDraft["aiGeneration"]>(
     initialDraft.visualGeneration ?? undefined,
   );
-  const [rednoteTitle, setRednoteTitle] = useState(initialDraft.rednoteTitle);
-  const [rednoteCaption, setRednoteCaption] = useState(initialDraft.rednoteCaption);
-  const [rednoteTags, setRednoteTags] = useState<string[]>(initialDraft.rednoteTags);
-  const [, setRednoteGeneratedAt] = useState("");
-  const [, setRednoteModel] = useState("");
-  const [, setRednoteCharacter] = useState("");
-  const [rednoteGroundingFingerprint, setRednoteGroundingFingerprint] = useState(initialDraft.rednoteGroundingFingerprint);
+  // Post copy per platform. A null slot follows the template built from the card lines.
+  const [sharePlatform, setSharePlatform] = useState<SharePlatform>(initialDraft.sharePlatform);
+  const [shareCopy, setShareCopy] = useState<MiddleEarthShareCopy>(initialDraft.shareCopy);
   const [previewImageFailed, setPreviewImageFailed] = useState(false);
   const [previewNode, setPreviewNode] = useState<HTMLElement | null>(null);
   const [collectionSaved, setCollectionSaved] = useState(false);
@@ -561,7 +595,7 @@ export function MiddleEarthWorkspace({
   useEffect(() => {
     if (!isReactionCardPath) return;
     const workingDraft: MiddleEarthWorkingDraft = {
-      version: 1,
+      version: 2,
       moment, query, searchedQuery,
       character, memeFlavor, aesthetic, artifactType, creativeDirection,
       translation: (translation as unknown as Record<string, unknown>) ?? null,
@@ -572,7 +606,7 @@ export function MiddleEarthWorkspace({
       selected: selected && !selected.thumbnail.startsWith("data:") ? selected : null,
       results: results.filter((item) => !item.thumbnail.startsWith("data:")),
       visualGeneration: visualGeneration ?? null,
-      rednoteTitle, rednoteCaption, rednoteTags, rednoteGroundingFingerprint,
+      sharePlatform, shareCopy,
     };
     const json = JSON.stringify(workingDraft);
     if (lastDraftJson.current === null) { lastDraftJson.current = json; return; }
@@ -589,7 +623,7 @@ export function MiddleEarthWorkspace({
       : outcome === "removed" ? "No local draft" : "Could not save locally. Keep this tab open.");
   }, [isReactionCardPath, moment, query, searchedQuery, character, memeFlavor, aesthetic, artifactType, creativeDirection,
     translation, referenceStillFamily, angles, selectedAngle, title, text, secondaryText, cardFormat, tone, memeFrame,
-    selected, results, visualGeneration, rednoteTitle, rednoteCaption, rednoteTags, rednoteGroundingFingerprint]);
+    selected, results, visualGeneration, sharePlatform, shareCopy]);
 
   const clearLocalDraft = () => {
     archiveSearchRequestGate.invalidate();
@@ -609,7 +643,7 @@ export function MiddleEarthWorkspace({
     setSelected(undefined); setResults([]); setComparisonEmotion(undefined); setSearching(false);
     setPreviewImageFailed(false);
     setVisualGeneration(undefined);
-    setRednoteTitle(""); setRednoteCaption(""); setRednoteTags([]); setRednoteGroundingFingerprint("");
+    setShareCopy(emptyShareCopy()); setSharePlatform("rednote");
     setError("");
     try {
       window.localStorage.removeItem(MIDDLE_EARTH_DRAFT_KEY);
@@ -1063,7 +1097,6 @@ export function MiddleEarthWorkspace({
     }
   };
 
-  const rednoteTouched = Boolean(rednoteTitle.trim() || rednoteCaption.trim() || rednoteTags.length);
   const currentGroundingFingerprint = useMemo(() => middleEarthGroundingFingerprint({
     character: resolvedCharacter,
     memeFlavor: resolvedMemeFlavor,
@@ -1089,16 +1122,45 @@ export function MiddleEarthWorkspace({
       cardFormat,
     },
   }), [resolvedCharacter, resolvedMemeFlavor, resolvedComicMechanism, resolvedAesthetic, resolvedArtifactType, tone, layout, generationGuidance, referenceStillFamily, translation, selected, title, text, secondaryText, cardFormat]);
-  const rednoteIsCurrent = Boolean(
-    rednoteGroundingFingerprint
-    && rednoteGroundingFingerprint === currentGroundingFingerprint
+  const lensTopicTags = MEME_LENSES["middle-earth"].topicTags;
+  const templateCopyFor = (platform: SharePlatform): ShareCopy =>
+    templateShareCopy(platform, { setup: text, punchline: secondaryText }, lensTopicTags);
+  const displayedCopyFor = (platform: SharePlatform): ShareCopy => shareCopy[platform].copy ?? templateCopyFor(platform);
+  const shareIsCurrent = (platform: SharePlatform) => Boolean(
+    shareCopy[platform].fingerprint && shareCopy[platform].fingerprint === currentGroundingFingerprint,
   );
-  // Shown both in the open panel and on its collapsed summary, so a stale
-  // "Drafted" badge never hides the regenerate warning. Only generated copy can
-  // be stale: hand-written copy has no grounding fingerprint to compare against.
-  const rednoteIsStale = Boolean(
-    visualGeneration && rednoteGroundingFingerprint && rednoteTouched && !rednoteIsCurrent,
+  // Shown both in the open panel and on its collapsed summary, so a "Drafted"
+  // badge never hides the regenerate warning. Only AI-written copy can be
+  // stale: template or hand-written copy has no fingerprint to compare against.
+  const shareIsStale = (platform: SharePlatform) => Boolean(
+    visualGeneration && shareCopy[platform].fingerprint && shareCopy[platform].copy && !shareIsCurrent(platform),
   );
+  const stalePlatforms = SHARE_KIT_PLATFORMS.filter(shareIsStale);
+  const anyShareEdited = SHARE_KIT_PLATFORMS.some((platform) => shareCopy[platform].copy !== null);
+  const activeContract = shareCopyContract(sharePlatform);
+  const activeCopy = displayedCopyFor(sharePlatform);
+  const activeLabel = platformLabel(sharePlatform);
+  const activeProblem = shareCopyProblem(sharePlatform, activeCopy);
+
+  const editShareCopy = (change: (copy: ShareCopy) => ShareCopy) => {
+    setShareCopy((current) => {
+      const slot = current[sharePlatform];
+      const base = slot.copy ?? templateCopyFor(sharePlatform);
+      return { ...current, [sharePlatform]: { copy: change({ fields: { ...base.fields }, tags: [...base.tags] }), fingerprint: slot.fingerprint } };
+    });
+  };
+  const resetShareCopy = () => {
+    setShareCopy((current) => ({ ...current, [sharePlatform]: { copy: null, fingerprint: "" } }));
+    setStatus(`${activeLabel} copy reset to the template.`);
+  };
+  const copySharePost = async () => {
+    try {
+      await navigator.clipboard.writeText(formatSharePost(sharePlatform, activeCopy));
+      setStatus(`${activeLabel} post copied.`);
+    } catch {
+      setError(`${activeLabel} post could not be copied. Select and copy the text manually.`);
+    }
+  };
   const draft = useMemo<MiddleEarthDraft>(() => ({
     kind, title: title.trim() || cardFormat || "Untitled Middle-earth idea", text: text.trim(),
     secondaryText: secondaryText.trim() || undefined, tone, layout,
@@ -1222,21 +1284,25 @@ export function MiddleEarthWorkspace({
   };
 
   const generateCopy = async () => {
+    const platform = sharePlatform;
+    const label = platformLabel(platform);
     if (!canGenerate) {
       setError("Sign in to use AI generation.");
       return;
     }
     if (!visualGeneration) {
-      setError("Forge the card before writing its Rednote copy.");
+      setError(`Forge the card before writing its ${label} copy with AI.`);
       return;
     }
     if (!resolvedCharacter.trim() || !text.trim() || !secondaryText.trim()) {
       setError("Finish both lines of the reaction card and translate the moment first.");
       return;
     }
-    setBusy(true); setError(""); setStatus("Writing the Rednote copy…");
+    const edited = shareCopy[platform].copy;
+    setBusy(true); setError(""); setStatus(`Writing the ${label} copy…`);
     try {
-      const generated = await generateRednoteCopy({
+      const generated = await generateShareCopy({
+        platform,
         character: resolvedCharacter.trim(),
         memeFlavor: resolvedMemeFlavor,
         comicMechanism: resolvedComicMechanism,
@@ -1253,25 +1319,24 @@ export function MiddleEarthWorkspace({
           cardFormat,
           layout,
         },
-        currentCopy: {
-          title: rednoteTitle.trim() || undefined,
-          caption: rednoteCaption.trim() || undefined,
-          tags: rednoteTags,
-        },
+        // Untouched template copy is not sent, so the writer starts fresh exactly as before.
+        ...(edited ? {
+          currentCopy: {
+            fields: Object.fromEntries(Object.entries(edited.fields).map(([key, value]) => [key, value.trim()])),
+            tags: edited.tags,
+          },
+        } : {}),
       });
-      setRednoteTitle(generated.title);
-      setRednoteCaption(generated.caption);
-      setRednoteTags(generated.tags);
-      setRednoteGeneratedAt(new Date().toISOString());
-      setRednoteModel(generated.model || "");
-      setRednoteCharacter(resolvedCharacter.trim());
-      setRednoteGroundingFingerprint(currentGroundingFingerprint);
-      setStatus("Rednote title, caption, and tags generated. Edit anything before saving.");
+      setShareCopy((current) => ({
+        ...current,
+        [platform]: { copy: { fields: generated.fields, tags: generated.tags }, fingerprint: currentGroundingFingerprint },
+      }));
+      setStatus(`${label} copy written. Edit anything before posting.`);
     } catch (generationError) {
       if (generationError instanceof MiddleEarthAiError && generationError.status === 401) {
         onSessionExpired?.();
       }
-      setError(generationError instanceof Error ? generationError.message : "The Rednote copy could not be written.");
+      setError(generationError instanceof Error ? generationError.message : `The ${label} copy could not be written.`);
     } finally {
       setBusy(false);
     }
@@ -1904,38 +1969,59 @@ export function MiddleEarthWorkspace({
           {isEditorRequired && <details className={styles.sharePanel}>
             <summary>
               <span>Share</span>
-              <strong>Rednote copy</strong>
-              <small className={rednoteIsStale ? styles.shareStale : undefined}>{!rednoteTouched
-                ? "Optional · write post copy when you're ready to post"
-                : rednoteIsStale ? "Copy is stale · reopen to regenerate" : "Drafted"}</small>
+              <strong>Post copy</strong>
+              <small className={stalePlatforms.length ? styles.shareStale : undefined}>{stalePlatforms.length
+                ? `${stalePlatforms.map(platformLabel).join(", ")} copy is stale · reopen to regenerate`
+                : anyShareEdited ? "Drafted" : "Optional · template copy is ready for each platform"}</small>
             </summary>
             <div className={styles.visualContext}>
               <span>Writing copy for</span>
               <strong>{text || "Your setup line"}</strong>
-              <p>{secondaryText || "Finish the card above before writing its Rednote copy."}</p>
+              <p>{secondaryText || "Finish the card above; template copy follows its lines."}</p>
             </div>
-            {!visualGeneration && <p className={styles.copyWarning}>Forge the card above before writing its Rednote copy.</p>}
-            {rednoteIsStale && <p className={styles.copyWarning}>The grounding changed. Regenerate this copy before saving it.</p>}
+            <div className={styles.platformTabs} role="tablist" aria-label="Post platform">
+              {SHARE_KIT_PLATFORMS.map((platform) => <button
+                key={platform}
+                type="button"
+                role="tab"
+                aria-selected={platform === sharePlatform}
+                className={platform === sharePlatform ? styles.platformActive : ""}
+                onClick={() => setSharePlatform(platform)}
+                disabled={busy}
+              >
+                {platformLabel(platform)}
+                <small>{shareIsStale(platform) ? "stale" : shareCopy[platform].fingerprint ? "AI" : shareCopy[platform].copy ? "edited" : "template"}</small>
+              </button>)}
+            </div>
+            {shareIsStale(sharePlatform) && <p className={styles.copyWarning}>The grounding changed. Regenerate this copy before posting.</p>}
+            {activeContract.fields.map((field) => <label key={`${sharePlatform}-${field.key}`}>
+              {field.label}
+              {field.multiline
+                ? <textarea value={activeCopy.fields[field.key] ?? ""} onChange={(event) => { const value = event.target.value; editShareCopy((copy) => ({ ...copy, fields: { ...copy.fields, [field.key]: value } })); }} rows={sharePlatform === "rednote" ? 8 : 4} maxLength={field.maxLength} placeholder={field.placeholder} disabled={busy} />
+                : <input value={activeCopy.fields[field.key] ?? ""} onChange={(event) => { const value = event.target.value; editShareCopy((copy) => ({ ...copy, fields: { ...copy.fields, [field.key]: value } })); }} maxLength={field.maxLength} placeholder={field.placeholder} disabled={busy} />}
+            </label>)}
+            <TagField
+              key={sharePlatform}
+              label={`${activeLabel} tags · ${activeContract.tags.min}–${activeContract.tags.max}`}
+              tags={activeCopy.tags}
+              max={activeContract.tags.max + 4}
+              placeholder="#LOTR #MiddleEarth"
+              disabled={busy}
+              onChange={(tags) => editShareCopy((copy) => ({ ...copy, tags }))}
+            />
+            {activeProblem && <p className={styles.copyNote}>{activeProblem}</p>}
+            <div className={styles.shareActions}>
+              <button type="button" onClick={() => void copySharePost()} disabled={busy}>Copy {activeLabel} post</button>
+              {shareCopy[sharePlatform].copy && <button type="button" onClick={resetShareCopy} disabled={busy}>Reset to template</button>}
+            </div>
             <div className={styles.aiPanel}>
-              <div><strong>Rednote copy writer</strong><p>Generates a separate editable title, caption, and tag set. Existing edits are used as refinement context.</p></div>
+              <div><strong>Write with AI</strong><p>Optional. Rewrites this {activeLabel} post from the forged card using the platform&apos;s own format. Your edits are used as refinement context.</p></div>
               {canGenerate
-                ? <button className={styles.aiAction} onClick={() => void generateCopy()} disabled={busy || !visualGeneration || !text.trim()}>{busy ? "Writing…" : rednoteIsCurrent ? "Refine copy" : "Generate copy"}</button>
+                ? <button className={styles.aiAction} onClick={() => void generateCopy()} disabled={busy || !visualGeneration || !text.trim()}>{busy ? "Writing…" : shareIsCurrent(sharePlatform) ? "Refine with AI" : "Write with AI"}</button>
                 : <a className={styles.stagingLink} href={`${PUBLIC_ROUTE_PATHS.vibeAtlas}?view=plan`}>Sign in to write copy</a>}
             </div>
-            <label>Rednote title<input value={rednoteTitle} onChange={(event) => { setRednoteTitle(event.target.value); }} maxLength={120} placeholder="A scroll-stopping title" disabled={busy} /></label>
-            <label>Rednote caption<textarea value={rednoteCaption} onChange={(event) => { setRednoteCaption(event.target.value); }} rows={8} maxLength={2200} placeholder="The editable caption draft will appear here." disabled={busy} /></label>
-            <label>
-              Rednote tags
-              <input
-                value={rednoteTags.join(" ")}
-                onChange={(event) => {
-                  setRednoteTags(parseTagList(event.target.value));
-                }}
-                placeholder="#MiddleEarth #Gandalf #Fandom"
-                disabled={busy}
-              />
-            </label>
-            <p className={styles.copyNote}>Draft only. Review names, tone, source rights, and tags before moving the packet to CREATE.</p>
+            {!visualGeneration && <p className={styles.copyNote}>Template copy works now. Forge the card above to write it with AI.</p>}
+            <p className={styles.copyNote}>Draft only. Review names, tone, source rights, and tags before posting or moving the packet to CREATE.</p>
           </details>}
           {isReactionCardPath && <div className={styles.draftStatus}>
             <span role="status">{draftStatus}</span>
