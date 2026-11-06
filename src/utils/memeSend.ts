@@ -26,11 +26,18 @@ export type SendReceipt = {
 };
 export type SendState = {
   memeGroupId: string;
+  /** The operator's CREATE Series choice for this meme. Persisted so reopening a saved draft keeps it. */
+  series?: string;
   intents: Partial<Record<'tiktok' | 'instagram', { id: string; receipt?: SendReceipt; backup?: SendBackup; retention?: SendRetention; assetId?: string; sentSignature?: string }>>;
 };
 
 type Storage = Pick<globalThis.Storage, 'getItem' | 'setItem' | 'removeItem'>;
 const id = () => (globalThis.crypto?.randomUUID?.() ?? `${Date.now()}-${Math.random().toString(36).slice(2)}`).replace(/[^A-Za-z0-9._-]/g, '');
+
+export const isMemeSeries = (value: unknown): value is string => MEME_SERIES_OPTIONS.some(option => option.value === value);
+/** The chosen Series, or the default when none was saved or the saved value is no longer a valid option. */
+export const seriesFor = (state: SendState): string => (isMemeSeries(state.series) ? state.series : DEFAULT_MEME_SERIES);
+export const withSeries = (state: SendState, series: string): SendState => (isMemeSeries(series) ? { ...state, series } : state);
 
 export function newMemeState(): SendState { return { memeGroupId: `meme-${id()}`, intents: {} }; }
 
