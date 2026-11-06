@@ -11,8 +11,8 @@ import { CandidateImage, SceneEvidence, SceneMatch, type SceneClue, type SceneRe
 import { SimilarStills } from './SimilarStills';
 import { saveMemeImage } from '../../utils/memeLibrary';
 import {
-  blobToBase64, buildMemeSendBody, DEFAULT_MEME_SERIES, MEME_SERIES_OPTIONS, draftSignature, intentFor, loadSendState, newIntent, newMemeState,
-  saveSendState, sendMemeToCreate, type SendState,
+  blobToBase64, buildMemeSendBody, MEME_SERIES_OPTIONS, draftSignature, intentFor, loadSendState, newIntent, newMemeState,
+  saveSendState, sendMemeToCreate, seriesFor, withSeries, type SendState,
 } from '../../utils/memeSend';
 
 type Research = { title: string; link: string; snippet: string; episodeStart?: number; episodeEnd?: number };
@@ -56,8 +56,8 @@ export function CdramaForge() {
   const [sendState, setSendState] = useState<SendState>(() => {
     try { return loadSendState(window.localStorage); } catch { return newMemeState(); }
   });
-  const [memeSeries, setMemeSeries] = useState<string>(DEFAULT_MEME_SERIES);
   const sendRef = useRef(sendState);
+  const memeSeries = seriesFor(sendState);
   const commitSend = (next: SendState) => { sendRef.current = next; saveSendState(window.localStorage, next); setSendState(next); };
   /**
    * A different meme gets a different identity so it can never reuse a previous send's Post. Called only from
@@ -348,10 +348,10 @@ export function CdramaForge() {
       if (!ctx) throw new Error('Canvas unavailable.');
       renderCdramaCard(ctx, image, { ...idea }, format, draft);
       const blob = await new Promise<Blob>((resolve, reject) => output.toBlob(b => b ? resolve(b) : reject(new Error('PNG could not be created.')), 'image/png'));
-      const result = await sendMemeToCreate(buildMemeSendBody(draft, state, resolved.intent.id, await blobToBase64(blob), copyAtSend, memeSeries));
+      const result = await sendMemeToCreate(buildMemeSendBody(draft, state, resolved.intent.id, await blobToBase64(blob), copyAtSend, seriesFor(state)));
       // The operator may have started a different meme while this send was in flight; don't write this result onto it.
       if (sendRef.current.memeGroupId !== state.memeGroupId) { setSendStatus('That send finished, but you have since started a different meme. Check CREATE for the draft.'); return; }
-      const next: SendState = { ...sendRef.current, intents: { ...sendRef.current.intents, [format]: { id: resolved.intent.id, receipt: result.receipt, backup: result.backup, retention: result.retention, assetId: result.assetId, sentSignature: draftSignature(draft, copyAtSend, memeSeries) } } };
+      const next: SendState = { ...sendRef.current, intents: { ...sendRef.current.intents, [format]: { id: resolved.intent.id, receipt: result.receipt, backup: result.backup, retention: result.retention, assetId: result.assetId, sentSignature: draftSignature(draft, copyAtSend, seriesFor(state)) } } };
       commitSend(next);
       if (id === requestId.current) setSendStatus(result.receipt.disposition === 'created' ? 'Draft created in CREATE.' : result.receipt.disposition === 'updated' ? 'CREATE draft updated.' : 'Already in CREATE; nothing duplicated.');
     } catch (error) { setSendStatus(error instanceof Error ? error.message : 'Send failed. Retrying is safe.'); }
@@ -571,7 +571,7 @@ export function CdramaForge() {
                 <div className={styles.sectionTitle}><span>CREATE / OPERATOR</span><strong>Send this {draft.format === 'tiktok' ? 'TikTok' : 'Instagram'} meme to a CREATE draft.</strong></div>
                 <p className={styles.help}>Sends only the live draft on this screen. Saved library cards keep just the image, so caption, source and rights context can't be reconstructed later. The still stays unregistered and marked not cleared; nothing is published.</p>
                 <label htmlFor="forge-series">CREATE Series</label>
-                <select id="forge-series" value={memeSeries} onChange={e => setMemeSeries(e.target.value)} disabled={busy === 'send'}>
+                <select id="forge-series" value={memeSeries} onChange={e => commitSend(withSeries(sendRef.current, e.target.value))} disabled={busy === 'send'}>
                   {MEME_SERIES_OPTIONS.map(option => <option key={option.value} value={option.value}>{option.label}</option>)}
                 </select>
                 <p className={styles.help}>Pick the Series this draft belongs to (I · Meme is the cross-fandom option).</p>
