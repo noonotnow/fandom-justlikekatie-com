@@ -64,6 +64,12 @@ async function mockServices(page: Page, counters: { collectionWrites: number }) 
     if (request.mode === 'translation') {
       return route.fulfill({ contentType: 'application/json', body: JSON.stringify({ result: translation }) });
     }
+    if (request.mode === 'rednote') {
+      return route.fulfill({
+        contentType: 'application/json',
+        body: JSON.stringify({ result: { title: 'Snack defense', caption: 'Guarding the stash.', tags: ['#LOTR', '#Samwise', '#Snacks'], model: 'grok-test' } }),
+      });
+    }
     const card = request.cardText as Record<string, string>;
     return route.fulfill({
       contentType: 'application/json',
@@ -160,6 +166,42 @@ test('the Middle-earth reaction draft survives reload, clears, and starts fresh,
     assert.equal(await page.getByLabel('The moment').inputValue(), 'Second breakfast negotiations');
 
     assert.equal(counters.collectionWrites, 0, 'drafting never writes to the Collection or account sync');
+  } finally {
+    await closeBrowserAndServer(browser, server);
+  }
+});
+
+test('the Share panel flags stale Rednote copy on its collapsed summary', { timeout: 90_000 }, async () => {
+  const { server, origin } = await startViteTestServer();
+  const { browser, page } = await launchPageForServer(server);
+  try {
+    await mockServices(page, { collectionWrites: 0 });
+    await gotoTestPage(page, `${origin}/memeforge/middle-earth`);
+    await page.getByLabel('The moment').fill('Defending my little treat with my life');
+    await page.getByRole('button', { name: 'Translate moment' }).click();
+    await page.getByRole('button', { name: /^Sam guards Frodo/ }).waitFor();
+    await page.getByRole('button', { name: 'Forge card' }).click();
+    await page.getByText('Visual object generated').waitFor();
+
+    const summary = page.locator('details summary', { hasText: 'Rednote copy' });
+    await summary.click();
+    await page.getByText('Writing copy for').waitFor();
+    // Hand-written copy after forging has nothing to be stale against.
+    await page.getByLabel('Rednote title').fill('My own title');
+    await page.getByLabel('Setup line').fill('an edit before any copy was generated');
+    await summary.getByText('Drafted', { exact: true }).waitFor();
+    assert.equal(await page.getByText('The grounding changed. Regenerate this copy before saving it.').count(), 0);
+    await page.getByRole('button', { name: 'Generate copy' }).click();
+    await page.getByText('Rednote title, caption, and tags generated.', { exact: false }).waitFor();
+    await summary.getByText('Drafted', { exact: true }).waitFor();
+
+    await summary.click();
+    await page.getByLabel('Setup line').fill('a different setup');
+    await summary.getByText('Copy is stale · reopen to regenerate').waitFor();
+    assert.equal(await page.getByText('The grounding changed. Regenerate this copy before saving it.').isVisible(), false,
+      'the detailed warning stays inside the collapsed panel');
+    await summary.click();
+    await page.getByText('The grounding changed. Regenerate this copy before saving it.').waitFor();
   } finally {
     await closeBrowserAndServer(browser, server);
   }

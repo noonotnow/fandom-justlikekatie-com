@@ -513,10 +513,10 @@ test('new cards require translation while reworks and unchanged memes can search
     /Use typography-only fallback/,
     'typography-only must remain an explicit fallback, not the default card treatment',
   );
-  const search = source.slice(
-    source.indexOf('const search ='),
-    source.indexOf('const selectStep =', source.indexOf('const search =')),
-  );
+  const searchStart = source.indexOf('const search =');
+  const searchEnd = source.indexOf('const compareReactionEmotion =', searchStart);
+  assert.ok(searchStart >= 0 && searchEnd > searchStart, 'the search functions must sit before compareReactionEmotion');
+  const search = source.slice(searchStart, searchEnd);
   assert.doesNotMatch(
     search,
     /setText\(|setSecondaryText\(|setTitle\(/,
@@ -560,14 +560,24 @@ test('source treatment supports clean-still forging, existing-meme rework, and u
   );
   assert.match(
     source,
-    /\{!isEditorRequired && activeStep === "forge" \? \([\s\S]*?Editor bypassed[\s\S]*?Switch to rework and open the editor[\s\S]*?\) : \([\s\S]*?<div className=\{styles\.editorPanel\}>/,
+    /\{!isEditorRequired \? \([\s\S]*?Editor bypassed[\s\S]*?Switch to rework and open the editor[\s\S]*?\) : \([\s\S]*?<div className=\{styles\.editorPanel\}>/,
     'unchanged memes must bypass the editor while offering an explicit route into rework',
   );
   assert.match(
     source,
-    /disabled=\{busy \|\| !isEditorRequired\}>2\. Rednote Spellbook/,
-    'the copy editor must remain unavailable when an unchanged source needs no editing',
+    /\{isEditorRequired && <details className=\{styles\.sharePanel\}>[\s\S]*?<strong>Rednote copy<\/strong>/,
+    'the Share panel must remain unavailable when an unchanged source needs no editing',
   );
+  assert.doesNotMatch(source, /Rednote Spellbook|activeStep|selectStep/, 'the Spellbook is no longer a top-level mode');
+  assert.equal(source.match(/>Sign in to generate</g)?.length, 1, 'the editor and Share panel use distinct sign-in prompts');
+  assert.match(source, />Sign in to write copy</);
+  assert.match(source, /const rednoteIsStale = Boolean\(\s*visualGeneration && rednoteGroundingFingerprint && rednoteTouched && !rednoteIsCurrent,\s*\);/,
+    'only generated copy can be stale');
+  assert.match(source, /rednoteIsStale \? "Copy is stale · reopen to regenerate" : "Drafted"/,
+    'the collapsed summary must surface stale copy instead of a plain "Drafted"');
+  assert.match(source, /<span>Writing copy for<\/span>/, 'the panel shows which card the copy describes');
+  assert.match(source, /disabled=\{busy \|\| !visualGeneration \|\| !text\.trim\(\)\}>\{busy \? "Writing…"/,
+    'copy writing keeps its Forge gate in this step');
   assert.match(
     source,
     /setQuery\(moment\.trim\(\)[\s\S]*?\[resolvedCharacter, moment\.trim\(\), "meme"\]/,
