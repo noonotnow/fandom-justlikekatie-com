@@ -296,7 +296,7 @@ function buildEnvelope(request, media, sourceVersion, expectedSourceVersion, gen
     origin: "fandom-vibes",
     outputId,
     outputKind: "live_card",
-    renderVariant: `memeforge-c-drama-${request.format}`,
+    renderVariant: `memeforge-meme-${request.format}`,
     renderVersion: 1,
     sourceVersion,
     expectedSourceVersion,
@@ -307,7 +307,7 @@ function buildEnvelope(request, media, sourceVersion, expectedSourceVersion, gen
     grid: "single",
     generatedAt: iso,
     actor: { id: "memeforge", label: "MemeForge" },
-    vibe: { id: "c-drama-meme", label: "C-drama meme" },
+    vibe: { id: "memeforge-meme", label: "MemeForge meme" },
     anchor: request.hook.slice(0, 120) || "MemeForge",
     sourceCards: [{
       id: cardId,
