@@ -3,11 +3,12 @@ import { test } from 'node:test';
 import { readFile } from 'node:fs/promises';
 import sharp from 'sharp';
 import { DRAFT_KEY, emptyDraft } from '../../src/utils/cdramaForge.ts';
-import { gotoTestPage, closeBrowserAndServer, launchPageForServer, startViteTestServer } from './browserEngines.ts';
+import { BROWSER_ENGINES, gotoTestPage, closeBrowserAndServer, launchPageForServer, startViteTestServer } from './browserEngines.ts';
 
-test('finished C-drama exports and uploads share the scoped library without mixing LOTR or Atlas', { timeout: 120_000 }, async () => {
+for (const engine of BROWSER_ENGINES) {
+test(`finished C-drama exports and uploads share the scoped library in ${engine.name}`, { timeout: 120_000 }, async () => {
   const { server, origin } = await startViteTestServer();
-  const { browser, page } = await launchPageForServer(server);
+  const { browser, page } = await launchPageForServer(server, engine.type);
   const png = await sharp({ create: { width: 640, height: 400, channels: 3, background: '#b46f33' } }).png().toBuffer();
   const image = `data:image/png;base64,${png.toString('base64')}`;
   try {
@@ -102,3 +103,4 @@ test('finished C-drama exports and uploads share the scoped library without mixi
     assert.equal(await page.locator('article').count(), 1);
   } finally { await closeBrowserAndServer(browser, server); }
 });
+}

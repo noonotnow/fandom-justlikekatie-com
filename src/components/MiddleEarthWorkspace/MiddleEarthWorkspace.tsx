@@ -90,6 +90,8 @@ import {
   syncPublicCollection,
 } from "../../utils/publicAccount";
 import styles from "./MiddleEarthWorkspace.module.css";
+import { renderMiddleEarthMeme } from "../../utils/middleEarthMemeCanvas";
+import { MemeCanvasPreview } from "./MemeCanvasPreview";
 
 export interface MiddleEarthAsset {
   id: string;
@@ -231,26 +233,6 @@ function canLoadReactionImage(url: string, timeoutMs = 4000): Promise<boolean> {
   });
 }
 
-function drawCanvasImageContain(
-  context: CanvasRenderingContext2D,
-  image: HTMLImageElement,
-  x: number,
-  y: number,
-  width: number,
-  height: number,
-): void {
-  const ratio = Math.min(width / image.width, height / image.height);
-  const renderedWidth = image.width * ratio;
-  const renderedHeight = image.height * ratio;
-  context.drawImage(
-    image,
-    x + (width - renderedWidth) / 2,
-    y + (height - renderedHeight) / 2,
-    renderedWidth,
-    renderedHeight,
-  );
-}
-
 function downloadCanvasPng(canvas: HTMLCanvasElement, title: string): void {
   const link = document.createElement("a");
   const filename = (title || "middle-earth-packet")
@@ -296,48 +278,7 @@ function drawMemeReworkFrame(
   draft: MiddleEarthDraft,
   image: HTMLImageElement,
 ): void {
-  const frame = { x: 48, y: 126, width: 984, height: 1080 };
-  const mode = draft.memeRework?.edit.mode || "cover-and-replace";
-  context.fillStyle = "#102d2e";
-  context.fillRect(0, 0, 1080, 1350);
-  context.fillStyle = "#050707";
-  context.fillRect(frame.x, frame.y, frame.width, frame.height);
-  drawCanvasImageContain(context, image, frame.x, frame.y, frame.width, frame.height);
-
-  const drawOverlay = (copy: string, top: number, bottom = false) => {
-    if (!copy.trim()) return;
-    context.font = "800 62px Arial";
-    const lines = wrapCanvasText(context, copy.toUpperCase(), 850).slice(0, 2);
-    const lineHeight = 68;
-    const height = Math.max(132, lines.length * lineHeight + 40);
-    const y = bottom ? frame.y + frame.height - height : top;
-    context.fillStyle = mode === "cover-and-replace" ? "#050707" : "rgba(5,7,7,.84)";
-    context.fillRect(frame.x, y, frame.width, height);
-    context.fillStyle = "#fffdf8";
-    context.textAlign = "center";
-    const firstBaseline = y + (height - lines.length * lineHeight) / 2 + 55;
-    lines.forEach((line, index) => context.fillText(line, 540, firstBaseline + index * lineHeight));
-  };
-
-  drawOverlay(draft.text, mode === "cover-and-replace" ? frame.y : frame.y + 34);
-  drawOverlay(draft.secondaryText || "", frame.y, true);
-
-  context.fillStyle = "#d4a951";
-  context.textAlign = "left";
-  context.font = "600 18px monospace";
-  context.fillText("MEMEFORGE // REWORK", 48, 76);
-  context.textAlign = "right";
-  context.fillText(mode === "cover-and-replace" ? "COVER + REPLACE" : "ADDED OVERLAY", 1032, 76);
-  context.fillStyle = "#f4eee2";
-  context.textAlign = "center";
-  context.font = "500 16px monospace";
-  context.fillText("DERIVATIVE EDIT · ORIGINAL SOURCE PRESERVED", 540, 1260);
-  if (draft.title) {
-    context.fillStyle = "#d8cdb8";
-    context.fillText(draft.title.toUpperCase().slice(0, 70), 540, 1292);
-  }
-  context.fillStyle = "#d4a951";
-  context.fillRect(0, 1324, 1080, 26);
+  renderMiddleEarthMeme(context, image, draft);
 }
 
 export async function exportMiddleEarthPng(
@@ -380,33 +321,6 @@ export async function exportMiddleEarthPng(
   const imageUrl = canvas.toDataURL("image/png");
   if (options.download !== false) downloadCanvasPng(canvas, draft.title);
   return imageUrl;
-}
-
-function wrapCanvasText(context: CanvasRenderingContext2D, value: string, maxWidth: number): string[] {
-  return value.split(/\n/).flatMap((paragraph) => {
-    const words = paragraph.split(/\s+/).filter(Boolean).flatMap((word) => {
-      if (context.measureText(word).width <= maxWidth) return [word];
-      const chunks: string[] = [];
-      let remaining = word;
-      while (remaining) {
-        let end = remaining.length;
-        while (end > 1 && context.measureText(remaining.slice(0, end)).width > maxWidth) end -= 1;
-        chunks.push(remaining.slice(0, end));
-        remaining = remaining.slice(end);
-      }
-      return chunks;
-    });
-    if (!words.length) return [""];
-    const lines: string[] = [];
-    let line = "";
-    words.forEach((word) => {
-      const candidate = line ? `${line} ${word}` : word;
-      if (context.measureText(candidate).width <= maxWidth || !line) line = candidate;
-      else { lines.push(line); line = word; }
-    });
-    if (line) lines.push(line);
-    return lines;
-  });
 }
 
 function parseTagList(value: string, max = 8): string[] {
@@ -1914,23 +1828,14 @@ export function MiddleEarthWorkspace({
               <section className={styles.reworkPane}>
                 <header><span>Edited derivative</span><strong>Editable</strong></header>
                 <div
-                  className={`${styles.preview} ${styles.reworkPreview}`}
+                  className={styles.reworkCanvas}
                   data-rework-mode={reworkEditMode}
                   ref={setPreviewNode}
                   aria-label="Live reworked meme preview"
                 >
-                  {!previewImageFailed && <div className={styles.previewStillFrame}><img src={selected.thumbnail} alt="" onError={() => setPreviewImageFailed(true)} /></div>}
-                  <div className={styles.previewShade} />
-                  <div className={styles.previewCopy}>
-                    <span>MEMEFORGE // REWORK</span>
-                    <div className={styles.previewLines}>
-                      <strong>{text || "Replacement line 1"}</strong>
-                      {(secondaryText || !text) && <em>{secondaryText || "Replacement line 2"}</em>}
-                    </div>
-                  </div>
-                  {title && <small>{title}</small>}
+                  <MemeCanvasPreview draft={draft} />
                 </div>
-                <small>{reworkEditMode === "cover-and-replace" ? "Solid bands cover inherited top/bottom text" : "New bands sit over the inherited image"}</small>
+                <small>{reworkEditMode === "cover-and-replace" ? "Solid bands cover inherited top/bottom text" : "Outlined captions overlay the inherited image"}</small>
               </section>
             </div>
           ) : (

@@ -33,7 +33,12 @@ export async function saveMemeImage(
     throw new Error('Choose a PNG, JPEG or WebP image up to 8 MB.');
   }
   // Decode before accepting a renamed or corrupt file as a saved visual.
-  const bitmap = await createImageBitmap(image);
+  let bitmap: ImageBitmap;
+  try {
+    bitmap = await createImageBitmap(image);
+  } catch {
+    throw new Error('The image could not be decoded. Choose a valid PNG, JPEG or WebP image.');
+  }
   try {
     if (!bitmap.width || !bitmap.height || bitmap.width * bitmap.height > 40_000_000) {
       throw new Error('Choose an image with fewer than 40 million pixels.');
