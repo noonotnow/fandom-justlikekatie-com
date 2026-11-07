@@ -104,6 +104,15 @@ test("sends a TikTok draft with rights, source and the correct image", async () 
   assert.equal(envelope.expectedSourceVersion, null);
 });
 
+test("labels the Post snapshot as a MemeForge meme, not the C-drama studio", async () => {
+  const { handler, calls } = harness();
+  await send(handler, body());
+  const { envelope } = calls.workstation[0];
+  assert.deepEqual(envelope.vibe, { id: "memeforge-meme", label: "MemeForge meme" });
+  assert.equal(envelope.renderVariant, "memeforge-meme-tiktok-9x16");
+  assert.doesNotMatch(JSON.stringify([envelope.vibe, envelope.renderVariant]), /c-drama/i);
+});
+
 test("retry with the same intent replays without a new upstream write", async () => {
   const { handler, calls } = harness();
   await send(handler, body());
