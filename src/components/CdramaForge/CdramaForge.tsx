@@ -12,7 +12,7 @@ import { SimilarStills } from './SimilarStills';
 import { saveMemeImage } from '../../utils/memeLibrary';
 import {
   blobToBase64, buildMemeSendBody, MEME_SERIES_OPTIONS, draftSignature, intentFor, loadSendState, newIntent, newMemeState,
-  saveSendState, sendMemeToCreate, seriesFor, withSeries, type SendState,
+  saveSendState, sendMemeToCreate, seriesFor, sendBlocker, withSeries, type SendState,
 } from '../../utils/memeSend';
 
 type Research = { title: string; link: string; snippet: string; episodeStart?: number; episodeEnd?: number };
@@ -565,6 +565,7 @@ export function CdramaForge() {
           {postCopy && hasAdminAccess && (() => {
             const sent = sendState.intents[draft.format];
             const changed = sent?.receipt && sent.sentSignature !== draftSignature(draft, postCopy, memeSeries);
+            const blocker = sendBlocker(draft.format, postCopy);
             const needsBackupRetry = sent?.receipt && (sent.backup?.state !== 'verified' || sent.retention?.state !== 'held') && !changed;
             return (
               <section className={styles.manual} aria-label="Send to CREATE (operator only)">
@@ -576,13 +577,14 @@ export function CdramaForge() {
                 </select>
                 <p className={styles.help}>Pick the Series this draft belongs to (I · Meme is the cross-fandom option).</p>
                 <div className={styles.actions}>
-                  <button type="button" disabled={!draft.still || !!busy || !(idea?.setup.trim() || idea?.punchline.trim())} onClick={() => void sendToCreate()}>
+                  <button type="button" disabled={!draft.still || !!busy || !(idea?.setup.trim() || idea?.punchline.trim()) || !!blocker} onClick={() => void sendToCreate()}>
                     {busy === 'send' ? 'Sending…' : needsBackupRetry ? 'Retry send + backup' : changed ? 'Update CREATE draft' : sent?.receipt ? 'Re-send (safe)' : 'Send to CREATE draft'}
                   </button>
                   {sent?.receipt && <button type="button" disabled={!!busy} onClick={() => void sendToCreate({ another: true })}>Create another Post</button>}
                 </div>
                 {sent?.receipt && <p role="status">Post: <a href={sent.receipt.deepLink || sent.receipt.postUrl} target="_blank" rel="noreferrer noopener">open in CREATE</a> · Notion file backup: <strong>{sent.backup?.state ?? 'unknown'}</strong>{sent.backup?.detail ? ` — ${sent.backup.detail}` : ''} · MEDIA purge protection: <strong>{sent.retention?.state ?? 'unknown'}</strong></p>}
                 {sent?.receipt?.warnings?.length ? <ul role="alert">{sent.receipt.warnings.map(w => <li key={w.code}><strong>{w.code.replace(/^FANDOM_/, '').replaceAll('_', ' ').toLowerCase()}</strong>{w.detail ? `: ${w.detail}` : ''}</li>)}</ul> : null}
+                {blocker && <p className={styles.help} role="status">{blocker}</p>}
                 {sendStatus && <p role="status">{sendStatus}</p>}
               </section>
             );
