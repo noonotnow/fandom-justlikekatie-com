@@ -1,7 +1,7 @@
 import assert from 'node:assert/strict';
 import test from 'node:test';
 import { emptyDraft, type ForgeDraft } from '../src/utils/cdramaForge.ts';
-import { buildMemeSendBody, draftSignature, newMemeState, intentFor, loadSendState, newIntent, saveSendState, sendMemeToCreate, seriesFor, withSeries } from '../src/utils/memeSend.ts';
+import { buildMemeSendBody, draftSignature, newMemeState, intentFor, loadSendState, newIntent, saveSendState, sendMemeToCreate, seriesFor, sendBlocker, withSeries } from '../src/utils/memeSend.ts';
 
 const store = () => { const m = new Map<string, string>(); return { getItem: (k: string) => m.get(k) ?? null, setItem: (k: string, v: string) => void m.set(k, v), removeItem: (k: string) => void m.delete(k) }; };
 const draft = (): ForgeDraft => ({
@@ -88,4 +88,12 @@ test('an unknown or corrupt saved Series falls back to the default and cannot be
   const base = newMemeState();
   assert.equal(withSeries(base, 'nope'), base);
   assert.equal(buildMemeSendBody(draft(), withSeries(base, 'I'), 'send-1', 'AAAA', undefined, seriesFor(withSeries(base, 'I'))).series, 'I');
+});
+
+test('Send names the missing field instead of failing at the server', () => {
+  const copy = { hook: 'Hook', tiktok: 'TT caption', instagram: '', hashtags: '' };
+  assert.equal(sendBlocker('tiktok', copy), undefined);
+  assert.match(sendBlocker('instagram', copy)!, /Instagram caption/);
+  assert.match(sendBlocker('tiktok', { ...copy, tiktok: '   ' })!, /TikTok caption/);
+  assert.match(sendBlocker('tiktok', { ...copy, hook: ' ' })!, /hook/);
 });

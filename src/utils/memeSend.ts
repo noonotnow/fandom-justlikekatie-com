@@ -39,6 +39,14 @@ export const isMemeSeries = (value: unknown): value is string => MEME_SERIES_OPT
 export const seriesFor = (state: SendState): string => (isMemeSeries(state.series) ? state.series : DEFAULT_MEME_SERIES);
 export const withSeries = (state: SendState, series: string): SendState => (isMemeSeries(series) ? { ...state, series } : state);
 
+/** Why Send cannot work yet, in words that point at the field to fill in; undefined when the draft can be sent. */
+export function sendBlocker(format: ForgeDraft['format'], copy: Pick<ForgeDraft['copy'] & object, 'hook' | 'tiktok' | 'instagram'>): string | undefined {
+  const label = format === 'tiktok' ? 'TikTok' : 'Instagram';
+  if (!copy.hook.trim()) return 'Add a hook in the post copy before sending.';
+  if (!(format === 'tiktok' ? copy.tiktok : copy.instagram).trim()) return `Add the ${label} caption in the post copy before sending.`;
+  return undefined;
+}
+
 export function newMemeState(): SendState { return { memeGroupId: `meme-${id()}`, intents: {} }; }
 
 export function loadSendState(storage: Storage): SendState {
