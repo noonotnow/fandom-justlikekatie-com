@@ -160,6 +160,8 @@ test("flags MEDIA deduplication so a first-uploader label is not trusted, and up
   assert.equal(meme.registration.deduplicated, true);
   assert.equal(meme.registration.returnedRightsStatus, "cleared");
   assert.equal(meme.rights.posture, "uploader-asserted");
+  assert.match(meme.rights.note, /Operator-determined/);
+  assert.match(meme.rights.note, /Not independently verified or cleared/);
 });
 
 test("an unverified backup is retried by re-sending the same envelope version, not a new Post", async () => {
