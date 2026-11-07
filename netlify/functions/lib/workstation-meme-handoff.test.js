@@ -29,7 +29,7 @@ function memoryStore() {
   return { map, get: async k => map.get(k) ?? null, setJSON: async (k, v) => { map.set(k, structuredClone(v)); } };
 }
 
-function harness({ retentionState = "held", metaDedup = false, backupState = "verified", admin = true, mediaSourceType = "fandom-memeforge", dropFirstResponse = false, dispositions = ["created", "replayed", "updated"] } = {}) {
+function harness({ retentionState = "held", metaDedup = false, backupState = "verified", admin = true, mediaSourceType = "fandom-memeforge", dropFirstResponse = false, createRejection = null, dispositions = ["created", "replayed", "updated"] } = {}) {
   const store = memoryStore();
   const calls = { media: 0, workstation: [] };
   let n = 0;
@@ -48,6 +48,7 @@ function harness({ retentionState = "held", metaDedup = false, backupState = "ve
     }
     const envelope = JSON.parse(init.body);
     calls.workstation.push({ envelope, headers: init.headers });
+    if (createRejection) return Response.json(createRejection.body, { status: createRejection.status });
     // Model CREATE's validator for the meme snapshot: optional text may be ABSENT but a present field must not be blank,
     // and hook/caption are required. (CREATE: "meme.punchline must not be empty".)
     const blank = (v) => typeof v === "string" && v.trim() === "";
@@ -364,4 +365,48 @@ test("prepareEnvelopeForCreate leaves non-blank values and required fields alone
   assert.deepEqual(prepareEnvelopeForCreate(once), once);
   assert.equal(envelope.meme.punchline, "", "the input is not mutated");
   assert.deepEqual(prepareEnvelopeForCreate({ nope: 1 }), { nope: 1 });
+});
+
+test("a CREATE validation rejection surfaces its code and field message, and the pending record is kept", async () => {
+  const { handler, store } = harness({ createRejection: { status: 400, body: { error: "meme.hook must not be empty", code: "FANDOM_PROJECT_VALIDATION_ERROR" } } });
+  const res = await send(handler, body());
+  assert.equal(res.status, 502);
+  const out = await res.json();
+  assert.equal(out.code, "FANDOM_PROJECT_VALIDATION_ERROR");
+  assert.match(out.error, /HTTP 400\): meme\.hook must not be empty\./);
+  assert.ok(store.map.get("intent/intent-0001").pending, "pending kept for same-intent recovery");
+});
+
+test("other CREATE errors expose only a well-formed code, never the body text", async () => {
+  const { handler } = harness({ createRejection: { status: 503, body: { error: "secret-ish internal detail", code: "FANDOM_PLATFORM_RELATION_UNRESOLVED" } } });
+  const out = await (await send(handler, body())).json();
+  assert.equal(out.code, "FANDOM_PLATFORM_RELATION_UNRESOLVED");
+  assert.equal(out.error, "CREATE rejected the draft (HTTP 503).");
+  const bad = harness({ createRejection: { status: 500, body: { error: "x", code: "<script>bad code</script>" } } });
+  const o2 = await (await send(bad.handler, body())).json();
+  assert.equal(o2.code, undefined);
+  assert.equal(o2.error, "CREATE rejected the draft (HTTP 500).");
+});
+
+test("validation text is passed through only when it matches the closed field-path allowlist", async () => {
+  const cases = [
+    ["meme.stillSource.title must not be empty", "CREATE rejected the draft (HTTP 400): meme.stillSource.title must not be empty."],
+    ["meme.framing.focusX must be a finite number", "CREATE rejected the draft (HTTP 400): meme.framing.focusX must be a finite number."],
+    // Never forwarded: caller-controlled key names, idempotency keys, free text, unknown paths, other phrasings.
+    ["meme contains unexpected field(s): sk_live_SECRET-key, x", "CREATE rejected the draft (HTTP 400)."],
+    ["Idempotency-Key fandom/direct/card/abc/meme-tiktok-send-1 does not match the request", "CREATE rejected the draft (HTTP 400)."],
+    ["meme.sk_live_SECRET must not be empty", "CREATE rejected the draft (HTTP 400)."],
+    ["meme.hook must not be empty because user typed SECRET", "CREATE rejected the draft (HTTP 400)."],
+    ["meme.hook must be one of a, b", "CREATE rejected the draft (HTTP 400)."],
+    ["sourceCards[0].media.association must be omitted", "CREATE rejected the draft (HTTP 400)."],
+    ["meme.hook must not be empty\nSECRET", "CREATE rejected the draft (HTTP 400)."],
+  ];
+  for (const [text, expected] of cases) {
+    const { handler, store } = harness({ createRejection: { status: 400, body: { error: text, code: "FANDOM_PROJECT_VALIDATION_ERROR" } } });
+    const out = await (await send(handler, body())).json();
+    assert.equal(out.error, expected, text);
+    assert.equal(out.code, "FANDOM_PROJECT_VALIDATION_ERROR", "the code is always preserved");
+    assert.ok(!JSON.stringify(out).includes("SECRET") && !JSON.stringify(out).includes("sk_live") && !JSON.stringify(out).includes("send-1"), text);
+    assert.ok(store.map.get("intent/intent-0001").pending, "pending intent preserved");
+  }
 });

@@ -61,6 +61,13 @@ test('a new meme gets a new identity; a failed save or retry does not', () => {
   assert.deepEqual(fresh.intents, {});
 });
 
+test('a rejected send shows CREATE\'s error code in the message the operator sees, and ignores malformed codes', async () => {
+  const rejected = (body: unknown, status = 502) => (async () => Response.json(body, { status })) as unknown as typeof fetch;
+  await assert.rejects(sendMemeToCreate({}, rejected({ error: 'CREATE rejected the draft (HTTP 400): meme.hook must not be empty.', code: 'FANDOM_PROJECT_VALIDATION_ERROR' })), /meme\.hook must not be empty\. \[FANDOM_PROJECT_VALIDATION_ERROR\]$/);
+  await assert.rejects(sendMemeToCreate({}, rejected({ error: 'CREATE rejected the draft (HTTP 503).', code: '<b>x</b>' })), (e: Error) => e.message === 'CREATE rejected the draft (HTTP 503).');
+  await assert.rejects(sendMemeToCreate({}, rejected({ error: 'Nope' }, 403)), (e: Error) => e.message === 'Nope');
+});
+
 test('the chosen Series survives a reload and stays with the meme through retries', () => {
   const s = store();
   let state = loadSendState(s);

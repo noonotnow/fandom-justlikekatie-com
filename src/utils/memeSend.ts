@@ -119,9 +119,13 @@ export async function sendMemeToCreate(body: unknown, fetchImpl: typeof fetch = 
       body: JSON.stringify(body), signal: AbortSignal.timeout(60_000),
     });
   } catch { throw new Error('The send timed out or could not be reached. Retrying is safe: it will not create a duplicate.'); }
-  let payload: { receipt?: SendReceipt; backup?: SendBackup; retention?: SendRetention; assetId?: string; error?: string } = {};
+  let payload: { receipt?: SendReceipt; backup?: SendBackup; retention?: SendRetention; assetId?: string; error?: string; code?: string } = {};
   try { payload = await response.json(); } catch { /* handled below */ }
-  if (!response.ok) throw new Error(payload.error || `Send failed (HTTP ${response.status}).`);
+  if (!response.ok) {
+    // The server returns CREATE's strict error code; show it so a failed send is actionable. Shape-checked again here.
+    const code = typeof payload.code === 'string' && /^[A-Z][A-Z0-9_]{2,63}$/.test(payload.code) ? ` [${payload.code}]` : '';
+    throw new Error(`${payload.error || `Send failed (HTTP ${response.status}).`}${code}`);
+  }
   if (!payload.receipt?.postId) throw new Error('CREATE returned an unreadable receipt.');
   return payload as { receipt: SendReceipt; backup?: SendBackup; retention?: SendRetention; assetId?: string };
 }
