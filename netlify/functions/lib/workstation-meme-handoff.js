@@ -288,7 +288,7 @@ function buildEnvelope(request, media, sourceVersion, expectedSourceVersion, gen
   const hashtags = request.hashtags.split(/\s+/).map(tag => tag.replace(/^#/, "")).filter(Boolean).slice(0, 20);
   const rightsPosture = request.stillSource.kind === "upload" ? "uploader-asserted" : "not-cleared";
   const rightsNote = rightsPosture === "uploader-asserted"
-    ? "Still was uploaded by the operator; rights are asserted by them and unverified."
+    ? "Operator-determined: the operator uploaded this still and holds that the meme is a transformative use. Not independently verified or cleared."
     : "Still came from a search result: a lead, not clearance.";
   return {
     schemaVersion: DELIVERABLE_SCHEMA,
