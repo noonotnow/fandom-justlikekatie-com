@@ -4,6 +4,9 @@ import { trackAgainstTheCurrentEntryClicked, trackHomepageGuideMenuLinkSelected,
 import { useLocale } from "../../i18n/LocaleProvider";
 import styles from "./FandomLaunchpad.module.css";
 
+/** Public JLK Finds storefront. Shopify redirects this to the store's primary domain, if one is set. */
+const SHOP_URL = "https://jlkfinds.myshopify.com";
+
 export function FandomLaunchpad() {
   const { t, path } = useLocale();
   const [guidesOpen, setGuidesOpen] = useState(false);
@@ -170,6 +173,16 @@ export function FandomLaunchpad() {
           <div className={styles.cardArt}><span>LOTR<br /><b>MEMEFORGE</b></span><small>MIDDLE-EARTH / FIRST WORLD</small></div>
           <div className={styles.cardCopy}><h2>LOTR MemeForge</h2><p>{t("Search the visual record, find the feeling, and forge a Middle-earth reaction artifact worth sending. (English)", "搜索影像资料，找到契合的情绪，制作值得分享的中洲反应图。（英文）")}</p><span className={styles.enter}>{t("Enter MemeForge (English)", "进入 MemeForge（英文）")} →</span></div>
         </a>
+      </section>
+      <section className={styles.shop} aria-label={t("Shop", "商店")}>
+        <span className={styles.index}>{t("JLK Finds / the shop", "JLK Finds / 小店")}</span>
+        <h2>{t("Wear the watch-night.", "把追剧夜穿在身上。")}</h2>
+        <p>{t("C-Drama Field Society hoodies and tees, plus the Watch & Create Kit, printable worksheets for the scene you can’t stop thinking about. Start with the free sampler or get the full kit. (English)", "中剧粉丝社团卫衣和T恤，以及“观看与创作”套件：为让你念念不忘的那场戏准备的可打印工作表。可先领免费试用版，或直接获取完整版。（英文）")}</p>
+        <span className={styles.shopLinks}>
+          <a href={SHOP_URL} rel="noopener">{t("Visit the shop (English)", "进入小店（英文）")} →</a>
+          <a href={`${SHOP_URL}/products/digital-product`} rel="noopener">{t("Get the free sampler (English)", "领取免费试用版（英文）")} →</a>
+          <a href={`${SHOP_URL}/products/watch-create-kit-full-kit`} rel="noopener">{t("Full Watch & Create Kit, $12 (English)", "完整版“观看与创作”套件，12美元（英文）")} →</a>
+        </span>
       </section>
       <footer><span>{t("FANDOM VIBES / VIBE ATLAS IS LIVE", "FANDOM VIBES / 氛围图鉴现已上线")}</span><span><a href="/c-drama-fandom/">{t("C-drama fandom guide (English)", "中剧粉丝文化指南（英文）")}</a> · {t("By Katie Hendley, creator of", "由 Katie Hendley 创作，她也是")} <a href="https://justlikekatie.com">Just Like Katie (English)</a>.</span></footer>
     </main>
