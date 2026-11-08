@@ -177,10 +177,11 @@ export function FandomLaunchpad() {
       <section className={styles.shop} aria-label={t("Shop", "商店")}>
         <span className={styles.index}>{t("JLK Finds / the shop", "JLK Finds / 小店")}</span>
         <h2>{t("Wear the watch-night.", "把追剧夜穿在身上。")}</h2>
-        <p>{t("C-Drama Field Society hoodies and tees, plus a free Watch & Create Kit sampler for the scene you can’t stop thinking about. (English)", "中剧粉丝社团卫衣和T恤，另有免费的“观看与创作”套件试用版。（英文）")}</p>
+        <p>{t("C-Drama Field Society hoodies and tees, plus the Watch & Create Kit, printable worksheets for the scene you can’t stop thinking about. Start with the free sampler or get the full kit. (English)", "中剧粉丝社团卫衣和T恤，以及“观看与创作”套件：为让你念念不忘的那场戏准备的可打印工作表。可先领免费试用版，或直接获取完整版。（英文）")}</p>
         <span className={styles.shopLinks}>
           <a href={SHOP_URL} rel="noopener">{t("Visit the shop (English)", "进入小店（英文）")} →</a>
           <a href={`${SHOP_URL}/products/digital-product`} rel="noopener">{t("Get the free sampler (English)", "领取免费试用版（英文）")} →</a>
+          <a href={`${SHOP_URL}/products/watch-create-kit-full-kit`} rel="noopener">{t("Full Watch & Create Kit, $12 (English)", "完整版“观看与创作”套件，12美元（英文）")} →</a>
         </span>
       </section>
       <footer><span>{t("FANDOM VIBES / VIBE ATLAS IS LIVE", "FANDOM VIBES / 氛围图鉴现已上线")}</span><span><a href="/c-drama-fandom/">{t("C-drama fandom guide (English)", "中剧粉丝文化指南（英文）")}</a> · {t("By Katie Hendley, creator of", "由 Katie Hendley 创作，她也是")} <a href="https://justlikekatie.com">Just Like Katie (English)</a>.</span></footer>
