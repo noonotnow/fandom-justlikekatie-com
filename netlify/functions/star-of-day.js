@@ -62,6 +62,15 @@ import {
 import { capabilitiesForMembership } from "./lib/capabilities.js";
 import { candidateFingerprint } from "./lib/search-candidate-fingerprint.js";
 import { dispatchDailyDropRefresh, isPublishedProduction } from "./lib/daily-drop-refresh.js";
+import {
+  DAILY_FRESHNESS_MIN_UNSEEN,
+  countPublished,
+  countUnseen,
+  deepPassPlan,
+  freshnessRankings,
+  publishedHistoryIndex,
+  runDeepPass,
+} from "./lib/daily-freshness.js";
 
 // Server-side daily cache for "Star of the Day".
 //
@@ -92,6 +101,9 @@ const COLLECTOR_REFRESH_CANDIDATE_LIMIT = 60;
 const COLLECTOR_REFRESH_SECOND_PASS_QUERY_LIMIT = 4;
 const COLLECTOR_REFRESH_MIN_UNSEEN_CANDIDATES = 18;
 const COLLECTOR_REFRESH_TELEMETRY_QUERY_LIMIT = 120;
+// Deeper-page batches added to the top-ranked page-one batches for a
+// recurring pairing whose unseen pool is thin.
+const DAILY_DEEP_RANKED_EXTRA = 3;
 const STORE_NAME = "star-of-day";
 const LOCK_TTL_MS = 25000; // a stale/abandoned lock is ignored after this long
 const POLL_INTERVAL_MS = 700;
@@ -333,6 +345,38 @@ export async function buildPayloadForDate(
       continue;
     }
 
+    // A recurring daily pairing should not replay what it already published.
+    const freshnessIndex = !selectedPair && pairHistory.length
+      ? publishedHistoryIndex(pairHistory)
+      : null;
+    let freshness = null;
+    if (freshnessIndex?.cardCount) {
+      const unseenBefore = countUnseen(ranked, freshnessIndex);
+      let deepPass = null;
+      if (unseenBefore < DAILY_FRESHNESS_MIN_UNSEEN) {
+        onProgress("deep_search", { actorId: actor.id, vibeIdx: seed.vIdx });
+        const plan = deepPassPlan(searchQueries, { priorEditionCount: pairHistory.length });
+        const deepBatches = rank(await runDeepPass(plan, { evaluate, search }))
+          .slice(0, DAILY_DEEP_RANKED_EXTRA);
+        ranked = [...ranked, ...deepBatches];
+        deepPass = {
+          page: plan.page,
+          searchCount: plan.searches.length,
+          recencySearchCount: plan.searches.filter(item => item.recency).length,
+          addedBatchCount: deepBatches.length,
+        };
+      }
+      freshness = {
+        historyEditionCount: freshnessIndex.editionCount,
+        historyCardCount: freshnessIndex.cardCount,
+        unseenBeforeDeepPass: unseenBefore,
+        unseenCandidateCount: countUnseen(ranked, freshnessIndex),
+        publishedCandidateCount: countPublished(ranked, freshnessIndex),
+        deepPass,
+        stage: null,
+      };
+    }
+
     const curationOptions = {
       promise,
       calibrationProfile: approval.calibrationProfile || null,
@@ -359,7 +403,21 @@ export async function buildPayloadForDate(
       }))
       : ranked;
     onProgress("curation", { actorId: actor.id, vibeIdx: seed.vIdx });
-    let { displayResults, curation } = await curate(freshRanked, curationOptions);
+    let displayResults;
+    let curation;
+    if (freshness) {
+      // Unseen cards first; previously published cards only when the fresh
+      // pool cannot form a qualified nine on its own.
+      for (const attempt of freshnessRankings(ranked, freshnessIndex)) {
+        if (!attempt.ranked.some(batch => batch.results.length)) continue;
+        ({ displayResults, curation } = await curate(attempt.ranked, curationOptions));
+        freshness.stage = attempt.stage;
+        if (displayResults.length >= 9) break;
+      }
+      if (!displayResults) ({ displayResults, curation } = await curate(ranked, curationOptions));
+    } else {
+      ({ displayResults, curation } = await curate(freshRanked, curationOptions));
+    }
     if (selectedPair && (excludedThumbnails.size || excludedChecksums.size) && displayResults.length < 9) {
       const mixedRanked = ranked.map(batch => {
         const partitioned = partitionCollectorResults(
@@ -443,13 +501,20 @@ export async function buildPayloadForDate(
     if (displayResults.length >= 9 && pairHistory.length) {
       const initialOverlap = greatestBoardOverlap(displayResults, pairHistory);
       if (initialOverlap >= 7) {
+        // Forcing a fresh copy of page one returns page one again, so the
+        // refresh reads the next block of each provider's ranking instead.
+        const refreshPage = ((freshness?.deepPass?.page || 0) % 2) + 1;
         const refreshedCandidates = await evaluate(
           searchQueries,
-          query => search(query, { cacheMode: "refresh" }),
+          query => search(query, { cacheMode: "refresh", page: refreshPage }),
         );
         const refreshedRanked = rank(refreshedCandidates).slice(0, RANKED_BATCH_LIMIT);
         if (refreshedRanked.length) {
-          const refreshed = await curate(refreshedRanked, {
+          const refreshedOrdered = freshnessIndex
+            ? freshnessRankings(refreshedRanked, freshnessIndex)
+              .find(attempt => attempt.stage === "unseen_first").ranked
+            : refreshedRanked;
+          const refreshed = await curate(refreshedOrdered, {
             promise: vibePromiseFor(actor, seed.vIdx),
             calibrationProfile: approval.calibrationProfile || null,
             preferredCandidateIds: approval.calibrationProfile?.positiveCandidateIds || [],
@@ -469,6 +534,7 @@ export async function buildPayloadForDate(
         curation = {
           ...curation,
           searchCacheRefreshed: true,
+          searchRefreshPage: refreshPage,
           priorPairingEditionCount: pairHistory.length,
         };
       }
@@ -481,6 +547,15 @@ export async function buildPayloadForDate(
           signals: [...new Set([...(curation?.signals || []), "repeat nine rearranged"])],
         };
       }
+    }
+    if (freshness && curation) {
+      curation = {
+        ...curation,
+        freshness: {
+          ...freshness,
+          publishedCardsReused: greatestBoardOverlap(displayResults, pairHistory),
+        },
+      };
     }
     if (displayResults.length < 9) {
       const backup = await tryEditorialBackup();

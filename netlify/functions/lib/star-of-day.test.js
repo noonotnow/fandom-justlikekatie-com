@@ -1873,12 +1873,14 @@ test("a repeated pairing refreshes search and rearranges the same nine when refr
     },
   });
   const searchModes = [];
+  const searchWindows = [];
   let publishedBoard = null;
 
   const payload = await buildPayloadForDate("2026-09-01", makeStore(entries), {
     packs: [actor],
     search: async (_query, options = {}) => {
       searchModes.push(options.cacheMode || "default");
+      searchWindows.push(`${options.page || 0}:${options.recency || "any"}`);
       return { results: repeated, provider: "fixture" };
     },
     evaluate: async (queries, search) => {
@@ -1897,7 +1899,10 @@ test("a repeated pairing refreshes search and rearranges the same nine when refr
     },
   });
 
-  assert.deepEqual(searchModes, ["default", "refresh"]);
+  // Page one, then the deeper-page and recent-uploads rungs (every card was
+  // already published), then one forced refresh of the next page.
+  assert.deepEqual(searchModes, ["default", "default", "default", "refresh"]);
+  assert.deepEqual(searchWindows, ["0:any", "2:any", "0:year", "1:any"]);
   assert.equal(payload.source, "materialized");
   assert.equal(publishedBoard.candidates[4].candidateId, "repeat-4");
   assert.notDeepEqual(
@@ -2417,4 +2422,119 @@ test("an in-flight build cannot publish calibration selected from a superseded e
   });
 
   assert.equal(payload, null);
+});
+
+function freshnessFixture() {
+  const actor = {
+    id: "actor-a", name: "Actor A", shortName_en: "A", accentColor: "#111",
+    vibes: [{ label: "A0", label_en: "A0", queries: ["fresh-query"] }],
+  };
+  const card = (prefix, index) => ({
+    candidateId: `${prefix}-${index}`,
+    title: `${prefix} ${index}`,
+    thumbnail: `https://images.test/${prefix}-${index}.jpg`,
+    source: `${prefix}-${index}.test`,
+  });
+  const published = Array.from({ length: 9 }, (_, index) => card("published", index));
+  const publicationStore = makeStore({
+    [gridManifestKey("2026-08-31")]: {
+      publicationDate: "2026-08-31",
+      boardHash: "prior-hash",
+      actor: { id: actor.id },
+      vibe: { idx: 0 },
+      cards: published.map(candidate => ({
+        candidateId: candidate.candidateId,
+        sourceUrl: candidate.thumbnail,
+        source: candidate.source,
+      })),
+    },
+  });
+  return { actor, card, published, publicationStore };
+}
+
+test("a recurring daily pairing curates unseen cards ahead of ones it already published", async () => {
+  const { actor, card, published, publicationStore } = freshnessFixture();
+  const fresh = Array.from({ length: 20 }, (_, index) => card("fresh", index));
+  const searches = [];
+  const curated = [];
+  let publishedBoard = null;
+  await buildPayloadForDate("2026-09-01", makeStore(approvedEligibility(actor, 0)), {
+    packs: [actor],
+    search: async (query, options = {}) => {
+      searches.push(options);
+      return { results: [...published, ...fresh], provider: "fixture" };
+    },
+    evaluate: async (queries, search) => {
+      const result = await search(queries[0]);
+      return [{ query: queries[0], results: result.results, count: result.results.length, distinctSources: 9 }];
+    },
+    rank: candidates => candidates,
+    curate: async ranked => {
+      curated.push(ranked.flatMap(batch => batch.results.map(result => result.candidateId)));
+      return {
+        displayResults: ranked[0].results.slice(0, 9),
+        curation: { mode: "compiled", version: 1, signals: [] },
+      };
+    },
+    publicationStore,
+    materializePublication: async ({ board }) => {
+      publishedBoard = board;
+      return { payload: { source: "materialized" } };
+    },
+  });
+
+  // 20 unseen candidates is plenty: no deeper pass, one curation over unseen only.
+  assert.equal(searches.length, 1);
+  assert.equal(curated.length, 1);
+  assert.ok(curated[0].every(id => id.startsWith("fresh-")));
+  assert.ok(publishedBoard.candidates.every(candidate => candidate.candidateId.startsWith("fresh-")));
+});
+
+test("a thin unseen pool triggers the deeper pass and falls back to published cards only when needed", async () => {
+  const { actor, card, published, publicationStore } = freshnessFixture();
+  const firstPageFresh = Array.from({ length: 4 }, (_, index) => card("fresh", index));
+  const deepFresh = Array.from({ length: 3 }, (_, index) => card("deep", index));
+  const windows = [];
+  const stages = [];
+  let built = null;
+  await buildPayloadForDate("2026-09-01", makeStore(approvedEligibility(actor, 0)), {
+    packs: [actor],
+    search: async (_query, options = {}) => {
+      windows.push(`${options.page || 0}:${options.recency || "any"}`);
+      return {
+        results: options.page || options.recency ? deepFresh : [...published, ...firstPageFresh],
+        provider: "fixture",
+      };
+    },
+    evaluate: async (queries, search) => {
+      const result = await search(queries[0]);
+      return [{ query: queries[0], results: result.results, count: result.results.length, distinctSources: 5 }];
+    },
+    rank: candidates => candidates,
+    curate: async ranked => {
+      const ids = ranked.flatMap(batch => batch.results.map(result => result.candidateId));
+      const unique = [...new Set(ids)];
+      stages.push(unique);
+      return {
+        displayResults: unique.slice(0, 9).map(candidateId => ({
+          ...card(candidateId.split("-")[0], candidateId.split("-")[1]),
+          candidateId,
+        })),
+        curation: { mode: "compiled", version: 1, signals: [] },
+      };
+    },
+    publicationStore,
+    materializePublication: async ({ board, provenance }) => {
+      built = { board, provenance };
+      return { payload: { source: "materialized" } };
+    },
+  });
+
+  assert.deepEqual(windows.slice(0, 3), ["0:any", "2:any", "0:year"]);
+  // Unseen-only (7 cards) cannot fill nine, so the next attempt puts unseen first.
+  assert.equal(stages[0].length, 7);
+  assert.ok(stages[0].every(id => !id.startsWith("published-")));
+  assert.ok(stages[1].indexOf("published-0") > stages[1].indexOf("deep-2"));
+  const ids = built.board.candidates.map(candidate => candidate.candidateId);
+  assert.equal(ids.filter(id => id.startsWith("published-")).length, 2);
 });

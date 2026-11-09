@@ -4,6 +4,9 @@ const DEFAULT_RETRIES = 1;
 const MAX_RESPONSE_BYTES = 5 * 1024 * 1024;
 const CACHE_TTL_MS = 60 * 60 * 1000;
 const MAX_CACHE_ENTRIES = 100;
+// Baidu's classic image index pages in steps of `rn` results via the `pn` offset.
+export const BAIDU_PAGE_SIZE = 30;
+export const BAIDU_MAX_PAGE = 4;
 
 const BROWSER_HEADERS = {
   Accept: "text/html,application/xhtml+xml,application/json;q=0.9,*/*;q=0.8",
@@ -29,11 +32,24 @@ export function clearBaiduImageCache() {
   resultCache.clear();
 }
 
-export function buildBaiduImageUrl(query) {
+export function normalizeSearchPage(page, maxPage = BAIDU_MAX_PAGE) {
+  const value = Math.trunc(Number(page));
+  if (!Number.isFinite(value) || value <= 0) return 0;
+  return Math.min(value, maxPage);
+}
+
+export function buildBaiduImageUrl(query, { page = 0 } = {}) {
   const url = new URL(BAIDU_IMAGE_URL);
   url.searchParams.set("tn", "baiduimage");
   url.searchParams.set("ie", "utf-8");
   url.searchParams.set("word", query);
+  const pageIndex = normalizeSearchPage(page);
+  // Page 0 keeps the historical URL byte-for-byte so existing caches and
+  // fixtures stay valid; deeper pages ask Baidu for the next block of results.
+  if (pageIndex > 0) {
+    url.searchParams.set("pn", String(pageIndex * BAIDU_PAGE_SIZE));
+    url.searchParams.set("rn", String(BAIDU_PAGE_SIZE));
+  }
   return url.toString();
 }
 
@@ -408,6 +424,7 @@ export async function searchBaiduImages(
     cache = true,
     now = Date.now,
     delay = sleep,
+    page = 0,
   } = {},
 ) {
   if (!query?.trim()) {
@@ -418,8 +435,10 @@ export async function searchBaiduImages(
   }
 
   const normalizedQuery = query.trim();
+  const pageIndex = normalizeSearchPage(page);
+  const cacheKey = pageIndex > 0 ? `${normalizedQuery}\u0000page:${pageIndex}` : normalizedQuery;
   const currentTime = now();
-  const cached = cache ? cachedResult(normalizedQuery, currentTime) : null;
+  const cached = cache ? cachedResult(cacheKey, currentTime) : null;
   if (cached) {
     return {
       results: cached.value.results.map((result) => ({ ...result })),
@@ -431,7 +450,7 @@ export async function searchBaiduImages(
     };
   }
 
-  const url = buildBaiduImageUrl(normalizedQuery);
+  const url = buildBaiduImageUrl(normalizedQuery, { page: pageIndex });
   let response;
   let activeController;
   let activeTimer;
@@ -518,9 +537,10 @@ export async function searchBaiduImages(
       parserRootCount: parsed.rootCount,
       cacheHit: false,
       cacheAgeMs: null,
+      page: pageIndex,
     },
   };
-  if (cache) storeResult(normalizedQuery, value, currentTime);
+  if (cache) storeResult(cacheKey, value, currentTime);
   return {
     results: value.results.map((result) => ({ ...result })),
     telemetry: { ...value.telemetry },
