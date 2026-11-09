@@ -2589,3 +2589,47 @@ test("an approved Misprint report keeps its image out of the next Daily Drop", a
   assert.equal(curatedIds.length, 9);
   assert.ok(built.board.candidates.every(candidate => candidate.candidateId !== "someone-else"));
 });
+
+test("Preflight image picks reach Daily Drop curation without changing eligibility", async () => {
+  const actor = {
+    id: "actor-a", name: "Actor A", shortName_en: "A", accentColor: "#111",
+    vibes: [{ label: "A0", label_en: "A0", queries: ["picks-query"] }],
+  };
+  const entries = approvedEligibility(actor, 0);
+  const runId = `${actor.id}-0-run`;
+  entries[`feedback/${actor.id}/0/${encodeURIComponent(runId)}/hero-receipt`] = {
+    eventId: "hero-receipt", candidateId: "picked-hero", intent: "hero", flagged: true,
+    runId, createdAt: "2026-08-31T12:00:00.000Z", candidate: { source: "weibo.com", query: "picks-query" },
+  };
+  const eligibilityBefore = structuredClone(entries[eligibilityKey(actor.id, 0)]);
+  const results = Array.from({ length: 9 }, (_, index) => ({
+    candidateId: `card-${index}`, title: `Card ${index}`, thumbnail: `https://images.test/card-${index}.jpg`, source: `s${index}.test`,
+  }));
+  const eligibilityStore = makeStore(entries);
+  let curationOptions = null;
+  let materialized = false;
+  await buildPayloadForDate("2026-09-01", eligibilityStore, {
+    packs: [actor],
+    search: async () => ({ results, provider: "fixture" }),
+    evaluate: async (queries, search) => {
+      const result = await search(queries[0]);
+      return [{ query: queries[0], results: result.results, count: 9, distinctSources: 9 }];
+    },
+    rank: candidates => candidates,
+    curate: async (ranked, options) => {
+      curationOptions = options;
+      return { displayResults: ranked[0].results, curation: { mode: "compiled", version: 1, signals: [] } };
+    },
+    publicationStore: makeStore(),
+    materializePublication: async ({ validateBeforeCommit }) => {
+      await validateBeforeCommit();
+      materialized = true;
+      return { payload: { source: "materialized" } };
+    },
+  });
+  assert.ok(curationOptions.calibrationProfile.heroCandidateIds.includes("picked-hero"));
+  assert.ok(curationOptions.preferredCandidateIds.includes("picked-hero"));
+  assert.equal(curationOptions.calibrationProfile.operatorPicks.pickCount, 1);
+  assert.deepEqual(await eligibilityStore.get(eligibilityKey(actor.id, 0), { type: "json" }), eligibilityBefore);
+  assert.equal(materialized, true);
+});

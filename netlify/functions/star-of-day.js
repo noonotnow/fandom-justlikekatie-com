@@ -77,6 +77,7 @@ import {
   readMisprintExclusions,
 } from "./lib/misprint-exclusions.js";
 import { ENGAGEMENT_STORE, readPairEngagementProfile } from "./lib/engagement-signals.js";
+import { mergeCalibrationWithPicks, readOperatorPicksProfile } from "./lib/operator-picks.js";
 
 // Server-side daily cache for "Star of the Day".
 //
@@ -395,11 +396,19 @@ export async function buildPayloadForDate(
       ? await readPairEngagementProfile(engagementStore, pairHistory)
       : null;
 
+    // Preflight image picks count as calibration for curation only; the
+    // approved eligibility snapshot and its calibration hash stay untouched.
+    const operatorPicks = await readOperatorPicksProfile(eligibilityStore, actor.id, seed.vIdx);
+    const curationCalibration = mergeCalibrationWithPicks(
+      approval.calibrationProfile || null,
+      operatorPicks,
+    );
+
     const curationOptions = {
       promise,
       engagementProfile,
-      calibrationProfile: approval.calibrationProfile || null,
-      preferredCandidateIds: approval.calibrationProfile?.positiveCandidateIds || [],
+      calibrationProfile: curationCalibration,
+      preferredCandidateIds: curationCalibration?.positiveCandidateIds || [],
       profileVersions: {
         identityProfileVersion: IDENTITY_PROFILE_VERSION,
         aestheticClusterVersion: AESTHETIC_CLUSTER_VERSION,
@@ -536,8 +545,8 @@ export async function buildPayloadForDate(
           const refreshed = await curate(refreshedOrdered, {
             promise: vibePromiseFor(actor, seed.vIdx),
             engagementProfile,
-            calibrationProfile: approval.calibrationProfile || null,
-            preferredCandidateIds: approval.calibrationProfile?.positiveCandidateIds || [],
+            calibrationProfile: curationCalibration,
+            preferredCandidateIds: curationCalibration?.positiveCandidateIds || [],
             profileVersions: {
               identityProfileVersion: IDENTITY_PROFILE_VERSION,
               aestheticClusterVersion: AESTHETIC_CLUSTER_VERSION,
@@ -567,6 +576,9 @@ export async function buildPayloadForDate(
           signals: [...new Set([...(curation?.signals || []), "repeat nine rearranged"])],
         };
       }
+    }
+    if (curationCalibration?.operatorPicks && curation) {
+      curation = { ...curation, operatorPicks: curationCalibration.operatorPicks };
     }
     const misprintProvenance = misprintExclusionProvenance(misprintExclusions, misprintTally);
     if (misprintProvenance && curation) {
