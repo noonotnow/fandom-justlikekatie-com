@@ -11,7 +11,7 @@
 ## Episode 19
 
 - Route: `/c-drama-fandom/vibing-now/where-the-mask-ends-episode-19/`; safe through Episode 19.
-- Article SHA-256: `99aa0e61488ccd02eb810f1bd62311732cd6d9960fad90aa5f977800d7e48db6`.
+- Article SHA-256: `99bb77928b0fac82e12fdd3183d9a4d5c2b9573d24ee3b89c5d14a9e22995aa9`.
 - U: https://wherethemaskends.com/episode-19/
 - R: https://www.reddit.com/r/cdramasfans/comments/1xfsmrz/recap_where_the_mask_ends_ep_19_emotional_whiplash/
 
@@ -28,7 +28,7 @@
 ## Episode 20
 
 - Route: `/c-drama-fandom/vibing-now/where-the-mask-ends-episode-20/`; safe through Episode 20.
-- Article SHA-256: `03ae45e74c45232e7aa55c14fe423eb6359399f1da055eeb531cc20f886661d2`.
+- Article SHA-256: `4d7fdfd745f8c220f1f1bcf7ea23585cba756b7fa7f668375eb368464d5a8a3f`.
 - U: https://wherethemaskends.com/episode-20/
 - R: https://www.reddit.com/r/cdramasfans/comments/1xgofb2/recap_where_the_mask_ends_ep_20_the_doctor_making/
 
@@ -45,7 +45,7 @@
 ## Episode 21
 
 - Route: `/c-drama-fandom/vibing-now/where-the-mask-ends-episode-21/`; safe through Episode 21.
-- Article SHA-256: `ffe4c638dc9f1c0759aa50cbe8f903b2754042e1dc27d3ccb5a1915fb37c6c33`.
+- Article SHA-256: `d2b3ef1f551d1fd7ab623d626aae83bfa85aa9757392de060f4db7e069b674a6`.
 - U: https://wherethemaskends.com/episode-21/
 - R: https://www.reddit.com/r/cdramasfans/comments/1xhisga/recap_where_the_mask_ends_ep_21_two_brains_are/
 
@@ -60,7 +60,7 @@
 ## Episode 22
 
 - Route: `/c-drama-fandom/vibing-now/where-the-mask-ends-episode-22/`; safe through Episode 22.
-- Article SHA-256: `5fbf26aba49d28d93b310101affa691bcc65fae33eeb87348aca79d907bd629d`.
+- Article SHA-256: `82cf858d5b6c3ecfa2cf2e2bb1180c5f6336f17b78dfeaad481876ba3d161a6b`.
 - U: https://wherethemaskends.com/episode-22/
 - R: https://www.reddit.com/r/cdramasfans/comments/1xiexai/recap_where_the_mask_ends_ep_22_the_apple_doesnt/
 
@@ -82,3 +82,7 @@ The shelf adds episode-numbered links and the article titles; each repeats an ep
 
 - No source discrepancies remain in the retained details identified above; source agreement remains a limited secondary-source assessment, not verification by watching.
 - **All four:** Explicit editorial sign-off for the identified file hashes remains pending. Do not merge until sign-off is recorded. Any subsequent prose, metadata, source-credit, or shelf change reopens the relevant review.
+
+## Visual preparation
+
+Katie selected two contextual show stills per episode and her Episode 22 MemeForge image. Stills were obtained from the episode-specific Reddit recap links above; the meme incorporates a show still. Underlying rights and licenses have not been verified. The user raised U.S. fair use for commentary as a possible basis; this is a case-specific editorial risk judgment, not a legal clearance or a finding that permission was obtained. Images and the meme are now included for preview; editorial sign-off remains pending.
