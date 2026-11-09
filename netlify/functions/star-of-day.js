@@ -76,6 +76,7 @@ import {
   misprintExclusionProvenance,
   readMisprintExclusions,
 } from "./lib/misprint-exclusions.js";
+import { ENGAGEMENT_STORE, readPairEngagementProfile } from "./lib/engagement-signals.js";
 
 // Server-side daily cache for "Star of the Day".
 //
@@ -253,6 +254,7 @@ export async function buildPayloadForDate(
     excludedCollectorThumbnails = [],
     excludedCollectorChecksums = [],
     refreshCollectorSearch = false,
+    engagementStore = null,
     onProgress = () => {},
   } = {},
 ) {
@@ -387,8 +389,15 @@ export async function buildPayloadForDate(
       };
     }
 
+    // Reader saves/exports on this pairing's past editions: a small, capped
+    // preference for sources and queries readers keep choosing.
+    const engagementProfile = !selectedPair && engagementStore && pairHistory.length
+      ? await readPairEngagementProfile(engagementStore, pairHistory)
+      : null;
+
     const curationOptions = {
       promise,
+      engagementProfile,
       calibrationProfile: approval.calibrationProfile || null,
       preferredCandidateIds: approval.calibrationProfile?.positiveCandidateIds || [],
       profileVersions: {
@@ -526,6 +535,7 @@ export async function buildPayloadForDate(
             : refreshedRanked;
           const refreshed = await curate(refreshedOrdered, {
             promise: vibePromiseFor(actor, seed.vIdx),
+            engagementProfile,
             calibrationProfile: approval.calibrationProfile || null,
             preferredCandidateIds: approval.calibrationProfile?.positiveCandidateIds || [],
             profileVersions: {
@@ -1501,6 +1511,7 @@ export function createStarOfDayHandler({
           publicationStore: store,
           materializePublication: materializePublicationManifest,
           mediaEnv: process.env,
+          engagementStore: getStore(ENGAGEMENT_STORE, context),
           onProgress: onBuildProgress,
         });
         if (payload) {

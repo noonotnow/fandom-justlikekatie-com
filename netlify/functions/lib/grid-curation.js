@@ -1,4 +1,5 @@
 import { createHash } from "node:crypto";
+import { audienceEngagementBonus, candidateEngagement } from "./engagement-signals.js";
 import {
   fetchImageBuffer,
   fingerprintImage,
@@ -882,7 +883,8 @@ function selectEventBoards(families, limit, promise, preferredCandidateIds) {
       limit,
       board => eventScore(board, family.familyStrength, promise)
         + preferredBoardBonus(board, preferredCandidateIds)
-        + operatorCalibrationBonus(board),
+        + operatorCalibrationBonus(board)
+        + audienceEngagementBonus(board),
       () => false,
       promise,
     );
@@ -904,7 +906,8 @@ function selectCompiledBoards(candidates, limit, promise, preferredCandidateIds)
     limit,
     board => compiledScore(board, promise)
       + preferredBoardBonus(board, preferredCandidateIds)
-      + operatorCalibrationBonus(board),
+      + operatorCalibrationBonus(board)
+      + audienceEngagementBonus(board),
     (left, right) =>
       perceptualDistance(left.fingerprint, right.fingerprint) <= COMPILED_SIMILARITY_DISTANCE,
     promise,
@@ -972,6 +975,7 @@ function selectFromFrozenAnalysis(rawCandidates, frozenStates, {
   profileVersions,
   preferredCandidateIds,
   calibrationProfile,
+  engagementProfile = null,
   batchRanks = null,
   includeQueries = null,
 }) {
@@ -992,6 +996,7 @@ function selectFromFrozenAnalysis(rawCandidates, frozenStates, {
       batchRank: rankFor(state.candidate),
     };
     candidate.calibration = candidateCalibration(candidate, calibrationProfile);
+    candidate.engagement = candidateEngagement(candidate.result, engagementProfile);
     return { ...state, candidate };
   });
   const rankedRawCandidates = selectedRawCandidates.map(candidate => ({
@@ -1074,6 +1079,13 @@ function selectFromFrozenAnalysis(rawCandidates, frozenStates, {
   const useEvent = Boolean(eventCandidate)
     && (!compiledCandidate || eventCandidate.score >= compiledCandidate.score);
   const winner = useEvent ? eventCandidate : compiledCandidate;
+  const audienceEngagement = engagementProfile ? {
+    version: engagementProfile.version || null,
+    fingerprint: engagementProfile.fingerprint || null,
+    evidenceEditionCount: engagementProfile.evidenceEditionCount || 0,
+    boardBonus: Number(audienceEngagementBonus(winner.board).toFixed(4)),
+    affectedCardCount: winner.board.filter(candidate => candidate.engagement?.score).length,
+  } : null;
   const result = {
     displayResults: winner.board.map(candidate => candidate.result),
     proposalResults: winner.board.map(candidate => candidate.result),
@@ -1082,6 +1094,7 @@ function selectFromFrozenAnalysis(rawCandidates, frozenStates, {
       ...(profileVersions || {}),
       calibrationProfileVersion: calibrationProfile?.calibrationVersion || null,
       calibrationEvidenceCount: calibrationProfile?.evidenceCount || 0,
+      ...(audienceEngagement ? { audienceEngagement } : {}),
     },
     proposalCuration: {
       ...rationaleFor(useEvent ? "event" : "compiled", eventCandidate, compiledCandidate),
@@ -1132,6 +1145,7 @@ export async function curateDisplayResults(
     preferredCandidateIds = [],
     calibrationProfile = null,
     calibrationControl = null,
+    engagementProfile = null,
   } = {},
 ) {
   const rawCandidates = [];
@@ -1213,6 +1227,7 @@ export async function curateDisplayResults(
     profileVersions,
     preferredCandidateIds,
     calibrationProfile,
+    engagementProfile,
   });
   if (calibrationControl) {
     const control = selectFromFrozenAnalysis(rawCandidates, analyzedStates, {
@@ -1388,6 +1403,13 @@ function diagnosticReceipt(rawCandidates, states, selectedCandidates, families, 
       } : null,
       identityConfirmed: candidate.editorial?.identityConfirmed === true,
     } : null,
+    ...(candidate.engagement?.score ? {
+      audienceEngagement: {
+        score: Number(candidate.engagement.score.toFixed(3)),
+        positive: candidate.engagement.positive,
+        negative: candidate.engagement.negative,
+      },
+    } : {}),
     calibration: candidate.calibration ? {
       score: Number((candidate.calibration.score || 0).toFixed(3)),
       hero: candidate.calibration.hero === true,

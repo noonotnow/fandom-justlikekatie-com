@@ -1,5 +1,6 @@
 import { getBlobStore } from "./lib/blob-store.js";
 import { validateGridPayload } from "./lib/grid-export-validation.js";
+import { dailyExportIndexPrefix } from "./lib/engagement-signals.js";
 import { createPublicAuth } from "./lib/public-auth.js";
 import { createParticipationCollector } from "./lib/daily-participation-analytics.js";
 import { PARTICIPATION_EVENTS } from "../../shared/daily-participation.js";
@@ -303,6 +304,22 @@ export default async (req, context) => {
 
     const eventKey = `${sharedKey}:${Date.now()}:${crypto.randomUUID()}`;
     await store.setJSON(eventKey, entry, { onlyIfNew: true });
+
+    // Index dated grid exports by capture date so curation can read which
+    // published cards readers exported without listing the whole store.
+    if (event === "grid_export" && isCalendarDate(grid.date)) {
+      await store.setJSON(
+        `${dailyExportIndexPrefix(grid.date)}${Date.now()}:${crypto.randomUUID()}`,
+        {
+          schemaVersion: 1,
+          actorId: grid.actorId,
+          imageIds: grid.imageIds.slice(0, 12),
+          variant: grid.variant,
+          timestamp: entry.timestamp,
+        },
+        { onlyIfNew: true },
+      ).catch(error => console.warn("grid export index write failed", error?.message || error));
+    }
 
     return new Response(JSON.stringify({ ok: true }), {
       status: 200,

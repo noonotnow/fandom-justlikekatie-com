@@ -1685,3 +1685,51 @@ test("successful non-diagnostic curation carries profile provenance", async () =
   assert.equal(output.curation.aestheticClusterVersion, 1);
   assert.equal(output.curation.promiseContractVersion, 2);
 });
+
+test("reader engagement can break a close tie but never rescues an unusable candidate", async () => {
+  const candidates = Array.from({ length: 10 }, (_, index) => result(`audience-${index}`, {
+    source: `publisher-${index}.test`,
+    title: `刘宇宁 audience portrait ${index}`,
+    fp: fingerprint(`audience-${index}`, {
+      ones: spreadBits(`audience-${index}`, 96),
+      quality: 220,
+      sharpness: 12,
+    }),
+  }));
+  const baseline = await curate(candidates, { diagnostics: true });
+  const selected = new Set(baseline.diagnostics.strongestCompiled.candidates.map(c => c.candidateId));
+  const omittedIndex = candidates.findIndex(candidate =>
+    !selected.has(baseline.diagnostics.rawCandidates.find(raw => raw.title === candidate.title)?.candidateId));
+  assert.ok(omittedIndex >= 0);
+  const favouredSource = candidates[omittedIndex].source;
+
+  const engaged = await curate(candidates, {
+    diagnostics: true,
+    engagementProfile: {
+      version: "audience-engagement-v1",
+      fingerprint: "test",
+      evidenceEditionCount: 3,
+      positiveSources: [favouredSource],
+      negativeSources: [],
+      positiveQueries: [],
+      negativeQueries: [],
+    },
+  });
+  assert.ok(engaged.diagnostics.strongestCompiled.candidates.some(c => c.source === favouredSource));
+  assert.equal(engaged.curation.audienceEngagement.evidenceEditionCount, 3);
+  assert.ok(engaged.curation.audienceEngagement.boardBonus > 0);
+
+  // A composite thumbnail stays rejected however much readers like its source.
+  const composite = result("audience-composite", {
+    source: "beloved.test",
+    title: "刘宇宁 audience collage",
+    fp: fingerprint("audience-composite", { compositeScore: 1, singleFrameRatio: 0.2 }),
+  });
+  const gated = await curate([...candidates, composite], {
+    diagnostics: true,
+    engagementProfile: {
+      positiveSources: ["beloved.test"], negativeSources: [], positiveQueries: [], negativeQueries: [],
+    },
+  });
+  assert.ok(!gated.displayResults.some(item => item.source === "beloved.test"));
+});
