@@ -39,7 +39,7 @@ Calibration availability and Daily Drop publication are separate states. Only an
 
 **How to apply:** Require the approved eligibility receipt to name that exact rescue board as its publication source. Record its provenance when used, compare exact board hashes against earlier Daily Drop manifests, and skip every previously published board.
 
-When a pairing and Vibe recur, compare the proposed nine against prior manifests before publishing. If at least seven cards recur, refresh provider caches once; if the exact same nine remain, preserve the hero and rearrange the outer eight.
+When a pairing and Vibe recur, compare the proposed nine against prior manifests before publishing. If at least seven cards recur, refresh once by reading the next provider page (a forced-fresh page one returns page one again); if the exact same nine remain, preserve the hero and rearrange the outer eight. See daily-drop-freshness for the unseen-first curation that runs before this check.
 
 **Why:** A valid recurring pairing can still look stale when provider caches dominate the candidate pool. Reusing the same nine in the same composition makes a fresh search indistinguishable from replay.
 

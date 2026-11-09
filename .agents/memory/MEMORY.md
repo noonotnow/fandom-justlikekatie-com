@@ -105,3 +105,6 @@
 - [Cross-engine image fixtures](cross-engine-image-fixtures.md) — validate fixture bytes before treating browser-specific image/export failures as application defects.
 - [Shared notice ownership](shared-notice-ownership.md) — finish all phases of a mutation before accepting another action that shares its status message.
 - [Save race evidence](save-race-evidence.md) — a delayed IndexedDB completion callback may already have committed; verify durability separately from pending UI and acquisition feedback.
+- [Daily Drop freshness](daily-drop-freshness.md) — recurring pairings curate unseen cards first and read deeper/recent provider pages when the unseen pool is thin.
+- [Misprint exclusions](misprint-exclusions.md) — active, exclusion-bearing Misprint receipts remove their images from future boards by scope.
+- [Audience engagement signals](audience-engagement-signals.md) — reader saves/exports become a capped source/query preference, never an exact-image boost or a gate.

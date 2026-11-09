@@ -6,6 +6,7 @@ import { evaluateCandidates, rankCandidates, RANKED_BATCH_LIMIT } from "./lib/ra
 import { shanghaiYesterday } from "./lib/date-seed.js";
 import { getDailyDropDateString } from "./lib/daily-drop-clock.js";
 import { candidateIdForResult, curateDisplayResults } from "./lib/grid-curation.js";
+import { fetchImageBuffer } from "./lib/image-dedup.js";
 import {
   AESTHETIC_CLUSTER_VERSION,
   searchQueriesFor,
@@ -404,9 +405,23 @@ export async function buildPayloadForDate(
       operatorPicks,
     );
 
+    // Freshness can curate the same pool more than once; share downloaded
+    // thumbnails across attempts within this build instead of refetching.
+    const imageBuffers = new Map();
+    const loadBufferOnce = url => {
+      if (!imageBuffers.has(url)) {
+        imageBuffers.set(url, fetchImageBuffer(url).catch(error => {
+          imageBuffers.delete(url);
+          throw error;
+        }));
+      }
+      return imageBuffers.get(url);
+    };
+
     const curationOptions = {
       promise,
       engagementProfile,
+      ...(freshness ? { loadBuffer: loadBufferOnce } : {}),
       calibrationProfile: curationCalibration,
       preferredCandidateIds: curationCalibration?.positiveCandidateIds || [],
       profileVersions: {
