@@ -1,6 +1,6 @@
 # Where the Mask Ends 19–22: guide-based review
 
-**Status: EDITORIAL SIGN-OFF PENDING; do not merge or publish.** Guide review is not firsthand watching or an assertion of on-screen verification. Katie approved a series-specific guide-based method, not these exact article revisions. The article drafts were originally secondary-source drafts; Katie’s Episode 19 observation is identified separately below.
+**Status: EDITORIAL SIGN-OFF APPROVED.** On 2026-11-09, Katie approved the four guides and asked for the PR to be marked ready and merged. Approval covers the article versions identified by the hashes below, including the selected stills and her meme. Guide review is not firsthand watching or an assertion of on-screen verification. The article drafts were originally secondary-source drafts; Katie’s Episode 19 observation is identified separately below.
 
 **Review date:** 2026-11-09 (UTC). **Reviewer:** Notion AI. **Scope:** four article files and the shelf links, including headline, lede, description, structured headline, body, source credits and navigation. No discussion prompts. Each row covers the listed passage and its interpretive claims; wording not supported by the sources has been removed or narrowed. No trailer, novel, later comments or adjacent-episode teaser used as evidence.
 
@@ -81,8 +81,8 @@ The shelf adds episode-numbered links and the article titles; each repeats an ep
 ## Outstanding decision
 
 - No source discrepancies remain in the retained details identified above; source agreement remains a limited secondary-source assessment, not verification by watching.
-- **All four:** Explicit editorial sign-off for the identified file hashes remains pending. Do not merge until sign-off is recorded. Any subsequent prose, metadata, source-credit, or shelf change reopens the relevant review.
+- **All four:** Katie approved the identified versions for release. Any subsequent prose, metadata, source-credit, or shelf change reopens the relevant review.
 
 ## Visual preparation
 
-Katie selected two contextual show stills per episode and her Episode 22 MemeForge image. Stills were obtained from the episode-specific Reddit recap links above; the meme incorporates a show still. Underlying rights and licenses have not been verified. The user raised U.S. fair use for commentary as a possible basis; this is a case-specific editorial risk judgment, not a legal clearance or a finding that permission was obtained. Images and the meme are now included for preview; editorial sign-off remains pending.
+Katie selected two contextual show stills per episode and her Episode 22 MemeForge image. Stills were obtained from the episode-specific Reddit recap links above; the meme incorporates a show still. Underlying rights and licenses have not been verified. The user raised U.S. fair use for commentary as a possible basis; this is a case-specific editorial risk judgment, not a legal clearance or a finding that permission was obtained. Images and the meme are included in the approved guides; this approval does not verify licensing or guarantee a fair-use outcome.
