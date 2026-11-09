@@ -17,6 +17,7 @@ import { createPublicRecordsHandler } from "../public-records.js";
 import { createPublicSitemapHandler } from "../public-sitemap.js";
 import {
   auditHeadKey,
+  auditMisprintKey,
   auditCalibrationKey,
   auditRescueCalibrationApprovalKey,
   auditRescueCalibrationAuthorityKey,
@@ -2537,4 +2538,54 @@ test("a thin unseen pool triggers the deeper pass and falls back to published ca
   assert.ok(stages[1].indexOf("published-0") > stages[1].indexOf("deep-2"));
   const ids = built.board.candidates.map(candidate => candidate.candidateId);
   assert.equal(ids.filter(id => id.startsWith("published-")).length, 2);
+});
+
+test("an approved Misprint report keeps its image out of the next Daily Drop", async () => {
+  const actor = {
+    id: "actor-a", name: "Actor A", shortName_en: "A", accentColor: "#111",
+    vibes: [{ label: "A0", label_en: "A0", queries: ["misprint-query"] }],
+  };
+  const entries = approvedEligibility(actor, 0);
+  const reportedId = "reported-receipt";
+  entries[auditMisprintKey(actor.id, 0, "actor_identity", reportedId)] = {
+    receiptId: reportedId,
+    status: "active",
+    actorId: actor.id,
+    vibeIdx: 0,
+    correctionScope: "actor_identity",
+    futureExclusion: true,
+    candidate: { candidateId: "someone-else", thumbnail: "https://images.test/someone-else.jpg" },
+  };
+  const results = [
+    { candidateId: "someone-else", title: "Not him", thumbnail: "https://images.test/someone-else.jpg", source: "x.test" },
+    ...Array.from({ length: 9 }, (_, index) => ({
+      candidateId: `ok-${index}`, title: `OK ${index}`, thumbnail: `https://images.test/ok-${index}.jpg`, source: `s${index}.test`,
+    })),
+  ];
+  let curatedIds = null;
+  let built = null;
+  await buildPayloadForDate("2026-09-01", makeStore(entries), {
+    packs: [actor],
+    search: async () => ({ results, provider: "fixture" }),
+    evaluate: async (queries, search) => {
+      const result = await search(queries[0]);
+      return [{ query: queries[0], results: result.results, count: result.results.length, distinctSources: 9 }];
+    },
+    rank: candidates => candidates,
+    curate: async ranked => {
+      curatedIds = ranked.flatMap(batch => batch.results.map(result => result.candidateId));
+      return {
+        displayResults: ranked[0].results.slice(0, 9),
+        curation: { mode: "compiled", version: 1, signals: [] },
+      };
+    },
+    publicationStore: makeStore(),
+    materializePublication: async (input) => {
+      built = input;
+      return { payload: { source: "materialized", curation: input } };
+    },
+  });
+  assert.ok(!curatedIds.includes("someone-else"));
+  assert.equal(curatedIds.length, 9);
+  assert.ok(built.board.candidates.every(candidate => candidate.candidateId !== "someone-else"));
 });

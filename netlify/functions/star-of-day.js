@@ -71,6 +71,11 @@ import {
   publishedHistoryIndex,
   runDeepPass,
 } from "./lib/daily-freshness.js";
+import {
+  applyMisprintExclusions,
+  misprintExclusionProvenance,
+  readMisprintExclusions,
+} from "./lib/misprint-exclusions.js";
 
 // Server-side daily cache for "Star of the Day".
 //
@@ -235,7 +240,7 @@ export async function buildPayloadForDate(
   eligibilityStore,
   {
     packs = actorPacks,
-    evaluate = evaluateCandidates,
+    evaluate: evaluateSearch = evaluateCandidates,
     search = searchOneQuery,
     rank = rankCandidates,
     curate = curateDisplayResults,
@@ -300,6 +305,11 @@ export async function buildPayloadForDate(
       generatedAt,
     });
     const searchQueries = searchQueriesFor(actor, seed.vIdx, approval.calibrationProfile);
+    // Approved Misprint reports keep their images out of every search pass.
+    const misprintExclusions = await readMisprintExclusions(eligibilityStore, actor.id, seed.vIdx);
+    const misprintTally = { removed: 0 };
+    const evaluate = async (queries, searchFn) =>
+      applyMisprintExclusions(await evaluateSearch(queries, searchFn), misprintExclusions, misprintTally);
     onProgress("search", { actorId: actor.id, vibeIdx: seed.vIdx });
     const promise = vibePromiseFor(actor, seed.vIdx);
     const excludedThumbnails = new Set(excludedCollectorThumbnails);
@@ -547,6 +557,10 @@ export async function buildPayloadForDate(
           signals: [...new Set([...(curation?.signals || []), "repeat nine rearranged"])],
         };
       }
+    }
+    const misprintProvenance = misprintExclusionProvenance(misprintExclusions, misprintTally);
+    if (misprintProvenance && curation) {
+      curation = { ...curation, misprintExclusions: misprintProvenance };
     }
     if (freshness && curation) {
       curation = {
