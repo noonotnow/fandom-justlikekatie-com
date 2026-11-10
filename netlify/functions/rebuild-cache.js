@@ -77,6 +77,7 @@ export default async (req, context) => {
       publicationStore: store,
       materializePublication: materializePublicationManifest,
       mediaEnv: process.env,
+      engagementStore: getBlobStore("engagement", context),
     });
     if (!payload) {
       return jsonResponse(500, {

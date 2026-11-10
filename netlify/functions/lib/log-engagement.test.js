@@ -194,6 +194,30 @@ test("grid_export: valid payload returns 200 and stores the grid artifact", asyn
   assert.ok(stored.timestamp, "entry must have a timestamp");
 });
 
+test("grid_export: dated exports are also indexed by capture date for curation", async () => {
+  const { store, context } = makeStoreContext();
+  const grid = {
+    gridId: "local-grid-123",
+    date: "2026-08-01",
+    actorId: "actor-1",
+    actor: "刘学义",
+    actorEn: "Liu Xueyi",
+    vibe: "破碎感美人",
+    vibeEn: "Shattered Beauty",
+    searchSpell: "刘学义 破碎感",
+    tier: "standard",
+    variant: "teaser",
+    imageIds: ["https://images.example/0.jpg", "https://images.example/4.jpg"],
+  };
+  assert.equal((await handler(req({ event: "grid_export", batchKey: grid.gridId, grid }), context)).status, 200);
+  const [indexed] = store._values("vibe-atlas-export:2026-08-01:");
+  assert.deepEqual(
+    { actorId: indexed.actorId, imageIds: indexed.imageIds, variant: indexed.variant },
+    { actorId: "actor-1", imageIds: grid.imageIds, variant: "teaser" },
+  );
+  assert.equal(indexed.searchSpell, undefined);
+});
+
 test("grid_export: concurrent writes persist as distinct immutable records", async () => {
   const { store, context } = makeStoreContext();
 

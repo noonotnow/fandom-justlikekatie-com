@@ -1,5 +1,6 @@
 import { createHash, randomUUID } from "node:crypto";
 import { submitDailyReport, ownDailyReports, reportQueue } from "./daily-image-reports.js";
+import { applyMisprintDecisions } from "./misprint-exclusions.js";
 import { hasValidReceiptTimestamp } from "./receipt-timestamp.js";
 import { json } from "./public-auth.js";
 import {
@@ -5647,31 +5648,6 @@ async function readMisprintDecisions(store, pair) {
       || decision.actorId === pair.actor.id)
     && (!["actor_vibe", "result_set", "board", "diagnostic", "local"].includes(decision.correctionScope)
       || decision.vibeKey === pair.vibeKey));
-}
-
-function applyMisprintDecisions(receipt, decisions) {
-  const applicable = decisions
-    .filter(decision => decision.sourceReceiptId === receipt.receiptId)
-    .sort((left, right) =>
-      String(left.decidedAt || "").localeCompare(String(right.decidedAt || ""))
-      || String(left.decisionId || "").localeCompare(String(right.decisionId || "")));
-  let status = receipt.status;
-  const review = applicable.find(decision => decision.kind === "review");
-  if (review && receipt.status === "pending_review") {
-    status = review.decision === "approved" ? "active" : "rejected";
-  }
-  if (
-    status === "active"
-    && applicable.some(decision => decision.kind === "retraction")
-  ) {
-    status = "retracted";
-  }
-  return {
-    ...receipt,
-    originalStatus: receipt.status,
-    status,
-    decisionIds: applicable.map(decision => decision.decisionId),
-  };
 }
 
 async function appendMisprintDecision({

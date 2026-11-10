@@ -1,6 +1,6 @@
 import { createHash } from "node:crypto";
 import { ACTOR_PACKS } from "./lib/actor-packs.js";
-import { searchBaiduImages } from "./lib/baidu-images.js";
+import { searchBaiduImages, normalizeSearchPage } from "./lib/baidu-images.js";
 import { candidateFingerprint } from "./lib/search-candidate-fingerprint.js";
 
 export const SEARCH_CACHE_PROVENANCE_VERSION = "provider-fetch-v1";
@@ -35,10 +35,58 @@ function cacheObservation(response) {
   };
 }
 
-function cacheKeyFor(q, providerPolicy) {
+function cacheKeyFor(q, providerPolicy, window = DEFAULT_SEARCH_WINDOW) {
+  // The default window keeps the historical key shape so stored provenance
+  // from page-one searches stays comparable.
+  const windowed = window.page || window.recency
+    ? { page: window.page, recency: window.recency }
+    : {};
   return createHash("sha256")
-    .update(JSON.stringify({ q, providerPolicy, version: SEARCH_CACHE_PROVENANCE_VERSION }))
+    .update(JSON.stringify({ q, providerPolicy, ...windowed, version: SEARCH_CACHE_PROVENANCE_VERSION }))
     .digest("hex");
+}
+
+// Result windows: which page of a provider's ranking to read and whether to
+// restrict it to recent uploads. Page 0 + no recency is the historical search.
+export const SEARCH_MAX_PAGE = 4;
+export const SEARCH_RECENCY_VALUES = Object.freeze(["month", "year"]);
+const DEFAULT_SEARCH_WINDOW = Object.freeze({ page: 0, recency: null });
+
+export function normalizeSearchWindow({ page = 0, recency = null } = {}) {
+  return {
+    page: normalizeSearchPage(page, SEARCH_MAX_PAGE),
+    recency: SEARCH_RECENCY_VALUES.includes(recency) ? recency : null,
+  };
+}
+
+const BING_PAGE_SIZE = 35;
+const BING_AGE_MINUTES = { month: 43200, year: 525600 };
+
+/**
+ * Provider-specific query-string parameters for a result window. Returns an
+ * empty string for the default window so page-one URLs are unchanged.
+ */
+export function providerWindowParams(provider, window = DEFAULT_SEARCH_WINDOW) {
+  const { page, recency } = normalizeSearchWindow(window);
+  const params = new URLSearchParams();
+  if (provider === "brave") {
+    if (page) params.set("offset", String(Math.min(page, 9)));
+    if (recency) params.set("freshness", recency === "month" ? "pm" : "py");
+  } else if (provider === "google_images") {
+    if (page) params.set("ijn", String(page));
+    if (recency) params.set("tbs", recency === "month" ? "qdr:m" : "qdr:y");
+  } else if (provider === "bing_images") {
+    if (page) params.set("first", String(page * BING_PAGE_SIZE + 1));
+    if (recency) params.set("qft", `+filterui:age-lt${BING_AGE_MINUTES[recency]}`);
+  } else if (provider === "yandex_images") {
+    if (page) params.set("p", String(page));
+  }
+  const value = params.toString();
+  return value ? `&${value}` : "";
+}
+
+export function providerSupportsRecency(provider) {
+  return provider === "brave" || provider === "google_images" || provider === "bing_images";
 }
 
 export function providerCacheBypassApplied(url, bypassRequested) {
@@ -491,11 +539,14 @@ export async function searchOneQuery(
     cacheMode = "default",
     resultLimit = 18,
     preferOriginal = false,
+    page = 0,
+    recency = null,
   } = {},
 ) {
   if (!q) {
     throw new Error("Missing query parameter");
   }
+  const searchWindow = normalizeSearchWindow({ page, recency });
   const bypassRequested = cacheMode === "refresh";
   const fetches = [];
   const providerFetch = async (url, init = {}) => {
@@ -547,7 +598,8 @@ export async function searchOneQuery(
       : null;
     response.cacheProvenance = {
       version: SEARCH_CACHE_PROVENANCE_VERSION,
-      key: cacheKeyFor(q, providerPolicy),
+      key: cacheKeyFor(q, providerPolicy, searchWindow),
+      window: searchWindow,
       outcome: hit ? "hit" : allMisses ? "miss" : "unknown",
       ageMs: ages.length ? Math.max(...ages) : null,
       fetchTimeMs: fetches.reduce((total, fetch) => total + fetch.fetchTimeMs, 0),
@@ -601,15 +653,22 @@ export async function searchOneQuery(
     });
     pooledCandidates.push(...accepted);
   };
-  const baiduEligible = containsCjk(q) && !googleFirst && !middleEarthFallback;
+  // Baidu has no upload-date filter, so a recency window skips it rather than
+  // padding a "recent" rung with undated results.
+  const baiduEligible = containsCjk(q) && !googleFirst && !middleEarthFallback && !searchWindow.recency;
   const baiduAttemptLog = createBaiduAttemptLog(baiduEligible);
+  if (!baiduEligible && searchWindow.recency && containsCjk(q) && !googleFirst && !middleEarthFallback) {
+    baiduAttemptLog.skippedReason = "recency_unsupported";
+  }
   if (baiduEligible) {
     try {
       const baidu = await searchBaiduProvider(q, {
         fetchImpl: providerFetch,
-        baiduOptions: bypassRequested
-          ? { ...baiduOptions, cache: false }
-          : baiduOptions,
+        baiduOptions: {
+          ...baiduOptions,
+          ...(bypassRequested ? { cache: false } : {}),
+          ...(searchWindow.page ? { page: searchWindow.page } : {}),
+        },
       });
       recordBaiduSuccess(baiduAttemptLog, baidu);
       if (collectorRefreshPool) {
@@ -645,7 +704,8 @@ export async function searchOneQuery(
       "https://api.search.brave.com/res/v1/web/search" +
       `?q=${encodeURIComponent(q)}` +
       `&count=40` +
-      `&safesearch=moderate`;
+      `&safesearch=moderate` +
+      providerWindowParams("brave", searchWindow);
 
     const braveResp = googleFirst || !braveKey
       ? { ok: false, status: 0, json: async () => ({}) }
@@ -766,6 +826,14 @@ export async function searchOneQuery(
         const IMAGE_ENGINES = ["google_images", "bing_images", "yandex_images"];
         for (const engine of IMAGE_ENGINES) {
           const engineLog = { engine, httpStatus: null, error: null, rawCount: 0, normalizedCount: 0, subjectHitCount: 0, subjectGuardPassed: null, usedAsFinal: false, skippedReason: null };
+          if (searchWindow.recency && !providerSupportsRecency(engine)) {
+            engineLog.skippedReason = "recency_unsupported";
+            serpApiEngineLog.push(engineLog);
+            if (collectorRefreshPool) {
+              pushProviderContribution(engine, { rawCount: 0, normalizedCount: 0, acceptedCount: 0 });
+            }
+            continue;
+          }
           try {
 
             const serpUrl =
@@ -773,6 +841,7 @@ export async function searchOneQuery(
               `?engine=${engine}` +
               `&q=${encodeURIComponent(q)}` +
               `&api_key=${serpKey}` +
+              providerWindowParams(engine, searchWindow) +
               (bypassRequested ? "&no_cache=true" : "");
 
             serpApiUrlNoKey = serpUrl.replace(serpKey, "[REDACTED]");
@@ -892,6 +961,8 @@ export async function searchOneQuery(
         baiduOptions,
         providerPolicy: providerPolicy === "cdrama-stills" ? "cdrama-stills-fallback" : "middle-earth-fallback",
         cacheMode,
+        page: searchWindow.page,
+        recency: searchWindow.recency,
       });
     }
 
