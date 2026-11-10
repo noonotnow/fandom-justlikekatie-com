@@ -292,6 +292,11 @@ to = "/c-drama-fandom/glossary/duanju-microdrama-vertical-drama/index.html"
 status = 200
 
 [[redirects]]
+from = "/c-drama-fandom/glossary/nine-tailed-fox"
+to = "/c-drama-fandom/glossary/nine-tailed-fox/index.html"
+status = 200
+
+[[redirects]]
 from = "/c-drama-fandom/archetypes"
 to = "/c-drama-fandom/archetypes/index.html"
 status = 200
