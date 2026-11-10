@@ -592,6 +592,10 @@ test("robots and sitemap expose only intended public surfaces", () => {
     "https://fandom.justlikekatie.com/c-drama-fandom/vibing-now/where-the-mask-ends-episodes-1-16/",
     "https://fandom.justlikekatie.com/c-drama-fandom/vibing-now/where-the-mask-ends-episode-17/",
     "https://fandom.justlikekatie.com/c-drama-fandom/vibing-now/where-the-mask-ends-episode-18/",
+    "https://fandom.justlikekatie.com/c-drama-fandom/vibing-now/where-the-mask-ends-episode-19/",
+    "https://fandom.justlikekatie.com/c-drama-fandom/vibing-now/where-the-mask-ends-episode-20/",
+    "https://fandom.justlikekatie.com/c-drama-fandom/vibing-now/where-the-mask-ends-episode-21/",
+    "https://fandom.justlikekatie.com/c-drama-fandom/vibing-now/where-the-mask-ends-episode-22/",
     "https://fandom.justlikekatie.com/c-drama-fandom/where-to-watch/where-the-mask-ends/",
   ];
   const journalUrls = WATCH_JOURNAL_PUBLIC_PAGES.map((path) => (
@@ -1515,4 +1519,17 @@ test("each allowlisted LG01 fate has a static social preview and exact query rew
   }
 
   assert.doesNotMatch(netlify, /query = \{ fate = ":fate" \}/);
+});
+
+test("Where the Mask Ends 19–22 have registered spoiler-safe navigation", () => {
+  const shelf = read("public/c-drama-fandom/vibing-now/index.html");
+  for (let n = 19; n <= 22; n++) {
+    const path = `/c-drama-fandom/vibing-now/where-the-mask-ends-episode-${n}/`;
+    const page = read(`public${path}index.html`);
+    assert.ok(shelf.includes(`href="${path}"`));
+    assert.ok(page.includes(`Spoilers through Episode ${n}`));
+    assert.ok(page.includes(`href="/c-drama-fandom/vibing-now/where-the-mask-ends-episode-${n-1}/"`));
+    if (n < 22) assert.ok(page.includes(`href="/c-drama-fandom/vibing-now/where-the-mask-ends-episode-${n+1}/"`));
+    assert.ok(!page.includes("Editorial notes · not for publication"));
+  }
 });

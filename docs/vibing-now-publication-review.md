@@ -2,9 +2,17 @@
 
 Use this checklist **before publishing or substantively revising** a Vibing Now installment. The episode label, the article's own spoiler disclaimer, a deploy preview, and `scripts/public-pages.test.js` are not evidence of plot chronology. This is a human editorial gate, not a keyword scan.
 
+## Series-specific alternative: Where the Mask Ends guide-based review
+
+For **Where the Mask Ends** installments only, the creator has approved a documented review using published episode guides when original watch notes are unavailable. This is an alternative to the watched/source-note locator requirement below; it does not apply to other series, retroactively certify existing articles, or claim firsthand viewing.
+
+- Check every consequential assertion, chronology-dependent premise, headline, lede, metadata, shelf teaser, and prompt against two episode-specific sources. Record source URLs, episode numbers, and locatable section headings or paragraphs for each claim; document when sources may share underlying material. Prefer descriptions supported by both and distinguish interpretation from reported events.
+- Do not use previews, novel material, comments about later episodes, or neighboring episode links as evidence for an earlier boundary. If sources disagree, a detail is missing, or its episode cannot be placed reliably, revise or remove it; otherwise leave the row and publication **BLOCKED** pending resolution. Do not claim guide agreement proves the episode has been watched or independently verified.
+- Keep the review record with the decision, identify the reviewed article files by revision or content hashes, record the reviewer and date, and secure explicit editorial **APPROVED** sign-off before publication. Scope approval for the guide-based method is not article approval. Reopen affected rows after changes. Public source credits should warn that source pages may contain later-episode material.
+
 ## Start a review record for each article revision
 
-Copy the blank record below into an editorial review note alongside the draft (not into the public article). Keep the completed record with the publication decision. Do not copy private watch notes or later-episode plot details into the public page, public PR description, or reader-facing metadata. Link to the creator's watched/source notes using an internal reference accessible to the reviewer; if those notes are unavailable, the review remains **blocked**. A prior sign-off does not cover changed prose or a new episode boundary.
+Copy the blank record below into an editorial review note alongside the draft (not into the public article). Keep the completed record with the publication decision. Do not copy private watch notes or later-episode plot details into the public page, public PR description, or reader-facing metadata. Link to the creator's watched/source notes using an internal reference accessible to the reviewer; if those notes are unavailable, the review remains **blocked**, except under the Where the Mask Ends series-specific alternative above. A prior sign-off does not cover changed prose or a new episode boundary.
 
 ```
 Article route:
