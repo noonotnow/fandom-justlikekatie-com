@@ -568,6 +568,8 @@ test("robots and sitemap expose only intended public surfaces", () => {
     "https://fandom.justlikekatie.com/c-drama-fandom/glossary/historical-vs-costume-drama/",
     "https://fandom.justlikekatie.com/c-drama-fandom/glossary/duanju-microdrama-vertical-drama/",
     "https://fandom.justlikekatie.com/c-drama-fandom/glossary/nine-tailed-fox/",
+    "https://fandom.justlikekatie.com/c-drama-fandom/glossary/white-moonlight/",
+    "https://fandom.justlikekatie.com/c-drama-fandom/glossary/cultivation-levels/",
     "https://fandom.justlikekatie.com/c-drama-fandom/archetypes/",
     "https://fandom.justlikekatie.com/c-drama-fandom/archetypes/cold-male-lead-vs-tsundere/",
     "https://fandom.justlikekatie.com/c-drama-fandom/archetypes/black-bellied-vs-white-cut-black/",
@@ -646,6 +648,8 @@ test("robots and sitemap expose only intended public surfaces", () => {
     "historical-vs-costume-drama",
     "duanju-microdrama-vertical-drama",
     "nine-tailed-fox",
+    "white-moonlight",
+    "cultivation-levels",
   ]) {
     assert.match(
       netlify,
@@ -745,6 +749,8 @@ test("the fandom-literacy pages answer independently and continue honestly into 
     ["xianxia", /What is xianxia\?/i],
     ["jianghu", /What is jianghu\?/i],
     ["nine-tailed-fox", /What is a Chinese fox spirit\?/i],
+    ["white-moonlight", /What does “white moonlight” mean\?/i],
+    ["cultivation-levels", /Cultivation levels, <em>explained<\/em>/i],
   ];
 
   for (const [slug, question] of literacyPages) {
