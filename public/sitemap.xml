@@ -84,6 +84,16 @@
     <priority>0.8</priority>
   </url>
   <url>
+    <loc>https://fandom.justlikekatie.com/c-drama-fandom/glossary/white-moonlight/</loc>
+    <changefreq>monthly</changefreq>
+    <priority>0.8</priority>
+  </url>
+  <url>
+    <loc>https://fandom.justlikekatie.com/c-drama-fandom/glossary/cultivation-levels/</loc>
+    <changefreq>monthly</changefreq>
+    <priority>0.8</priority>
+  </url>
+  <url>
     <loc>https://fandom.justlikekatie.com/c-drama-fandom/archetypes/</loc>
     <changefreq>monthly</changefreq>
     <priority>0.8</priority>

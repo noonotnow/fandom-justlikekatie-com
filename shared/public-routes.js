@@ -80,6 +80,8 @@ export const PUBLIC_STATIC_ROUTES = Object.freeze([
   editorial("/c-drama-fandom/glossary/historical-vs-costume-drama/"),
   editorial("/c-drama-fandom/glossary/duanju-microdrama-vertical-drama/"),
   editorial("/c-drama-fandom/glossary/nine-tailed-fox/"),
+  editorial("/c-drama-fandom/glossary/white-moonlight/"),
+  editorial("/c-drama-fandom/glossary/cultivation-levels/"),
   editorial("/c-drama-fandom/archetypes/"),
   editorial("/c-drama-fandom/archetypes/cold-male-lead-vs-tsundere/"),
   editorial("/c-drama-fandom/archetypes/black-bellied-vs-white-cut-black/"),
