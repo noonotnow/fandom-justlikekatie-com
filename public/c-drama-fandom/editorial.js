@@ -169,6 +169,7 @@
       "episodes_1_6", "episodes_7_14", "episodes_15_20",
       "episode_21", "episodes_22_25", "episodes_26_30",
       "episodes_26_29", "episodes_30_31", "episodes_32_33", "episodes_34_38",
+      "episodes_39_42",
     ]);
     document.querySelectorAll("[data-series-installment]").forEach((link) => {
       link.addEventListener("click", () => {
