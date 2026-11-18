@@ -4583,6 +4583,42 @@ test("bounded query-repair experiment exposes only server-derived baseline and a
   assert.equal(getSearchCall(), 1);
 });
 
+test("the Riley Wang query-repair experiment tests character anchors without changing live queries", async () => {
+  const riley = ACTOR_PACKS.find(actor => actor.id === "riley-wang");
+  const liveQueries = structuredClone(riley.vibes[0].queries);
+  const { handler, store, getSearchCall } = harness({ actorPacks: [riley] });
+  const vibeKey = vibeKeyFor(riley.id, 0);
+  const manifestResponse = await handler(request("POST", {
+    action: "query_repair_manifest",
+    actorId: riley.id,
+    vibeKey,
+  }), {});
+  const manifest = (await manifestResponse.json()).diagnostic;
+
+  assert.equal(manifestResponse.status, 200);
+  assert.equal(manifest.diagnosticOnly, true);
+  assert.deepEqual(manifest.baselineQueries, liveQueries);
+  assert.deepEqual(
+    manifest.alternatives.map(item => [item.rungIndex, item.replaces, item.query]),
+    [
+      [1, liveQueries[1], "王以纶 上官鹤"],
+      [2, liveQueries[2], "王以纶 上官鹤 剧照"],
+    ],
+  );
+  // Every alternative still leads with the actor so the subject guard applies.
+  assert.ok(manifest.alternatives.every(item => item.query.startsWith(`${riley.name} `)));
+  assert.equal(getSearchCall(), 0);
+  assert.equal(store.records.size, 0);
+  assert.deepEqual(riley.vibes[0].queries, liveQueries);
+
+  const otherVibe = await handler(request("POST", {
+    action: "query_repair_manifest",
+    actorId: riley.id,
+    vibeKey: vibeKeyFor(riley.id, 1),
+  }), {});
+  assert.equal(otherVibe.status, 409);
+});
+
 test("a publishable curator board can be approved while a rescue board is preferred separately", async () => {
   const { handler, store } = harness();
   const vibeKey = vibeKeyFor(pairActor.id, 0);
