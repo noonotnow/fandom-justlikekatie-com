@@ -26,6 +26,7 @@
     "drama-against-the-current-episodes-30-31",
     "drama-against-the-current-episodes-32-33",
     "drama-against-the-current-episodes-34-38",
+    "drama-against-the-current-episodes-39-42",
     "drama-lbfad",
     "drama-lbfad-cast",
     "drama-lbfad-relationships",
