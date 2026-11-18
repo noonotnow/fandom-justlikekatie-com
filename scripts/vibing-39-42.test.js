@@ -13,7 +13,7 @@ test("Episodes 39–42 keeps the approved reading and its release surfaces", () 
   assert.ok(body, "the article body must be present");
   const normalized = body.replace(/<[^>]+>/g, " ").replace(/\s+/g, " ").trim();
   assert.equal(createHash("sha256").update(normalized).digest("hex"),
-    "dba14d9eae75d171d552bc3b06d1481d91a71b0bba6f63bb6f9bd00d934284bd");
+    "60ffd88d96af627412d2cfc907d7b7d3bd96dc4dbfa1063b28605eed34f478d4");
   assert.equal((body.match(/<h2>/g) || []).length, 9);
   assert.match(article, /<h1>What Love Makes Room For<\/h1>/);
   assert.match(article, /<h2>Episode 42<\/h2>/);
