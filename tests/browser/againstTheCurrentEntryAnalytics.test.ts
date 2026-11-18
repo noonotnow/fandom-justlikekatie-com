@@ -71,6 +71,7 @@ test('GA4 distinguishes the new spotlight from the continuing Field Journal', { 
       ['Safe through Episodes 30–31', 'against-the-current-episodes-30-31', 'episodes_30_31'],
       ['Safe through Episodes 32–33', 'against-the-current-episodes-32-33', 'episodes_32_33'],
       ['Safe through Episodes 34–38: Read the installment', 'against-the-current-episodes-34-38', 'episodes_34_38'],
+      ['Safe through Episodes 39–42', 'against-the-current-episodes-39-42', 'episodes_39_42'],
     ]) {
       await gotoTestPage(page, `${origin}/cdrama-fandom/vibing-now/field-journals/against-the-current/`);
       await captureClicks();
@@ -80,7 +81,7 @@ test('GA4 distinguishes the new spotlight from the continuing Field Journal', { 
         name: 'against_the_current_installment_selected', data: { installment },
       });
     }
-    assert.equal((await clicks()).length, 8, 'direct visits must not be recorded as feature clicks');
+    assert.equal((await clicks()).length, 9, 'direct visits must not be recorded as feature clicks');
     assert.deepEqual(Object.keys((await clicks())[0].data ?? {}), ['placement']);
 
   } finally {
