@@ -11,11 +11,11 @@ const prefix = "/c-drama-fandom/vibing-now/";
 const shelf = read("public/cdrama-fandom/vibing-now/field-journals/against-the-current/index.html");
 const schema = JSON.parse(shelf.match(/<script type="application\/ld\+json">\s*([\s\S]*?)<\/script>/)[1]);
 const cases = [
-  ["43-45", 17, "0ca69d8c545708acfe564b027773badd5ddb0f27779eac6005a182998baa4426", [
+  ["43-45", 17, "c433212c162811f9dd967b7ab2d3d60cbf0f1a99be9837a35de3128737c80d7c", [
     "7fe08c29628b1b17dc4b60fc3302a9f4bf218e7be8d5a9b5163a9ce6429a639b",
     "0926e41548904151ce55ab496a6b962fe6d09ce638d6fa82a92a35fbfc491c5a",
   ]],
-  ["46-47", 19, "62390c09784a9c67169623bb14a9b2436a6a7a8d39390bb7b392ffb08f7c9933", [
+  ["46-47", 19, "07d038ef481e8709482dde85a5c18a0b7d3745b3badc6076588e2b601951992b", [
     "9b4eadc61190ef2c467a34cfe02a5e603a2865fb65cd2d0c72674994e85b83ca",
     "6d12620d5a300055d02d1f31d9bc8a5badfc0c3c2ebea2e2ad59cb691c6aa0ac",
   ]],

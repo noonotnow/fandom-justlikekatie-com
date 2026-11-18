@@ -58,3 +58,18 @@ This independently repeated source check supplies the release's dated evidence
 update for review. It does not import unrelated workspace work, certify actual
 playback or change the seven-day freshness gate. Added regression coverage
 checks the expiry boundary, history retention and special-episode distinction.
+
+## Wording corrections — November 18, 2026
+
+The creator approved fifteen narrower wordings for these two readings on
+October 21, 2026, and asked on November 18, 2026 for them to be applied to
+the website. They remove claims the recap sources do not support (a first-ever
+acquisition of authority, a retirement premise, a daughters' settlement,
+series-wide comparisons) and mark two inferences as the essay's own reading.
+The 43–45 lede changes everywhere it is repeated: page, description, social
+metadata and structured data. Paragraph counts, images, captions, warnings and
+routes are unchanged; the frozen prose digests in
+`scripts/vibing-closing-readings.test.js` are updated to the corrected text.
+
+The 43–45 page also gains a link back to Episodes 39–42. These remain
+recap-based readings; the corrections are not firsthand verification.
