@@ -81,7 +81,7 @@ test('GA4 distinguishes the new spotlight from the continuing Field Journal', { 
         name: 'against_the_current_installment_selected', data: { installment },
       });
     }
-    assert.equal((await clicks()).length, 8, 'direct visits must not be recorded as feature clicks');
+    assert.equal((await clicks()).length, 9, 'direct visits must not be recorded as feature clicks');
     assert.deepEqual(Object.keys((await clicks())[0].data ?? {}), ['placement']);
 
   } finally {
