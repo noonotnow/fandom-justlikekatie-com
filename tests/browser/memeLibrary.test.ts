@@ -86,8 +86,20 @@ test(`finished C-drama exports and uploads share the scoped library in ${engine.
     await page.getByRole('dialog').waitFor();
     await page.keyboard.press('Escape');
     await uploaded.getByRole('button', { name: /Remove/ }).click();
-    await page.getByRole('button', { name: /Undo/ }).waitFor();
-    await page.waitForTimeout(8500);
+    const undo = page.getByRole('button', { name: /Undo/ });
+    await undo.waitFor();
+    // The undo window closes on a timer and only then is the removal written
+    // to storage. Wait for both instead of sleeping a fixed time, which left
+    // slow runners reloading before the write had finished.
+    await undo.waitFor({ state: 'detached', timeout: 20_000 });
+    const removalDeadline = Date.now() + 15_000;
+    while (await page.evaluate(`(async () => {
+      const db = await import('/src/utils/collectionDB.ts');
+      return JSON.stringify(await db.dbGetAllCards()).includes('already-downloaded');
+    })()`)) {
+      assert.ok(Date.now() < removalDeadline, 'removed meme is deleted from storage after the undo window');
+      await page.waitForTimeout(100);
+    }
     await page.reload();
     await page.getByText('MY FINISHED MEME / NOT JUST THE SOURCE STILL', { exact: true }).waitFor();
     assert.equal(await page.getByText('already-downloaded', { exact: true }).count(), 0);
