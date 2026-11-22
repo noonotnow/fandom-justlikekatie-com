@@ -24,3 +24,7 @@ Only the placeholder comments were replaced; no recap prose was revised. When #2
 | 24 | `84b168e714d73a00a1d7e4a99ada7e70cb5d82edad669fa4442e86061e6c886b` | `215be42d441cd0f294bd6071fa7d5c410fbc1fdf638b01297e17d03e89f62ddc` |
 | 25 | `1cc5f7de72616cf5be81accc5e752ac06f5a247b34335f9a1861172e69c7e4ee` | `e93f1d69c71af679aa4965436d7dc56f99030311a1e4856dcc53d00bf216039d` |
 | 26 | `8c96e4a16fceba3c4bd59c81908057d0873acdb1541fce906d85c982d053a48b` | `5559ebc9c55b144379ff3fa9f1ab366c3fb48ac0cf045feaba06b2176d9c79a1` |
+
+## Main-branch update
+
+After #251 merged, the episode 26 navigation gained a forward link. That link is preserved along with the banquet still. Updated episode 26 base SHA-256: `1e5d4575109ed7ea5acb4a658404c977b748d43606941b202a72dbf7e4dca93c`; with figure: `8c640516d076f0fa3ebc8ee00951750cb5b20ef5a7914aaeca72957c0e3a9a5c`. Other episode hashes above are unchanged.
