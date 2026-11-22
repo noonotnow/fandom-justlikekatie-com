@@ -1,6 +1,6 @@
 # Where the Mask Ends 23–26: guide-based review
 
-**Status: DRAFT, NOT APPROVED.** Prepared 2026-11-22 (UTC) for Katie's review. Nothing here is editorial sign-off. Hashes below identify the drafted article files; any later change to prose, metadata, captions or the shelf invalidates the hash and needs re-review. These are secondary-source drafts. Nobody has watched these episodes for this review.
+**Status: APPROVED by Katie, 2026-11-22.** Editorial and spoiler-boundary sign-off given on the Netlify deploy preview of PR #249 at head `de0314b`. Prepared 2026-11-22 (UTC). Hashes below identify the drafted article files; any later change to prose, metadata, captions or the shelf invalidates the hash and needs re-review. These are secondary-source drafts. Nobody has watched these episodes for this review.
 
 **Reviewer:** Claude (drafting assistant). **Scope:** four new article files, the four shelf links, and the Episode 22 forward link.
 
@@ -90,8 +90,11 @@ Each page has two `STILL SLOT` HTML comments showing where a figure goes and wha
 
 `node --test scripts/mask-ends-episode-23-26.test.js` passes, and the shared warning-copy contract accepts the default boundary paragraph on all four pages. In the drafting environment the full `node --test scripts/*.test.js` run had two failures in `audit-subscription-products.test.js`, caused by the sandbox injecting extra stdout. They are unrelated to this change; hosted CI is authoritative.
 
-## Outstanding before merge
+## Sign-off
 
-1. Katie reads all four pages and signs off, or edits them.
-2. Stills are added (8 images), then the hashes are refreshed.
-3. If a Reddit recap becomes reachable, the C-only and U-only rows can be strengthened.
+Katie approved all four pages as drafted on 2026-11-22. The article hashes above are the approved versions. The pages ship text-only.
+
+## Follow-ups
+
+1. Stills: Frank is sourcing the 8 images for the `STILL SLOT` comments. Adding them is a separate change; refresh the hashes in that PR.
+2. If a Reddit recap becomes reachable, the C-only and U-only rows can be strengthened.
