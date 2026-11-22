@@ -32,7 +32,7 @@ test('episode 23 carries the approved content note above the article', () => {
   }
 });
 
-test('episode 22 links forward to 23; 26 has no forward link yet', () => {
+test('episode 22 links forward to 23 and 26 links forward to 27', () => {
   assert.match(readFileSync(root + 'where-the-mask-ends-episode-22/index.html', 'utf8'), /where-the-mask-ends-episode-23\/">Episode 23 →/);
-  assert.doesNotMatch(readFileSync(root + 'where-the-mask-ends-episode-26/index.html', 'utf8'), /Episode 27 →/);
+  assert.match(readFileSync(root + 'where-the-mask-ends-episode-26/index.html', 'utf8'), /where-the-mask-ends-episode-27\/">Episode 27 →/);
 });

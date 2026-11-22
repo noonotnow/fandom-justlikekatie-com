@@ -5,6 +5,9 @@ import { vibingNowArticleRoutes } from "../shared/public-routes.js";
 // for plot keywords or treat a passing warning as editorial/source sign-off.
 const reviewedWarnings = new Map([
   ["/c-drama-fandom/vibing-now/where-the-mask-ends-episodes-1-16/", ["Spoilers through Episode 16"]],
+  ["/c-drama-fandom/vibing-now/where-the-mask-ends-episode-30/", [
+    "Spoiler boundary: This installment covers Episode 30, the finale, and includes ending spoilers. No novel material.",
+  ]],
   ["/c-drama-fandom/vibing-now/against-the-current-episodes-46-47/", [
     "Spoiler boundary: This installment discusses Episodes 46–47 and includes ending spoilers. No previews or novel material.",
   ]],

@@ -587,6 +587,11 @@ to = "/zh-cn/c-drama-fandom/trope-decoder/index.html"
 status = 200
 
 [[redirects]]
+from = "/zh-cn/c-drama-fandom/vibing-now/lin-jinqi-pack-vote"
+to = "/zh-cn/c-drama-fandom/vibing-now/lin-jinqi-pack-vote/index.html"
+status = 200
+
+[[redirects]]
   from = "/c-drama-fandom/fandom-games/"
   to = "/c-drama-fandom/fandom-games/previews/moonlit-strategist/index.html"
   status = 200
@@ -707,6 +712,26 @@ status = 200
 [[redirects]]
 from = "/c-drama-fandom/vibing-now/where-the-mask-ends-episode-26"
 to = "/c-drama-fandom/vibing-now/where-the-mask-ends-episode-26/index.html"
+status = 200
+
+[[redirects]]
+from = "/c-drama-fandom/vibing-now/where-the-mask-ends-episode-27"
+to = "/c-drama-fandom/vibing-now/where-the-mask-ends-episode-27/index.html"
+status = 200
+
+[[redirects]]
+from = "/c-drama-fandom/vibing-now/where-the-mask-ends-episode-28"
+to = "/c-drama-fandom/vibing-now/where-the-mask-ends-episode-28/index.html"
+status = 200
+
+[[redirects]]
+from = "/c-drama-fandom/vibing-now/where-the-mask-ends-episode-29"
+to = "/c-drama-fandom/vibing-now/where-the-mask-ends-episode-29/index.html"
+status = 200
+
+[[redirects]]
+from = "/c-drama-fandom/vibing-now/where-the-mask-ends-episode-30"
+to = "/c-drama-fandom/vibing-now/where-the-mask-ends-episode-30/index.html"
 status = 200
 
 [[redirects]]
