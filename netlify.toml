@@ -587,6 +587,11 @@ to = "/zh-cn/c-drama-fandom/trope-decoder/index.html"
 status = 200
 
 [[redirects]]
+from = "/zh-cn/c-drama-fandom/vibing-now/lin-jinqi-pack-vote"
+to = "/zh-cn/c-drama-fandom/vibing-now/lin-jinqi-pack-vote/index.html"
+status = 200
+
+[[redirects]]
   from = "/c-drama-fandom/fandom-games/"
   to = "/c-drama-fandom/fandom-games/previews/moonlit-strategist/index.html"
   status = 200
