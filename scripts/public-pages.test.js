@@ -600,6 +600,10 @@ test("robots and sitemap expose only intended public surfaces", () => {
     "https://fandom.justlikekatie.com/c-drama-fandom/vibing-now/where-the-mask-ends-episode-20/",
     "https://fandom.justlikekatie.com/c-drama-fandom/vibing-now/where-the-mask-ends-episode-21/",
     "https://fandom.justlikekatie.com/c-drama-fandom/vibing-now/where-the-mask-ends-episode-22/",
+    "https://fandom.justlikekatie.com/c-drama-fandom/vibing-now/where-the-mask-ends-episode-23/",
+    "https://fandom.justlikekatie.com/c-drama-fandom/vibing-now/where-the-mask-ends-episode-24/",
+    "https://fandom.justlikekatie.com/c-drama-fandom/vibing-now/where-the-mask-ends-episode-25/",
+    "https://fandom.justlikekatie.com/c-drama-fandom/vibing-now/where-the-mask-ends-episode-26/",
     "https://fandom.justlikekatie.com/c-drama-fandom/where-to-watch/where-the-mask-ends/",
   ];
   const journalUrls = WATCH_JOURNAL_PUBLIC_PAGES.map((path) => (
