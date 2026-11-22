@@ -1,6 +1,6 @@
 # Where the Mask Ends 27–30: guide-based review
 
-**Status: DRAFT, NOT APPROVED.** Prepared 2026-11-22 (UTC) for Katie's review. Nothing here is editorial sign-off. Hashes below identify the drafted article files; any later change to prose, metadata, captions or the shelf invalidates the hash and needs re-review. These are secondary-source drafts. Nobody has watched these episodes for this review.
+**Status: APPROVED by Katie, 2026-11-22.** Editorial and spoiler-boundary sign-off given on the Netlify deploy preview of PR #251 at head `de1743f`. Prepared 2026-11-22 (UTC). Hashes below identify the drafted article files; any later change to prose, metadata, captions or the shelf invalidates the hash and needs re-review. These are secondary-source drafts. Nobody has watched these episodes for this review.
 
 **Scope:** four new article files; their shelf links, with Episode 30 labelled "ending spoilers" and its title hidden; the Episode 26 forward link; and a reviewed warning-copy entry for Episode 30.
 
@@ -79,7 +79,10 @@ Two `STILL SLOT` comments per page, following the plan. Frank is sourcing the im
 
 `node --test scripts/mask-ends-episode-27-30.test.js` passes 8 of 8, and the 23–26 test was updated because Episode 26 now links forward. The full local run fails only the 2 known sandbox-stdout tests in `audit-subscription-products.test.js`.
 
-## Outstanding before merge
+## Sign-off
 
-1. Katie reads all four pages and signs off, or edits them.
-2. Stills, as a later change, with hashes refreshed.
+Katie approved all four pages as drafted on 2026-11-22. The article hashes above are the approved versions. The pages ship text-only.
+
+## Follow-ups
+
+1. Stills: Frank is sourcing the images for the `STILL SLOT` comments. Adding them is a separate change; refresh the hashes in that PR.
