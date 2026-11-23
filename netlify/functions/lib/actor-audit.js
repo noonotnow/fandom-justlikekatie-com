@@ -3181,25 +3181,58 @@ function compareQueryContracts(frozenQueries, currentQueries) {
   };
 }
 
-function queryRepairExperimentFor(pair, baselineQueries) {
-  if (pair.actor.id !== "liu-xueyi" || pair.vibeKey !== "liu-xueyi:0") return null;
-  if (baselineQueries.length !== 7) return null;
-  const experiment = {
-    baselineQueries,
+// Bounded query-repair experiments, keyed by actor/Vibe. Each one is diagnostic
+// only: it compares the frozen baseline with the listed alternatives and never
+// changes the pack's live queries, its pairing fingerprint, or any approval.
+const QUERY_REPAIR_EXPERIMENTS = {
+  "liu-xueyi:0": {
+    baselineLength: 7,
     alternatives: [
       {
         rungIndex: 2,
-        replaces: baselineQueries[2],
         query: "刘学义 念无双 源仲 定妆照",
         rationale: "Replace the silver-white styling rung that heavily overlaps the first white-clothed actor query with a lighter character-and-production anchor.",
       },
       {
         rungIndex: 6,
-        replaces: baselineQueries[6],
         query: "源仲 念无双 战斗 剧照",
         rationale: "Replace the full-body sect rung that heavily overlaps the white-robed stills query with an action/staging anchor likely to add distinct silhouettes.",
       },
     ],
+  },
+  // 2026-11-13: a 王以纶 board was mostly co-stars. All three rungs name the
+  // drama and none names his character, so ensemble and lead-couple stills
+  // dominate. The first rung stays as the broad identity anchor; the other two
+  // are tested against his character 上官鹤.
+  "riley-wang:0": {
+    baselineLength: 3,
+    alternatives: [
+      {
+        rungIndex: 1,
+        query: "王以纶 上官鹤",
+        rationale: "Replace the drama-plus-costume rung, which returns whole-cast period stills, with an actor-and-character anchor.",
+      },
+      {
+        rungIndex: 2,
+        query: "王以纶 上官鹤 剧照",
+        rationale: "Replace the drama-wide stills rung, which favours the leads, with stills anchored on his own character.",
+      },
+    ],
+  },
+};
+
+function queryRepairExperimentFor(pair, baselineQueries) {
+  const configured = QUERY_REPAIR_EXPERIMENTS[pair.vibeKey];
+  if (!configured || !pair.vibeKey.startsWith(`${pair.actor.id}:`)) return null;
+  if (baselineQueries.length !== configured.baselineLength) return null;
+  const experiment = {
+    baselineQueries,
+    alternatives: configured.alternatives.map(alternative => ({
+      rungIndex: alternative.rungIndex,
+      replaces: baselineQueries[alternative.rungIndex],
+      query: alternative.query,
+      rationale: alternative.rationale,
+    })),
   };
   return {
     ...experiment,

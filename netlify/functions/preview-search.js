@@ -166,7 +166,12 @@ const ALL_ACTOR_NAME_TOKENS = ACTOR_PACKS.flatMap((a) =>
 //     in 书卷一梦) vs 李大齐 (Lǐ Dàqí, unrelated character); search engines
 //     conflate these due to similar romanization, causing wrong-character results
 //     in Liu Yuning drama-role queries.
-const KNOWN_COSTAR_DRIFT_NAMES = ["成毅", "谢彬彬", "张凌赫", "李大齐"];
+//   - 孟子义: confirmed contamination (2026-11-13 王以纶 Vibe Atlas grid) — several
+//     of the nine tiles were her alone, alongside other co-stars, so most of the
+//     board was not the subject. She is not in ACTOR_PACKS, so the roster check
+//     above could not see her. This only drops results whose text names her and
+//     does not name the searched actor; a caption naming both still passes.
+const KNOWN_COSTAR_DRIFT_NAMES = ["成毅", "谢彬彬", "张凌赫", "李大齐", "孟子义"];
 
 const ALL_KNOWN_PERSON_NAME_TOKENS = [...ALL_ACTOR_NAME_TOKENS, ...KNOWN_COSTAR_DRIFT_NAMES];
 
