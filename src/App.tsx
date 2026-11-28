@@ -1022,6 +1022,14 @@ function VibeAtlasApp({ archiveEntry = false }: { archiveEntry?: boolean }) {
           >
             <span>{t('Membership', '会员')}</span>
           </button>
+          <a
+            className="fandom-atlas-nav__shop"
+            href="https://shop.justlikekatie.com/?utm_source=fandom_vibes&utm_medium=referral&utm_campaign=vibe_atlas_nav"
+            target="_blank"
+            rel="noopener"
+          >
+            <span>{t('Shop', '周边小店')} <span aria-hidden="true">↗</span></span>
+          </a>
         </div>
       </nav>
 

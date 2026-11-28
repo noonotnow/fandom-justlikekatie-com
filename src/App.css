@@ -170,6 +170,25 @@ body:has(#fandom-language-selector) .fandom-atlas-page {
   outline-offset: 2px;
 }
 
+/* External link to the JLK Finds shop; matches the nav buttons beside it. */
+.fandom-atlas-nav__shop {
+  border-bottom: 2px solid transparent;
+  color: #505a59;
+  padding: .7rem .7rem .6rem;
+  font: 600 .78rem "Manrope", sans-serif;
+  text-decoration: none;
+  white-space: nowrap;
+}
+.fandom-atlas-nav__shop:hover,
+.fandom-atlas-nav__shop:focus-visible {
+  border-bottom-color: #c96d54;
+  color: #263e40;
+}
+.fandom-atlas-nav__shop:focus-visible {
+  outline: 2px solid #b35f49;
+  outline-offset: 2px;
+}
+
 .fandom-atlas-nav .fandom-atlas-nav__panel button {
   display: block;
   width: 100%;
@@ -1067,6 +1086,9 @@ body:has(#fandom-language-selector) .fandom-atlas-page {
 .dark .fandom-universe-current,
 .dark .fandom-atlas-nav button,
 .dark .fandom-atlas-admin-link { color: #9b9b9b; }
+.dark .fandom-atlas-nav__shop { color: #9b9b9b; }
+.dark .fandom-atlas-nav__shop:hover,
+.dark .fandom-atlas-nav__shop:focus-visible { color: #f2e9dc; }
 .dark .fandom-tool-link { border-left-color: rgba(236, 231, 221, .18); }
 .dark .fandom-tool-link--active strong { color: #e18a70; }
 .dark .fandom-atlas-nav__title { color: #e18a70; }
