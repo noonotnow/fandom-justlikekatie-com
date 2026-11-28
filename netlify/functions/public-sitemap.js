@@ -23,12 +23,31 @@ export function sitemapXml(paths) {
   return `<?xml version="1.0" encoding="UTF-8"?><urlset xmlns="http://www.sitemaps.org/schemas/sitemap/0.9" xmlns:xhtml="http://www.w3.org/1999/xhtml">${entries}</urlset>`;
 }
 
+// Building the inventory takes several strong-consistency Blobs reads and has
+// been measured at 12-14 seconds in production, longer than some crawlers and
+// this repo's own health checks (10 seconds) will wait. A verified-complete
+// sitemap may therefore be served from Netlify's CDN: fresh for five minutes,
+// then stale for up to an hour while one background request rebuilds it.
+// Browsers and other intermediaries still revalidate on every request.
+// Trade-off: a newly released or revoked record can take up to about an hour
+// to appear in or leave the sitemap. Fallback responses are never cached, so
+// a failed inventory read cannot be pinned at the edge.
+export const SITEMAP_COMPLETE_CACHE_HEADERS = Object.freeze({
+  "Cache-Control": "public, max-age=0, must-revalidate",
+  "Netlify-CDN-Cache-Control": "public, durable, s-maxage=300, stale-while-revalidate=3600",
+});
+export const SITEMAP_FALLBACK_CACHE_HEADERS = Object.freeze({
+  "Cache-Control": "no-store",
+});
+
 function sitemapResponse(paths, inventoryStatus = "complete") {
   return {
     statusCode: 200,
     headers: {
       "Content-Type": "application/xml",
-      "Cache-Control": "no-store",
+      ...(inventoryStatus === "complete"
+        ? SITEMAP_COMPLETE_CACHE_HEADERS
+        : SITEMAP_FALLBACK_CACHE_HEADERS),
       "X-Public-Sitemap-Inventory": inventoryStatus,
     },
     body: sitemapXml([...new Set(paths)]),
