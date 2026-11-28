@@ -77,6 +77,15 @@ const outcomes = [
   },
 ];
 
+// Fates that exist as something wearable in the JLK Finds shop. Kept apart from
+// `outcomes` because the public-page generator parses that array's exact shape.
+const shopLinks = {
+  "fox-spirit": {
+    label: "Wear your fate · Fox Spirit hoodie and pajamas",
+    href: "https://shop.justlikekatie.com/collections/fox-spirit?utm_source=fandom_vibes&utm_medium=referral&utm_campaign=lg01_fox_spirit",
+  },
+};
+
 const byId = new Map(outcomes.map((outcome) => [outcome.id, outcome]));
 const choices = document.querySelectorAll("[data-fate]");
 const result = document.querySelector("#fate-result");
@@ -172,6 +181,17 @@ function renderOutcome(outcome, options = {}) {
   result.querySelector("h3").textContent = outcome.name;
   result.querySelector(".fate-result__cn").textContent = outcome.cn;
   result.querySelector(".fate-result__description").textContent = outcome.description;
+  result.querySelector(".fate-result__shop")?.remove();
+  const shop = shopLinks[outcome.id];
+  if (shop) {
+    const shopLink = document.createElement("a");
+    shopLink.className = "button fate-result__shop";
+    shopLink.href = shop.href;
+    shopLink.target = "_blank";
+    shopLink.rel = "noopener";
+    shopLink.textContent = shop.label;
+    result.append(shopLink);
+  }
   choices.forEach((choice) => {
     choice.setAttribute("aria-pressed", String(choice.dataset.fate === outcome.id));
   });
