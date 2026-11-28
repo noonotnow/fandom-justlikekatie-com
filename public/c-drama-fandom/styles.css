@@ -757,6 +757,7 @@ button { font: inherit; }
 .fate-result h3 { font: 500 clamp(30px, 4vw, 46px)/1 Georgia, "Times New Roman", serif; margin: 10px 0 3px; }
 .fate-result__cn { color: var(--result-color, var(--gold)); font-family: Georgia, "Times New Roman", serif; font-size: 23px; margin: 0 0 13px; }
 .fate-result__description { color: #c6d1d7; margin: 0; }
+.fate-result__shop { margin-top: 18px; }
 .share-status { color: var(--jade); font-size: 14px; min-height: 24px; }
 .privacy-note { color: #8297a5; font-size: 12px; }
 .hero--journal { padding-bottom: 70px; }
