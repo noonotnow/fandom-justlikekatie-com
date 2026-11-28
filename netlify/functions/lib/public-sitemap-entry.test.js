@@ -1,6 +1,10 @@
 import assert from "node:assert/strict";
 import test from "node:test";
-import publicSitemap, { createPublicSitemapHandler, sitemapXml } from "../public-sitemap.js";
+import publicSitemap, {
+  createPublicSitemapHandler,
+  SITEMAP_COMPLETE_CACHE_HEADERS,
+  sitemapXml,
+} from "../public-sitemap.js";
 import { catalogStore, completeCatalog, manifestStore, publicManifest } from "../public-test-fixture.js";
 
 function releasedPackPreviewCards(manifest) {
@@ -34,6 +38,11 @@ test("deployed sitemap uses the V2 Blobs context and serves the registered stati
   );
   assert.equal(response.status, 200);
   assert.equal(response.headers.get("x-public-sitemap-inventory"), "complete");
+  assert.equal(response.headers.get("cache-control"), "public, max-age=0, must-revalidate");
+  assert.equal(
+    response.headers.get("netlify-cdn-cache-control"),
+    "public, durable, s-maxage=300, stale-while-revalidate=3600",
+  );
   const xml = await response.text();
   assert.equal(xml.split("<loc>https://fandom.justlikekatie.com/c-drama-fandom/vibing-now/against-the-current-episode-21/</loc>").length - 1, 1);
   assert.match(xml, /<loc>https:\/\/fandom\.justlikekatie\.com\/vibe-atlas\/actors\/liu-xueyi\/<\/loc>/);
@@ -49,6 +58,7 @@ test("dynamic sitemap falls back to static routes while the catalog is incomplet
   const result = await handler(new Request("https://fandom.justlikekatie.com/sitemap.xml"), {});
   assert.equal(result.statusCode, 200);
   assert.equal(result.headers["Cache-Control"], "no-store");
+  assert.equal(result.headers["Netlify-CDN-Cache-Control"], undefined);
   assert.equal(result.headers["X-Public-Sitemap-Inventory"], "publication-incomplete");
   assert.match(result.body, /c-drama-fandom\/glossary/);
   assert.match(result.body, /against-the-current-episode-21/);
@@ -64,6 +74,8 @@ test("dynamic sitemap falls back to static routes when dynamic inventory throws"
   });
   const result = await handler(new Request("https://fandom.justlikekatie.com/sitemap.xml"), {});
   assert.equal(result.statusCode, 200);
+  assert.equal(result.headers["Cache-Control"], "no-store");
+  assert.equal(result.headers["Netlify-CDN-Cache-Control"], undefined);
   assert.equal(result.headers["X-Public-Sitemap-Inventory"], "unavailable");
   assert.match(result.body, /c-drama-fandom\/glossary/);
   assert.match(result.body, /against-the-current-episode-21/);
@@ -77,7 +89,11 @@ test("dynamic sitemap includes approved actor and edition once and excludes thin
   });
   const result = await handler(new Request("https://fandom.justlikekatie.com/sitemap.xml"), {});
   assert.equal(result.statusCode, 200);
-  assert.equal(result.headers["Cache-Control"], "no-store");
+  assert.equal(result.headers["Cache-Control"], SITEMAP_COMPLETE_CACHE_HEADERS["Cache-Control"]);
+  assert.equal(
+    result.headers["Netlify-CDN-Cache-Control"],
+    SITEMAP_COMPLETE_CACHE_HEADERS["Netlify-CDN-Cache-Control"],
+  );
   assert.equal(result.headers["X-Public-Sitemap-Inventory"], "complete");
   const actorUrl = "https://fandom.justlikekatie.com/vibe-atlas/actors/liu-xueyi/";
   const editionUrl = "https://fandom.justlikekatie.com/vibe-atlas/editions/2026-09-03/liu-xueyi/";
@@ -170,7 +186,7 @@ test("dynamic sitemap includes only the qualified released-pack catalog", async 
   assert.doesNotMatch(result.body, /runId|query|prompt|account/);
 });
 
-test("released pack revocation disappears from a non-cacheable sitemap immediately", async () => {
+test("released pack revocation disappears from the next sitemap build, within the bounded CDN window", async () => {
   const canonical = "https://fandom.justlikekatie.com/vibe-atlas/packs/liu-xueyi/cold-jade-immortal-0/";
   const manifest = publicManifest();
   let released = true;
@@ -189,10 +205,17 @@ test("released pack revocation disappears from a non-cacheable sitemap immediate
     }),
   });
   const before = await handler(new Request("https://fandom.justlikekatie.com/sitemap.xml"), {});
-  assert.equal(before.headers["Cache-Control"], "no-store");
   assert.match(before.body, new RegExp(canonical.replaceAll("/", "\\/")));
   released = false;
   const after = await handler(new Request("https://fandom.justlikekatie.com/sitemap.xml"), {});
-  assert.equal(after.headers["Cache-Control"], "no-store");
   assert.doesNotMatch(after.body, /cold-jade-immortal-0/);
+  // The handler never caches in-process: every build reflects current state.
+  // The only delay is the CDN window, which must stay short and must never
+  // let browsers or other intermediaries hold their own copy.
+  for (const result of [before, after]) {
+    assert.equal(result.headers["Cache-Control"], "public, max-age=0, must-revalidate");
+    const cdn = result.headers["Netlify-CDN-Cache-Control"];
+    assert.ok(Number(cdn.match(/s-maxage=(\d+)/)[1]) <= 300);
+    assert.ok(Number(cdn.match(/stale-while-revalidate=(\d+)/)[1]) <= 3600);
+  }
 });
